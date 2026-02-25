@@ -34,3 +34,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# build output
+/dist
+
+# bun
+bun.lockb
+
+# prisma generated migrations (keep schema, ignore migrations in dev)
+# Remove this line when you're ready to commit migrations to production
+# prisma/migrations/

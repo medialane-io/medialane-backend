@@ -1,0 +1,79 @@
+import prisma from "../db/client.js";
+import { createLogger } from "../utils/logger.js";
+import { formatAmount } from "../utils/bigint.js";
+import { getTokenByAddress } from "../config/constants.js";
+
+const log = createLogger("orchestrator:stats");
+
+export async function handleStatsUpdate(payload: {
+  contractAddress: string;
+}): Promise<void> {
+  const { contractAddress } = payload;
+
+  // Count unique holders
+  const holderResult = await prisma.token.groupBy({
+    by: ["owner"],
+    where: { contractAddress },
+    _count: { owner: true },
+  });
+  const holderCount = holderResult.length;
+
+  // Count total supply
+  const totalSupply = await prisma.token.count({
+    where: { contractAddress },
+  });
+
+  // Calculate floor price from active orders
+  const activeOrders = await prisma.order.findMany({
+    where: {
+      nftContract: contractAddress,
+      status: "ACTIVE",
+      endTime: { gt: BigInt(Math.floor(Date.now() / 1000)) },
+    },
+    select: { priceRaw: true, considerationToken: true },
+    orderBy: { priceRaw: "asc" },
+  });
+
+  let floorPrice: string | null = null;
+  if (activeOrders.length > 0) {
+    const floor = activeOrders[0];
+    if (floor.priceRaw) {
+      const token = floor.considerationToken
+        ? getTokenByAddress(floor.considerationToken)
+        : null;
+      floorPrice = token
+        ? `${formatAmount(floor.priceRaw, token.decimals)} ${token.symbol}`
+        : floor.priceRaw;
+    }
+  }
+
+  // Calculate total volume from fulfilled orders
+  const fulfilledOrders = await prisma.order.findMany({
+    where: { nftContract: contractAddress, status: "FULFILLED" },
+    select: { priceRaw: true, considerationToken: true },
+  });
+
+  let totalVolumeRaw = 0n;
+  for (const o of fulfilledOrders) {
+    if (o.priceRaw) {
+      try {
+        totalVolumeRaw += BigInt(o.priceRaw);
+      } catch {}
+    }
+  }
+
+  await prisma.collection.update({
+    where: { contractAddress },
+    data: {
+      holderCount,
+      totalSupply,
+      floorPrice,
+      totalVolume: totalVolumeRaw.toString(),
+    },
+  });
+
+  log.debug(
+    { contractAddress, holderCount, totalSupply, floorPrice },
+    "Stats updated"
+  );
+}

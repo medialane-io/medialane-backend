@@ -1,0 +1,32 @@
+{
+  "name": "medialane-backend",
+  "version": "1.0.0",
+  "description": "Medialane off-chain service layer for Starknet",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:migrate": "bunx prisma migrate dev",
+    "db:generate": "bunx prisma generate",
+    "db:push": "bunx prisma db push",
+    "db:studio": "bunx prisma studio",
+    "backfill": "bun run scripts/backfill.ts",
+    "reset-cursor": "bun run scripts/resetCursor.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@hono/zod-validator": "^0.7.6",
+    "@prisma/client": "^5.22.0",
+    "hono": "^4.6.0",
+    "pinata": "^2.0.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "starknet": "^6.11.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prisma": "^5.22.0",
+    "typescript": "^5.6.0"
+  }
+}

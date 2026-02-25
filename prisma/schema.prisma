@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model IndexerCursor {
+  id                String   @id @default("singleton")
+  lastBlock         BigInt
+  continuationToken String?
+  updatedAt         DateTime @updatedAt
+}
+
+enum OrderStatus {
+  ACTIVE
+  FULFILLED
+  CANCELLED
+  EXPIRED
+}
+
+model Order {
+  id                       String      @id @default(cuid())
+  orderHash                String      @unique
+  offerer                  String
+  // Offer item fields
+  offerItemType            Int
+  offerToken               String
+  offerIdentifier          String
+  offerStartAmount         String
+  offerEndAmount           String
+  // Consideration item fields
+  considerationItemType    Int
+  considerationToken       String
+  considerationIdentifier  String
+  considerationStartAmount String
+  considerationEndAmount   String
+  considerationRecipient   String
+  // Time bounds
+  startTime                BigInt
+  endTime                  BigInt
+  // Status
+  status                   OrderStatus @default(ACTIVE)
+  fulfiller                String?
+  // On-chain provenance
+  createdBlockNumber       BigInt
+  createdTxHash            String
+  fulfilledTxHash          String?
+  cancelledTxHash          String?
+  // Denormalized (filled by orchestrator)
+  nftContract              String?
+  nftTokenId               String?
+  priceRaw                 String?
+  priceFormatted           String?
+  currencySymbol           String?
+  // Relations
+  token                    Token?      @relation(fields: [nftContract, nftTokenId], references: [contractAddress, tokenId])
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
+
+  @@index([offerer])
+  @@index([status])
+  @@index([nftContract, nftTokenId])
+}
+
+enum MetadataStatus {
+  PENDING
+  FETCHING
+  FETCHED
+  FAILED
+}
+
+model Token {
+  id              String         @id @default(cuid())
+  contractAddress String
+  tokenId         String
+  owner           String
+  tokenUri        String?
+  metadataStatus  MetadataStatus @default(PENDING)
+  name            String?
+  description     String?
+  image           String?
+  attributes      Json?
+  ipType          String?
+  licenseType     String?
+  commercialUse   Boolean?
+  author          String?
+  transfers       Transfer[]
+  activeOrders    Order[]
+  collection      Collection?    @relation(fields: [contractAddress], references: [contractAddress])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([contractAddress, tokenId])
+  @@index([owner])
+  @@index([contractAddress])
+}
+
+model Collection {
+  id              String   @id @default(cuid())
+  contractAddress String   @unique
+  name            String?
+  startBlock      BigInt
+  isKnown         Boolean  @default(false)
+  floorPrice      String?
+  totalVolume     String?
+  holderCount     Int      @default(0)
+  totalSupply     Int      @default(0)
+  tokens          Token[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Transfer {
+  id              String   @id @default(cuid())
+  contractAddress String
+  tokenId         String
+  fromAddress     String
+  toAddress       String
+  blockNumber     BigInt
+  txHash          String
+  logIndex        Int
+  token           Token    @relation(fields: [contractAddress, tokenId], references: [contractAddress, tokenId])
+  createdAt       DateTime @default(now())
+
+  @@unique([txHash, logIndex])
+  @@index([contractAddress, tokenId])
+  @@index([toAddress])
+  @@index([fromAddress])
+}
+
+enum JobType {
+  METADATA_FETCH
+  METADATA_PIN
+  STATS_UPDATE
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+model Job {
+  id           String    @id @default(cuid())
+  type         JobType
+  status       JobStatus @default(PENDING)
+  payload      Json
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(3)
+  error        String?
+  processAfter DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, processAfter])
+}
+
+enum IntentType {
+  CREATE_LISTING
+  MAKE_OFFER
+  FULFILL_ORDER
+  CANCEL_ORDER
+}
+
+enum IntentStatus {
+  PENDING
+  SIGNED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  EXPIRED
+}
+
+model TransactionIntent {
+  id        String       @id @default(cuid())
+  type      IntentType
+  status    IntentStatus @default(PENDING)
+  requester String
+  typedData Json
+  calls     Json
+  signature String[]
+  txHash    String?
+  orderHash String?
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([requester])
+  @@index([status])
+}
+
+model MetadataCache {
+  id          String   @id @default(cuid())
+  uri         String   @unique
+  resolvedUrl String?
+  content     Json?
+  fetchedAt   DateTime
+  ttlSeconds  Int      @default(86400)
+  createdAt   DateTime @default(now())
+}

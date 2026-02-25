@@ -1,0 +1,50 @@
+import { claimJob, completeJob, failJob } from "./queue.js";
+import { handleMetadataFetch } from "./metadata.js";
+import { handleStatsUpdate } from "./stats.js";
+import { sleep } from "../utils/retry.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("orchestrator");
+const POLL_INTERVAL_MS = 2000;
+
+export async function startOrchestrator(): Promise<void> {
+  log.info("Orchestrator starting...");
+
+  while (true) {
+    try {
+      await processNextJob();
+    } catch (err) {
+      log.error({ err }, "Orchestrator error");
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+}
+
+async function processNextJob(): Promise<void> {
+  const job = await claimJob();
+  if (!job) return;
+
+  log.debug({ jobId: job.id, type: job.type }, "Processing job");
+
+  try {
+    switch (job.type) {
+      case "METADATA_FETCH":
+        await handleMetadataFetch(job.payload as { contractAddress: string; tokenId: string });
+        break;
+      case "METADATA_PIN":
+        // TODO: Pinata pin by hash
+        log.warn({ jobId: job.id }, "METADATA_PIN not yet implemented");
+        break;
+      case "STATS_UPDATE":
+        await handleStatsUpdate(job.payload as { contractAddress: string });
+        break;
+      default:
+        log.warn({ type: job.type }, "Unknown job type");
+    }
+    await completeJob(job.id);
+    log.debug({ jobId: job.id, type: job.type }, "Job complete");
+  } catch (err: any) {
+    log.error({ err, jobId: job.id, type: job.type }, "Job failed");
+    await failJob(job.id, err.message ?? "Unknown error");
+  }
+}
