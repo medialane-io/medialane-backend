@@ -1,6 +1,6 @@
 {
   "name": "medialane-backend",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Medialane off-chain service layer for Starknet",
   "type": "module",
   "scripts": {
