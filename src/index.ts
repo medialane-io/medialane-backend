@@ -48,7 +48,7 @@ async function main() {
 }
 
 async function shutdown() {
-  log.info("Shutting down...");
+  log.info("Shutting down Medialane...");
   await prisma.$disconnect();
   process.exit(0);
 }

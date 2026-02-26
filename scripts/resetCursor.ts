@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Dev utility to reset the indexer cursor.
+ *  Dev utility to reset the indexer cursor.
  * Usage: bun run scripts/resetCursor.ts [--block <number>]
  */
 
