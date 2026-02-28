@@ -6,6 +6,7 @@ import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleTransfer } from "./handlers/transfer.js";
 import { enqueueJob } from "../orchestrator/queue.js";
+import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { sleep } from "../utils/retry.js";
@@ -90,6 +91,14 @@ async function tick(): Promise<void> {
 
   for (const contract of affectedContracts) {
     await enqueueJob("STATS_UPDATE", { contractAddress: contract });
+  }
+
+  // Fan out webhook deliveries for each parsed event (fire-and-forget errors)
+  for (const event of parsedEvents) {
+    const { eventType, payload } = buildWebhookPayload(event);
+    fanoutWebhooks(eventType, payload).catch((err) =>
+      log.warn({ err, eventType }, "Webhook fanout error")
+    );
   }
 
   log.info(

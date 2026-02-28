@@ -1,6 +1,7 @@
 import { claimJob, completeJob, failJob } from "./queue.js";
 import { handleMetadataFetch } from "./metadata.js";
 import { handleStatsUpdate } from "./stats.js";
+import { handleWebhookDeliver } from "./webhook.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -37,6 +38,9 @@ async function processNextJob(): Promise<void> {
         break;
       case "STATS_UPDATE":
         await handleStatsUpdate(job.payload as { contractAddress: string });
+        break;
+      case "WEBHOOK_DELIVER":
+        await handleWebhookDeliver(job.payload as { deliveryId: string });
         break;
       default:
         log.warn({ type: job.type }, "Unknown job type");

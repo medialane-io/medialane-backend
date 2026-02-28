@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { rateLimit } from "../middleware/rateLimit.js";
 import prisma from "../../db/client.js";
 import {
   buildCreateListingIntent,
@@ -13,13 +12,6 @@ import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:intents");
 const intents = new Hono();
-
-// 20 intent creations per minute per IP — each creation makes an RPC call
-const intentRateLimit = rateLimit({ limit: 20, windowMs: 60_000 });
-intents.use("/listing", intentRateLimit);
-intents.use("/offer", intentRateLimit);
-intents.use("/fulfill", intentRateLimit);
-intents.use("/cancel", intentRateLimit);
 
 const listingSchema = z.object({
   offerer: z.string(),

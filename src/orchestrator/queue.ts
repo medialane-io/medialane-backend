@@ -7,10 +7,15 @@ const log = createLogger("queue");
 export async function enqueueJob(
   type: JobType,
   payload: Record<string, unknown>,
-  processAfter?: Date
+  options?: { processAfter?: Date; maxAttempts?: number }
 ): Promise<string> {
   const job = await prisma.job.create({
-    data: { type, payload: payload as any, processAfter: processAfter ?? new Date() },
+    data: {
+      type,
+      payload: payload as any,
+      processAfter: options?.processAfter ?? new Date(),
+      ...(options?.maxAttempts !== undefined ? { maxAttempts: options.maxAttempts } : {}),
+    },
   });
   log.debug({ jobId: job.id, type }, "Job enqueued");
   return job.id;

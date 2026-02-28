@@ -1,51 +1,85 @@
 import type { MiddlewareHandler } from "hono";
+import type { TenantPlan } from "@prisma/client";
+import type { AppEnv } from "../../types/hono.js";
 
-interface Bucket {
-  tokens: number;
-  lastRefill: number;
+const RATE_LIMITS: Record<TenantPlan, number> = {
+  FREE: 60,
+  PREMIUM: 3000,
+};
+
+const WINDOW_MS = 60_000; // 1 minute
+
+// ---------------------------------------------------------------------------
+// Store interface — swap to RedisRateLimitStore for multi-instance production
+// ---------------------------------------------------------------------------
+export interface RateLimitStore {
+  increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number }>;
 }
 
-/**
- * In-process token bucket rate limiter keyed by IP.
- * Suitable for single-instance deployments. For multi-instance, replace
- * the store with a Redis-backed implementation.
- */
-export function rateLimit(opts: {
-  /** Max requests per window */
-  limit: number;
-  /** Window duration in ms */
-  windowMs: number;
-}): MiddlewareHandler {
-  const store = new Map<string, Bucket>();
+// ---------------------------------------------------------------------------
+// In-memory implementation
+// ---------------------------------------------------------------------------
+interface Entry {
+  count: number;
+  resetAt: number;
+}
 
-  return async (c, next) => {
-    const ip =
-      c.req.header("x-forwarded-for")?.split(",")[0].trim() ??
-      c.req.header("x-real-ip") ??
-      "unknown";
+export class InMemoryRateLimitStore implements RateLimitStore {
+  private readonly map = new Map<string, Entry>();
 
+  async increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number }> {
     const now = Date.now();
-    let bucket = store.get(ip);
+    let entry = this.map.get(key);
 
-    if (!bucket || now - bucket.lastRefill >= opts.windowMs) {
-      bucket = { tokens: opts.limit, lastRefill: now };
+    if (!entry || now >= entry.resetAt) {
+      entry = { count: 1, resetAt: now + windowMs };
+    } else {
+      entry.count += 1;
     }
 
-    if (bucket.tokens <= 0) {
-      return c.json(
-        { error: "Too many requests", retryAfter: opts.windowMs / 1000 },
-        429
-      );
-    }
+    this.map.set(key, entry);
 
-    bucket.tokens -= 1;
-    store.set(ip, bucket);
-
-    // Periodic cleanup to prevent unbounded memory growth
-    if (store.size > 10_000) {
-      for (const [key, b] of store) {
-        if (now - b.lastRefill >= opts.windowMs * 2) store.delete(key);
+    // Cleanup when store grows large
+    if (this.map.size > 50_000) {
+      for (const [k, e] of this.map) {
+        if (now >= e.resetAt) this.map.delete(k);
       }
+    }
+
+    return { count: entry.count, resetAt: entry.resetAt };
+  }
+}
+
+// Singleton default store
+const defaultStore = new InMemoryRateLimitStore();
+
+// ---------------------------------------------------------------------------
+// Middleware factory — keyed by API key ID (not IP)
+// ---------------------------------------------------------------------------
+export function apiKeyRateLimit(store: RateLimitStore = defaultStore): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const apiKey = c.get("apiKey");
+
+    // If auth hasn't run yet, skip rate limiting (shouldn't happen in normal wiring)
+    if (!apiKey) {
+      await next();
+      return;
+    }
+
+    const limit = RATE_LIMITS[apiKey.tenant.plan] ?? RATE_LIMITS.FREE;
+    const key = `ratelimit:${apiKey.id}`;
+
+    const { count, resetAt } = await store.increment(key, WINDOW_MS);
+    const remaining = Math.max(0, limit - count);
+    const resetSec = Math.ceil(resetAt / 1000);
+
+    c.header("X-RateLimit-Limit", String(limit));
+    c.header("X-RateLimit-Remaining", String(remaining));
+    c.header("X-RateLimit-Reset", String(resetSec));
+
+    if (count > limit) {
+      c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
+      return c.json({ error: "Too many requests" }, 429);
     }
 
     await next();

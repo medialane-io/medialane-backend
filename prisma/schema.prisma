@@ -135,6 +135,34 @@ enum JobType {
   METADATA_FETCH
   METADATA_PIN
   STATS_UPDATE
+  WEBHOOK_DELIVER
+}
+
+enum TenantPlan {
+  FREE
+  PREMIUM
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum WebhookEventType {
+  ORDER_CREATED
+  ORDER_FULFILLED
+  ORDER_CANCELLED
+  TRANSFER
+}
+
+enum WebhookEndpointStatus {
+  ACTIVE
+  DISABLED
 }
 
 enum JobStatus {
@@ -201,4 +229,100 @@ model MetadataCache {
   fetchedAt   DateTime
   ttlSeconds  Int      @default(86400)
   createdAt   DateTime @default(now())
+}
+
+model Tenant {
+  id        String        @id @default(cuid())
+  name      String
+  email     String        @unique
+  plan      TenantPlan    @default(FREE)
+  status    TenantStatus  @default(ACTIVE)
+  apiKeys   ApiKey[]
+  webhooks  WebhookEndpoint[]
+  usageLogs UsageLog[]
+  auditLogs AuditLog[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status])
+  @@index([plan])
+}
+
+model ApiKey {
+  id          String       @id @default(cuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  prefix      String
+  keyHash     String       @unique
+  label       String       @default("")
+  status      ApiKeyStatus @default(ACTIVE)
+  lastUsedAt  DateTime?
+  usageLogs   UsageLog[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model WebhookEndpoint {
+  id        String                @id @default(cuid())
+  tenantId  String
+  tenant    Tenant                @relation(fields: [tenantId], references: [id])
+  url       String
+  secret    String
+  events    WebhookEventType[]
+  status    WebhookEndpointStatus @default(ACTIVE)
+  deliveries WebhookDelivery[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model WebhookDelivery {
+  id           String           @id @default(cuid())
+  endpointId   String
+  endpoint     WebhookEndpoint  @relation(fields: [endpointId], references: [id])
+  jobId        String?
+  eventType    WebhookEventType
+  payload      Json
+  statusCode   Int?
+  responseBody String?
+  deliveredAt  DateTime?
+  createdAt    DateTime         @default(now())
+
+  @@index([endpointId])
+  @@index([eventType])
+}
+
+model UsageLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  apiKeyId   String
+  apiKey     ApiKey   @relation(fields: [apiKeyId], references: [id])
+  method     String
+  path       String
+  statusCode Int
+  latencyMs  Int
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([apiKeyId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  actorType String
+  actor     String
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([action])
 }
