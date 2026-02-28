@@ -1,5 +1,5 @@
 import { Contract } from "starknet";
-import { type Prisma } from "@prisma/client";
+import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "../../config/abis.js";
 import { MARKETPLACE_CONTRACT } from "../../config/constants.js";
 import { createProvider, normalizeAddress } from "../../utils/starknet.js";
@@ -12,7 +12,8 @@ const log = createLogger("handler:orderCreated");
 
 export async function handleOrderCreated(
   event: ParsedOrderCreated,
-  tx: Prisma.TransactionClient
+  tx: Prisma.TransactionClient,
+  chain: Chain
 ): Promise<void> {
   const provider = createProvider();
   const contract = new Contract(
@@ -45,8 +46,9 @@ export async function handleOrderCreated(
   const nftTokenId = nftContract ? details.offerIdentifier : null;
 
   await tx.order.upsert({
-    where: { orderHash: event.orderHash },
+    where: { chain_orderHash: { chain, orderHash: event.orderHash } },
     create: {
+      chain,
       orderHash: event.orderHash,
       offerer: details.offerer,
       offerItemType: details.offerItemType,
@@ -83,8 +85,9 @@ export async function handleOrderCreated(
 
   if (nftContract && nftTokenId) {
     await tx.token.upsert({
-      where: { contractAddress_tokenId: { contractAddress: nftContract, tokenId: nftTokenId } },
+      where: { chain_contractAddress_tokenId: { chain, contractAddress: nftContract, tokenId: nftTokenId } },
       create: {
+        chain,
         contractAddress: nftContract,
         tokenId: nftTokenId,
         owner: details.offerer,
@@ -94,8 +97,9 @@ export async function handleOrderCreated(
     });
 
     await tx.collection.upsert({
-      where: { contractAddress: nftContract },
+      where: { chain_contractAddress: { chain, contractAddress: nftContract } },
       create: {
+        chain,
         contractAddress: nftContract,
         startBlock: event.blockNumber,
         isKnown: false,
@@ -105,7 +109,7 @@ export async function handleOrderCreated(
   }
 
   log.debug(
-    { orderHash: event.orderHash, nftContract, nftTokenId },
+    { chain, orderHash: event.orderHash, nftContract, nftTokenId },
     "Order created"
   );
 }

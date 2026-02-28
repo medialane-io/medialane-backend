@@ -13,11 +13,12 @@ collections.get("/", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.collection.findMany({
+      where: { chain: "STARKNET" },
       orderBy: { totalSupply: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.collection.count(),
+    prisma.collection.count({ where: { chain: "STARKNET" } }),
   ]);
 
   return c.json({ data: data.map(serializeCollection), meta: { page, limit, total } });
@@ -27,7 +28,7 @@ collections.get("/", async (c) => {
 collections.get("/:contract", async (c) => {
   const { contract } = c.req.param();
   const col = await prisma.collection.findUnique({
-    where: { contractAddress: contract.toLowerCase() },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
   return c.json({ data: serializeCollection(col) });
@@ -41,12 +42,12 @@ collections.get("/:contract/tokens", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { contractAddress: contract.toLowerCase() },
+      where: { chain: "STARKNET", contractAddress: contract.toLowerCase() },
       orderBy: { tokenId: "asc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.token.count({ where: { contractAddress: contract.toLowerCase() } }),
+    prisma.token.count({ where: { chain: "STARKNET", contractAddress: contract.toLowerCase() } }),
   ]);
 
   return c.json({ data, meta: { page, limit, total } });
@@ -64,8 +65,9 @@ collections.post("/", authMiddleware, async (c) => {
     : BigInt(env.INDEXER_START_BLOCK);
 
   const col = await prisma.collection.upsert({
-    where: { contractAddress: body.contractAddress.toLowerCase() },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: body.contractAddress.toLowerCase() } },
     create: {
+      chain: "STARKNET",
       contractAddress: body.contractAddress.toLowerCase(),
       name: body.name ?? null,
       startBlock,
@@ -83,6 +85,7 @@ collections.post("/", authMiddleware, async (c) => {
 function serializeCollection(c: any) {
   return {
     id: c.id,
+    chain: c.chain,
     contractAddress: c.contractAddress,
     name: c.name,
     startBlock: c.startBlock.toString(),

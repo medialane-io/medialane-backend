@@ -22,7 +22,7 @@ health.get("/", async (c) => {
   // Indexer cursor
   try {
     const cursor = await prisma.indexerCursor.findUnique({
-      where: { id: "singleton" },
+      where: { chain: "STARKNET" },
     });
     if (cursor) {
       const provider = createProvider();

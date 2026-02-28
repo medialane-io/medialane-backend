@@ -15,15 +15,15 @@ tokens.get("/owned/:address", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { owner: address.toLowerCase() },
+      where: { chain: "STARKNET", owner: address.toLowerCase() },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.token.count({ where: { owner: address.toLowerCase() } }),
+    prisma.token.count({ where: { chain: "STARKNET", owner: address.toLowerCase() } }),
   ]);
 
-  return c.json({ data: data.map(serializeToken), meta: { page, limit, total } });
+  return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
 });
 
 // GET /v1/tokens/:contract/:tokenId
@@ -31,10 +31,10 @@ tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
   const waitParam = c.req.query("wait");
   const wait = waitParam === "true" || waitParam === "1";
+  const contractLower = contract.toLowerCase();
 
   let token = await prisma.token.findUnique({
-    where: { contractAddress_tokenId: { contractAddress: contract.toLowerCase(), tokenId } },
-    include: { activeOrders: { where: { status: "ACTIVE" }, take: 5 } },
+    where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
   });
 
   if (!token) {
@@ -51,7 +51,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
       ]);
       if (metadata) {
         await prisma.token.update({
-          where: { contractAddress_tokenId: { contractAddress: contract.toLowerCase(), tokenId } },
+          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
           data: {
             metadataStatus: "FETCHED",
             name: (metadata.name as string) ?? null,
@@ -61,20 +61,26 @@ tokens.get("/:contract/:tokenId", async (c) => {
           },
         });
         token = await prisma.token.findUnique({
-          where: { contractAddress_tokenId: { contractAddress: contract.toLowerCase(), tokenId } },
-          include: { activeOrders: { where: { status: "ACTIVE" }, take: 5 } },
+          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
         }) ?? token;
       }
     } else {
       // Enqueue async
       await enqueueJob("METADATA_FETCH", {
-        contractAddress: contract.toLowerCase(),
+        chain: "STARKNET",
+        contractAddress: contractLower,
         tokenId,
       });
     }
   }
 
-  return c.json({ data: serializeToken(token) });
+  // Load active orders separately (relation removed for multichain schema)
+  const activeOrders = await prisma.order.findMany({
+    where: { chain: "STARKNET", nftContract: contractLower, nftTokenId: tokenId, status: "ACTIVE" },
+    take: 5,
+  });
+
+  return c.json({ data: serializeToken(token, activeOrders) });
 });
 
 // GET /v1/tokens/:contract/:tokenId/history
@@ -82,16 +88,17 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
   const { contract, tokenId } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
+  const contractLower = contract.toLowerCase();
 
   const [transfers, orders] = await Promise.all([
     prisma.transfer.findMany({
-      where: { contractAddress: contract.toLowerCase(), tokenId },
+      where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
       orderBy: { blockNumber: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
     prisma.order.findMany({
-      where: { nftContract: contract.toLowerCase(), nftTokenId: tokenId },
+      where: { chain: "STARKNET", nftContract: contractLower, nftTokenId: tokenId },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
@@ -121,9 +128,10 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
 });
 
 
-function serializeToken(token: any) {
+function serializeToken(token: any, activeOrders: any[]) {
   return {
     id: token.id,
+    chain: token.chain,
     contractAddress: token.contractAddress,
     tokenId: token.tokenId,
     owner: token.owner,
@@ -139,7 +147,7 @@ function serializeToken(token: any) {
       commercialUse: token.commercialUse,
       author: token.author,
     },
-    activeOrders: token.activeOrders ?? [],
+    activeOrders,
     createdAt: token.createdAt,
     updatedAt: token.updatedAt,
   };

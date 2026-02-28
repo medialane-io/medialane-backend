@@ -15,6 +15,7 @@ activities.get("/", async (c) => {
   const [transfers, orders] = await Promise.all([
     !type || type === "transfer"
       ? prisma.transfer.findMany({
+          where: { chain: "STARKNET" },
           orderBy: { blockNumber: "desc" },
           skip,
           take: limit,
@@ -22,11 +23,14 @@ activities.get("/", async (c) => {
       : [],
     !type || ["sale", "listing", "offer"].includes(type)
       ? prisma.order.findMany({
-          where: type === "sale"
-            ? { status: "FULFILLED" }
-            : type === "listing"
-            ? { status: "ACTIVE" }
-            : {},
+          where: {
+            chain: "STARKNET",
+            ...(type === "sale"
+              ? { status: "FULFILLED" }
+              : type === "listing"
+              ? { status: "ACTIVE" }
+              : {}),
+          },
           orderBy: { updatedAt: "desc" },
           skip,
           take: limit,
@@ -78,13 +82,13 @@ activities.get("/:address", async (c) => {
 
   const [transfers, orders] = await Promise.all([
     prisma.transfer.findMany({
-      where: { OR: [{ fromAddress: addr }, { toAddress: addr }] },
+      where: { chain: "STARKNET", OR: [{ fromAddress: addr }, { toAddress: addr }] },
       orderBy: { blockNumber: "desc" },
       skip,
       take: limit,
     }),
     prisma.order.findMany({
-      where: { OR: [{ offerer: addr }, { fulfiller: addr }] },
+      where: { chain: "STARKNET", OR: [{ offerer: addr }, { fulfiller: addr }] },
       orderBy: { updatedAt: "desc" },
       skip,
       take: limit,

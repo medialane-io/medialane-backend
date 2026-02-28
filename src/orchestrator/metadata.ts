@@ -1,5 +1,6 @@
 import { Contract, shortString } from "starknet";
-import { createProvider, normalizeAddress } from "../utils/starknet.js";
+import { type Chain } from "@prisma/client";
+import { createProvider } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
@@ -25,14 +26,16 @@ const ERC721_METADATA_ABI = [
 ];
 
 export async function handleMetadataFetch(payload: {
+  chain: string;
   contractAddress: string;
   tokenId: string;
 }): Promise<void> {
   const { contractAddress, tokenId } = payload;
+  const chain = payload.chain as Chain;
 
   // Mark as fetching
   await prisma.token.updateMany({
-    where: { contractAddress, tokenId, metadataStatus: "PENDING" },
+    where: { chain, contractAddress, tokenId, metadataStatus: "PENDING" },
     data: { metadataStatus: "FETCHING" },
   });
 
@@ -40,9 +43,9 @@ export async function handleMetadataFetch(payload: {
     const tokenUri = await fetchTokenUri(contractAddress, tokenId);
 
     if (!tokenUri) {
-      log.warn({ contractAddress, tokenId }, "No tokenURI found");
+      log.warn({ chain, contractAddress, tokenId }, "No tokenURI found");
       await prisma.token.updateMany({
-        where: { contractAddress, tokenId },
+        where: { chain, contractAddress, tokenId },
         data: { metadataStatus: "FAILED" },
       });
       return;
@@ -52,7 +55,7 @@ export async function handleMetadataFetch(payload: {
     const metadata = await resolveMetadata(tokenUri);
 
     await prisma.token.updateMany({
-      where: { contractAddress, tokenId },
+      where: { chain, contractAddress, tokenId },
       data: {
         tokenUri,
         metadataStatus: metadata ? "FETCHED" : "FAILED",
@@ -73,11 +76,11 @@ export async function handleMetadataFetch(payload: {
       },
     });
 
-    log.debug({ contractAddress, tokenId, tokenUri }, "Metadata fetched");
+    log.debug({ chain, contractAddress, tokenId, tokenUri }, "Metadata fetched");
   } catch (err) {
-    log.error({ err, contractAddress, tokenId }, "Metadata fetch failed");
+    log.error({ err, chain, contractAddress, tokenId }, "Metadata fetch failed");
     await prisma.token.updateMany({
-      where: { contractAddress, tokenId },
+      where: { chain, contractAddress, tokenId },
       data: { metadataStatus: "FAILED" },
     });
     throw err;

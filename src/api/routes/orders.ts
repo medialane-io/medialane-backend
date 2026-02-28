@@ -25,7 +25,7 @@ orders.get("/", async (c) => {
   const { status, collection, currency, sort, page, limit, offerer } =
     query.data;
 
-  const where: any = {};
+  const where: any = { chain: "STARKNET" };
   if (status) where.status = status as OrderStatus;
   if (collection) where.nftContract = collection.toLowerCase();
   if (currency) where.considerationToken = currency.toLowerCase();
@@ -57,7 +57,9 @@ orders.get("/", async (c) => {
 // GET /v1/orders/:orderHash
 orders.get("/:orderHash", async (c) => {
   const { orderHash } = c.req.param();
-  const order = await prisma.order.findUnique({ where: { orderHash } });
+  const order = await prisma.order.findUnique({
+    where: { chain_orderHash: { chain: "STARKNET", orderHash } },
+  });
   if (!order) return c.json({ error: "Order not found" }, 404);
   return c.json({ data: serializeOrder(order) });
 });
@@ -67,6 +69,7 @@ orders.get("/token/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
   const data = await prisma.order.findMany({
     where: {
+      chain: "STARKNET",
       nftContract: contract.toLowerCase(),
       nftTokenId: tokenId,
       status: "ACTIVE",
@@ -84,12 +87,12 @@ orders.get("/user/:address", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
-      where: { offerer: address.toLowerCase() },
+      where: { chain: "STARKNET", offerer: address.toLowerCase() },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where: { offerer: address.toLowerCase() } }),
+    prisma.order.count({ where: { chain: "STARKNET", offerer: address.toLowerCase() } }),
   ]);
 
   return c.json({ data: data.map(serializeOrder), meta: { page, limit, total } });
@@ -98,6 +101,7 @@ orders.get("/user/:address", async (c) => {
 function serializeOrder(o: any) {
   return {
     id: o.id,
+    chain: o.chain,
     orderHash: o.orderHash,
     offerer: o.offerer,
     offer: {

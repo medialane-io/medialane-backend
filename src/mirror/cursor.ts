@@ -1,25 +1,23 @@
-import { type Prisma } from "@prisma/client";
+import { type Chain, type Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("cursor");
 
-const CURSOR_ID = "singleton";
-
 export interface Cursor {
   lastBlock: bigint;
   continuationToken: string | null;
 }
 
-export async function loadCursor(): Promise<Cursor> {
+export async function loadCursor(chain: Chain): Promise<Cursor> {
   const row = await prisma.indexerCursor.findUnique({
-    where: { id: CURSOR_ID },
+    where: { chain },
   });
 
   if (!row) {
     const startBlock = BigInt(env.INDEXER_START_BLOCK);
-    log.info({ startBlock: startBlock.toString() }, "No cursor found, starting from START_BLOCK");
+    log.info({ chain, startBlock: startBlock.toString() }, "No cursor found, starting from START_BLOCK");
     return { lastBlock: startBlock, continuationToken: null };
   }
 
@@ -31,6 +29,7 @@ export async function loadCursor(): Promise<Cursor> {
 
 export async function saveCursor(
   cursor: Cursor,
+  chain: Chain,
   tx?: Prisma.TransactionClient
 ): Promise<void> {
   const client = tx ?? prisma;
@@ -39,18 +38,18 @@ export async function saveCursor(
     continuationToken: cursor.continuationToken,
   };
   await client.indexerCursor.upsert({
-    where: { id: CURSOR_ID },
-    create: { id: CURSOR_ID, ...data },
+    where: { chain },
+    create: { chain, ...data },
     update: data,
   });
 }
 
-export async function resetCursor(toBlock?: bigint): Promise<void> {
+export async function resetCursor(chain: Chain, toBlock?: bigint): Promise<void> {
   const block = toBlock ?? BigInt(env.INDEXER_START_BLOCK);
   await prisma.indexerCursor.upsert({
-    where: { id: CURSOR_ID },
-    create: { id: CURSOR_ID, lastBlock: block, continuationToken: null },
+    where: { chain },
+    create: { chain, lastBlock: block, continuationToken: null },
     update: { lastBlock: block, continuationToken: null },
   });
-  log.info({ block: block.toString() }, "Cursor reset");
+  log.info({ chain, block: block.toString() }, "Cursor reset");
 }

@@ -11,11 +11,11 @@ search.get("/", async (c) => {
   }
 
   const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
-  const pattern = `%${q}%`;
 
   const [tokens, collections] = await Promise.all([
     prisma.token.findMany({
       where: {
+        chain: "STARKNET",
         OR: [
           { name: { contains: q, mode: "insensitive" } },
           { description: { contains: q, mode: "insensitive" } },
@@ -35,6 +35,7 @@ search.get("/", async (c) => {
     }),
     prisma.collection.findMany({
       where: {
+        chain: "STARKNET",
         OR: [
           { name: { contains: q, mode: "insensitive" } },
           { contractAddress: { contains: q, mode: "insensitive" } },

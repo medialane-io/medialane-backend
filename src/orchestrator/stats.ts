@@ -1,3 +1,4 @@
+import { type Chain } from "@prisma/client";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { formatAmount } from "../utils/bigint.js";
@@ -6,26 +7,29 @@ import { getTokenByAddress } from "../config/constants.js";
 const log = createLogger("orchestrator:stats");
 
 export async function handleStatsUpdate(payload: {
+  chain: string;
   contractAddress: string;
 }): Promise<void> {
   const { contractAddress } = payload;
+  const chain = payload.chain as Chain;
 
   // Count unique holders
   const holderResult = await prisma.token.groupBy({
     by: ["owner"],
-    where: { contractAddress },
+    where: { chain, contractAddress },
     _count: { owner: true },
   });
   const holderCount = holderResult.length;
 
   // Count total supply
   const totalSupply = await prisma.token.count({
-    where: { contractAddress },
+    where: { chain, contractAddress },
   });
 
   // Calculate floor price from active orders
   const activeOrders = await prisma.order.findMany({
     where: {
+      chain,
       nftContract: contractAddress,
       status: "ACTIVE",
       endTime: { gt: BigInt(Math.floor(Date.now() / 1000)) },
@@ -49,7 +53,7 @@ export async function handleStatsUpdate(payload: {
 
   // Calculate total volume from fulfilled orders
   const fulfilledOrders = await prisma.order.findMany({
-    where: { nftContract: contractAddress, status: "FULFILLED" },
+    where: { chain, nftContract: contractAddress, status: "FULFILLED" },
     select: { priceRaw: true, considerationToken: true },
   });
 
@@ -63,7 +67,7 @@ export async function handleStatsUpdate(payload: {
   }
 
   await prisma.collection.update({
-    where: { contractAddress },
+    where: { chain_contractAddress: { chain, contractAddress } },
     data: {
       holderCount,
       totalSupply,
@@ -73,7 +77,7 @@ export async function handleStatsUpdate(payload: {
   });
 
   log.debug(
-    { contractAddress, holderCount, totalSupply, floorPrice },
+    { chain, contractAddress, holderCount, totalSupply, floorPrice },
     "Stats updated"
   );
 }

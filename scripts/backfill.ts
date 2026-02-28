@@ -17,6 +17,7 @@ import { env } from "../src/config/env.js";
 import { createLogger } from "../src/utils/logger.js";
 
 const log = createLogger("backfill");
+const CHAIN = "STARKNET" as const;
 
 const args = process.argv.slice(2);
 const fromArg = args.indexOf("--from");
@@ -49,33 +50,33 @@ async function backfill() {
           for (const event of parsedEvents) {
             switch (event.type) {
               case "OrderCreated":
-                await handleOrderCreated(event, tx as any);
+                await handleOrderCreated(event, tx as any, CHAIN);
                 break;
               case "OrderFulfilled":
-                await handleOrderFulfilled(event, tx as any);
+                await handleOrderFulfilled(event, tx as any, CHAIN);
                 break;
               case "OrderCancelled":
-                await handleOrderCancelled(event, tx as any);
+                await handleOrderCancelled(event, tx as any, CHAIN);
                 break;
               case "Transfer":
-                await handleTransfer(event, tx as any);
+                await handleTransfer(event, tx as any, CHAIN);
                 break;
             }
           }
-          await saveCursor({ lastBlock: BigInt(end), continuationToken: null });
+          await saveCursor({ lastBlock: BigInt(end), continuationToken: null }, CHAIN);
         },
         { timeout: 60000 }
       );
 
       // Enqueue metadata jobs for new tokens
       const pendingTokens = await prisma.token.findMany({
-        where: { metadataStatus: "PENDING", tokenUri: null },
+        where: { chain: CHAIN, metadataStatus: "PENDING", tokenUri: null },
         select: { contractAddress: true, tokenId: true },
         take: 100,
       });
 
       for (const t of pendingTokens) {
-        await enqueueJob("METADATA_FETCH", t);
+        await enqueueJob("METADATA_FETCH", { chain: CHAIN, ...t });
       }
 
       log.info({ start, end, events: parsedEvents.length }, "Batch complete");

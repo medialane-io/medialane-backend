@@ -222,7 +222,7 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 
   // Fetch order to know what currency to approve
   const order = await prisma.order.findUnique({
-    where: { orderHash: body.orderHash },
+    where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
   });
 
   const calls: any[] = [];

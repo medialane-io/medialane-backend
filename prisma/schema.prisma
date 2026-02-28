@@ -7,8 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Chain {
+  STARKNET
+  ETHEREUM
+  SOLANA
+  BITCOIN
+}
+
 model IndexerCursor {
-  id                String   @id @default("singleton")
+  chain             Chain    @id
   lastBlock         BigInt
   continuationToken String?
   updatedAt         DateTime @updatedAt
@@ -23,7 +30,8 @@ enum OrderStatus {
 
 model Order {
   id                       String      @id @default(cuid())
-  orderHash                String      @unique
+  chain                    Chain       @default(STARKNET)
+  orderHash                String
   offerer                  String
   // Offer item fields
   offerItemType            Int
@@ -55,14 +63,13 @@ model Order {
   priceRaw                 String?
   priceFormatted           String?
   currencySymbol           String?
-  // Relations
-  token                    Token?      @relation(fields: [nftContract, nftTokenId], references: [contractAddress, tokenId])
   createdAt                DateTime    @default(now())
   updatedAt                DateTime    @updatedAt
 
-  @@index([offerer])
-  @@index([status])
-  @@index([nftContract, nftTokenId])
+  @@unique([chain, orderHash])
+  @@index([chain, offerer])
+  @@index([chain, status])
+  @@index([chain, nftContract, nftTokenId])
 }
 
 enum MetadataStatus {
@@ -74,6 +81,7 @@ enum MetadataStatus {
 
 model Token {
   id              String         @id @default(cuid())
+  chain           Chain          @default(STARKNET)
   contractAddress String
   tokenId         String
   owner           String
@@ -88,19 +96,19 @@ model Token {
   commercialUse   Boolean?
   author          String?
   transfers       Transfer[]
-  activeOrders    Order[]
-  collection      Collection?    @relation(fields: [contractAddress], references: [contractAddress])
+  collection      Collection?    @relation(fields: [chain, contractAddress], references: [chain, contractAddress])
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  @@unique([contractAddress, tokenId])
-  @@index([owner])
-  @@index([contractAddress])
+  @@unique([chain, contractAddress, tokenId])
+  @@index([chain, owner])
+  @@index([chain, contractAddress])
 }
 
 model Collection {
   id              String   @id @default(cuid())
-  contractAddress String   @unique
+  chain           Chain    @default(STARKNET)
+  contractAddress String
   name            String?
   startBlock      BigInt
   isKnown         Boolean  @default(false)
@@ -111,10 +119,13 @@ model Collection {
   tokens          Token[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@unique([chain, contractAddress])
 }
 
 model Transfer {
   id              String   @id @default(cuid())
+  chain           Chain    @default(STARKNET)
   contractAddress String
   tokenId         String
   fromAddress     String
@@ -122,13 +133,13 @@ model Transfer {
   blockNumber     BigInt
   txHash          String
   logIndex        Int
-  token           Token    @relation(fields: [contractAddress, tokenId], references: [contractAddress, tokenId])
+  token           Token    @relation(fields: [chain, contractAddress, tokenId], references: [chain, contractAddress, tokenId])
   createdAt       DateTime @default(now())
 
-  @@unique([txHash, logIndex])
-  @@index([contractAddress, tokenId])
-  @@index([toAddress])
-  @@index([fromAddress])
+  @@unique([chain, txHash, logIndex])
+  @@index([chain, contractAddress, tokenId])
+  @@index([chain, toAddress])
+  @@index([chain, fromAddress])
 }
 
 enum JobType {
@@ -205,6 +216,7 @@ enum IntentStatus {
 
 model TransactionIntent {
   id        String       @id @default(cuid())
+  chain     Chain        @default(STARKNET)
   type      IntentType
   status    IntentStatus @default(PENDING)
   requester String
@@ -217,8 +229,8 @@ model TransactionIntent {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  @@index([requester])
-  @@index([status])
+  @@index([chain, requester])
+  @@index([chain, status])
 }
 
 model MetadataCache {

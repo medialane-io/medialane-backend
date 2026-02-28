@@ -13,9 +13,10 @@ import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("mirror");
+const CHAIN = "STARKNET" as const;
 
 export async function startMirror(): Promise<void> {
-  log.info("Mirror starting...");
+  log.info({ chain: CHAIN }, "Mirror starting...");
   while (true) {
     try {
       await tick();
@@ -27,7 +28,7 @@ export async function startMirror(): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  const cursor = await loadCursor();
+  const cursor = await loadCursor(CHAIN);
   const latestBlock = await getLatestBlock();
   const fromBlock = Number(cursor.lastBlock) + 1;
   const toBlock = Math.min(fromBlock + env.INDEXER_BLOCK_BATCH_SIZE - 1, latestBlock);
@@ -51,22 +52,22 @@ async function tick(): Promise<void> {
       for (const event of parsedEvents) {
         switch (event.type) {
           case "OrderCreated":
-            await handleOrderCreated(event, tx);
+            await handleOrderCreated(event, tx, CHAIN);
             break;
           case "OrderFulfilled":
-            await handleOrderFulfilled(event, tx);
+            await handleOrderFulfilled(event, tx, CHAIN);
             break;
           case "OrderCancelled":
-            await handleOrderCancelled(event, tx);
+            await handleOrderCancelled(event, tx, CHAIN);
             break;
           case "Transfer":
-            await handleTransfer(event, tx);
+            await handleTransfer(event, tx, CHAIN);
             affectedContracts.add(event.contractAddress);
             break;
         }
       }
       // Cursor advances atomically with the event writes
-      await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, tx);
+      await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
     },
     { timeout: 30000 }
   );
@@ -74,6 +75,7 @@ async function tick(): Promise<void> {
   // Enqueue background jobs outside the transaction
   const pendingTokens = await prisma.token.findMany({
     where: {
+      chain: CHAIN,
       contractAddress: { in: Array.from(affectedContracts) },
       metadataStatus: "PENDING",
       tokenUri: null,
@@ -84,13 +86,14 @@ async function tick(): Promise<void> {
 
   for (const token of pendingTokens) {
     await enqueueJob("METADATA_FETCH", {
+      chain: CHAIN,
       contractAddress: token.contractAddress,
       tokenId: token.tokenId,
     });
   }
 
   for (const contract of affectedContracts) {
-    await enqueueJob("STATS_UPDATE", { contractAddress: contract });
+    await enqueueJob("STATS_UPDATE", { chain: CHAIN, contractAddress: contract });
   }
 
   // Fan out webhook deliveries for each parsed event (fire-and-forget errors)

@@ -30,14 +30,14 @@ async function processNextJob(): Promise<void> {
   try {
     switch (job.type) {
       case "METADATA_FETCH":
-        await handleMetadataFetch(job.payload as { contractAddress: string; tokenId: string });
+        await handleMetadataFetch(job.payload as { chain: string; contractAddress: string; tokenId: string });
         break;
       case "METADATA_PIN":
         // TODO: Pinata pin by hash
         log.warn({ jobId: job.id }, "METADATA_PIN not yet implemented");
         break;
       case "STATS_UPDATE":
-        await handleStatsUpdate(job.payload as { contractAddress: string });
+        await handleStatsUpdate(job.payload as { chain: string; contractAddress: string });
         break;
       case "WEBHOOK_DELIVER":
         await handleWebhookDeliver(job.payload as { deliveryId: string });
