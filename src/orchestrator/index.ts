@@ -26,7 +26,9 @@ async function processNextJob(): Promise<void> {
   const job = await claimJob();
   if (!job) return;
 
-  log.debug({ jobId: job.id, type: job.type }, "Processing job");
+  // Bind jobId + type once; all log calls within this job carry the correlation fields
+  const jlog = log.child({ jobId: job.id, type: job.type });
+  jlog.debug("Processing job");
 
   try {
     switch (job.type) {
@@ -43,12 +45,12 @@ async function processNextJob(): Promise<void> {
         await handleWebhookDeliver(job.payload as { deliveryId: string });
         break;
       default:
-        log.warn({ type: job.type }, "Unknown job type");
+        jlog.warn("Unknown job type");
     }
     await completeJob(job.id);
-    log.debug({ jobId: job.id, type: job.type }, "Job complete");
+    jlog.debug("Job complete");
   } catch (err: any) {
-    log.error({ err, jobId: job.id, type: job.type }, "Job failed");
+    jlog.error({ err }, "Job failed");
     await failJob(job.id, err.message ?? "Unknown error");
   }
 }

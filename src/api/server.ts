@@ -1,8 +1,12 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyAuth } from "./middleware/apiKeyAuth.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("http");
 import { apiKeyRateLimit } from "./middleware/rateLimit.js";
 import { usageLogger } from "./middleware/usageLogger.js";
 import health from "./routes/health.js";
@@ -19,8 +23,9 @@ import admin from "./routes/admin.js";
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  // Global middleware
+  // Global middleware — requestId must run first so the logger can read it
   app.use("*", corsMiddleware);
+  app.use("*", requestIdMiddleware);
   app.use("*", loggerMiddleware);
 
   // Health stays unauthenticated (monitoring, uptime checks)
@@ -51,7 +56,7 @@ export function createApp(): Hono<AppEnv> {
 
   // Global error handler
   app.onError((err, c) => {
-    console.error("[app error]", err);
+    log.error({ err, requestId: c.get("requestId") }, "Unhandled request error");
     return c.json({ error: "Internal server error" }, 500);
   });
 

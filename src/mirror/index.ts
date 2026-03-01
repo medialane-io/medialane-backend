@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
 import { pollEvents, pollTransferEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
@@ -19,27 +20,31 @@ const CHAIN = "STARKNET" as const;
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
   while (true) {
+    // A short tickId lets you grep all log lines from one polling cycle
+    const tickId = randomUUID().slice(0, 8);
     try {
-      await tick();
+      await tick(tickId);
     } catch (err) {
-      log.error({ err }, "Mirror tick error");
+      log.error({ err, tickId }, "Mirror tick error");
     }
     await sleep(env.INDEXER_POLL_INTERVAL_MS);
   }
 }
 
-async function tick(): Promise<void> {
+async function tick(tickId: string): Promise<void> {
+  const tlog = log.child({ tickId });
+
   const cursor = await loadCursor(CHAIN);
   const latestBlock = await getLatestBlock();
   const fromBlock = Number(cursor.lastBlock) + 1;
   const toBlock = Math.min(fromBlock + env.INDEXER_BLOCK_BATCH_SIZE - 1, latestBlock);
 
   if (fromBlock > toBlock) {
-    log.debug({ fromBlock, toBlock, latestBlock }, "Caught up, nothing to index");
+    tlog.debug({ fromBlock, toBlock, latestBlock }, "Caught up, nothing to index");
     return;
   }
 
-  log.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
+  tlog.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
 
   // Poll marketplace order events AND collection Transfer events in parallel
   const [rawMarketplaceEvents, rawTransferEvents] = await Promise.all([
@@ -48,7 +53,7 @@ async function tick(): Promise<void> {
   ]);
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents];
-  log.debug(
+  tlog.debug(
     { marketplace: rawMarketplaceEvents.length, transfers: rawTransferEvents.length },
     "Fetched events"
   );
@@ -110,11 +115,11 @@ async function tick(): Promise<void> {
   for (const event of parsedEvents) {
     const { eventType, payload } = buildWebhookPayload(event);
     fanoutWebhooks(eventType, payload).catch((err) =>
-      log.warn({ err, eventType }, "Webhook fanout error")
+      tlog.warn({ err, eventType }, "Webhook fanout error")
     );
   }
 
-  log.info(
+  tlog.info(
     {
       fromBlock,
       toBlock,
