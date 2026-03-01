@@ -13,13 +13,14 @@ export async function handleStatsUpdate(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
-  // Count unique holders
-  const holderResult = await prisma.token.groupBy({
-    by: ["owner"],
-    where: { chain, contractAddress },
-    _count: { owner: true },
-  });
-  const holderCount = holderResult.length;
+  // Count unique holders — raw SQL avoids loading all token rows into JS
+  const [{ count: holderCountBig }] = await prisma.$queryRaw<[{ count: bigint }]>`
+    SELECT COUNT(DISTINCT owner)::bigint AS count
+    FROM "Token"
+    WHERE chain = ${chain}::"Chain"
+      AND "contractAddress" = ${contractAddress}
+  `;
+  const holderCount = Number(holderCountBig);
 
   // Count total supply
   const totalSupply = await prisma.token.count({

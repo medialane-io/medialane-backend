@@ -1,5 +1,6 @@
 import { claimJob, completeJob, failJob } from "./queue.js";
 import { handleMetadataFetch } from "./metadata.js";
+import { handleMetadataPin } from "./metadataPin.js";
 import { handleStatsUpdate } from "./stats.js";
 import { handleWebhookDeliver } from "./webhook.js";
 import { sleep } from "../utils/retry.js";
@@ -33,8 +34,7 @@ async function processNextJob(): Promise<void> {
         await handleMetadataFetch(job.payload as { chain: string; contractAddress: string; tokenId: string });
         break;
       case "METADATA_PIN":
-        // TODO: Pinata pin by hash
-        log.warn({ jobId: job.id }, "METADATA_PIN not yet implemented");
+        await handleMetadataPin(job.payload as { cid: string });
         break;
       case "STATS_UPDATE":
         await handleStatsUpdate(job.payload as { chain: string; contractAddress: string });

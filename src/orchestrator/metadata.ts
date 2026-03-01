@@ -3,6 +3,7 @@ import { type Chain } from "@prisma/client";
 import { createProvider } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
+import { enqueueJob } from "./queue.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:metadata");
@@ -75,6 +76,12 @@ export async function handleMetadataFetch(payload: {
         author: (metadata?.properties as any)?.author ?? (metadata as any)?.author ?? null,
       },
     });
+
+    // Enqueue persistent pin if the URI is on IPFS
+    const ipfsMatch = tokenUri.match(/^ipfs:\/\/([^/]+)/);
+    if (ipfsMatch) {
+      await enqueueJob("METADATA_PIN", { cid: ipfsMatch[1] });
+    }
 
     log.debug({ chain, contractAddress, tokenId, tokenUri }, "Metadata fetched");
   } catch (err) {

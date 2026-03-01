@@ -7,8 +7,9 @@ import {
   buildFulfillOrderIntent,
   buildCancelOrderIntent,
 } from "../../orchestrator/intent.js";
-import { createProvider, normalizeAddress } from "../../utils/starknet.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
+import { buildPopulatedCalls } from "../../orchestrator/submit.js";
 
 const log = createLogger("routes:intents");
 const intents = new Hono();
@@ -161,13 +162,13 @@ intents.get("/:id", async (c) => {
   const intent = await prisma.transactionIntent.findUnique({ where: { id } });
   if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-  // Check expiry
+  // Check expiry — updateMany with conditional to avoid race between concurrent requests
   if (intent.expiresAt < new Date() && intent.status === "PENDING") {
-    await prisma.transactionIntent.update({
-      where: { id },
+    const { count } = await prisma.transactionIntent.updateMany({
+      where: { id, status: "PENDING" },
       data: { status: "EXPIRED" },
     });
-    intent.status = "EXPIRED";
+    if (count > 0) intent.status = "EXPIRED";
   }
 
   return c.json({ data: intent });
@@ -188,14 +189,20 @@ intents.patch("/:id/signature", async (c) => {
     return c.json({ error: `Intent is ${intent.status}` }, 409);
   }
 
-  // Update with signature and mark as signed
+  // Populate calldata for the marketplace calls using the stored message + signature
+  const populatedCalls = buildPopulatedCalls(
+    intent.type,
+    (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
+    intent.calls as { contractAddress: string; entrypoint: string; calldata: string[] }[],
+    body.signature
+  );
+
   const updated = await prisma.transactionIntent.update({
     where: { id },
-    data: { signature: body.signature, status: "SIGNED" },
+    data: { signature: body.signature, status: "SIGNED", calls: populatedCalls as any },
   });
 
-  // TODO: submit transaction via RPC / ChipiPay API
-
+  log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
   return c.json({ data: updated });
 });
 

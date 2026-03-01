@@ -103,6 +103,7 @@ model Token {
   @@unique([chain, contractAddress, tokenId])
   @@index([chain, owner])
   @@index([chain, contractAddress])
+  @@index([chain, metadataStatus])
 }
 
 model Collection {

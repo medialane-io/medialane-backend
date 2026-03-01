@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
 import prisma from "../../db/client.js";
+import { generateApiKey } from "../../utils/apiKey.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:portal");
@@ -45,6 +46,58 @@ portal.get("/keys", async (c) => {
   });
 
   return c.json({ data: keys });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/portal/keys — create a new API key (max 5 keys per tenant)
+// ---------------------------------------------------------------------------
+const createKeySchema = z.object({ label: z.string().max(64).optional() });
+
+portal.post("/keys", async (c) => {
+  const tenant = c.get("tenant");
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = createKeySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  }
+
+  const keyCount = await prisma.apiKey.count({
+    where: { tenantId: tenant.id, status: "ACTIVE" },
+  });
+  if (keyCount >= 5) {
+    return c.json({ error: "Max 5 active API keys per tenant" }, 409);
+  }
+
+  const { plaintext, prefix, keyHash } = generateApiKey();
+  const key = await prisma.apiKey.create({
+    data: {
+      tenantId: tenant.id,
+      prefix,
+      keyHash,
+      label: parsed.data.label ?? undefined,
+    },
+  });
+
+  log.info({ keyId: key.id, tenantId: tenant.id }, "Self-service API key created");
+  return c.json({ data: { id: key.id, prefix, label: key.label, plaintext } }, 201);
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/portal/keys/:id — revoke a key (scoped to tenant)
+// ---------------------------------------------------------------------------
+portal.delete("/keys/:id", async (c) => {
+  const tenant = c.get("tenant");
+  const { id } = c.req.param();
+
+  const key = await prisma.apiKey.findFirst({
+    where: { id, tenantId: tenant.id },
+  });
+  if (!key) return c.json({ error: "API key not found" }, 404);
+  if (key.status === "REVOKED") return c.json({ error: "Key already revoked" }, 409);
+
+  await prisma.apiKey.update({ where: { id }, data: { status: "REVOKED" } });
+  log.info({ keyId: id, tenantId: tenant.id }, "API key revoked via portal");
+  return c.json({ data: { id, status: "REVOKED" } });
 });
 
 // ---------------------------------------------------------------------------
