@@ -34,13 +34,13 @@ model Order {
   orderHash                String
   offerer                  String
   // Offer item fields
-  offerItemType            Int
+  offerItemType            String
   offerToken               String
   offerIdentifier          String
   offerStartAmount         String
   offerEndAmount           String
   // Consideration item fields
-  considerationItemType    Int
+  considerationItemType    String
   considerationToken       String
   considerationIdentifier  String
   considerationStartAmount String

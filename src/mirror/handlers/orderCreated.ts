@@ -40,7 +40,7 @@ export async function handleOrderCreated(
   const currencySymbol = token?.symbol ?? null;
 
   const nftContract =
-    details.offerItemType === 2 || details.offerItemType === 3
+    details.offerItemType === "ERC721" || details.offerItemType === "ERC1155"
       ? details.offerToken
       : null;
   const nftTokenId = nftContract ? details.offerIdentifier : null;
@@ -84,6 +84,18 @@ export async function handleOrderCreated(
   });
 
   if (nftContract && nftTokenId) {
+    // Collection must be upserted before Token due to FK constraint
+    await tx.collection.upsert({
+      where: { chain_contractAddress: { chain, contractAddress: nftContract } },
+      create: {
+        chain,
+        contractAddress: nftContract,
+        startBlock: event.blockNumber,
+        isKnown: false,
+      },
+      update: {},
+    });
+
     await tx.token.upsert({
       where: { chain_contractAddress_tokenId: { chain, contractAddress: nftContract, tokenId: nftTokenId } },
       create: {
@@ -92,17 +104,6 @@ export async function handleOrderCreated(
         tokenId: nftTokenId,
         owner: details.offerer,
         metadataStatus: "PENDING",
-      },
-      update: {},
-    });
-
-    await tx.collection.upsert({
-      where: { chain_contractAddress: { chain, contractAddress: nftContract } },
-      create: {
-        chain,
-        contractAddress: nftContract,
-        startBlock: event.blockNumber,
-        isKnown: false,
       },
       update: {},
     });
@@ -115,28 +116,36 @@ export async function handleOrderCreated(
 }
 
 function parseOrderDetails(raw: any): OnChainOrderDetails {
-  const statusKey = Object.keys(raw.order_status)[0];
+  // starknet.js v6 CairoCustomEnum — use activeVariant() to get the live variant name
+  const statusVariant: string =
+    typeof raw.order_status?.activeVariant === "function"
+      ? raw.order_status.activeVariant()
+      : "";
   let status: "active" | "fulfilled" | "cancelled" = "active";
-  if (statusKey === "Filled") status = "fulfilled";
-  if (statusKey === "Cancelled") status = "cancelled";
+  if (statusVariant === "Filled") status = "fulfilled";
+  if (statusVariant === "Cancelled") status = "cancelled";
 
+  // starknet.js v6 CairoOption — .Some is undefined (not absent) for None variants
   const fulfillerOption = raw.fulfiller;
   let fulfiller: string | null = null;
-  if (fulfillerOption && typeof fulfillerOption === "object") {
-    const key = Object.keys(fulfillerOption)[0];
-    if (key === "Some") {
-      fulfiller = normalizeAddress(fulfillerOption.Some.toString());
-    }
+  const fulfillerSome: unknown =
+    typeof fulfillerOption?.isSome === "function"
+      ? fulfillerOption.isSome()
+        ? fulfillerOption.unwrap()
+        : undefined
+      : fulfillerOption?.Some;
+  if (fulfillerSome !== undefined && fulfillerSome !== null) {
+    fulfiller = normalizeAddress(String(fulfillerSome));
   }
 
   return {
     offerer: normalizeAddress(raw.offerer.toString()),
-    offerItemType: Number(raw.offer.item_type),
+    offerItemType: decodeShortstring(raw.offer.item_type),
     offerToken: normalizeAddress(raw.offer.token.toString()),
     offerIdentifier: raw.offer.identifier_or_criteria.toString(),
     offerStartAmount: raw.offer.start_amount.toString(),
     offerEndAmount: raw.offer.end_amount.toString(),
-    considerationItemType: Number(raw.consideration.item_type),
+    considerationItemType: decodeShortstring(raw.consideration.item_type),
     considerationToken: normalizeAddress(raw.consideration.token.toString()),
     considerationIdentifier: raw.consideration.identifier_or_criteria.toString(),
     considerationStartAmount: raw.consideration.start_amount.toString(),
@@ -147,4 +156,19 @@ function parseOrderDetails(raw: any): OnChainOrderDetails {
     status,
     fulfiller,
   };
+}
+
+/** Decode a Cairo felt252 short string into its ASCII representation. */
+function decodeShortstring(felt: unknown): string {
+  try {
+    let n = BigInt(String(felt));
+    const bytes: number[] = [];
+    while (n > 0n) {
+      bytes.unshift(Number(n & 0xffn));
+      n >>= 8n;
+    }
+    return Buffer.from(bytes).toString("ascii");
+  } catch {
+    return String(felt);
+  }
 }

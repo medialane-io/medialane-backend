@@ -1,4 +1,5 @@
-// Marketplace ABI (ported from medialane-dapp/src/abis/ip_market.ts)
+// Full ABI sourced from deployed contract on Starknet mainnet
+// Contract: 0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f
 export const IPMarketplaceABI = [
   {
     type: "impl",
@@ -68,10 +69,7 @@ export const IPMarketplaceABI = [
         name: "offerer",
         type: "core::starknet::contract_address::ContractAddress",
       },
-      {
-        name: "offer",
-        type: "mediolano_core::core::types::OfferItem",
-      },
+      { name: "offer", type: "mediolano_core::core::types::OfferItem" },
       {
         name: "consideration",
         type: "mediolano_core::core::types::ConsiderationItem",
@@ -90,10 +88,7 @@ export const IPMarketplaceABI = [
         name: "parameters",
         type: "mediolano_core::core::types::OrderParameters",
       },
-      {
-        name: "signature",
-        type: "core::array::Array::<core::felt252>",
-      },
+      { name: "signature", type: "core::array::Array::<core::felt252>" },
     ],
   },
   {
@@ -116,10 +111,7 @@ export const IPMarketplaceABI = [
         name: "fulfillment",
         type: "mediolano_core::core::types::OrderFulfillment",
       },
-      {
-        name: "signature",
-        type: "core::array::Array::<core::felt252>",
-      },
+      { name: "signature", type: "core::array::Array::<core::felt252>" },
     ],
   },
   {
@@ -142,10 +134,7 @@ export const IPMarketplaceABI = [
         name: "cancelation",
         type: "mediolano_core::core::types::OrderCancellation",
       },
-      {
-        name: "signature",
-        type: "core::array::Array::<core::felt252>",
-      },
+      { name: "signature", type: "core::array::Array::<core::felt252>" },
     ],
   },
   {
@@ -177,10 +166,7 @@ export const IPMarketplaceABI = [
         name: "offerer",
         type: "core::starknet::contract_address::ContractAddress",
       },
-      {
-        name: "offer",
-        type: "mediolano_core::core::types::OfferItem",
-      },
+      { name: "offer", type: "mediolano_core::core::types::OfferItem" },
       {
         name: "consideration",
         type: "mediolano_core::core::types::ConsiderationItem",
@@ -205,10 +191,7 @@ export const IPMarketplaceABI = [
         type: "function",
         name: "register_order",
         inputs: [
-          {
-            name: "order",
-            type: "mediolano_core::core::types::Order",
-          },
+          { name: "order", type: "mediolano_core::core::types::Order" },
         ],
         outputs: [],
         state_mutability: "external",
@@ -265,8 +248,7 @@ export const IPMarketplaceABI = [
   {
     type: "impl",
     name: "NoncesImpl",
-    interface_name:
-      "openzeppelin_utils::cryptography::interface::INonces",
+    interface_name: "openzeppelin_utils::cryptography::interface::INonces",
   },
   {
     type: "interface",
@@ -286,6 +268,118 @@ export const IPMarketplaceABI = [
       },
     ],
   },
+  {
+    type: "impl",
+    name: "SRC5Impl",
+    interface_name: "openzeppelin_introspection::interface::ISRC5",
+  },
+  {
+    type: "enum",
+    name: "core::bool",
+    variants: [
+      { name: "False", type: "()" },
+      { name: "True", type: "()" },
+    ],
+  },
+  {
+    type: "interface",
+    name: "openzeppelin_introspection::interface::ISRC5",
+    items: [
+      {
+        type: "function",
+        name: "supports_interface",
+        inputs: [{ name: "interface_id", type: "core::felt252" }],
+        outputs: [{ type: "core::bool" }],
+        state_mutability: "view",
+      },
+    ],
+  },
+  {
+    type: "impl",
+    name: "AccessControlImpl",
+    interface_name:
+      "openzeppelin_access::accesscontrol::interface::IAccessControl",
+  },
+  {
+    type: "interface",
+    name: "openzeppelin_access::accesscontrol::interface::IAccessControl",
+    items: [
+      {
+        type: "function",
+        name: "has_role",
+        inputs: [
+          { name: "role", type: "core::felt252" },
+          {
+            name: "account",
+            type: "core::starknet::contract_address::ContractAddress",
+          },
+        ],
+        outputs: [{ type: "core::bool" }],
+        state_mutability: "view",
+      },
+      {
+        type: "function",
+        name: "get_role_admin",
+        inputs: [{ name: "role", type: "core::felt252" }],
+        outputs: [{ type: "core::felt252" }],
+        state_mutability: "view",
+      },
+      {
+        type: "function",
+        name: "grant_role",
+        inputs: [
+          { name: "role", type: "core::felt252" },
+          {
+            name: "account",
+            type: "core::starknet::contract_address::ContractAddress",
+          },
+        ],
+        outputs: [],
+        state_mutability: "external",
+      },
+      {
+        type: "function",
+        name: "revoke_role",
+        inputs: [
+          { name: "role", type: "core::felt252" },
+          {
+            name: "account",
+            type: "core::starknet::contract_address::ContractAddress",
+          },
+        ],
+        outputs: [],
+        state_mutability: "external",
+      },
+      {
+        type: "function",
+        name: "renounce_role",
+        inputs: [
+          { name: "role", type: "core::felt252" },
+          {
+            name: "account",
+            type: "core::starknet::contract_address::ContractAddress",
+          },
+        ],
+        outputs: [],
+        state_mutability: "external",
+      },
+    ],
+  },
+  {
+    type: "constructor",
+    name: "constructor",
+    inputs: [
+      {
+        name: "manager",
+        type: "core::starknet::contract_address::ContractAddress",
+      },
+      {
+        name: "native_token_address",
+        type: "core::starknet::contract_address::ContractAddress",
+      },
+    ],
+  },
+  // ── Events ──────────────────────────────────────────────────────────────────
   {
     type: "event",
     name: "mediolano_core::core::events::OrderCreated",
@@ -330,4 +424,175 @@ export const IPMarketplaceABI = [
       },
     ],
   },
-];
+  {
+    type: "event",
+    name: "openzeppelin_utils::cryptography::nonces::NoncesComponent::Event",
+    kind: "enum",
+    variants: [],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Upgraded",
+    kind: "struct",
+    members: [
+      {
+        name: "class_hash",
+        type: "core::starknet::class_hash::ClassHash",
+        kind: "data",
+      },
+    ],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Event",
+    kind: "enum",
+    variants: [
+      {
+        name: "Upgraded",
+        type: "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Upgraded",
+        kind: "nested",
+      },
+    ],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_introspection::src5::SRC5Component::Event",
+    kind: "enum",
+    variants: [],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleGranted",
+    kind: "struct",
+    members: [
+      { name: "role", type: "core::felt252", kind: "data" },
+      {
+        name: "account",
+        type: "core::starknet::contract_address::ContractAddress",
+        kind: "data",
+      },
+      {
+        name: "sender",
+        type: "core::starknet::contract_address::ContractAddress",
+        kind: "data",
+      },
+    ],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleGrantedWithDelay",
+    kind: "struct",
+    members: [
+      { name: "role", type: "core::felt252", kind: "data" },
+      {
+        name: "account",
+        type: "core::starknet::contract_address::ContractAddress",
+        kind: "data",
+      },
+      {
+        name: "sender",
+        type: "core::starknet::contract_address::ContractAddress",
+        kind: "data",
+      },
+      { name: "delay", type: "core::integer::u64", kind: "data" },
+    ],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleRevoked",
+    kind: "struct",
+    members: [
+      { name: "role", type: "core::felt252", kind: "data" },
+      {
+        name: "account",
+        type: "core::starknet::contract_address::ContractAddress",
+        kind: "data",
+      },
+      {
+        name: "sender",
+        type: "core::starknet::contract_address::ContractAddress",
+        kind: "data",
+      },
+    ],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleAdminChanged",
+    kind: "struct",
+    members: [
+      { name: "role", type: "core::felt252", kind: "data" },
+      { name: "previous_admin_role", type: "core::felt252", kind: "data" },
+      { name: "new_admin_role", type: "core::felt252", kind: "data" },
+    ],
+  },
+  {
+    type: "event",
+    name: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::Event",
+    kind: "enum",
+    variants: [
+      {
+        name: "RoleGranted",
+        type: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleGranted",
+        kind: "nested",
+      },
+      {
+        name: "RoleGrantedWithDelay",
+        type: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleGrantedWithDelay",
+        kind: "nested",
+      },
+      {
+        name: "RoleRevoked",
+        type: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleRevoked",
+        kind: "nested",
+      },
+      {
+        name: "RoleAdminChanged",
+        type: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::RoleAdminChanged",
+        kind: "nested",
+      },
+    ],
+  },
+  // Top-level contract Event enum — required by starknet.js for ABI consistency validation
+  {
+    type: "event",
+    name: "mediolano_core::core::medialane::Medialane::Event",
+    kind: "enum",
+    variants: [
+      {
+        name: "OrderCreated",
+        type: "mediolano_core::core::events::OrderCreated",
+        kind: "nested",
+      },
+      {
+        name: "OrderFulfilled",
+        type: "mediolano_core::core::events::OrderFulfilled",
+        kind: "nested",
+      },
+      {
+        name: "OrderCancelled",
+        type: "mediolano_core::core::events::OrderCancelled",
+        kind: "nested",
+      },
+      {
+        name: "NoncesEvent",
+        type: "openzeppelin_utils::cryptography::nonces::NoncesComponent::Event",
+        kind: "flat",
+      },
+      {
+        name: "UpgradeableEvent",
+        type: "openzeppelin_upgrades::upgradeable::UpgradeableComponent::Event",
+        kind: "flat",
+      },
+      {
+        name: "SRC5Event",
+        type: "openzeppelin_introspection::src5::SRC5Component::Event",
+        kind: "flat",
+      },
+      {
+        name: "AccessControlEvent",
+        type: "openzeppelin_access::accesscontrol::accesscontrol::AccessControlComponent::Event",
+        kind: "flat",
+      },
+    ],
+  },
+] as const;

@@ -104,12 +104,12 @@ export type ParsedEvent =
 
 export interface OnChainOrderDetails {
   offerer: string;
-  offerItemType: number;
+  offerItemType: string;
   offerToken: string;
   offerIdentifier: string;
   offerStartAmount: string;
   offerEndAmount: string;
-  considerationItemType: number;
+  considerationItemType: string;
   considerationToken: string;
   considerationIdentifier: string;
   considerationStartAmount: string;

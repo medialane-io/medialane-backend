@@ -1,5 +1,5 @@
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollTransferEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
@@ -9,6 +9,7 @@ import { enqueueJob } from "../orchestrator/queue.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
+import { COLLECTION_CONTRACT } from "../config/constants.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -40,8 +41,17 @@ async function tick(): Promise<void> {
 
   log.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
 
-  const rawEvents = await pollEvents(fromBlock, toBlock);
-  log.debug({ count: rawEvents.length }, "Fetched marketplace events");
+  // Poll marketplace order events AND collection Transfer events in parallel
+  const [rawMarketplaceEvents, rawTransferEvents] = await Promise.all([
+    pollEvents(fromBlock, toBlock),
+    pollTransferEvents(COLLECTION_CONTRACT, fromBlock, toBlock),
+  ]);
+
+  const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents];
+  log.debug(
+    { marketplace: rawMarketplaceEvents.length, transfers: rawTransferEvents.length },
+    "Fetched events"
+  );
 
   const parsedEvents = parseEvents(rawEvents);
   const affectedContracts = new Set<string>();
@@ -105,7 +115,14 @@ async function tick(): Promise<void> {
   }
 
   log.info(
-    { fromBlock, toBlock, events: parsedEvents.length, metadataJobs: pendingTokens.length },
+    {
+      fromBlock,
+      toBlock,
+      orderEvents: rawMarketplaceEvents.length,
+      transferEvents: rawTransferEvents.length,
+      parsed: parsedEvents.length,
+      metadataJobs: pendingTokens.length,
+    },
     "Batch complete"
   );
 }

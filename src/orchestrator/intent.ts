@@ -1,46 +1,46 @@
-// SNIP-12 typed data builders — ported from medialane-dapp/src/lib/hash.ts
+// SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
 import { Contract } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import { IPMarketplaceABI } from "../config/abis.js";
-import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId } from "../config/constants.js";
+import { MARKETPLACE_CONTRACT, getChainId } from "../config/constants.js";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
   FulfillOrderIntentBody,
   CancelOrderIntentBody,
 } from "../types/api.js";
-import { ItemType } from "../types/marketplace.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("intent");
 
-// SNIP-12 type definitions
+// SNIP-12 type definitions — must exactly match the Cairo StructHash implementations
+// in contracts/Medialane-Protocol/src/core/utils.cairo (ORDER_PARAMETERS_TYPE_HASH, etc.)
 const SNIP12_TYPES = {
   StarknetDomain: [
     { name: "name", type: "shortstring" },
     { name: "version", type: "shortstring" },
-    { name: "chainId", type: "felt" },
+    { name: "chainId", type: "shortstring" },
     { name: "revision", type: "shortstring" },
   ],
   OfferItem: [
-    { name: "item_type", type: "felt" },
-    { name: "token", type: "felt" },
+    { name: "item_type", type: "shortstring" },    // encoded as 'ERC721', 'ERC20', etc.
+    { name: "token", type: "ContractAddress" },
     { name: "identifier_or_criteria", type: "felt" },
     { name: "start_amount", type: "felt" },
     { name: "end_amount", type: "felt" },
   ],
   ConsiderationItem: [
-    { name: "item_type", type: "felt" },
-    { name: "token", type: "felt" },
+    { name: "item_type", type: "shortstring" },
+    { name: "token", type: "ContractAddress" },
     { name: "identifier_or_criteria", type: "felt" },
     { name: "start_amount", type: "felt" },
     { name: "end_amount", type: "felt" },
-    { name: "recipient", type: "felt" },
+    { name: "recipient", type: "ContractAddress" },
   ],
   OrderParameters: [
-    { name: "offerer", type: "felt" },
+    { name: "offerer", type: "ContractAddress" },
     { name: "offer", type: "OfferItem" },
     { name: "consideration", type: "ConsiderationItem" },
     { name: "start_time", type: "felt" },
@@ -54,7 +54,7 @@ const FULFILLMENT_TYPES = {
   ...SNIP12_TYPES,
   OrderFulfillment: [
     { name: "order_hash", type: "felt" },
-    { name: "fulfiller", type: "felt" },
+    { name: "fulfiller", type: "ContractAddress" },
     { name: "nonce", type: "felt" },
   ],
 };
@@ -63,7 +63,7 @@ const CANCELLATION_TYPES = {
   ...SNIP12_TYPES,
   OrderCancellation: [
     { name: "order_hash", type: "felt" },
-    { name: "offerer", type: "felt" },
+    { name: "offerer", type: "ContractAddress" },
     { name: "nonce", type: "felt" },
   ],
 };
@@ -71,7 +71,6 @@ const CANCELLATION_TYPES = {
 const DOMAIN = { name: "Medialane", version: "1", revision: "1" };
 
 function toHex(value: string | number | bigint): string {
-  if (value === undefined || value === null) return "0x0";
   if (typeof value === "string") {
     if (value.startsWith("0x")) return value;
     try {
@@ -85,11 +84,7 @@ function toHex(value: string | number | bigint): string {
 
 async function fetchNonce(address: string): Promise<string> {
   const provider = createProvider();
-  const contract = new Contract(
-    IPMarketplaceABI as any,
-    MARKETPLACE_CONTRACT,
-    provider
-  );
+  const contract = new Contract(IPMarketplaceABI as any, MARKETPLACE_CONTRACT, provider);
   const nonce = await contract.nonces(normalizeAddress(address));
   return nonce.toString();
 }
@@ -106,19 +101,19 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
   const orderParams = {
     offerer: toHex(body.offerer),
     offer: {
-      item_type: toHex(ItemType.ERC721),
-      token: toHex(body.nftContract),
+      item_type: "ERC721",               // shortstring — matches ItemType::ERC721.into() in Cairo
+      token: toHex(body.nftContract),    // ContractAddress
       identifier_or_criteria: toHex(body.tokenId),
       start_amount: toHex("1"),
       end_amount: toHex("1"),
     },
     consideration: {
-      item_type: toHex(ItemType.ERC20),
-      token: toHex(body.currency),
+      item_type: "ERC20",               // shortstring — matches ItemType::ERC20.into() in Cairo
+      token: toHex(body.currency),      // ContractAddress
       identifier_or_criteria: toHex("0"),
       start_amount: toHex(body.price),
       end_amount: toHex(body.price),
-      recipient: toHex(body.offerer),
+      recipient: toHex(body.offerer),   // ContractAddress
     },
     start_time: toHex(Math.floor(Date.now() / 1000)),
     end_time: toHex(body.endTime),
@@ -129,22 +124,20 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
   const typedData: TypedData = {
     types: SNIP12_TYPES,
     primaryType: "OrderParameters",
-    domain: { ...DOMAIN, chainId: toHex(chainId) },
+    domain: { ...DOMAIN, chainId },
     message: orderParams,
   };
 
   const calls = [
-    // approve marketplace to transfer NFT
     {
       contractAddress: body.nftContract,
       entrypoint: "approve",
       calldata: [MARKETPLACE_CONTRACT, body.tokenId, "0"],
     },
-    // register_order call (will be built with signature after signing)
     {
       contractAddress: MARKETPLACE_CONTRACT,
       entrypoint: "register_order",
-      calldata: [], // populated after signature
+      calldata: [], // populated client-side after signature
     },
   ];
 
@@ -159,14 +152,14 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   const orderParams = {
     offerer: toHex(body.offerer),
     offer: {
-      item_type: toHex(ItemType.ERC20),
+      item_type: "ERC20",
       token: toHex(body.currency),
       identifier_or_criteria: toHex("0"),
       start_amount: toHex(body.price),
       end_amount: toHex(body.price),
     },
     consideration: {
-      item_type: toHex(ItemType.ERC721),
+      item_type: "ERC721",
       token: toHex(body.nftContract),
       identifier_or_criteria: toHex(body.tokenId),
       start_amount: toHex("1"),
@@ -182,12 +175,11 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   const typedData: TypedData = {
     types: SNIP12_TYPES,
     primaryType: "OrderParameters",
-    domain: { ...DOMAIN, chainId: toHex(chainId) },
+    domain: { ...DOMAIN, chainId },
     message: orderParams,
   };
 
   const calls = [
-    // approve marketplace to spend ERC20
     {
       contractAddress: body.currency,
       entrypoint: "approve",
@@ -216,16 +208,16 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   const typedData: TypedData = {
     types: FULFILLMENT_TYPES,
     primaryType: "OrderFulfillment",
-    domain: { ...DOMAIN, chainId: toHex(chainId) },
+    domain: { ...DOMAIN, chainId },
     message: fulfillment,
   };
 
-  // Fetch order to know what currency to approve
+  // Fetch order to know what ERC20 to approve
   const order = await prisma.order.findUnique({
     where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
   });
 
-  const calls: any[] = [];
+  const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
   if (order?.considerationToken && order?.considerationStartAmount) {
     calls.push({
@@ -257,7 +249,7 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   const typedData: TypedData = {
     types: CANCELLATION_TYPES,
     primaryType: "OrderCancellation",
-    domain: { ...DOMAIN, chainId: toHex(chainId) },
+    domain: { ...DOMAIN, chainId },
     message: cancelation,
   };
 
@@ -265,7 +257,7 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
     {
       contractAddress: MARKETPLACE_CONTRACT,
       entrypoint: "cancel_order",
-      calldata: [],
+      calldata: [] as string[],
     },
   ];
 

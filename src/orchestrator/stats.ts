@@ -33,13 +33,19 @@ export async function handleStatsUpdate(payload: {
       nftContract: contractAddress,
       status: "ACTIVE",
       endTime: { gt: BigInt(Math.floor(Date.now() / 1000)) },
+      priceRaw: { not: null },
     },
     select: { priceRaw: true, considerationToken: true },
-    orderBy: { priceRaw: "asc" },
   });
 
   let floorPrice: string | null = null;
   if (activeOrders.length > 0) {
+    // Sort numerically — priceRaw is stored as a decimal string
+    activeOrders.sort((a, b) => {
+      const aVal = BigInt(a.priceRaw ?? "0");
+      const bVal = BigInt(b.priceRaw ?? "0");
+      return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+    });
     const floor = activeOrders[0];
     if (floor.priceRaw) {
       const token = floor.considerationToken

@@ -5,7 +5,10 @@ let _provider: RpcProvider | null = null;
 
 export function createProvider(): RpcProvider {
   if (!_provider) {
-    _provider = new RpcProvider({ nodeUrl: env.ALCHEMY_RPC_URL });
+    _provider = new RpcProvider({
+      nodeUrl: env.ALCHEMY_RPC_URL,
+      blockIdentifier: "latest",
+    });
   }
   return _provider;
 }
