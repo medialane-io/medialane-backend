@@ -12,7 +12,7 @@ const envSchema = z.object({
     .string()
     .default("0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03"),
   INDEXER_START_BLOCK: z.coerce.number().default(6204232),
-  PINATA_JWT: z.string().min(1),
+  PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
   API_SECRET_KEY: z.string().min(16),
