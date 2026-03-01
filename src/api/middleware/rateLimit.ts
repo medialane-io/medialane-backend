@@ -1,13 +1,11 @@
 import type { MiddlewareHandler } from "hono";
 import type { TenantPlan } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
+import prisma from "../../db/client.js";
 
-const RATE_LIMITS: Record<TenantPlan, number> = {
-  FREE: 60,
-  PREMIUM: 3000,
-};
-
-const WINDOW_MS = 60_000; // 1 minute
+const FREE_MONTHLY_LIMIT = 50;
+const PREMIUM_PER_MINUTE_LIMIT = 3000;
+const WINDOW_MS = 60_000; // 1 minute (PREMIUM only)
 
 // ---------------------------------------------------------------------------
 // Store interface — swap to RedisRateLimitStore for multi-instance production
@@ -17,7 +15,7 @@ export interface RateLimitStore {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory implementation
+// In-memory implementation (used for PREMIUM per-minute limiting)
 // ---------------------------------------------------------------------------
 interface Entry {
   count: number;
@@ -50,7 +48,7 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-// Singleton default store
+// Singleton store for PREMIUM per-minute rate limiting
 const defaultStore = new InMemoryRateLimitStore();
 
 // ---------------------------------------------------------------------------
@@ -66,20 +64,53 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
       return;
     }
 
-    const limit = RATE_LIMITS[apiKey.tenant.plan] ?? RATE_LIMITS.FREE;
-    const key = `ratelimit:${apiKey.id}`;
+    const plan: TenantPlan = apiKey.tenant.plan;
 
-    const { count, resetAt } = await store.increment(key, WINDOW_MS);
-    const remaining = Math.max(0, limit - count);
-    const resetSec = Math.ceil(resetAt / 1000);
+    if (plan === "FREE") {
+      // Monthly quota via DB count — no in-memory state needed
+      const startOfMonth = new Date();
+      startOfMonth.setUTCDate(1);
+      startOfMonth.setUTCHours(0, 0, 0, 0);
 
-    c.header("X-RateLimit-Limit", String(limit));
-    c.header("X-RateLimit-Remaining", String(remaining));
-    c.header("X-RateLimit-Reset", String(resetSec));
+      const monthlyCount = await prisma.usageLog.count({
+        where: {
+          tenantId: apiKey.tenant.id,
+          createdAt: { gte: startOfMonth },
+          NOT: { path: { startsWith: "/v1/portal/" } },
+        },
+      });
 
-    if (count > limit) {
-      c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
-      return c.json({ error: "Too many requests" }, 429);
+      // Reset timestamp = start of next month
+      const nextMonth = new Date(startOfMonth);
+      nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+      const resetSec = Math.ceil(nextMonth.getTime() / 1000);
+
+      c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
+      c.header("X-RateLimit-Remaining", String(Math.max(0, FREE_MONTHLY_LIMIT - monthlyCount)));
+      c.header("X-RateLimit-Reset", String(resetSec));
+
+      if (monthlyCount >= FREE_MONTHLY_LIMIT) {
+        c.header("Retry-After", String(resetSec - Math.floor(Date.now() / 1000)));
+        return c.json(
+          { error: "Monthly request limit reached. Upgrade to PREMIUM for unlimited access." },
+          429
+        );
+      }
+    } else {
+      // PREMIUM — per-minute in-memory limiting
+      const key = `ratelimit:${apiKey.id}`;
+      const { count, resetAt } = await store.increment(key, WINDOW_MS);
+      const remaining = Math.max(0, PREMIUM_PER_MINUTE_LIMIT - count);
+      const resetSec = Math.ceil(resetAt / 1000);
+
+      c.header("X-RateLimit-Limit", String(PREMIUM_PER_MINUTE_LIMIT));
+      c.header("X-RateLimit-Remaining", String(remaining));
+      c.header("X-RateLimit-Reset", String(resetSec));
+
+      if (count > PREMIUM_PER_MINUTE_LIMIT) {
+        c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
+        return c.json({ error: "Too many requests" }, 429);
+      }
     }
 
     await next();

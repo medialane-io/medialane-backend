@@ -101,6 +101,21 @@ portal.delete("/keys/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /v1/portal/usage/recent — last 10 requests (raw log rows)
+// Must be registered before /usage to avoid path shadowing
+// ---------------------------------------------------------------------------
+portal.get("/usage/recent", async (c) => {
+  const tenant = c.get("tenant");
+  const rows = await prisma.usageLog.findMany({
+    where: { tenantId: tenant.id },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    select: { method: true, path: true, statusCode: true, latencyMs: true, createdAt: true },
+  });
+  return c.json({ data: rows });
+});
+
+// ---------------------------------------------------------------------------
 // GET /v1/portal/usage — last 30 days grouped by day
 // ---------------------------------------------------------------------------
 portal.get("/usage", async (c) => {
