@@ -1,6 +1,7 @@
 import { createHmac } from "crypto";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
+import { toErrorMessage } from "../utils/error.js";
 
 const log = createLogger("orchestrator:webhook");
 
@@ -72,12 +73,12 @@ export async function handleWebhookDeliver(payload: { deliveryId: string }): Pro
     }
 
     log.debug({ deliveryId, statusCode }, "Webhook delivered");
-  } catch (err: any) {
+  } catch (err: unknown) {
     await prisma.webhookDelivery.update({
       where: { id: deliveryId },
       data: {
         statusCode: statusCode ?? null,
-        responseBody: responseBody ?? err.message?.slice(0, MAX_RESPONSE_BODY) ?? null,
+        responseBody: responseBody ?? toErrorMessage(err).slice(0, MAX_RESPONSE_BODY),
       },
     }).catch((updateErr) =>
       log.warn({ updateErr, deliveryId }, "Failed to update delivery record after error")

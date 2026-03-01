@@ -9,6 +9,7 @@ import {
 } from "../../orchestrator/intent.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
+import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
 
 const log = createLogger("routes:intents");
@@ -61,9 +62,9 @@ intents.post("/listing", async (c) => {
     });
 
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to build listing intent");
-    return c.json({ error: err.message ?? "Failed to build intent" }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
@@ -90,9 +91,9 @@ intents.post("/offer", async (c) => {
     });
 
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to build offer intent");
-    return c.json({ error: err.message ?? "Failed to build intent" }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
@@ -120,9 +121,9 @@ intents.post("/fulfill", async (c) => {
     });
 
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to build fulfill intent");
-    return c.json({ error: err.message ?? "Failed to build intent" }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
@@ -150,9 +151,9 @@ intents.post("/cancel", async (c) => {
     });
 
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to build cancel intent");
-    return c.json({ error: err.message ?? "Failed to build intent" }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 

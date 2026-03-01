@@ -5,6 +5,7 @@ import { handleStatsUpdate } from "./stats.js";
 import { handleWebhookDeliver } from "./webhook.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
+import { toErrorMessage } from "../utils/error.js";
 
 const log = createLogger("orchestrator");
 const POLL_INTERVAL_MS = 2000;
@@ -49,8 +50,8 @@ async function processNextJob(): Promise<void> {
     }
     await completeJob(job.id);
     jlog.debug("Job complete");
-  } catch (err: any) {
+  } catch (err: unknown) {
     jlog.error({ err }, "Job failed");
-    await failJob(job.id, err.message ?? "Unknown error");
+    await failJob(job.id, toErrorMessage(err));
   }
 }

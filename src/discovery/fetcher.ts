@@ -1,4 +1,5 @@
 import { createLogger } from "../utils/logger.js";
+import { toErrorMessage } from "../utils/error.js";
 
 const log = createLogger("fetcher");
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -30,11 +31,11 @@ export async function fetchJson(
 
     const json = await res.json();
     return json as Record<string, unknown>;
-  } catch (err: any) {
-    if (err.name === "AbortError") {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
       log.warn({ url }, "Request timed out");
     } else {
-      log.warn({ url, err: err.message }, "Fetch error");
+      log.warn({ url, err: toErrorMessage(err) }, "Fetch error");
     }
     return null;
   } finally {

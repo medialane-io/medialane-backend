@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import { createProvider } from "../../utils/starknet.js";
+import { toErrorMessage } from "../../utils/error.js";
 
 const health = new Hono();
 
@@ -14,8 +15,8 @@ health.get("/", async (c) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     checks.database = "ok";
-  } catch (err: any) {
-    checks.database = `error: ${err.message}`;
+  } catch (err: unknown) {
+    checks.database = `error: ${toErrorMessage(err)}`;
     checks.status = "degraded";
   }
 
@@ -37,8 +38,8 @@ health.get("/", async (c) => {
     } else {
       checks.indexer = "not started";
     }
-  } catch (err: any) {
-    checks.indexer = `error: ${err.message}`;
+  } catch (err: unknown) {
+    checks.indexer = `error: ${toErrorMessage(err)}`;
   }
 
   const status = checks.status === "ok" ? 200 : 503;

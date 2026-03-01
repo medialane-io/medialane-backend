@@ -120,7 +120,7 @@ portal.get("/usage", async (c) => {
 
   return c.json({
     data: rows.map((r) => ({
-      day: r.day,
+      day: (r.day as Date).toISOString().slice(0, 10), // "YYYY-MM-DD" — avoids double-parse on client
       requests: Number(r.requests),
     })),
   });

@@ -3,6 +3,7 @@ import { PinataSDK } from "pinata";
 import { env } from "../../config/env.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
+import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:metadata");
 const metadata = new Hono();
@@ -18,9 +19,9 @@ metadata.get("/signed-url", async (c) => {
   try {
     const url = await pinata.upload.public.createSignedURL({ expires: 30 });
     return c.json({ data: { url } });
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to create signed URL");
-    const msg = err.message ?? "Error creating signed URL";
+    const msg = toErrorMessage(err);
     const status = msg.includes("403") || msg.includes("plan limits") ? 403 : 500;
     return c.json({ error: msg }, status);
   }
@@ -32,9 +33,9 @@ metadata.post("/upload", async (c) => {
     const body = await c.req.json();
     const result = await pinata.upload.public.json(body);
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to upload metadata");
-    return c.json({ error: err.message ?? "Upload failed" }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
@@ -48,9 +49,9 @@ metadata.post("/upload-file", async (c) => {
     }
     const result = await pinata.upload.public.file(file);
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
-  } catch (err: any) {
+  } catch (err: unknown) {
     log.error({ err }, "Failed to upload file");
-    return c.json({ error: err.message ?? "Upload failed" }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 

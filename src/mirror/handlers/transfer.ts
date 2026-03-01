@@ -36,8 +36,8 @@ export async function handleTransfer(
     await tx.transfer.create({
       data: { chain, contractAddress, tokenId, fromAddress: from, toAddress: to, blockNumber, txHash, logIndex },
     });
-  } catch (err: any) {
-    if (err.code !== "P2002") throw err; // ignore unique constraint — already processed
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code !== "P2002") throw err; // ignore unique constraint — already processed
   }
 
   log.debug({ chain, contractAddress, tokenId, from, to }, "Transfer processed");
