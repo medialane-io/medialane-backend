@@ -147,7 +147,8 @@ admin.patch("/tenants/:id", async (c) => {
 // ---------------------------------------------------------------------------
 admin.get("/usage", async (c) => {
   const tenantId = c.req.query("tenantId");
-  const days = Math.min(parseInt(c.req.query("days") ?? "30", 10), 90);
+  const daysParam = parseInt(c.req.query("days") ?? "30", 10);
+  const days = Math.min(Number.isFinite(daysParam) ? daysParam : 30, 90);
   const since = new Date(Date.now() - days * 24 * 3600 * 1000);
 
   const tenantFilter = tenantId

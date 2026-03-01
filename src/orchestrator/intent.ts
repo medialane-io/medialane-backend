@@ -90,7 +90,9 @@ async function fetchNonce(address: string): Promise<string> {
 }
 
 function generateSalt(): string {
-  return "0x" + Math.floor(Math.random() * 0xffffffffffff).toString(16);
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return "0x" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export async function buildCreateListingIntent(body: CreateListingIntentBody) {

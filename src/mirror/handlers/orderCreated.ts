@@ -7,6 +7,7 @@ import { getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
 import type { ParsedOrderCreated, OnChainOrderDetails } from "../../types/marketplace.js";
 import { createLogger } from "../../utils/logger.js";
+import { withRetry } from "../../utils/retry.js";
 
 const log = createLogger("handler:orderCreated");
 
@@ -24,12 +25,16 @@ export async function handleOrderCreated(
 
   let details: OnChainOrderDetails;
   try {
-    const raw = await contract.get_order_details(event.orderHash);
+    const raw = await withRetry(
+      () => contract.get_order_details(event.orderHash),
+      3,   // attempts
+      500  // base delay ms (500 → 1000 → 2000)
+    );
     details = parseOrderDetails(raw);
   } catch (err) {
     log.error(
       { err, orderHash: event.orderHash },
-      "Failed to fetch order details from RPC"
+      "Failed to fetch order details from RPC after retries — order will be missing"
     );
     return;
   }
