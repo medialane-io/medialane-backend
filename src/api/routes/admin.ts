@@ -172,7 +172,7 @@ admin.get("/usage", async (c) => {
   return c.json({
     data: rows.map((r) => ({
       tenantId: r.tenant_id,
-      day: r.day,
+      day: (r.day as Date).toISOString().slice(0, 10),
       requests: Number(r.requests),
     })),
   });

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
 
@@ -25,24 +26,49 @@ orders.get("/", async (c) => {
   const { status, collection, currency, sort, page, limit, offerer } =
     query.data;
 
+  const skip = (page - 1) * limit;
+
+  // Price sorts require numeric ordering — priceRaw is a text column, so we cast
+  // to numeric via raw SQL (length+lex trick works too, but ::numeric is cleaner).
+  if (sort === "price_asc" || sort === "price_desc") {
+    const dir = Prisma.raw(sort === "price_asc" ? "ASC" : "DESC");
+    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
+    if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
+    if (offerer) conditions.push(Prisma.sql`offerer = ${offerer.toLowerCase()}`);
+    const whereClause = Prisma.join(conditions, " AND ");
+
+    const [data, rawTotal] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT * FROM "Order"
+        WHERE ${whereClause}
+        ORDER BY "priceRaw"::numeric ${dir} NULLS LAST
+        LIMIT ${limit} OFFSET ${skip}
+      `,
+      prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
+      `,
+    ]);
+
+    return c.json({
+      data: data.map(serializeOrder),
+      meta: { page, limit, total: Number(rawTotal[0].count) },
+    });
+  }
+
+  // Default: recent sort via Prisma ORM
   const where: any = { chain: "STARKNET" };
   if (status) where.status = status as OrderStatus;
   if (collection) where.nftContract = collection.toLowerCase();
   if (currency) where.considerationToken = currency.toLowerCase();
   if (offerer) where.offerer = offerer.toLowerCase();
 
-  const orderBy: any =
-    sort === "price_asc"
-      ? { priceRaw: "asc" }
-      : sort === "price_desc"
-      ? { priceRaw: "desc" }
-      : { createdAt: "desc" };
-
   const [data, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      orderBy,
-      skip: (page - 1) * limit,
+      orderBy: { createdAt: "desc" },
+      skip,
       take: limit,
     }),
     prisma.order.count({ where }),

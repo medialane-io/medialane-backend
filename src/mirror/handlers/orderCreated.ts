@@ -15,7 +15,7 @@ export async function handleOrderCreated(
   event: ParsedOrderCreated,
   tx: Prisma.TransactionClient,
   chain: Chain
-): Promise<void> {
+): Promise<string | null> {
   const provider = createProvider();
   const contract = new Contract(
     IPMarketplaceABI as any,
@@ -36,7 +36,7 @@ export async function handleOrderCreated(
       { err, orderHash: event.orderHash },
       "Failed to fetch order details from RPC after retries — order will be missing"
     );
-    return;
+    return null;
   }
 
   const token = getTokenByAddress(details.considerationToken);
@@ -44,11 +44,20 @@ export async function handleOrderCreated(
   const priceFormatted = token ? formatAmount(priceRaw, token.decimals) : priceRaw;
   const currencySymbol = token?.symbol ?? null;
 
-  const nftContract =
-    details.offerItemType === "ERC721" || details.offerItemType === "ERC1155"
-      ? details.offerToken
-      : null;
-  const nftTokenId = nftContract ? details.offerIdentifier : null;
+  // Listing: offer side is ERC721/ERC1155 → NFT is the offer
+  // Bid: offer side is ERC20, consideration side is ERC721/ERC1155 → NFT is the consideration
+  const isListing = details.offerItemType === "ERC721" || details.offerItemType === "ERC1155";
+  const isBid = details.considerationItemType === "ERC721" || details.considerationItemType === "ERC1155";
+  const nftContract = isListing
+    ? details.offerToken
+    : isBid
+    ? details.considerationToken
+    : null;
+  const nftTokenId = isListing
+    ? details.offerIdentifier
+    : isBid
+    ? details.considerationIdentifier
+    : null;
 
   await tx.order.upsert({
     where: { chain_orderHash: { chain, orderHash: event.orderHash } },
@@ -118,6 +127,8 @@ export async function handleOrderCreated(
     { chain, orderHash: event.orderHash, nftContract, nftTokenId },
     "Order created"
   );
+
+  return nftContract;
 }
 
 function parseOrderDetails(raw: any): OnChainOrderDetails {

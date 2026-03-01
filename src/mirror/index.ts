@@ -59,21 +59,30 @@ async function tick(tickId: string): Promise<void> {
   );
 
   const parsedEvents = parseEvents(rawEvents);
+  // Contracts from Transfer events (for existing METADATA_FETCH/STATS_UPDATE logic)
   const affectedContracts = new Set<string>();
+  // NFT contracts extracted from Order events (listing + bid)
+  const orderNftContracts = new Set<string>();
+  // Order hashes from fulfilled/cancelled events (to look up their nftContract post-tx)
+  const fulfilledOrCancelledHashes: string[] = [];
 
   // All writes + cursor advance in one atomic transaction
   await prisma.$transaction(
     async (tx) => {
       for (const event of parsedEvents) {
         switch (event.type) {
-          case "OrderCreated":
-            await handleOrderCreated(event, tx, CHAIN);
+          case "OrderCreated": {
+            const nftContract = await handleOrderCreated(event, tx, CHAIN);
+            if (nftContract) orderNftContracts.add(nftContract);
             break;
+          }
           case "OrderFulfilled":
             await handleOrderFulfilled(event, tx, CHAIN);
+            fulfilledOrCancelledHashes.push(event.orderHash);
             break;
           case "OrderCancelled":
             await handleOrderCancelled(event, tx, CHAIN);
+            fulfilledOrCancelledHashes.push(event.orderHash);
             break;
           case "Transfer":
             await handleTransfer(event, tx, CHAIN);
@@ -87,11 +96,25 @@ async function tick(tickId: string): Promise<void> {
     { timeout: 30000 }
   );
 
+  // Also collect nftContracts for fulfilled/cancelled orders (already in DB)
+  if (fulfilledOrCancelledHashes.length > 0) {
+    const orderRows = await prisma.order.findMany({
+      where: { chain: CHAIN, orderHash: { in: fulfilledOrCancelledHashes } },
+      select: { nftContract: true },
+    });
+    for (const row of orderRows) {
+      if (row.nftContract) orderNftContracts.add(row.nftContract);
+    }
+  }
+
+  // Merge all affected contracts for job enqueueing
+  const allAffectedContracts = new Set([...affectedContracts, ...orderNftContracts]);
+
   // Enqueue background jobs outside the transaction
   const pendingTokens = await prisma.token.findMany({
     where: {
       chain: CHAIN,
-      contractAddress: { in: Array.from(affectedContracts) },
+      contractAddress: { in: Array.from(allAffectedContracts) },
       metadataStatus: "PENDING",
       tokenUri: null,
     },
@@ -107,7 +130,7 @@ async function tick(tickId: string): Promise<void> {
     });
   }
 
-  for (const contract of affectedContracts) {
+  for (const contract of allAffectedContracts) {
     await enqueueJob("STATS_UPDATE", { chain: CHAIN, contractAddress: contract });
   }
 
@@ -126,6 +149,7 @@ async function tick(tickId: string): Promise<void> {
       orderEvents: rawMarketplaceEvents.length,
       transferEvents: rawTransferEvents.length,
       parsed: parsedEvents.length,
+      orderNftContracts: orderNftContracts.size,
       metadataJobs: pendingTokens.length,
     },
     "Batch complete"
