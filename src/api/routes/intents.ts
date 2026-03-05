@@ -265,6 +265,9 @@ intents.patch("/:id/signature", async (c) => {
 
   const intent = await prisma.transactionIntent.findUnique({ where: { id } });
   if (!intent) return c.json({ error: "Intent not found" }, 404);
+  if (intent.type === "MINT" || intent.type === "CREATE_COLLECTION") {
+    return c.json({ error: "Intent type does not require a signature" }, 400);
+  }
   if (intent.status !== "PENDING") {
     return c.json({ error: `Intent is ${intent.status}` }, 409);
   }

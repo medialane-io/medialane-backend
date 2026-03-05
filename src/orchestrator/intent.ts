@@ -1,6 +1,6 @@
 // SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
-import { Contract, byteArray, num } from "starknet";
+import { Contract, byteArray, num, cairo } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import { IPMarketplaceABI } from "../config/abis.js";
 import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId } from "../config/constants.js";
@@ -95,6 +95,10 @@ function generateSalt(): string {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   return "0x" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function resolveCollectionContract(override?: string): string {
+  return override ? normalizeAddress(override) : COLLECTION_CONTRACT;
 }
 
 export async function buildCreateListingIntent(body: CreateListingIntentBody) {
@@ -273,8 +277,8 @@ function encodeByteArray(str: string): string[] {
   const ba = byteArray.byteArrayFromString(str);
   return [
     ba.data.length.toString(),
-    ...ba.data.map((d) => num.toHex(BigInt(d.toString()))),
-    num.toHex(BigInt(ba.pending_word.toString())),
+    ...ba.data.map((d) => num.toHex(d)),
+    num.toHex(ba.pending_word),
     ba.pending_word_len.toString(),
   ];
 }
@@ -286,22 +290,14 @@ function encodeByteArray(str: string): string[] {
  * is created with status SIGNED.
  */
 export function buildMintIntent(body: MintIntentBody) {
-  const contract = body.collectionContract
-    ? normalizeAddress(body.collectionContract)
-    : COLLECTION_CONTRACT;
-
-  // collection_id as u256 [low, high]
-  const id = BigInt(body.collectionId);
-  const idLow = (id & BigInt("0xffffffffffffffffffffffffffffffff")).toString();
-  const idHigh = (id >> BigInt(128)).toString();
-
+  const contract = resolveCollectionContract(body.collectionContract);
+  const id = cairo.uint256(body.collectionId);
   const calldata = [
-    idLow,
-    idHigh,
+    id.low.toString(),
+    id.high.toString(),
     normalizeAddress(body.recipient),
     ...encodeByteArray(body.tokenUri),
   ];
-
   return { calls: [{ contractAddress: contract, entrypoint: "mint", calldata }] };
 }
 
@@ -311,15 +307,11 @@ export function buildMintIntent(body: MintIntentBody) {
  * Calls are fully populated; the intent is created with status SIGNED.
  */
 export function buildCreateCollectionIntent(body: CreateCollectionIntentBody) {
-  const contract = body.collectionContract
-    ? normalizeAddress(body.collectionContract)
-    : COLLECTION_CONTRACT;
-
+  const contract = resolveCollectionContract(body.collectionContract);
   const calldata = [
     ...encodeByteArray(body.name),
     ...encodeByteArray(body.symbol),
     ...encodeByteArray(body.baseUri),
   ];
-
   return { calls: [{ contractAddress: contract, entrypoint: "create_collection", calldata }] };
 }
