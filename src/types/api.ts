@@ -55,8 +55,18 @@ export interface CancelOrderIntentBody {
 }
 
 export interface MintIntentBody {
+  collectionId: string;
   recipient: string;
   tokenUri: string;
+  /** Optional: override the default collection contract address */
+  collectionContract?: string;
+}
+
+export interface CreateCollectionIntentBody {
+  owner: string;
+  name: string;
+  symbol: string;
+  baseUri: string;
   /** Optional: override the default collection contract address */
   collectionContract?: string;
 }

@@ -10,6 +10,7 @@ import type {
   FulfillOrderIntentBody,
   CancelOrderIntentBody,
   MintIntentBody,
+  CreateCollectionIntentBody,
 } from "../types/api.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
@@ -267,33 +268,58 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   return { typedData, calls, cancelation };
 }
 
+/** Serialize a string as Cairo ByteArray calldata felts. */
+function encodeByteArray(str: string): string[] {
+  const ba = byteArray.byteArrayFromString(str);
+  return [
+    ba.data.length.toString(),
+    ...ba.data.map((d) => num.toHex(BigInt(d.toString()))),
+    num.toHex(BigInt(ba.pending_word.toString())),
+    ba.pending_word_len.toString(),
+  ];
+}
+
 /**
  * Build a MINT intent — no SNIP-12 signing required.
- * Encodes `mint(recipient, token_uri)` calldata against the collection contract.
- * Calls are fully populated; the intent is created with status SIGNED.
+ * Encodes `mint(collection_id, recipient, token_uri)` calldata against
+ * the collection registry contract. Calls are fully populated; the intent
+ * is created with status SIGNED.
  */
 export function buildMintIntent(body: MintIntentBody) {
   const contract = body.collectionContract
     ? normalizeAddress(body.collectionContract)
     : COLLECTION_CONTRACT;
 
-  // Encode token_uri as a Cairo ByteArray
-  const ba = byteArray.byteArrayFromString(body.tokenUri);
+  // collection_id as u256 [low, high]
+  const id = BigInt(body.collectionId);
+  const idLow = (id & BigInt("0xffffffffffffffffffffffffffffffff")).toString();
+  const idHigh = (id >> BigInt(128)).toString();
+
   const calldata = [
+    idLow,
+    idHigh,
     normalizeAddress(body.recipient),
-    ba.data.length.toString(),
-    ...ba.data.map((d) => num.toHex(BigInt(d.toString()))),
-    num.toHex(BigInt(ba.pending_word.toString())),
-    ba.pending_word_len.toString(),
+    ...encodeByteArray(body.tokenUri),
   ];
 
-  const calls = [
-    {
-      contractAddress: contract,
-      entrypoint: "mint",
-      calldata,
-    },
+  return { calls: [{ contractAddress: contract, entrypoint: "mint", calldata }] };
+}
+
+/**
+ * Build a CREATE_COLLECTION intent — no SNIP-12 signing required.
+ * Encodes `create_collection(name, symbol, base_uri)` calldata.
+ * Calls are fully populated; the intent is created with status SIGNED.
+ */
+export function buildCreateCollectionIntent(body: CreateCollectionIntentBody) {
+  const contract = body.collectionContract
+    ? normalizeAddress(body.collectionContract)
+    : COLLECTION_CONTRACT;
+
+  const calldata = [
+    ...encodeByteArray(body.name),
+    ...encodeByteArray(body.symbol),
+    ...encodeByteArray(body.baseUri),
   ];
 
-  return { calls };
+  return { calls: [{ contractAddress: contract, entrypoint: "create_collection", calldata }] };
 }

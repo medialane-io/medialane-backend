@@ -7,6 +7,7 @@ import {
   buildFulfillOrderIntent,
   buildCancelOrderIntent,
   buildMintIntent,
+  buildCreateCollectionIntent,
 } from "../../orchestrator/intent.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -39,8 +40,17 @@ const cancelSchema = z.object({
 });
 
 const mintSchema = z.object({
+  collectionId: z.string(),
   recipient: z.string(),
   tokenUri: z.string().min(1),
+  collectionContract: z.string().optional(),
+});
+
+const createCollectionSchema = z.object({
+  owner: z.string(),
+  name: z.string().min(1),
+  symbol: z.string().min(1),
+  baseUri: z.string().min(1),
   collectionContract: z.string().optional(),
 });
 
@@ -176,7 +186,7 @@ intents.post("/mint", async (c) => {
     const { calls } = buildMintIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
-    // Mint requires no SNIP-12 signature — calls are fully populated at creation.
+    // No SNIP-12 signature needed — calls are fully populated at creation.
     const intent = await prisma.transactionIntent.create({
       data: {
         type: "MINT",
@@ -191,6 +201,37 @@ intents.post("/mint", async (c) => {
     return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to build mint intent");
+    return c.json({ error: toErrorMessage(err) }, 500);
+  }
+});
+
+// POST /v1/intents/create-collection
+intents.post("/create-collection", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = createCollectionSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  }
+
+  try {
+    const { calls } = buildCreateCollectionIntent(parsed.data);
+    const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+
+    // No SNIP-12 signature needed — calls are fully populated at creation.
+    const intent = await prisma.transactionIntent.create({
+      data: {
+        type: "CREATE_COLLECTION",
+        requester: normalizeAddress(parsed.data.owner),
+        typedData: {},
+        calls: calls as any,
+        status: "SIGNED",
+        expiresAt,
+      },
+    });
+
+    return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
+  } catch (err: unknown) {
+    log.error({ err }, "Failed to build create-collection intent");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
