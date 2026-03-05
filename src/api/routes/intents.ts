@@ -40,6 +40,7 @@ const cancelSchema = z.object({
 });
 
 const mintSchema = z.object({
+  owner: z.string(),
   collectionId: z.string(),
   recipient: z.string(),
   tokenUri: z.string().min(1),
@@ -183,14 +184,14 @@ intents.post("/mint", async (c) => {
   }
 
   try {
-    const { calls } = buildMintIntent(parsed.data);
+    const { calls } = await buildMintIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
     // No SNIP-12 signature needed — calls are fully populated at creation.
     const intent = await prisma.transactionIntent.create({
       data: {
         type: "MINT",
-        requester: normalizeAddress(parsed.data.recipient),
+        requester: normalizeAddress(parsed.data.owner),
         typedData: {},
         calls: calls as any,
         status: "SIGNED",

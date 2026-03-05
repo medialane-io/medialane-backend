@@ -55,6 +55,8 @@ export interface CancelOrderIntentBody {
 }
 
 export interface MintIntentBody {
+  /** Collection owner wallet address — must be the collection owner to mint */
+  owner: string;
   collectionId: string;
   recipient: string;
   tokenUri: string;

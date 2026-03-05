@@ -289,9 +289,22 @@ function encodeByteArray(str: string): string[] {
  * the collection registry contract. Calls are fully populated; the intent
  * is created with status SIGNED.
  */
-export function buildMintIntent(body: MintIntentBody) {
+export async function buildMintIntent(body: MintIntentBody) {
   const contract = resolveCollectionContract(body.collectionContract);
   const id = cairo.uint256(body.collectionId);
+  const owner = normalizeAddress(body.owner);
+
+  // Validate that the owner address is actually the collection owner on-chain.
+  const provider = createProvider();
+  const ownershipResult = await provider.callContract({
+    contractAddress: contract,
+    entrypoint: "is_collection_owner",
+    calldata: [id.low.toString(), id.high.toString(), owner],
+  });
+  if (ownershipResult[0] === "0x0") {
+    throw new Error(`Address ${body.owner} is not the owner of collection ${body.collectionId}`);
+  }
+
   const calldata = [
     id.low.toString(),
     id.high.toString(),
