@@ -6,6 +6,7 @@ import {
   buildMakeOfferIntent,
   buildFulfillOrderIntent,
   buildCancelOrderIntent,
+  buildMintIntent,
 } from "../../orchestrator/intent.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -35,6 +36,12 @@ const fulfillSchema = z.object({
 const cancelSchema = z.object({
   offerer: z.string(),
   orderHash: z.string(),
+});
+
+const mintSchema = z.object({
+  recipient: z.string(),
+  tokenUri: z.string().min(1),
+  collectionContract: z.string().optional(),
 });
 
 const TTL_HOURS = 24;
@@ -153,6 +160,37 @@ intents.post("/cancel", async (c) => {
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to build cancel intent");
+    return c.json({ error: toErrorMessage(err) }, 500);
+  }
+});
+
+// POST /v1/intents/mint
+intents.post("/mint", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = mintSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  }
+
+  try {
+    const { calls } = buildMintIntent(parsed.data);
+    const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+
+    // Mint requires no SNIP-12 signature — calls are fully populated at creation.
+    const intent = await prisma.transactionIntent.create({
+      data: {
+        type: "MINT",
+        requester: normalizeAddress(parsed.data.recipient),
+        typedData: {},
+        calls: calls as any,
+        status: "SIGNED",
+        expiresAt,
+      },
+    });
+
+    return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
+  } catch (err: unknown) {
+    log.error({ err }, "Failed to build mint intent");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
 });

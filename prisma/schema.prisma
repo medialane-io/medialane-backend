@@ -204,6 +204,7 @@ enum IntentType {
   MAKE_OFFER
   FULFILL_ORDER
   CANCEL_ORDER
+  MINT
 }
 
 enum IntentStatus {

@@ -1,14 +1,15 @@
 // SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
-import { Contract } from "starknet";
+import { Contract, byteArray, num } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import { IPMarketplaceABI } from "../config/abis.js";
-import { MARKETPLACE_CONTRACT, getChainId } from "../config/constants.js";
+import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId } from "../config/constants.js";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
   FulfillOrderIntentBody,
   CancelOrderIntentBody,
+  MintIntentBody,
 } from "../types/api.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
@@ -264,4 +265,35 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   ];
 
   return { typedData, calls, cancelation };
+}
+
+/**
+ * Build a MINT intent — no SNIP-12 signing required.
+ * Encodes `mint(recipient, token_uri)` calldata against the collection contract.
+ * Calls are fully populated; the intent is created with status SIGNED.
+ */
+export function buildMintIntent(body: MintIntentBody) {
+  const contract = body.collectionContract
+    ? normalizeAddress(body.collectionContract)
+    : COLLECTION_CONTRACT;
+
+  // Encode token_uri as a Cairo ByteArray
+  const ba = byteArray.byteArrayFromString(body.tokenUri);
+  const calldata = [
+    normalizeAddress(body.recipient),
+    ba.data.length.toString(),
+    ...ba.data.map((d) => num.toHex(BigInt(d.toString()))),
+    num.toHex(BigInt(ba.pending_word.toString())),
+    ba.pending_word_len.toString(),
+  ];
+
+  const calls = [
+    {
+      contractAddress: contract,
+      entrypoint: "mint",
+      calldata,
+    },
+  ];
+
+  return { calls };
 }

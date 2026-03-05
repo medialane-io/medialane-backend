@@ -54,6 +54,13 @@ export interface CancelOrderIntentBody {
   orderHash: string;
 }
 
+export interface MintIntentBody {
+  recipient: string;
+  tokenUri: string;
+  /** Optional: override the default collection contract address */
+  collectionContract?: string;
+}
+
 export interface SubmitSignatureBody {
   signature: string[];
 }
