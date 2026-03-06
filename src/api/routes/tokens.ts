@@ -33,8 +33,8 @@ tokens.get("/:contract/:tokenId", async (c) => {
   const wait = waitParam === "true" || waitParam === "1";
   const contractLower = contract.toLowerCase();
 
-  let token = await prisma.token.findUnique({
-    where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
+  let token = await prisma.token.findFirst({
+    where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
   });
 
   if (!token) {
@@ -61,8 +61,8 @@ tokens.get("/:contract/:tokenId", async (c) => {
               attributes: (metadata.attributes as any) ?? undefined,
             },
           });
-          token = await prisma.token.findUnique({
-            where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
+          token = await prisma.token.findFirst({
+            where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
           }) ?? token;
         }
       } catch (err) {
