@@ -45,32 +45,36 @@ tokens.get("/:contract/:tokenId", async (c) => {
   if (token.metadataStatus === "PENDING" || token.metadataStatus === "FAILED") {
     if (wait && token.tokenUri) {
       // Block up to 3s for resolution
-      const metadata = await Promise.race([
-        resolveMetadata(token.tokenUri).then((m) => m),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-      ]);
-      if (metadata) {
-        await prisma.token.update({
-          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
-          data: {
-            metadataStatus: "FETCHED",
-            name: (metadata.name as string) ?? null,
-            description: (metadata.description as string) ?? null,
-            image: (metadata.image as string) ?? null,
-            attributes: (metadata.attributes as any) ?? undefined,
-          },
-        });
-        token = await prisma.token.findUnique({
-          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
-        }) ?? token;
+      try {
+        const metadata = await Promise.race([
+          resolveMetadata(token.tokenUri).then((m) => m),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+        ]);
+        if (metadata) {
+          await prisma.token.update({
+            where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
+            data: {
+              metadataStatus: "FETCHED",
+              name: (metadata.name as string) ?? null,
+              description: (metadata.description as string) ?? null,
+              image: (metadata.image as string) ?? null,
+              attributes: (metadata.attributes as any) ?? undefined,
+            },
+          });
+          token = await prisma.token.findUnique({
+            where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
+          }) ?? token;
+        }
+      } catch (err) {
+        log.warn({ err, tokenUri: token.tokenUri }, "JIT metadata resolution failed");
       }
     } else {
-      // Enqueue async
-      await enqueueJob("METADATA_FETCH", {
+      // Enqueue async — non-blocking, ignore failures
+      enqueueJob("METADATA_FETCH", {
         chain: "STARKNET",
         contractAddress: contractLower,
         tokenId,
-      });
+      }).catch((err) => log.warn({ err }, "Failed to enqueue METADATA_FETCH"));
     }
   }
 
