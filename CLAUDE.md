@@ -120,8 +120,10 @@ Response headers on every `/v1/*` response:
 | POST | `/v1/intents/offer` | Rate limited 20/min per IP |
 | POST | `/v1/intents/fulfill` | Rate limited 20/min per IP |
 | POST | `/v1/intents/cancel` | Rate limited 20/min per IP |
+| POST | `/v1/intents/mint` | `{ owner, collectionId, recipient, tokenUri, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` must be the collection owner; validated on-chain via `is_collection_owner` before intent is created |
+| POST | `/v1/intents/create-collection` | `{ owner, name, symbol, baseUri, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` is stored as `requester` only — NOT in calldata. On-chain owner = wallet that executes the returned `calls`. |
 | GET | `/v1/intents/:id` | Auto-expires PENDING → EXPIRED on read |
-| PATCH | `/v1/intents/:id/signature` | `{ signature: string[] }` → status SIGNED, calls populated |
+| PATCH | `/v1/intents/:id/signature` | `{ signature: string[] }` → status SIGNED, calls populated. Returns 400 for MINT/CREATE_COLLECTION |
 | GET | `/v1/metadata/signed-url` | Pinata presigned URL (30s TTL) |
 | POST | `/v1/metadata/upload` | JSON body → Pinata → `{ cid, url: "ipfs://..." }` |
 | POST | `/v1/metadata/upload-file` | Multipart `file` field → Pinata → `{ cid, url }` |
@@ -179,6 +181,11 @@ Response headers on every `/v1/*` response:
 ### Intents
 - TTL: 24 hours. `PENDING → SIGNED` (on signature submit) or `PENDING → EXPIRED` (on GET read after TTL)
 - `PATCH /:id/signature` → `buildPopulatedCalls()` injects signature into stored calldata, returns updated intent
+- **MINT / CREATE_COLLECTION**: no SNIP-12 signing required — created directly as `SIGNED` with fully-populated calldata. `PATCH /:id/signature` returns 400 for these types.
+- **MINT**: requires `owner` field — validated on-chain via `is_collection_owner(collection_id, owner)` before intent created. `owner` wallet must execute the returned `calls` (contract checks `get_caller_address() == collection.owner`).
+- **CREATE_COLLECTION**: `owner` stored as `requester` only — caller of the tx becomes the on-chain owner (contract uses `get_caller_address()`).
+- Collection contract: `COLLECTION_CONTRACT` constant (`0x05e73b7...`) — can be overridden per-request via `collectionContract` field
+- `cairo.uint256(collectionId)` used for u256 encoding; `encodeByteArray()` used for Cairo ByteArray felts
 
 ### Metadata
 - `?wait=true` on GET /tokens → JIT resolution, blocks up to 3s via `Promise.race`
