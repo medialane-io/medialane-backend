@@ -33,8 +33,8 @@ tokens.get("/:contract/:tokenId", async (c) => {
   const wait = waitParam === "true" || waitParam === "1";
   const contractLower = contract.toLowerCase();
 
-  let token = await prisma.token.findFirst({
-    where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
+  let token = await prisma.token.findUnique({
+    where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
   });
 
   if (!token) {
@@ -45,36 +45,32 @@ tokens.get("/:contract/:tokenId", async (c) => {
   if (token.metadataStatus === "PENDING" || token.metadataStatus === "FAILED") {
     if (wait && token.tokenUri) {
       // Block up to 3s for resolution
-      try {
-        const metadata = await Promise.race([
-          resolveMetadata(token.tokenUri).then((m) => m),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-        ]);
-        if (metadata) {
-          await prisma.token.update({
-            where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
-            data: {
-              metadataStatus: "FETCHED",
-              name: (metadata.name as string) ?? null,
-              description: (metadata.description as string) ?? null,
-              image: (metadata.image as string) ?? null,
-              attributes: (metadata.attributes as any) ?? undefined,
-            },
-          });
-          token = await prisma.token.findFirst({
-            where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
-          }) ?? token;
-        }
-      } catch (err) {
-        log.warn({ err, tokenUri: token.tokenUri }, "JIT metadata resolution failed");
+      const metadata = await Promise.race([
+        resolveMetadata(token.tokenUri).then((m) => m),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
+      if (metadata) {
+        await prisma.token.update({
+          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
+          data: {
+            metadataStatus: "FETCHED",
+            name: (metadata.name as string) ?? null,
+            description: (metadata.description as string) ?? null,
+            image: (metadata.image as string) ?? null,
+            attributes: (metadata.attributes as any) ?? undefined,
+          },
+        });
+        token = await prisma.token.findUnique({
+          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contractLower, tokenId } },
+        }) ?? token;
       }
     } else {
-      // Enqueue async — non-blocking, ignore failures
-      enqueueJob("METADATA_FETCH", {
+      // Enqueue async
+      await enqueueJob("METADATA_FETCH", {
         chain: "STARKNET",
         contractAddress: contractLower,
         tokenId,
-      }).catch((err) => log.warn({ err }, "Failed to enqueue METADATA_FETCH"));
+      });
     }
   }
 
@@ -151,9 +147,52 @@ function serializeToken(token: any, activeOrders: any[]) {
       commercialUse: token.commercialUse,
       author: token.author,
     },
-    activeOrders,
+    activeOrders: activeOrders.map(serializeOrder),
     createdAt: token.createdAt,
     updatedAt: token.updatedAt,
+  };
+}
+
+function serializeOrder(o: any) {
+  return {
+    id: o.id,
+    chain: o.chain,
+    orderHash: o.orderHash,
+    offerer: o.offerer,
+    offer: {
+      itemType: o.offerItemType,
+      token: o.offerToken,
+      identifier: o.offerIdentifier,
+      startAmount: o.offerStartAmount,
+      endAmount: o.offerEndAmount,
+    },
+    consideration: {
+      itemType: o.considerationItemType,
+      token: o.considerationToken,
+      identifier: o.considerationIdentifier,
+      startAmount: o.considerationStartAmount,
+      endAmount: o.considerationEndAmount,
+      recipient: o.considerationRecipient,
+    },
+    startTime: o.startTime.toString(),
+    endTime: o.endTime.toString(),
+    status: o.status,
+    fulfiller: o.fulfiller,
+    nftContract: o.nftContract,
+    nftTokenId: o.nftTokenId,
+    price: {
+      raw: o.priceRaw,
+      formatted: o.priceFormatted,
+      currency: o.currencySymbol,
+    },
+    txHash: {
+      created: o.createdTxHash,
+      fulfilled: o.fulfilledTxHash,
+      cancelled: o.cancelledTxHash,
+    },
+    createdBlockNumber: o.createdBlockNumber.toString(),
+    createdAt: o.createdAt,
+    updatedAt: o.updatedAt,
   };
 }
 
