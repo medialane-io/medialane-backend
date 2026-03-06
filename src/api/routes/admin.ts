@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { authMiddleware } from "../middleware/auth.js";
 import prisma from "../../db/client.js";
 import { generateApiKey } from "../../utils/apiKey.js";
+import { handleMetadataFetch } from "../../orchestrator/metadata.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:admin");
@@ -251,6 +252,22 @@ admin.delete("/keys/:keyId", async (c) => {
   });
 
   return c.json({ data: { id: keyId, status: "REVOKED" } });
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/tokens/:contract/:tokenId/refresh — force sync metadata
+// ---------------------------------------------------------------------------
+admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
+  const { contract, tokenId } = c.req.param();
+  try {
+    await handleMetadataFetch({ chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId });
+    const token = await prisma.token.findUnique({
+      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId } },
+    });
+    return c.json({ data: { metadataStatus: token?.metadataStatus, tokenUri: token?.tokenUri, name: token?.name } });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
 });
 
 export default admin;
