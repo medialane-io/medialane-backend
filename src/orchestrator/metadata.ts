@@ -8,8 +8,26 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:metadata");
 
-// Minimal ERC721 metadata ABI
-const ERC721_METADATA_ABI = [
+// ERC721 metadata ABI — ByteArray variant (OZ v0.14+, most modern contracts)
+const ERC721_METADATA_ABI_BYTEARRAY = [
+  {
+    type: "function",
+    name: "token_uri",
+    inputs: [{ name: "token_id", type: "core::integer::u256" }],
+    outputs: [{ type: "core::byte_array::ByteArray" }],
+    state_mutability: "view",
+  },
+  {
+    type: "function",
+    name: "tokenURI",
+    inputs: [{ name: "token_id", type: "core::integer::u256" }],
+    outputs: [{ type: "core::byte_array::ByteArray" }],
+    state_mutability: "view",
+  },
+];
+
+// Legacy fallback ABI — Array<felt252> (older contracts)
+const ERC721_METADATA_ABI_FELT_ARRAY = [
   {
     type: "function",
     name: "token_uri",
@@ -99,28 +117,26 @@ async function fetchTokenUri(
   tokenId: string
 ): Promise<string | null> {
   const provider = createProvider();
-  const contract = new Contract(
-    ERC721_METADATA_ABI as any,
-    contractAddress,
-    provider
-  );
 
   // Convert tokenId to u256 (low, high)
   const tokenIdBig = BigInt(tokenId);
   const low = tokenIdBig & ((1n << 128n) - 1n);
   const high = tokenIdBig >> 128n;
-
   const u256 = { low: low.toString(), high: high.toString() };
 
-  // Try token_uri first, then tokenURI
-  for (const fn of ["token_uri", "tokenURI"]) {
-    try {
-      const result = await (contract as any)[fn](u256);
-      if (result) {
-        return decodeTokenUri(result);
+  // Try ByteArray ABI first (modern OZ contracts), then felt252 array fallback
+  for (const abi of [ERC721_METADATA_ABI_BYTEARRAY, ERC721_METADATA_ABI_FELT_ARRAY]) {
+    const contract = new Contract(abi as any, contractAddress, provider);
+    for (const fn of ["token_uri", "tokenURI"]) {
+      try {
+        const result = await (contract as any)[fn](u256);
+        if (result != null) {
+          const uri = decodeTokenUri(result);
+          if (uri) return uri;
+        }
+      } catch {
+        // Try next variant
       }
-    } catch {
-      // Try next variant
     }
   }
 
