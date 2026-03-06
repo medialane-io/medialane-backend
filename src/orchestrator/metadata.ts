@@ -64,7 +64,7 @@ export async function handleMetadataFetch(payload: {
 
   // Mark as fetching
   await prisma.token.updateMany({
-    where: { chain, contractAddress, tokenId, metadataStatus: "PENDING" },
+    where: { chain, contractAddress, tokenId, metadataStatus: { in: ["PENDING", "FAILED"] } },
     data: { metadataStatus: "FETCHING" },
   });
 

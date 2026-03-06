@@ -148,6 +148,7 @@ Response headers on every `/v1/*` response:
 | POST | `/admin/tenants/:id/keys` | Create additional key for tenant |
 | DELETE | `/admin/keys/:keyId` | Revoke any key (soft delete) |
 | GET | `/admin/usage` | `?tenantId=` (optional), `?days=` (max 90, default 30) |
+| POST | `/admin/tokens/:contract/:tokenId/refresh` | Force-sync token metadata (bypasses queue). Returns `{ metadataStatus, tokenUri, name }` |
 
 ---
 
@@ -191,6 +192,17 @@ Response headers on every `/v1/*` response:
 - `?wait=true` on GET /tokens → JIT resolution, blocks up to 3s via `Promise.race`
 - Results (including failures) cached in `MetadataCache` to avoid repeat fetches
 - Pinata free plan: `pin_by_cid` not supported → METADATA_PIN jobs always fail
+
+### Cairo ByteArray token_uri decoding (CRITICAL — fixed 2026-03-06)
+Modern OZ ERC-721 contracts return `token_uri` as a Cairo `ByteArray` struct. starknet.js v6 requires the struct definition in the ABI **alongside** the function entry, or it returns only `data_len` as a bigint and drops `pending_word` bytes — truncating IPFS CIDs by ~4 chars and making them invalid.
+
+The ABI in `src/orchestrator/metadata.ts` (`ERC721_METADATA_ABI_BYTEARRAY`) includes the required struct. Do not remove it. Strategy: try ByteArray ABI first, fall back to `ERC721_METADATA_ABI_FELT_ARRAY` for legacy contracts.
+
+### BigInt serialization in Hono responses
+Prisma `Order` rows contain `startTime`, `endTime`, `createdBlockNumber` as BigInt. Raw Prisma objects cannot be passed to `c.json()`. Always use the `serializeOrder()` function in `src/api/routes/tokens.ts` (and the analogous one in `orders.ts`) when returning orders in responses.
+
+### Admin token refresh
+`POST /admin/tokens/:contract/:tokenId/refresh` — calls `handleMetadataFetch` directly, bypassing the job queue. Use to force-fix FAILED tokens on Railway without waiting for the orchestrator.
 
 ---
 
