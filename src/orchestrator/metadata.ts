@@ -9,7 +9,17 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("orchestrator:metadata");
 
 // ERC721 metadata ABI — ByteArray variant (OZ v0.14+, most modern contracts)
+// The struct definition is required so starknet.js decodes the ByteArray into a string.
 const ERC721_METADATA_ABI_BYTEARRAY = [
+  {
+    type: "struct",
+    name: "core::byte_array::ByteArray",
+    members: [
+      { name: "data", type: "core::array::Array::<core::felt252>" },
+      { name: "pending_word", type: "core::felt252" },
+      { name: "pending_word_len", type: "core::integer::u32" },
+    ],
+  },
   {
     type: "function",
     name: "token_uri",
