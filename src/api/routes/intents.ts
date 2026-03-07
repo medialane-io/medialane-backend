@@ -53,6 +53,7 @@ const createCollectionSchema = z.object({
   symbol: z.string().min(1),
   baseUri: z.string().default(""),
   description: z.string().optional(),
+  image: z.string().optional(),
   collectionContract: z.string().optional(),
 });
 
@@ -228,6 +229,7 @@ intents.post("/create-collection", async (c) => {
         typedData: {
           name: parsed.data.name,
           description: parsed.data.description ?? null,
+          image: parsed.data.image ?? null,
         },
         calls: calls as any,
         status: "SIGNED",

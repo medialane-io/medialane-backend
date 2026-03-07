@@ -101,9 +101,14 @@ export async function handleCollectionMetadataFetch(payload: {
   try {
     const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress);
 
-    // Look up description from the most recent matching CREATE_COLLECTION intent
+    // Look up description + image from the most recent matching CREATE_COLLECTION intent
     const resolvedName = existing?.name ?? name;
-    const description = await findIntentDescription(resolvedName);
+    const { description, image } = await findIntentMetadata(resolvedName);
+
+    const existingFull = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain, contractAddress } },
+      select: { image: true },
+    });
 
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
@@ -113,6 +118,7 @@ export async function handleCollectionMetadataFetch(payload: {
         symbol: existing?.symbol ?? (symbol || null),
         baseUri: baseUri || null,
         description: description ?? undefined,
+        image: existingFull?.image ?? image ?? undefined,
         metadataStatus: "FETCHED",
       },
     });
@@ -188,11 +194,12 @@ function decodeField(raw: unknown): string {
 
 /**
  * Search for the most recent CREATE_COLLECTION intent whose stored name matches
- * and extract the description if present. This recovers descriptions submitted
- * through the collection creation flow before the collection address was known.
+ * and extract description + image if present.
  */
-async function findIntentDescription(name: string): Promise<string | null> {
-  if (!name) return null;
+async function findIntentMetadata(
+  name: string
+): Promise<{ description: string | null; image: string | null }> {
+  if (!name) return { description: null, image: null };
   try {
     const intent = await prisma.transactionIntent.findFirst({
       where: {
@@ -203,11 +210,13 @@ async function findIntentDescription(name: string): Promise<string | null> {
       select: { typedData: true },
     });
 
-    if (!intent) return null;
+    if (!intent) return { description: null, image: null };
     const td = intent.typedData as Record<string, unknown>;
-    return typeof td.description === "string" && td.description ? td.description : null;
+    return {
+      description: typeof td.description === "string" && td.description ? td.description : null,
+      image: typeof td.image === "string" && td.image ? td.image : null,
+    };
   } catch {
-    // JSON path filtering may not be available in all environments — fail silently
-    return null;
+    return { description: null, image: null };
   }
 }
