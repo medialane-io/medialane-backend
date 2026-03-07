@@ -111,6 +111,9 @@ model Collection {
   chain           Chain    @default(STARKNET)
   contractAddress String
   name            String?
+  symbol          String?
+  description     String?
+  image           String?
   startBlock      BigInt
   isKnown         Boolean  @default(false)
   floorPrice      String?

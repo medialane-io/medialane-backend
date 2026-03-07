@@ -83,6 +83,31 @@ export async function handleStatsUpdate(payload: {
     },
   });
 
+  // Backfill collection image/description from first fetched token if not yet set
+  const existing = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { image: true, description: true, name: true },
+  });
+
+  if (!existing?.image || !existing?.description || !existing?.name) {
+    const firstToken = await prisma.token.findFirst({
+      where: { chain, contractAddress, metadataStatus: "FETCHED" },
+      orderBy: { tokenId: "asc" },
+      select: { image: true, description: true, name: true },
+    });
+
+    if (firstToken) {
+      await prisma.collection.update({
+        where: { chain_contractAddress: { chain, contractAddress } },
+        data: {
+          image: existing?.image ?? firstToken.image,
+          description: existing?.description ?? firstToken.description,
+          name: existing?.name ?? firstToken.name,
+        },
+      });
+    }
+  }
+
   log.debug(
     { chain, contractAddress, holderCount, totalSupply, floorPrice },
     "Stats updated"
