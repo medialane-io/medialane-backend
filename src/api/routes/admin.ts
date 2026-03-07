@@ -327,6 +327,7 @@ admin.post("/collections/backfill-metadata", async (c) => {
         { metadataStatus: "PENDING" },
         { metadataStatus: "FAILED" },
         { name: null },
+        { owner: null },
       ],
     },
     select: { chain: true, contractAddress: true, metadataStatus: true, name: true },

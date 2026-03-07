@@ -92,13 +92,13 @@ export async function handleCollectionMetadataFetch(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
-  // Guard: skip if already fetched (avoid redundant on-chain calls)
+  // Guard: skip only if already fetched AND owner is populated
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true },
   });
 
-  if (existing?.metadataStatus === "FETCHED") {
+  if (existing?.metadataStatus === "FETCHED" && existing?.owner !== null) {
     log.debug({ chain, contractAddress }, "Collection metadata already fetched, skipping");
     return;
   }
