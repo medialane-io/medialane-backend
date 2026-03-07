@@ -98,6 +98,7 @@ function serializeCollection(c: any) {
     description: c.description,
     image: c.image,
     startBlock: c.startBlock.toString(),
+    metadataStatus: c.metadataStatus,
     isKnown: c.isKnown,
     floorPrice: c.floorPrice,
     totalVolume: c.totalVolume,
