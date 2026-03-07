@@ -103,9 +103,10 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  await prisma.collection.update({
+  await prisma.collection.upsert({
     where: { chain_contractAddress: { chain, contractAddress } },
-    data: { metadataStatus: "FETCHING" },
+    create: { chain, contractAddress, metadataStatus: "FETCHING", startBlock: BigInt(0) },
+    update: { metadataStatus: "FETCHING" },
   });
 
   try {
@@ -149,9 +150,10 @@ export async function handleCollectionMetadataFetch(payload: {
     );
   } catch (err) {
     log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
-    await prisma.collection.update({
+    await prisma.collection.upsert({
       where: { chain_contractAddress: { chain, contractAddress } },
-      data: { metadataStatus: "FAILED" },
+      create: { chain, contractAddress, metadataStatus: "FAILED", startBlock: BigInt(0) },
+      update: { metadataStatus: "FAILED" },
     });
     throw err;
   }

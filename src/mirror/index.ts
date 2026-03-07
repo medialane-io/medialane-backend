@@ -1,11 +1,12 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollTransferEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollTransferEvents, pollCollectionCreatedEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleTransfer } from "./handlers/transfer.js";
+import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { enqueueJob } from "../orchestrator/queue.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
@@ -46,15 +47,16 @@ async function tick(tickId: string): Promise<void> {
 
   tlog.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
 
-  // Poll marketplace order events AND collection Transfer events in parallel
-  const [rawMarketplaceEvents, rawTransferEvents] = await Promise.all([
+  // Poll marketplace order events, collection Transfer events, and CollectionCreated events in parallel
+  const [rawMarketplaceEvents, rawTransferEvents, rawCollectionCreatedEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollTransferEvents(COLLECTION_CONTRACT, fromBlock, toBlock),
+    pollCollectionCreatedEvents(fromBlock, toBlock),
   ]);
 
-  const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents];
+  const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(
-    { marketplace: rawMarketplaceEvents.length, transfers: rawTransferEvents.length },
+    { marketplace: rawMarketplaceEvents.length, transfers: rawTransferEvents.length, collectionCreated: rawCollectionCreatedEvents.length },
     "Fetched events"
   );
 
@@ -65,8 +67,10 @@ async function tick(tickId: string): Promise<void> {
   const orderNftContracts = new Set<string>();
   // Order hashes from fulfilled/cancelled events (to look up their nftContract post-tx)
   const fulfilledOrCancelledHashes: string[] = [];
+  // CollectionCreated events to resolve after the DB transaction
+  const collectionCreatedEvents = parsedEvents.filter((e) => e.type === "CollectionCreated");
 
-  // All writes + cursor advance in one atomic transaction
+  // All writes + cursor advance in one atomic transaction (no async I/O inside)
   await prisma.$transaction(
     async (tx) => {
       for (const event of parsedEvents) {
@@ -88,6 +92,7 @@ async function tick(tickId: string): Promise<void> {
             await handleTransfer(event, tx, CHAIN);
             affectedContracts.add(event.contractAddress);
             break;
+          // CollectionCreated handled after tx (requires on-chain call)
         }
       }
       // Cursor advances atomically with the event writes
@@ -95,6 +100,41 @@ async function tick(tickId: string): Promise<void> {
     },
     { timeout: 30000 }
   );
+
+  // Resolve CollectionCreated events outside the transaction (requires RPC call)
+  for (const event of collectionCreatedEvents) {
+    if (event.type !== "CollectionCreated") continue;
+    const resolved = await resolveCollectionCreated(event);
+    if (!resolved) continue;
+
+    await prisma.collection.upsert({
+      where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
+      create: {
+        chain: CHAIN,
+        contractAddress: resolved.contractAddress,
+        name: resolved.name ?? undefined,
+        symbol: resolved.symbol ?? undefined,
+        baseUri: resolved.baseUri ?? undefined,
+        owner: resolved.owner,
+        startBlock: resolved.startBlock,
+        metadataStatus: "PENDING",
+      },
+      update: {
+        // Don't overwrite admin-set values
+        name: resolved.name ?? undefined,
+        symbol: resolved.symbol ?? undefined,
+        owner: resolved.owner,
+      },
+    });
+
+    await enqueueJob("COLLECTION_METADATA_FETCH", {
+      chain: CHAIN,
+      contractAddress: resolved.contractAddress,
+    });
+
+    affectedContracts.add(resolved.contractAddress);
+    tlog.info({ collectionId: event.collectionId, contractAddress: resolved.contractAddress }, "New collection indexed");
+  }
 
   // Also collect nftContracts for fulfilled/cancelled orders (already in DB)
   if (fulfilledOrCancelledHashes.length > 0) {
@@ -166,6 +206,7 @@ async function tick(tickId: string): Promise<void> {
       toBlock,
       orderEvents: rawMarketplaceEvents.length,
       transferEvents: rawTransferEvents.length,
+      collectionCreatedEvents: collectionCreatedEvents.length,
       parsed: parsedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: pendingTokens.length,

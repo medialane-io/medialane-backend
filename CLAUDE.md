@@ -46,6 +46,7 @@ Starknet RPC → Mirror (Indexer) → PostgreSQL ← Orchestrator
 |---|---|
 | `METADATA_FETCH` | Calls `token_uri` on ERC-721, resolves URI via `src/discovery/` (Pinata → Cloudflare → ipfs.io), stores on `Token` |
 | `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection` |
+| `COLLECTION_METADATA_FETCH` | Fetches collection metadata: calls `name()`/`symbol()`/`base_uri()` on-chain; recovers `image`/`description`/`owner` from `CREATE_COLLECTION` intent `typedData` (matched by name); falls back to on-chain `owner()` call |
 | `METADATA_PIN` | Not yet implemented (Pinata free plan doesn't support `pin_by_cid`) |
 
 ### HTTP API (`src/api/`)
@@ -107,7 +108,7 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/orders/:orderHash` | |
 | GET | `/v1/orders/token/:contract/:tokenId` | Active orders only |
 | GET | `/v1/orders/user/:address` | `page`, `limit` |
-| GET | `/v1/collections` | `page`, `limit` |
+| GET | `/v1/collections` | `page`, `limit`, `?owner=address`, `?isKnown=true` |
 | GET | `/v1/collections/:contract` | |
 | GET | `/v1/collections/:contract/tokens` | `page`, `limit` |
 | GET | `/v1/tokens/owned/:address` | `page`, `limit` |
@@ -121,7 +122,7 @@ Response headers on every `/v1/*` response:
 | POST | `/v1/intents/fulfill` | Rate limited 20/min per IP |
 | POST | `/v1/intents/cancel` | Rate limited 20/min per IP |
 | POST | `/v1/intents/mint` | `{ owner, collectionId, recipient, tokenUri, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` must be the collection owner; validated on-chain via `is_collection_owner` before intent is created |
-| POST | `/v1/intents/create-collection` | `{ owner, name, symbol, baseUri, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` is stored as `requester` only — NOT in calldata. On-chain owner = wallet that executes the returned `calls`. |
+| POST | `/v1/intents/create-collection` | `{ owner, name, symbol, baseUri, image?: string, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` + `image` stored in `typedData` JSON, recovered by `COLLECTION_METADATA_FETCH` when collection is indexed. On-chain owner = wallet that executes the returned `calls`. |
 | GET | `/v1/intents/:id` | Auto-expires PENDING → EXPIRED on read |
 | PATCH | `/v1/intents/:id/signature` | `{ signature: string[] }` → status SIGNED, calls populated. Returns 400 for MINT/CREATE_COLLECTION |
 | GET | `/v1/metadata/signed-url` | Pinata presigned URL (30s TTL) |
@@ -149,6 +150,9 @@ Response headers on every `/v1/*` response:
 | DELETE | `/admin/keys/:keyId` | Revoke any key (soft delete) |
 | GET | `/admin/usage` | `?tenantId=` (optional), `?days=` (max 90, default 30) |
 | POST | `/admin/tokens/:contract/:tokenId/refresh` | Force-sync token metadata (bypasses queue). Returns `{ metadataStatus, tokenUri, name }` |
+| PATCH | `/admin/collections/:contract` | Update `isKnown`, `owner`, or any metadata field |
+| POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all collections |
+| POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection |
 
 ---
 
@@ -199,7 +203,12 @@ Modern OZ ERC-721 contracts return `token_uri` as a Cairo `ByteArray` struct. st
 The ABI in `src/orchestrator/metadata.ts` (`ERC721_METADATA_ABI_BYTEARRAY`) includes the required struct. Do not remove it. Strategy: try ByteArray ABI first, fall back to `ERC721_METADATA_ABI_FELT_ARRAY` for legacy contracts.
 
 ### BigInt serialization in Hono responses
-Prisma `Order` rows contain `startTime`, `endTime`, `createdBlockNumber` as BigInt. Raw Prisma objects cannot be passed to `c.json()`. Always use the `serializeOrder()` function in `src/api/routes/tokens.ts` (and the analogous one in `orders.ts`) when returning orders in responses.
+Prisma `Order` rows contain `startTime`, `endTime`, `createdBlockNumber` as BigInt. Raw Prisma objects cannot be passed to `c.json()`. Always use the `serializeOrder()` function in `src/api/utils/serialize.ts` when returning orders. It accepts an optional `tokenData: { name, image, description } | undefined` second param to include batchTokenMeta enrichment.
+
+### batchTokenMeta (token name/image/description on orders)
+All order-returning endpoints (list, single, by-token, by-user) call `batchTokenMeta(orders)` from `src/api/utils/serialize.ts` to fetch token metadata in one DB query. Result is a `Map<key, data>` passed into each `serializeOrder(o, tokenMeta.get(...))`. **Never** add per-row `useToken` calls on the frontend — use `order.token?.name` / `order.token?.image` directly.
+
+**Important**: `activeOrders.map(serializeOrder)` will fail with a TypeScript error because `.map` passes `(value, index, array)` and `index: number` conflicts with the optional `tokenData` param. Always wrap: `activeOrders.map((o) => serializeOrder(o))`.
 
 ### Admin token refresh
 `POST /admin/tokens/:contract/:tokenId/refresh` — calls `handleMetadataFetch` directly, bypassing the job queue. Use to force-fix FAILED tokens on Railway without waiting for the orchestrator.

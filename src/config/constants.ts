@@ -15,6 +15,7 @@ export const ORDER_FULFILLED_SELECTOR =
 export const ORDER_CANCELLED_SELECTOR =
   hash.getSelectorFromName("OrderCancelled");
 export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
+export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
 
 // Token map (address → metadata)
 export const SUPPORTED_TOKENS = [

@@ -273,6 +273,35 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/collections — register a new collection address + enqueue metadata fetch
+// ---------------------------------------------------------------------------
+admin.post("/collections", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const schema = z.object({
+    contractAddress: z.string().min(1),
+    chain: z.string().optional().default("STARKNET"),
+    startBlock: z.number().optional().default(0),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+
+  const { contractAddress: rawAddr, chain, startBlock } = parsed.data;
+  const contractAddress = rawAddr.toLowerCase();
+
+  const col = await prisma.collection.upsert({
+    where: { chain_contractAddress: { chain: chain as any, contractAddress } },
+    create: { chain: chain as any, contractAddress, metadataStatus: "PENDING", startBlock: BigInt(startBlock) },
+    update: {},
+  });
+
+  await enqueueJob("COLLECTION_METADATA_FETCH", { chain, contractAddress });
+
+  log.info({ contractAddress, chain }, "Collection registered via admin");
+
+  return c.json({ data: { id: col.id, contractAddress, chain, metadataStatus: col.metadataStatus } }, 201);
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /admin/collections/:contract — update collection fields (name, description, image, isKnown)
 // ---------------------------------------------------------------------------
 admin.patch("/collections/:contract", async (c) => {

@@ -99,5 +99,10 @@ export function buildWebhookPayload(event: ParsedEvent): {
           tokenId: event.tokenId,
         },
       };
+    case "CollectionCreated":
+      return {
+        eventType: "TRANSFER", // reuse TRANSFER type — no dedicated webhook type for collections yet
+        payload: { ...base, collectionId: event.collectionId, owner: event.owner },
+      };
   }
 }

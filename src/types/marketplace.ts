@@ -94,11 +94,21 @@ export interface ParsedTransfer {
   logIndex: number;
 }
 
+export interface ParsedCollectionCreated {
+  type: "CollectionCreated";
+  collectionId: string; // decimal string
+  owner: string;
+  blockNumber: bigint;
+  txHash: string;
+  logIndex: number;
+}
+
 export type ParsedEvent =
   | ParsedOrderCreated
   | ParsedOrderFulfilled
   | ParsedOrderCancelled
-  | ParsedTransfer;
+  | ParsedTransfer
+  | ParsedCollectionCreated;
 
 // --- Order details from RPC ---
 

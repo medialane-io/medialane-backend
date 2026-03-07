@@ -4,6 +4,7 @@ import {
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
   TRANSFER_SELECTOR,
+  COLLECTION_CREATED_SELECTOR,
 } from "../config/constants.js";
 import type {
   ParsedEvent,
@@ -11,6 +12,7 @@ import type {
   ParsedOrderFulfilled,
   ParsedOrderCancelled,
   ParsedTransfer,
+  ParsedCollectionCreated,
 } from "../types/marketplace.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import { normalizeAddress } from "../utils/starknet.js";
@@ -20,10 +22,11 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("parser");
 
 // Precompute hex selectors once at module load — avoids repeated conversion per event
-const SEL_ORDER_CREATED   = num.toHex(ORDER_CREATED_SELECTOR);
-const SEL_ORDER_FULFILLED = num.toHex(ORDER_FULFILLED_SELECTOR);
-const SEL_ORDER_CANCELLED = num.toHex(ORDER_CANCELLED_SELECTOR);
-const SEL_TRANSFER        = num.toHex(TRANSFER_SELECTOR);
+const SEL_ORDER_CREATED        = num.toHex(ORDER_CREATED_SELECTOR);
+const SEL_ORDER_FULFILLED      = num.toHex(ORDER_FULFILLED_SELECTOR);
+const SEL_ORDER_CANCELLED      = num.toHex(ORDER_CANCELLED_SELECTOR);
+const SEL_TRANSFER             = num.toHex(TRANSFER_SELECTOR);
+const SEL_COLLECTION_CREATED   = num.toHex(COLLECTION_CREATED_SELECTOR);
 
 export function parseEvent(
   event: RawStarknetEvent,
@@ -82,6 +85,22 @@ export function parseEvent(
         txHash,
         logIndex,
       } satisfies ParsedTransfer;
+    }
+
+    if (selector === SEL_COLLECTION_CREATED) {
+      // CollectionCreated data: [collection_id.low, collection_id.high, owner, ...ByteArrays]
+      const data = event.data;
+      if (!data || data.length < 3) return null;
+      const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
+      const owner = normalizeAddress(data[2]);
+      return {
+        type: "CollectionCreated",
+        collectionId,
+        owner,
+        blockNumber,
+        txHash,
+        logIndex,
+      } satisfies ParsedCollectionCreated;
     }
   } catch (err) {
     log.warn({ err, selector, txHash }, "Failed to parse event");

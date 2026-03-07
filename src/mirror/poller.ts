@@ -1,10 +1,12 @@
 import { createProvider } from "../utils/starknet.js";
 import {
   MARKETPLACE_CONTRACT,
+  COLLECTION_CONTRACT,
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
   TRANSFER_SELECTOR,
+  COLLECTION_CREATED_SELECTOR,
 } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -95,6 +97,37 @@ export async function pollTransferEvents(
     continuationToken = response.continuation_token;
     page++;
   } while (continuationToken && page < MAX_PAGES);
+
+  return allEvents;
+}
+
+/**
+ * Fetch CollectionCreated events from the collection registry contract.
+ */
+export async function pollCollectionCreatedEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: COLLECTION_CONTRACT,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
 
   return allEvents;
 }
