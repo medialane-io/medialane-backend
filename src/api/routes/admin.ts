@@ -372,4 +372,84 @@ admin.post("/collections/backfill-metadata", async (c) => {
   return c.json({ data: { enqueued: collections.length } });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/collections/backfill-registry — scan all CollectionCreated events
+// on-chain and upsert every collection that's missing from the DB.
+// ---------------------------------------------------------------------------
+import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
+import { RpcProvider, num as starkNum } from "starknet";
+import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { env } from "../../config/env.js";
+import { normalizeAddress } from "../../utils/starknet.js";
+
+admin.post("/collections/backfill-registry", async (c) => {
+  const provider = new RpcProvider({ nodeUrl: env.ALCHEMY_RPC_URL });
+  const latestBlock = await provider.getBlockLatestAccepted();
+
+  let continuationToken: string | undefined = undefined;
+  let inserted = 0;
+  let skipped = 0;
+
+  do {
+    const result = await provider.getEvents({
+      address: COLLECTION_CONTRACT,
+      from_block: { block_number: 6204232 },
+      to_block: { block_number: latestBlock.block_number },
+      keys: [[starkNum.toHex(COLLECTION_CREATED_SELECTOR)]],
+      chunk_size: 100,
+      continuation_token: continuationToken,
+    });
+
+    for (const event of result.events ?? []) {
+      const data = event.data;
+      if (!data || data.length < 3) continue;
+      const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
+      const owner = normalizeAddress(data[2]);
+      const blockNumber = BigInt(event.block_number ?? 0);
+
+      const resolved = await resolveCollectionCreated({
+        type: "CollectionCreated",
+        collectionId,
+        owner,
+        blockNumber,
+        txHash: event.transaction_hash ?? "",
+        logIndex: 0,
+      });
+
+      if (!resolved) { skipped++; continue; }
+
+      await prisma.collection.upsert({
+        where: { chain_contractAddress: { chain: "STARKNET", contractAddress: resolved.contractAddress } },
+        create: {
+          chain: "STARKNET",
+          contractAddress: resolved.contractAddress,
+          name: resolved.name ?? undefined,
+          symbol: resolved.symbol ?? undefined,
+          baseUri: resolved.baseUri ?? undefined,
+          owner: resolved.owner,
+          startBlock: resolved.startBlock,
+          metadataStatus: "PENDING",
+        },
+        update: {
+          name: resolved.name ?? undefined,
+          symbol: resolved.symbol ?? undefined,
+          owner: resolved.owner,
+        },
+      });
+
+      await enqueueJob("COLLECTION_METADATA_FETCH", {
+        chain: "STARKNET",
+        contractAddress: resolved.contractAddress,
+      });
+
+      inserted++;
+    }
+
+    continuationToken = result.continuation_token;
+  } while (continuationToken);
+
+  log.info({ inserted, skipped }, "Registry backfill complete");
+  return c.json({ data: { inserted, skipped } });
+});
+
 export default admin;
