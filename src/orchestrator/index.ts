@@ -2,6 +2,7 @@ import { claimJob, completeJob, failJob } from "./queue.js";
 import { handleMetadataFetch } from "./metadata.js";
 import { handleMetadataPin } from "./metadataPin.js";
 import { handleStatsUpdate } from "./stats.js";
+import { handleCollectionMetadataFetch } from "./collectionMetadata.js";
 import { handleWebhookDeliver } from "./webhook.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
@@ -41,6 +42,11 @@ async function processNextJob(): Promise<void> {
         break;
       case "STATS_UPDATE":
         await handleStatsUpdate(job.payload as { chain: string; contractAddress: string });
+        break;
+      case "COLLECTION_METADATA_FETCH":
+        await handleCollectionMetadataFetch(
+          job.payload as { chain: string; contractAddress: string }
+        );
         break;
       case "WEBHOOK_DELIVER":
         await handleWebhookDeliver(job.payload as { deliveryId: string });

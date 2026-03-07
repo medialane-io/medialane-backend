@@ -130,6 +130,24 @@ async function tick(tickId: string): Promise<void> {
     });
   }
 
+  // Enqueue COLLECTION_METADATA_FETCH for any collection whose on-chain metadata
+  // hasn't been indexed yet (name/symbol from contract view calls)
+  const pendingCollections = await prisma.collection.findMany({
+    where: {
+      chain: CHAIN,
+      contractAddress: { in: Array.from(allAffectedContracts) },
+      metadataStatus: "PENDING",
+    },
+    select: { contractAddress: true },
+  });
+
+  for (const col of pendingCollections) {
+    await enqueueJob("COLLECTION_METADATA_FETCH", {
+      chain: CHAIN,
+      contractAddress: col.contractAddress,
+    });
+  }
+
   for (const contract of allAffectedContracts) {
     await enqueueJob("STATS_UPDATE", { chain: CHAIN, contractAddress: contract });
   }

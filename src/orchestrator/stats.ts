@@ -83,26 +83,26 @@ export async function handleStatsUpdate(payload: {
     },
   });
 
-  // Backfill collection image/description from first fetched token if not yet set
+  // Backfill image/description from first fetched token if not yet set.
+  // name/symbol come from the COLLECTION_METADATA_FETCH job (on-chain view calls).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { image: true, description: true, name: true },
+    select: { image: true, description: true },
   });
 
-  if (!existing?.image || !existing?.description || !existing?.name) {
+  if (!existing?.image || !existing?.description) {
     const firstToken = await prisma.token.findFirst({
       where: { chain, contractAddress, metadataStatus: "FETCHED" },
       orderBy: { tokenId: "asc" },
-      select: { image: true, description: true, name: true },
+      select: { image: true, description: true },
     });
 
-    if (firstToken) {
+    if (firstToken && (firstToken.image || firstToken.description)) {
       await prisma.collection.update({
         where: { chain_contractAddress: { chain, contractAddress } },
         data: {
           image: existing?.image ?? firstToken.image,
           description: existing?.description ?? firstToken.description,
-          name: existing?.name ?? firstToken.name,
         },
       });
     }

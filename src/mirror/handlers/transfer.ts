@@ -22,7 +22,7 @@ export async function handleTransfer(
 
     await tx.collection.upsert({
       where: { chain_contractAddress: { chain, contractAddress } },
-      create: { chain, contractAddress, startBlock: blockNumber, isKnown: false },
+      create: { chain, contractAddress, startBlock: blockNumber, isKnown: false, metadataStatus: "PENDING" },
       update: {},
     });
   } else {

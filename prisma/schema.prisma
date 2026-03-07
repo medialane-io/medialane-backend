@@ -107,22 +107,24 @@ model Token {
 }
 
 model Collection {
-  id              String   @id @default(cuid())
-  chain           Chain    @default(STARKNET)
+  id              String         @id @default(cuid())
+  chain           Chain          @default(STARKNET)
   contractAddress String
   name            String?
   symbol          String?
   description     String?
   image           String?
+  baseUri         String?
+  metadataStatus  MetadataStatus @default(PENDING)
   startBlock      BigInt
-  isKnown         Boolean  @default(false)
+  isKnown         Boolean        @default(false)
   floorPrice      String?
   totalVolume     String?
-  holderCount     Int      @default(0)
-  totalSupply     Int      @default(0)
+  holderCount     Int            @default(0)
+  totalSupply     Int            @default(0)
   tokens          Token[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   @@unique([chain, contractAddress])
 }
@@ -151,6 +153,7 @@ enum JobType {
   METADATA_PIN
   STATS_UPDATE
   WEBHOOK_DELIVER
+  COLLECTION_METADATA_FETCH
 }
 
 enum TenantPlan {

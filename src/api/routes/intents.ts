@@ -51,7 +51,8 @@ const createCollectionSchema = z.object({
   owner: z.string(),
   name: z.string().min(1),
   symbol: z.string().min(1),
-  baseUri: z.string().min(1),
+  baseUri: z.string().default(""),
+  description: z.string().optional(),
   collectionContract: z.string().optional(),
 });
 
@@ -219,11 +220,15 @@ intents.post("/create-collection", async (c) => {
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
     // No SNIP-12 signature needed — calls are fully populated at creation.
+    // Store name + description in typedData so COLLECTION_METADATA_FETCH can recover them.
     const intent = await prisma.transactionIntent.create({
       data: {
         type: "CREATE_COLLECTION",
         requester: normalizeAddress(parsed.data.owner),
-        typedData: {},
+        typedData: {
+          name: parsed.data.name,
+          description: parsed.data.description ?? null,
+        },
         calls: calls as any,
         status: "SIGNED",
         expiresAt,
