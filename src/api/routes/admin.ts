@@ -273,6 +273,35 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /admin/collections/:contract — update collection fields (name, description, image, isKnown)
+// ---------------------------------------------------------------------------
+admin.patch("/collections/:contract", async (c) => {
+  const { contract } = c.req.param();
+  const body = await c.req.json().catch(() => ({}));
+  const schema = z.object({
+    name:        z.string().optional(),
+    symbol:      z.string().optional(),
+    description: z.string().optional(),
+    image:       z.string().optional(),
+    isKnown:     z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
+  });
+  if (!col) return c.json({ error: "Collection not found" }, 404);
+
+  const updated = await prisma.collection.update({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
+    data: parsed.data,
+  });
+
+  return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, isKnown: updated.isKnown } });
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/collections/:contract/refresh — force sync collection metadata
 // ---------------------------------------------------------------------------
 admin.post("/collections/:contract/refresh", async (c) => {

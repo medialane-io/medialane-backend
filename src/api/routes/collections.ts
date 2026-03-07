@@ -10,15 +10,20 @@ const collections = new Hono();
 collections.get("/", async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
+  const isKnown = c.req.query("isKnown");
+
+  const where: any = { chain: "STARKNET" };
+  if (isKnown === "true") where.isKnown = true;
+  else if (isKnown === "false") where.isKnown = false;
 
   const [data, total] = await Promise.all([
     prisma.collection.findMany({
-      where: { chain: "STARKNET" },
+      where,
       orderBy: { totalSupply: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.collection.count({ where: { chain: "STARKNET" } }),
+    prisma.collection.count({ where }),
   ]);
 
   return c.json({ data: data.map(serializeCollection), meta: { page, limit, total } });

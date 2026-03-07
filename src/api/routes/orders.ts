@@ -15,6 +15,8 @@ const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
   offerer: z.string().optional(),
+  minPrice: z.string().optional(),
+  maxPrice: z.string().optional(),
 });
 
 // GET /v1/orders
@@ -24,7 +26,7 @@ orders.get("/", async (c) => {
     return c.json({ error: "Invalid query", details: query.error.flatten() }, 400);
   }
 
-  const { status, collection, currency, sort, page, limit, offerer } =
+  const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } =
     query.data;
 
   const skip = (page - 1) * limit;
@@ -38,6 +40,8 @@ orders.get("/", async (c) => {
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${offerer.toLowerCase()}`);
+    if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
+    if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
@@ -59,6 +63,33 @@ orders.get("/", async (c) => {
   }
 
   // Default: recent sort via Prisma ORM
+  // Price range filters require raw SQL even here since priceRaw is a text column
+  if ((minPrice || maxPrice) && sort === "recent") {
+    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
+    if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
+    if (offerer) conditions.push(Prisma.sql`offerer = ${offerer.toLowerCase()}`);
+    if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
+    if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
+    const whereClause = Prisma.join(conditions, " AND ");
+
+    const [data, rawTotal] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT * FROM "Order" WHERE ${whereClause}
+        ORDER BY "createdAt" DESC LIMIT ${limit} OFFSET ${skip}
+      `,
+      prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
+      `,
+    ]);
+
+    return c.json({
+      data: data.map(serializeOrder),
+      meta: { page, limit, total: Number(rawTotal[0].count) },
+    });
+  }
+
   const where: any = { chain: "STARKNET" };
   if (status) where.status = status as OrderStatus;
   if (collection) where.nftContract = collection.toLowerCase();
