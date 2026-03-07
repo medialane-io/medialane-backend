@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
-import { serializeOrder } from "../utils/serialize.js";
+import { serializeOrder, batchTokenMeta } from "../utils/serialize.js";
 
 const orders = new Hono();
 
@@ -56,8 +56,9 @@ orders.get("/", async (c) => {
       `,
     ]);
 
+    const tokenMeta = await batchTokenMeta(data);
     return c.json({
-      data: data.map(serializeOrder),
+      data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
       meta: { page, limit, total: Number(rawTotal[0].count) },
     });
   }
@@ -84,8 +85,9 @@ orders.get("/", async (c) => {
       `,
     ]);
 
+    const tokenMeta = await batchTokenMeta(data);
     return c.json({
-      data: data.map(serializeOrder),
+      data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
       meta: { page, limit, total: Number(rawTotal[0].count) },
     });
   }
@@ -106,8 +108,9 @@ orders.get("/", async (c) => {
     prisma.order.count({ where }),
   ]);
 
+  const tokenMeta = await batchTokenMeta(data);
   return c.json({
-    data: data.map(serializeOrder),
+    data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
     meta: { page, limit, total },
   });
 });
@@ -134,7 +137,8 @@ orders.get("/token/:contract/:tokenId", async (c) => {
     },
     orderBy: { createdAt: "desc" },
   });
-  return c.json({ data: data.map(serializeOrder) });
+  const tokenMeta = await batchTokenMeta(data);
+  return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
 // GET /v1/orders/user/:address
@@ -153,7 +157,8 @@ orders.get("/user/:address", async (c) => {
     prisma.order.count({ where: { chain: "STARKNET", offerer: address.toLowerCase() } }),
   ]);
 
-  return c.json({ data: data.map(serializeOrder), meta: { page, limit, total } });
+  const tokenMeta = await batchTokenMeta(data);
+  return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))), meta: { page, limit, total } });
 });
 
 export default orders;

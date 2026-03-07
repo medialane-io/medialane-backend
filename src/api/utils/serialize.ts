@@ -1,3 +1,5 @@
+import prisma from "../../db/client.js";
+
 const CURRENCY_DECIMALS: Record<string, number> = {
   USDC: 6,
   "USDC.E": 6,
@@ -5,6 +7,29 @@ const CURRENCY_DECIMALS: Record<string, number> = {
   ETH: 18,
   STRK: 18,
 };
+
+/** Batch-fetch token name/image/description for a list of orders (single query). */
+export async function batchTokenMeta(
+  orders: { nftContract: string | null; nftTokenId: string | null }[]
+): Promise<Map<string, { name: string | null; image: string | null; description: string | null }>> {
+  const pairs = orders
+    .filter((o) => o.nftContract && o.nftTokenId)
+    .map((o) => ({ contractAddress: o.nftContract!, tokenId: o.nftTokenId! }));
+
+  if (!pairs.length) return new Map();
+
+  const tokens = await prisma.token.findMany({
+    where: { chain: "STARKNET", OR: pairs },
+    select: { contractAddress: true, tokenId: true, name: true, image: true, description: true },
+  });
+
+  return new Map(
+    tokens.map((t) => [
+      `${t.contractAddress}-${t.tokenId}`,
+      { name: t.name, image: t.image, description: t.description },
+    ])
+  );
+}
 
 export function serializeToken(token: any, activeOrders: any[]) {
   return {
@@ -25,13 +50,16 @@ export function serializeToken(token: any, activeOrders: any[]) {
       commercialUse: token.commercialUse,
       author: token.author,
     },
-    activeOrders: activeOrders.map(serializeOrder),
+    activeOrders: activeOrders.map((o) => serializeOrder(o)),
     createdAt: token.createdAt,
     updatedAt: token.updatedAt,
   };
 }
 
-export function serializeOrder(o: any) {
+export function serializeOrder(
+  o: any,
+  tokenData?: { name: string | null; image: string | null; description: string | null } | null
+) {
   return {
     id: o.id,
     chain: o.chain,
@@ -72,5 +100,12 @@ export function serializeOrder(o: any) {
     createdBlockNumber: o.createdBlockNumber.toString(),
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
+    token: tokenData !== undefined
+      ? {
+          name: tokenData?.name ?? null,
+          image: tokenData?.image ?? null,
+          description: tokenData?.description ?? null,
+        }
+      : null,
   };
 }
