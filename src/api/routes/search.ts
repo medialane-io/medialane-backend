@@ -45,6 +45,7 @@ search.get("/", async (c) => {
       select: {
         contractAddress: true,
         name: true,
+        image: true,
         totalSupply: true,
         floorPrice: true,
         holderCount: true,

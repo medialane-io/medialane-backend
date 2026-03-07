@@ -19,6 +19,7 @@ import metadata from "./routes/metadata.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin.js";
+import stats from "./routes/stats.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -50,6 +51,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/intents", intents);
   app.route("/v1/metadata", metadata);
   app.route("/v1/search", search);
+  app.route("/v1/stats", stats);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));

@@ -3,7 +3,7 @@ import prisma from "../../db/client.js";
 import { enqueueJob } from "../../orchestrator/queue.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
-import { serializeOrder } from "../utils/serialize.js";
+import { serializeOrder, serializeToken } from "../utils/serialize.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -128,30 +128,5 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
   return c.json({ data: activities, meta: { page, limit } });
 });
 
-
-function serializeToken(token: any, activeOrders: any[]) {
-  return {
-    id: token.id,
-    chain: token.chain,
-    contractAddress: token.contractAddress,
-    tokenId: token.tokenId,
-    owner: token.owner,
-    tokenUri: token.tokenUri,
-    metadataStatus: token.metadataStatus,
-    metadata: {
-      name: token.name,
-      description: token.description,
-      image: token.image,
-      attributes: token.attributes,
-      ipType: token.ipType,
-      licenseType: token.licenseType,
-      commercialUse: token.commercialUse,
-      author: token.author,
-    },
-    activeOrders: activeOrders.map(serializeOrder),
-    createdAt: token.createdAt,
-    updatedAt: token.updatedAt,
-  };
-}
 
 export default tokens;

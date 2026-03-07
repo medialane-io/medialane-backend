@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { env } from "../../config/env.js";
+import { serializeToken } from "../utils/serialize.js";
 
 const collections = new Hono();
 
@@ -55,7 +56,7 @@ collections.get("/:contract/tokens", async (c) => {
     prisma.token.count({ where: { chain: "STARKNET", contractAddress: contract.toLowerCase() } }),
   ]);
 
-  return c.json({ data, meta: { page, limit, total } });
+  return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
 });
 
 // POST /v1/collections — register a collection (admin)

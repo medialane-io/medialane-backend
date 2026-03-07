@@ -11,9 +11,22 @@ activities.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  // Mix transfers and order activities
-  const [transfers, orders] = await Promise.all([
-    !type || type === "transfer"
+  const wantTransfers = !type || type === "transfer";
+  const wantOrders = !type || ["sale", "listing", "offer", "cancelled"].includes(type);
+
+  const orderStatusFilter =
+    type === "sale"
+      ? { status: "FULFILLED" as const }
+      : type === "listing"
+      ? { status: "ACTIVE" as const }
+      : type === "cancelled"
+      ? { status: "CANCELLED" as const }
+      : type === "offer"
+      ? { offerItemType: "ERC20" as const, status: "ACTIVE" as const }
+      : {};
+
+  const [transfers, orders, transferCount, orderCount] = await Promise.all([
+    wantTransfers
       ? prisma.transfer.findMany({
           where: { chain: "STARKNET" },
           orderBy: { blockNumber: "desc" },
@@ -21,21 +34,16 @@ activities.get("/", async (c) => {
           take: limit,
         })
       : [],
-    !type || ["sale", "listing", "offer"].includes(type)
+    wantOrders
       ? prisma.order.findMany({
-          where: {
-            chain: "STARKNET",
-            ...(type === "sale"
-              ? { status: "FULFILLED" }
-              : type === "listing"
-              ? { status: "ACTIVE" }
-              : {}),
-          },
+          where: { chain: "STARKNET", ...orderStatusFilter },
           orderBy: { updatedAt: "desc" },
           skip,
           take: limit,
         })
       : [],
+    wantTransfers ? prisma.transfer.count({ where: { chain: "STARKNET" } }) : 0,
+    wantOrders ? prisma.order.count({ where: { chain: "STARKNET", ...orderStatusFilter } }) : 0,
   ]);
 
   const feed = [
@@ -53,6 +61,8 @@ activities.get("/", async (c) => {
       type:
         o.status === "FULFILLED"
           ? "sale"
+          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
+          ? "offer"
           : o.status === "ACTIVE"
           ? "listing"
           : "cancelled",
@@ -69,7 +79,7 @@ activities.get("/", async (c) => {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, limit);
 
-  return c.json({ data: feed, meta: { page, limit } });
+  return c.json({ data: feed, meta: { page, limit, total: transferCount + orderCount } });
 });
 
 // GET /v1/activities/:address
