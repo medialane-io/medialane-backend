@@ -12,10 +12,12 @@ collections.get("/", async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
   const isKnown = c.req.query("isKnown");
+  const owner = c.req.query("owner");
 
   const where: any = { chain: "STARKNET" };
   if (isKnown === "true") where.isKnown = true;
   else if (isKnown === "false") where.isKnown = false;
+  if (owner) where.owner = owner.toLowerCase();
 
   const [data, total] = await Promise.all([
     prisma.collection.findMany({
@@ -103,6 +105,7 @@ function serializeCollection(c: any) {
     symbol: c.symbol,
     description: c.description,
     image: c.image,
+    owner: c.owner ?? null,
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
     isKnown: c.isKnown,

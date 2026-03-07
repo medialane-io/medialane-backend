@@ -230,6 +230,7 @@ intents.post("/create-collection", async (c) => {
           name: parsed.data.name,
           description: parsed.data.description ?? null,
           image: parsed.data.image ?? null,
+          owner: normalizeAddress(parsed.data.owner),
         },
         calls: calls as any,
         status: "SIGNED",

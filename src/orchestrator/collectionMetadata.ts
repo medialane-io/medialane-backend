@@ -1,6 +1,6 @@
 import { Contract, shortString } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
-import { createProvider } from "../utils/starknet.js";
+import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -16,6 +16,16 @@ const BYTEARRAY_STRUCT = {
     { name: "pending_word_len", type: "core::integer::u32" },
   ],
 };
+
+const OWNER_ABI = [
+  {
+    type: "function",
+    name: "owner",
+    inputs: [],
+    outputs: [{ type: "core::starknet::contract_address::ContractAddress" }],
+    state_mutability: "view",
+  },
+];
 
 const ERC721_INFO_ABI_BYTEARRAY = [
   BYTEARRAY_STRUCT,
@@ -101,13 +111,22 @@ export async function handleCollectionMetadataFetch(payload: {
   try {
     const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress);
 
-    // Look up description + image from the most recent matching CREATE_COLLECTION intent
+    // Look up description + image + owner from the most recent matching CREATE_COLLECTION intent
     const resolvedName = existing?.name ?? name;
-    const { description, image } = await findIntentMetadata(resolvedName);
+    const { description, image, owner: intentOwner } = await findIntentMetadata(resolvedName);
+
+    // Try to fetch on-chain owner() as fallback
+    let onChainOwner: string | null = null;
+    try {
+      const provider = createProvider();
+      const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
+      const raw = await (ownerContract as any).owner();
+      if (raw) onChainOwner = normalizeAddress(raw.toString());
+    } catch { /* contract may not expose owner() */ }
 
     const existingFull = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress } },
-      select: { image: true },
+      select: { image: true, owner: true },
     });
 
     await prisma.collection.update({
@@ -119,6 +138,7 @@ export async function handleCollectionMetadataFetch(payload: {
         baseUri: baseUri || null,
         description: description ?? undefined,
         image: existingFull?.image ?? image ?? undefined,
+        owner: existingFull?.owner ?? intentOwner ?? onChainOwner ?? undefined,
         metadataStatus: "FETCHED",
       },
     });
@@ -198,8 +218,8 @@ function decodeField(raw: unknown): string {
  */
 async function findIntentMetadata(
   name: string
-): Promise<{ description: string | null; image: string | null }> {
-  if (!name) return { description: null, image: null };
+): Promise<{ description: string | null; image: string | null; owner: string | null }> {
+  if (!name) return { description: null, image: null, owner: null };
   try {
     const intent = await prisma.transactionIntent.findFirst({
       where: {
@@ -210,13 +230,14 @@ async function findIntentMetadata(
       select: { typedData: true },
     });
 
-    if (!intent) return { description: null, image: null };
+    if (!intent) return { description: null, image: null, owner: null };
     const td = intent.typedData as Record<string, unknown>;
     return {
       description: typeof td.description === "string" && td.description ? td.description : null,
       image: typeof td.image === "string" && td.image ? td.image : null,
+      owner: typeof td.owner === "string" && td.owner ? td.owner : null,
     };
   } catch {
-    return { description: null, image: null };
+    return { description: null, image: null, owner: null };
   }
 }

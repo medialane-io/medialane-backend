@@ -115,6 +115,7 @@ model Collection {
   description     String?
   image           String?
   baseUri         String?
+  owner           String?
   metadataStatus  MetadataStatus @default(PENDING)
   startBlock      BigInt
   isKnown         Boolean        @default(false)
