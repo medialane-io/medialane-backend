@@ -5,6 +5,8 @@ import { authMiddleware } from "../middleware/auth.js";
 import prisma from "../../db/client.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../orchestrator/metadata.js";
+import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMetadata.js";
+import { enqueueJob } from "../../orchestrator/queue.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:admin");
@@ -268,6 +270,47 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   } catch (err) {
     return c.json({ error: String(err) }, 500);
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/collections/:contract/refresh — force sync collection metadata
+// ---------------------------------------------------------------------------
+admin.post("/collections/:contract/refresh", async (c) => {
+  const { contract } = c.req.param();
+  try {
+    await handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress: contract.toLowerCase() });
+    const col = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
+    });
+    return c.json({ data: { metadataStatus: col?.metadataStatus, name: col?.name, symbol: col?.symbol } });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/collections/backfill-metadata — enqueue fetch for all PENDING
+// ---------------------------------------------------------------------------
+admin.post("/collections/backfill-metadata", async (c) => {
+  const collections = await prisma.collection.findMany({
+    where: {
+      OR: [
+        { metadataStatus: "PENDING" },
+        { metadataStatus: "FAILED" },
+        { name: null },
+      ],
+    },
+    select: { chain: true, contractAddress: true, metadataStatus: true, name: true },
+  });
+
+  for (const col of collections) {
+    await enqueueJob("COLLECTION_METADATA_FETCH", {
+      chain: col.chain,
+      contractAddress: col.contractAddress,
+    });
+  }
+
+  return c.json({ data: { enqueued: collections.length } });
 });
 
 export default admin;
