@@ -217,7 +217,11 @@ intents.post("/create-collection", async (c) => {
   }
 
   try {
-    const { calls } = buildCreateCollectionIntent(parsed.data);
+    const { calls } = await buildCreateCollectionIntent({
+      ...parsed.data,
+      description: parsed.data.description,
+      image: parsed.data.image,
+    });
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
     // No SNIP-12 signature needed — calls are fully populated at creation.

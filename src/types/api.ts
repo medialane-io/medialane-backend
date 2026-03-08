@@ -69,6 +69,9 @@ export interface CreateCollectionIntentBody {
   name: string;
   symbol: string;
   baseUri: string;
+  description?: string;
+  /** Optional IPFS image URI (ipfs://...) for the collection cover image */
+  image?: string;
   /** Optional: override the default collection contract address */
   collectionContract?: string;
 }

@@ -13,6 +13,7 @@ import type {
   CreateCollectionIntentBody,
 } from "../types/api.js";
 import prisma from "../db/client.js";
+import { uploadJson } from "./metadataPin.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("intent");
@@ -317,14 +318,37 @@ export async function buildMintIntent(body: MintIntentBody) {
 /**
  * Build a CREATE_COLLECTION intent — no SNIP-12 signing required.
  * Encodes `create_collection(name, symbol, base_uri)` calldata.
- * Calls are fully populated; the intent is created with status SIGNED.
+ *
+ * When no explicit baseUri is provided, builds an ERC-7572-compliant collection
+ * metadata JSON and uploads it to Pinata IPFS so the on-chain base_uri resolves
+ * to discoverable, standards-compliant metadata (image, name, description).
+ * Falls back to empty base_uri gracefully if Pinata is unavailable.
  */
-export function buildCreateCollectionIntent(body: CreateCollectionIntentBody) {
+export async function buildCreateCollectionIntent(body: CreateCollectionIntentBody) {
   const contract = resolveCollectionContract(body.collectionContract);
+
+  let baseUri = body.baseUri || "";
+
+  // Only generate metadata if no explicit baseUri was supplied
+  if (!baseUri) {
+    try {
+      // ERC-7572 / OpenSea contractURI standard — only include fields that have values
+      const metadata: Record<string, unknown> = { name: body.name };
+      if (body.description) metadata.description = body.description;
+      if (body.image) metadata.image = body.image;
+      metadata.external_link = "https://medialane.io";
+
+      baseUri = await uploadJson(metadata);
+      log.info({ name: body.name, baseUri }, "Collection metadata uploaded to IPFS");
+    } catch (err) {
+      log.warn({ err }, "Failed to upload collection metadata to IPFS — proceeding with empty base_uri");
+    }
+  }
+
   const calldata = [
     ...encodeByteArray(body.name),
     ...encodeByteArray(body.symbol),
-    ...encodeByteArray(body.baseUri),
+    ...encodeByteArray(baseUri),
   ];
   return { calls: [{ contractAddress: contract, entrypoint: "create_collection", calldata }] };
 }

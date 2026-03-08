@@ -17,6 +17,15 @@ function getPinata(): PinataSDK {
 }
 
 /**
+ * Upload a JSON object to Pinata public IPFS.
+ * Returns the ipfs:// URI of the uploaded content.
+ */
+export async function uploadJson(data: Record<string, unknown>): Promise<string> {
+  const upload = await getPinata().upload.public.json(data);
+  return `ipfs://${upload.cid}`;
+}
+
+/**
  * Pin an already-uploaded IPFS CID to Pinata so it is persistently hosted.
  * Enqueued by the metadata fetch handler after a token URI resolves to an
  * ipfs:// URI so the content remains available even if the origin disappears.
