@@ -46,7 +46,7 @@ Starknet RPC → Mirror (Indexer) → PostgreSQL ← Orchestrator
 |---|---|
 | `METADATA_FETCH` | Calls `token_uri` on ERC-721, resolves URI via `src/discovery/` (Pinata → Cloudflare → ipfs.io), stores on `Token` |
 | `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection` |
-| `COLLECTION_METADATA_FETCH` | Fetches collection metadata: calls `name()`/`symbol()`/`base_uri()` on-chain; recovers `image`/`description`/`owner` from `CREATE_COLLECTION` intent `typedData` (matched by name); falls back to on-chain `owner()` call |
+| `COLLECTION_METADATA_FETCH` | Fetches collection metadata: calls `name()`/`symbol()`/`base_uri()` on-chain; recovers `image`/`description`/`owner` from `CREATE_COLLECTION` intent `typedData` (matched by name); falls back to on-chain `owner()` call. Uses **upsert** — can create new collection records from scratch |
 | `METADATA_PIN` | Not yet implemented (Pinata free plan doesn't support `pin_by_cid`) |
 
 ### HTTP API (`src/api/`)
@@ -150,9 +150,11 @@ Response headers on every `/v1/*` response:
 | DELETE | `/admin/keys/:keyId` | Revoke any key (soft delete) |
 | GET | `/admin/usage` | `?tenantId=` (optional), `?days=` (max 90, default 30) |
 | POST | `/admin/tokens/:contract/:tokenId/refresh` | Force-sync token metadata (bypasses queue). Returns `{ metadataStatus, tokenUri, name }` |
+| POST | `/admin/collections` | Register new collection address + enqueue metadata fetch. Body: `{ contractAddress, startBlock?, chain? }` |
 | PATCH | `/admin/collections/:contract` | Update `isKnown`, `owner`, or any metadata field |
-| POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all collections |
-| POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection |
+| POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all PENDING/FAILED/unnamed/ownerless collections |
+| POST | `/admin/collections/backfill-registry` | Scan ALL `CollectionCreated` events on-chain + upsert every missing collection. Returns `{ inserted, skipped }` |
+| POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection (uses upsert, can create from scratch) |
 
 ---
 
@@ -170,6 +172,16 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### CollectionCreated event indexing (added 2026-03-08)
+The mirror now polls the collection registry for `CollectionCreated` events on every tick (alongside marketplace and Transfer events). When detected:
+1. `resolveCollectionCreated()` in `src/mirror/handlers/collectionCreated.ts` calls `get_collection(collection_id)` on the registry to get the `ip_nft` (ERC-721 contract address)
+2. Collection is upserted into DB with owner, name, symbol, baseUri, startBlock
+3. `COLLECTION_METADATA_FETCH` job is enqueued for full enrichment
+
+**Event data layout**: `[collection_id.low, collection_id.high, owner, ...name_bytearray, ...symbol_bytearray, ...base_uri_bytearray]`. **ip_nft is NOT in the event** — must call `get_collection()` on the registry.
+
+**If the indexer cursor already passed the collection creation blocks**: run `POST /admin/collections/backfill-registry` once — it scans all historical events and upserts everything in one call.
 
 ### Event parsing
 - `OrderCreated` keys = `[selector, order_hash, offerer]` — no order params in event
