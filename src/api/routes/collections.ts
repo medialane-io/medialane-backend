@@ -102,6 +102,7 @@ function serializeCollection(c: any) {
     id: c.id,
     chain: c.chain,
     contractAddress: c.contractAddress,
+    collectionId: c.collectionId ?? null,
     name: c.name,
     symbol: c.symbol,
     description: c.description,

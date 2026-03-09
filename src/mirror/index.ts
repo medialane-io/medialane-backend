@@ -129,6 +129,7 @@ async function tick(tickId: string): Promise<void> {
       create: {
         chain: CHAIN,
         contractAddress: resolved.contractAddress,
+        collectionId: event.collectionId,
         name: resolved.name ?? undefined,
         symbol: resolved.symbol ?? undefined,
         baseUri: resolved.baseUri ?? undefined,
@@ -138,6 +139,7 @@ async function tick(tickId: string): Promise<void> {
       },
       update: {
         // Don't overwrite admin-set values
+        collectionId: event.collectionId,
         name: resolved.name ?? undefined,
         symbol: resolved.symbol ?? undefined,
         owner: resolved.owner,

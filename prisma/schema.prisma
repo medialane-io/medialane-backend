@@ -110,6 +110,7 @@ model Collection {
   id              String         @id @default(cuid())
   chain           Chain          @default(STARKNET)
   contractAddress String
+  collectionId    String?
   name            String?
   symbol          String?
   description     String?
