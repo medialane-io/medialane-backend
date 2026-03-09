@@ -4,6 +4,7 @@ import { enqueueJob } from "../../orchestrator/queue.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeOrder, serializeToken } from "../utils/serialize.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -16,12 +17,12 @@ tokens.get("/owned/:address", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain: "STARKNET", owner: address.toLowerCase() },
+      where: { chain: "STARKNET", owner: normalizeAddress(address) },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.token.count({ where: { chain: "STARKNET", owner: address.toLowerCase() } }),
+    prisma.token.count({ where: { chain: "STARKNET", owner: normalizeAddress(address) } }),
   ]);
 
   return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
