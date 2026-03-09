@@ -1,6 +1,6 @@
 {
   "name": "medialane-backend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Medialane off-chain service layer for Starknet",
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "db:push": "bunx prisma db push",
     "db:studio": "bunx prisma studio",
     "backfill": "bun run scripts/backfill.ts",
+    "backfill:tokens": "bun run scripts/backfillTokens.ts",
     "reset-cursor": "bun run scripts/resetCursor.ts"
   },
   "dependencies": {

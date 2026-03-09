@@ -11,7 +11,6 @@ import { enqueueJob } from "../orchestrator/queue.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { COLLECTION_CONTRACT } from "../config/constants.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -47,16 +46,34 @@ async function tick(tickId: string): Promise<void> {
 
   tlog.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
 
-  // Poll marketplace order events, collection Transfer events, and CollectionCreated events in parallel
-  const [rawMarketplaceEvents, rawTransferEvents, rawCollectionCreatedEvents] = await Promise.all([
+  // Load all known NFT collection contracts from the DB.
+  // Each deployed collection is a separate contract — Transfer (mint) events are emitted
+  // from those contracts, NOT from COLLECTION_CONTRACT (the registry).
+  const knownCollections = await prisma.collection.findMany({
+    where: { chain: CHAIN },
+    select: { contractAddress: true },
+  });
+  const nftContracts = knownCollections.map((c) => c.contractAddress);
+
+  // Poll marketplace events and CollectionCreated events, then Transfer events from
+  // every known NFT collection contract in parallel.
+  const [rawMarketplaceEvents, rawCollectionCreatedEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
-    pollTransferEvents(COLLECTION_CONTRACT, fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
   ]);
 
+  const rawTransferEvents = nftContracts.length > 0
+    ? (await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, fromBlock, toBlock)))).flat()
+    : [];
+
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(
-    { marketplace: rawMarketplaceEvents.length, transfers: rawTransferEvents.length, collectionCreated: rawCollectionCreatedEvents.length },
+    {
+      marketplace: rawMarketplaceEvents.length,
+      transfers: rawTransferEvents.length,
+      collectionCreated: rawCollectionCreatedEvents.length,
+      nftContractsPolled: nftContracts.length,
+    },
     "Fetched events"
   );
 
