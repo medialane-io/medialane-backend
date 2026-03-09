@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 
 const activities = new Hono();
 
@@ -88,7 +89,7 @@ activities.get("/:address", async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
   const skip = (page - 1) * limit;
-  const addr = address.toLowerCase();
+  const addr = normalizeAddress(address);
 
   const [transfers, orders] = await Promise.all([
     prisma.transfer.findMany({
