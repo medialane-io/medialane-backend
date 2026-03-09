@@ -58,6 +58,7 @@ GET  /v1/tokens/:contract/:tokenId/history Transfer + order history
 ### Collections
 ```
 GET  /v1/collections                      All collections (floor price, volume, holders)
+GET  /v1/collections?owner=:address       Collections owned by address (includes collectionId)
 GET  /v1/collections/:contract            Single collection
 GET  /v1/collections/:contract/tokens     Tokens in collection
 ```
@@ -212,6 +213,9 @@ Modern OpenZeppelin ERC-721 contracts return `token_uri` as a Cairo `ByteArray` 
 
 ### Order parsing
 `OrderCreated` events only include `order_hash` in the keys — full order parameters must be fetched by calling `get_order_details(order_hash)` on-chain. Bid orders (ERC20 → ERC721) derive `nftContract` from the **consideration** side, not the offer side.
+
+### Address normalization
+All API route handlers apply `normalizeAddress()` (`src/utils/starknet.ts`) to every address parameter before DB queries — pads to `0x` + 64 lowercase hex chars. DB stores addresses in this format. Any valid Starknet address format (short, long, mixed-case) works correctly end-to-end.
 
 ### BigInt serialization
 Prisma fields `startTime`, `endTime`, and `createdBlockNumber` are stored as `String` in the DB (Starknet felts). Always use the `serializeOrder()` / `serializeToken()` helper functions before returning orders in API responses — never spread raw Prisma objects into `c.json()`.

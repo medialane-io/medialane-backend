@@ -164,7 +164,7 @@ Response headers on every `/v1/*` response:
 - **Path alias**: `@/*` → `src/*` (`tsconfig.json`).
 - **Imports**: `.js` extension in all import paths (ESM bundler resolution).
 - **BigInt**: Starknet amounts + block numbers as `BigInt` in TS; stored as `String` in DB.
-- **Address normalization**: Always `normalizeAddress()` (`src/utils/starknet.ts`) before DB writes. 64-char lowercase 0x-padded hex.
+- **Address normalization**: Always `normalizeAddress()` (`src/utils/starknet.ts`) before DB writes AND before DB queries. 64-char lowercase 0x-padded hex. Applied in all route handlers: `GET /v1/tokens/owned/:address`, `GET /v1/orders/user/:address`, `GET /v1/activities/:address`, `GET /v1/collections?owner=`, and `offerer` filter in `GET /v1/orders`.
 - **Logging**: `createLogger(name)` from `src/utils/logger.ts` (pino). Never `console.log`.
 - **Error shape**: `{ error: string }` — not `{ message }`.
 - **Success shape**: `{ data: T }` for single items; `{ data: T[], meta: { page, limit, total } }` for lists. Exception: search returns `{ data: { tokens, collections }, query }`.
@@ -176,8 +176,10 @@ Response headers on every `/v1/*` response:
 ### CollectionCreated event indexing (added 2026-03-08)
 The mirror now polls the collection registry for `CollectionCreated` events on every tick (alongside marketplace and Transfer events). When detected:
 1. `resolveCollectionCreated()` in `src/mirror/handlers/collectionCreated.ts` calls `get_collection(collection_id)` on the registry to get the `ip_nft` (ERC-721 contract address)
-2. Collection is upserted into DB with owner, name, symbol, baseUri, startBlock
+2. Collection is upserted into DB with owner, name, symbol, baseUri, startBlock, and **collectionId** (the on-chain decimal string registry ID — e.g. `"1"`)
 3. `COLLECTION_METADATA_FETCH` job is enqueued for full enrichment
+
+**`collectionId` field** (added 2026-03-09): stored on `Collection` as `String?`. Required by `POST /v1/intents/mint` to encode the Cairo uint256 collection ID. Collections indexed before this migration will have `collectionId = null` until re-indexed via `POST /admin/collections/backfill-registry`.
 
 **Event data layout**: `[collection_id.low, collection_id.high, owner, ...name_bytearray, ...symbol_bytearray, ...base_uri_bytearray]`. **ip_nft is NOT in the event** — must call `get_collection()` on the registry.
 
