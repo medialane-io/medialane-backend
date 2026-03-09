@@ -4,6 +4,7 @@ import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { env } from "../../config/env.js";
 import { serializeToken } from "../utils/serialize.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 
 const collections = new Hono();
 
@@ -17,7 +18,7 @@ collections.get("/", async (c) => {
   const where: any = { chain: "STARKNET" };
   if (isKnown === "true") where.isKnown = true;
   else if (isKnown === "false") where.isKnown = false;
-  if (owner) where.owner = owner.toLowerCase();
+  if (owner) where.owner = normalizeAddress(owner);
 
   const [data, total] = await Promise.all([
     prisma.collection.findMany({
