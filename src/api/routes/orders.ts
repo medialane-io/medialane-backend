@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
 import { serializeOrder, batchTokenMeta } from "../utils/serialize.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 
 const orders = new Hono();
 
@@ -39,7 +40,7 @@ orders.get("/", async (c) => {
     if (status) conditions.push(Prisma.sql`status = ${status}`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-    if (offerer) conditions.push(Prisma.sql`offerer = ${offerer.toLowerCase()}`);
+    if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
     if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
     if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
     const whereClause = Prisma.join(conditions, " AND ");
@@ -70,7 +71,7 @@ orders.get("/", async (c) => {
     if (status) conditions.push(Prisma.sql`status = ${status}`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-    if (offerer) conditions.push(Prisma.sql`offerer = ${offerer.toLowerCase()}`);
+    if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
     if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
     if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
     const whereClause = Prisma.join(conditions, " AND ");
@@ -96,7 +97,7 @@ orders.get("/", async (c) => {
   if (status) where.status = status as OrderStatus;
   if (collection) where.nftContract = collection.toLowerCase();
   if (currency) where.considerationToken = currency.toLowerCase();
-  if (offerer) where.offerer = offerer.toLowerCase();
+  if (offerer) where.offerer = normalizeAddress(offerer);
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
@@ -149,12 +150,12 @@ orders.get("/user/:address", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
-      where: { chain: "STARKNET", offerer: address.toLowerCase() },
+      where: { chain: "STARKNET", offerer: normalizeAddress(address) },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where: { chain: "STARKNET", offerer: address.toLowerCase() } }),
+    prisma.order.count({ where: { chain: "STARKNET", offerer: normalizeAddress(address) } }),
   ]);
 
   const tokenMeta = await batchTokenMeta(data);
