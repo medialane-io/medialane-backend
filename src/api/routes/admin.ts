@@ -452,4 +452,18 @@ admin.post("/collections/backfill-registry", async (c) => {
   return c.json({ data: { inserted, skipped } });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/indexer/reset-cursor — reset IndexerCursor to INDEXER_START_BLOCK
+// ---------------------------------------------------------------------------
+admin.post("/indexer/reset-cursor", async (c) => {
+  const { START_BLOCK } = await import("../../config/constants.js");
+  await prisma.indexerCursor.upsert({
+    where: { id: "singleton" },
+    update: { lastBlock: START_BLOCK },
+    create: { id: "singleton", lastBlock: START_BLOCK },
+  });
+  log.info({ lastBlock: START_BLOCK }, "IndexerCursor reset");
+  return c.json({ data: { lastBlock: START_BLOCK } });
+});
+
 export default admin;
