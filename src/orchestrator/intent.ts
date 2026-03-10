@@ -3,7 +3,7 @@ import type { TypedData } from "starknet";
 import { Contract, byteArray, num, cairo } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import { IPMarketplaceABI } from "../config/abis.js";
-import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId } from "../config/constants.js";
+import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
@@ -102,7 +102,19 @@ function resolveCollectionContract(override?: string): string {
   return override ? normalizeAddress(override) : COLLECTION_CONTRACT;
 }
 
+/** Convert a human-readable amount (e.g. "1.5") to raw token units as BigInt. */
+function parseAmount(humanAmount: string, decimals: number): bigint {
+  const parts = humanAmount.replace(/,/g, "").split(".");
+  const integer = BigInt(parts[0] || "0");
+  const fraction = (parts[1] || "").padEnd(decimals, "0").slice(0, decimals);
+  return integer * BigInt(10 ** decimals) + BigInt(fraction);
+}
+
 export async function buildCreateListingIntent(body: CreateListingIntentBody) {
+  const token = getTokenByAddress(body.currency);
+  if (!token) throw new Error(`Unsupported currency: ${body.currency}`);
+  const priceWei = parseAmount(body.price, token.decimals);
+
   const nonce = await fetchNonce(body.offerer);
   const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
@@ -120,8 +132,8 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
       item_type: "ERC20",               // shortstring — matches ItemType::ERC20.into() in Cairo
       token: toHex(body.currency),      // ContractAddress
       identifier_or_criteria: toHex("0"),
-      start_amount: toHex(body.price),
-      end_amount: toHex(body.price),
+      start_amount: toHex(priceWei),
+      end_amount: toHex(priceWei),
       recipient: toHex(body.offerer),   // ContractAddress
     },
     start_time: toHex(Math.floor(Date.now() / 1000)),
@@ -137,11 +149,13 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
     message: orderParams,
   };
 
+  // approve(marketplace, tokenId as u256)
+  const tokenIdUint256 = cairo.uint256(body.tokenId);
   const calls = [
     {
       contractAddress: body.nftContract,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, body.tokenId, "0"],
+      calldata: [MARKETPLACE_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
     },
     {
       contractAddress: MARKETPLACE_CONTRACT,
@@ -154,6 +168,10 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
 }
 
 export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
+  const token = getTokenByAddress(body.currency);
+  if (!token) throw new Error(`Unsupported currency: ${body.currency}`);
+  const priceWei = parseAmount(body.price, token.decimals);
+
   const nonce = await fetchNonce(body.offerer);
   const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
@@ -164,8 +182,8 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
       item_type: "ERC20",
       token: toHex(body.currency),
       identifier_or_criteria: toHex("0"),
-      start_amount: toHex(body.price),
-      end_amount: toHex(body.price),
+      start_amount: toHex(priceWei),
+      end_amount: toHex(priceWei),
     },
     consideration: {
       item_type: "ERC721",
@@ -188,11 +206,13 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
     message: orderParams,
   };
 
+  // approve(marketplace, amount as u256)
+  const priceUint256 = cairo.uint256(priceWei);
   const calls = [
     {
       contractAddress: body.currency,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, body.price, "0"],
+      calldata: [MARKETPLACE_CONTRACT, priceUint256.low.toString(), priceUint256.high.toString()],
     },
     {
       contractAddress: MARKETPLACE_CONTRACT,
