@@ -7,7 +7,7 @@ const envSchema = z.object({
   VOYAGER_API_KEY: z.string().default(""),
   MARKETPLACE_CONTRACT_MAINNET: z
     .string()
-    .default("0x059deafbbafbf7051c315cf75a94b03c5547892bc0c6dfa36d7ac7290d4cc33a"),
+    .default("0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f"),
   COLLECTION_CONTRACT_MAINNET: z
     .string()
     .default("0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03"),
