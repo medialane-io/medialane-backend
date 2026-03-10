@@ -454,12 +454,16 @@ admin.post("/collections/backfill-registry", async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /admin/indexer/reset-cursor — reset IndexerCursor to INDEXER_START_BLOCK
+// Optional body: { chain?: "STARKNET" | ... } — defaults to the active mirror chain
 // ---------------------------------------------------------------------------
 admin.post("/indexer/reset-cursor", async (c) => {
   const { resetCursor } = await import("../../mirror/cursor.js");
-  await resetCursor("STARKNET");
+  const { CHAIN } = await import("../../mirror/index.js");
+  const body = await c.req.json().catch(() => ({}));
+  const chain = (body?.chain ?? CHAIN) as typeof CHAIN;
+  await resetCursor(chain);
   const { env } = await import("../../config/env.js");
-  return c.json({ data: { lastBlock: env.INDEXER_START_BLOCK } });
+  return c.json({ data: { chain, lastBlock: env.INDEXER_START_BLOCK } });
 });
 
 export default admin;

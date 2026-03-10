@@ -15,7 +15,7 @@ import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("mirror");
-const CHAIN = "STARKNET" as const;
+export const CHAIN = "STARKNET" as const;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
