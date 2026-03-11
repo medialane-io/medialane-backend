@@ -1,16 +1,11 @@
 import { RpcProvider, num } from "starknet";
 import { env } from "../config/env.js";
 
-let _provider: RpcProvider | null = null;
-
 export function createProvider(): RpcProvider {
-  if (!_provider) {
-    _provider = new RpcProvider({
-      nodeUrl: env.ALCHEMY_RPC_URL,
-      blockIdentifier: "latest",
-    });
-  }
-  return _provider;
+  return new RpcProvider({
+    nodeUrl: env.ALCHEMY_RPC_URL,
+    blockIdentifier: "latest",
+  });
 }
 
 /**
