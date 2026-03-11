@@ -25,7 +25,32 @@ tokens.get("/owned/:address", async (c) => {
     prisma.token.count({ where: { chain: "STARKNET", owner: normalizeAddress(address) } }),
   ]);
 
-  return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
+  // Batch-load active orders for all returned tokens in a single query
+  const activeOrdersAll = data.length > 0
+    ? await prisma.order.findMany({
+        where: {
+          chain: "STARKNET",
+          status: "ACTIVE",
+          OR: data.map((t) => ({ nftContract: t.contractAddress, nftTokenId: t.tokenId })),
+        },
+      })
+    : [];
+
+  // Group orders by (contractAddress, tokenId)
+  const ordersByToken = new Map<string, typeof activeOrdersAll>();
+  for (const order of activeOrdersAll) {
+    const key = `${order.nftContract}:${order.nftTokenId}`;
+    const existing = ordersByToken.get(key) ?? [];
+    existing.push(order);
+    ordersByToken.set(key, existing);
+  }
+
+  return c.json({
+    data: data.map((t) =>
+      serializeToken(t, ordersByToken.get(`${t.contractAddress}:${t.tokenId}`) ?? [])
+    ),
+    meta: { page, limit, total },
+  });
 });
 
 // GET /v1/tokens/:contract/:tokenId
