@@ -108,7 +108,7 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/orders/:orderHash` | |
 | GET | `/v1/orders/token/:contract/:tokenId` | Active orders only |
 | GET | `/v1/orders/user/:address` | `page`, `limit` |
-| GET | `/v1/collections` | `page`, `limit`, `?owner=address`, `?isKnown=true` |
+| GET | `/v1/collections` | `page` (max clamped), `limit` (max 100), `?owner=address`, `?isKnown=true\|false`, `?sort=recent\|supply\|floor\|volume\|name` (default: `recent` = `createdAt DESC`). `floor`/`volume` use `$queryRaw` with `::numeric NULLS LAST`. |
 | GET | `/v1/collections/:contract` | |
 | GET | `/v1/collections/:contract/tokens` | `page`, `limit` |
 | GET | `/v1/tokens/owned/:address` | `page`, `limit` |

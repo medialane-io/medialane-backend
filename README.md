@@ -57,7 +57,9 @@ GET  /v1/tokens/:contract/:tokenId/history Transfer + order history
 
 ### Collections
 ```
-GET  /v1/collections                      All collections (floor price, volume, holders)
+GET  /v1/collections                      All collections (sort, page, limit, isKnown, owner)
+GET  /v1/collections?sort=recent          Sort: recent (default) | supply | volume | floor | name
+GET  /v1/collections?isKnown=true         Verified collections only
 GET  /v1/collections?owner=:address       Collections owned by address (includes collectionId)
 GET  /v1/collections/:contract            Single collection
 GET  /v1/collections/:contract/tokens     Tokens in collection
@@ -222,6 +224,9 @@ Prisma fields `startTime`, `endTime`, and `createdBlockNumber` are stored as `St
 
 ### Price sorting
 `priceRaw` is a String column. Sorting uses `$queryRaw` with `::numeric NULLS LAST` cast — do not change to ORM sort.
+
+### Collections sort
+`GET /v1/collections` supports `sort` query param with values: `recent` (default, `createdAt DESC`), `supply` (`totalSupply DESC`), `name` (`name ASC`), `floor` (`floorPrice::numeric ASC NULLS LAST` — raw SQL), `volume` (`totalVolume::numeric DESC NULLS LAST` — raw SQL). Floor and volume use `$queryRaw` because the columns are stored as `String` in the DB. Page/limit are clamped: `limit = min(100, max(1, …))`, `page = max(1, …)`.
 
 ---
 
