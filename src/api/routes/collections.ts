@@ -5,6 +5,13 @@ import { authMiddleware } from "../middleware/auth.js";
 import { env } from "../../config/env.js";
 import { serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { RpcProvider, num as starkNum } from "starknet";
+import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
+import { enqueueJob } from "../../orchestrator/queue.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("routes:collections");
 
 const collections = new Hono();
 
@@ -60,6 +67,81 @@ collections.get("/:contract/tokens", async (c) => {
   ]);
 
   return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
+});
+
+// POST /v1/collections/sync-tx — immediately index a CollectionCreated event from a tx receipt
+// Call this right after a create_collection tx is confirmed to make the collection appear instantly.
+collections.post("/sync-tx", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ txHash: z.string().min(1) }).safeParse(body);
+  if (!parsed.success) return c.json({ error: "txHash required" }, 400);
+
+  const { txHash } = parsed.data;
+  try {
+    const provider = new RpcProvider({ nodeUrl: env.ALCHEMY_RPC_URL });
+    const receipt = await provider.getTransactionReceipt(txHash);
+
+    const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
+    const events = (receipt as any).events ?? [];
+    const collectionEvents = events.filter(
+      (e: any) =>
+        e.from_address?.toLowerCase() === COLLECTION_CONTRACT.toLowerCase() &&
+        e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
+    );
+
+    if (collectionEvents.length === 0) {
+      return c.json({ data: { synced: 0, message: "No CollectionCreated event found in this transaction" } });
+    }
+
+    let synced = 0;
+    for (const event of collectionEvents) {
+      const data = event.data;
+      if (!data || data.length < 3) continue;
+      const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
+      const owner = normalizeAddress(data[2]);
+      const blockNumber = BigInt(event.block_number ?? 0);
+
+      const resolved = await resolveCollectionCreated({
+        type: "CollectionCreated",
+        collectionId,
+        owner,
+        blockNumber,
+        txHash,
+        logIndex: 0,
+      });
+      if (!resolved) continue;
+
+      await prisma.collection.upsert({
+        where: { chain_contractAddress: { chain: "STARKNET", contractAddress: resolved.contractAddress } },
+        create: {
+          chain: "STARKNET",
+          contractAddress: resolved.contractAddress,
+          collectionId,
+          name: resolved.name ?? undefined,
+          symbol: resolved.symbol ?? undefined,
+          baseUri: resolved.baseUri ?? undefined,
+          owner: resolved.owner,
+          startBlock: resolved.startBlock,
+          metadataStatus: "PENDING",
+        },
+        update: {
+          collectionId,
+          name: resolved.name ?? undefined,
+          symbol: resolved.symbol ?? undefined,
+          owner: resolved.owner,
+        },
+      });
+
+      await enqueueJob("COLLECTION_METADATA_FETCH", { chain: "STARKNET", contractAddress: resolved.contractAddress });
+      synced++;
+      log.info({ txHash, contractAddress: resolved.contractAddress, owner }, "Collection synced from tx");
+    }
+
+    return c.json({ data: { synced } });
+  } catch (err) {
+    log.error({ err, txHash }, "sync-tx failed");
+    return c.json({ error: String(err) }, 500);
+  }
 });
 
 // POST /v1/collections — register a collection (admin)
