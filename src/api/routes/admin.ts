@@ -423,6 +423,7 @@ admin.post("/collections/backfill-registry", async (c) => {
         create: {
           chain: "STARKNET",
           contractAddress: resolved.contractAddress,
+          collectionId,
           name: resolved.name ?? undefined,
           symbol: resolved.symbol ?? undefined,
           baseUri: resolved.baseUri ?? undefined,
@@ -431,6 +432,7 @@ admin.post("/collections/backfill-registry", async (c) => {
           metadataStatus: "PENDING",
         },
         update: {
+          collectionId,
           name: resolved.name ?? undefined,
           symbol: resolved.symbol ?? undefined,
           owner: resolved.owner,

@@ -17,21 +17,27 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("mirror");
 export const CHAIN = "STARKNET" as const;
 
+// Blocks behind the chain tip before we skip the poll sleep to catch up faster.
+const CATCHUP_THRESHOLD = 1000;
+
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
   while (true) {
-    // A short tickId lets you grep all log lines from one polling cycle
     const tickId = randomUUID().slice(0, 8);
+    let lagBlocks = 0;
     try {
-      await tick(tickId);
+      lagBlocks = await tick(tickId);
     } catch (err) {
       log.error({ err, tickId }, "Mirror tick error");
     }
-    await sleep(env.INDEXER_POLL_INTERVAL_MS);
+    // Skip sleep when catching up so we process batches back-to-back.
+    if (lagBlocks <= CATCHUP_THRESHOLD) {
+      await sleep(env.INDEXER_POLL_INTERVAL_MS);
+    }
   }
 }
 
-async function tick(tickId: string): Promise<void> {
+async function tick(tickId: string): Promise<number> {
   const tlog = log.child({ tickId });
 
   const cursor = await loadCursor(CHAIN);
@@ -41,16 +47,16 @@ async function tick(tickId: string): Promise<void> {
 
   if (fromBlock > toBlock) {
     tlog.debug({ fromBlock, toBlock, latestBlock }, "Caught up, nothing to index");
-    return;
+    return 0;
   }
 
   tlog.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
 
-  // Load all known NFT collection contracts from the DB.
-  // Each deployed collection is a separate contract — Transfer (mint) events are emitted
-  // from those contracts, NOT from COLLECTION_CONTRACT (the registry).
+  // Load NFT collection contracts that existed at or before the current block range.
+  // Filtering by startBlock prevents querying contracts that don't exist yet, which
+  // avoids hammering the RPC with guaranteed-empty requests and causing rate-limit hangs.
   const knownCollections = await prisma.collection.findMany({
-    where: { chain: CHAIN },
+    where: { chain: CHAIN, startBlock: { lte: BigInt(toBlock) } },
     select: { contractAddress: true },
   });
   const nftContracts = knownCollections.map((c) => c.contractAddress);
@@ -232,4 +238,5 @@ async function tick(tickId: string): Promise<void> {
     },
     "Batch complete"
   );
+  return latestBlock - toBlock;
 }
