@@ -128,7 +128,7 @@ async function tick(tickId: string): Promise<number> {
       // Cursor advances atomically with the event writes
       await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
     },
-    { timeout: 30000 }
+    { timeout: 60000 }
   );
 
   // Resolve CollectionCreated events outside the transaction (requires RPC call)
