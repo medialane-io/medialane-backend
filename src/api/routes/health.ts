@@ -26,14 +26,21 @@ health.get("/", async (c) => {
       where: { chain: "STARKNET" },
     });
     if (cursor) {
-      const provider = createProvider();
-      const block = await provider.getBlockWithTxHashes("latest");
-      const latestBlock = (block as any).block_number as number;
-      const lag = latestBlock - Number(cursor.lastBlock);
+      // Try to get chain tip — if Alchemy is rate-limited just omit it
+      let latestBlock: number | undefined;
+      try {
+        const provider = createProvider();
+        const block = await Promise.race([
+          provider.getBlockWithTxHashes("latest"),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+        ]);
+        latestBlock = (block as any).block_number as number;
+      } catch {
+        // non-fatal — report lastBlock only
+      }
       checks.indexer = {
         lastBlock: cursor.lastBlock.toString(),
-        latestBlock,
-        lagBlocks: lag,
+        ...(latestBlock != null ? { latestBlock, lagBlocks: latestBlock - Number(cursor.lastBlock) } : {}),
       };
     } else {
       checks.indexer = "not started";
