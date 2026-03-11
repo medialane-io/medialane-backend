@@ -19,6 +19,8 @@ export const CHAIN = "STARKNET" as const;
 
 // Blocks behind the chain tip before we skip the poll sleep to catch up faster.
 const CATCHUP_THRESHOLD = 1000;
+// Abort a hung tick after this many ms to prevent the loop from freezing.
+const TICK_TIMEOUT_MS = 60_000;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -26,7 +28,12 @@ export async function startMirror(): Promise<void> {
     const tickId = randomUUID().slice(0, 8);
     let lagBlocks = 0;
     try {
-      lagBlocks = await tick(tickId);
+      lagBlocks = await Promise.race([
+        tick(tickId),
+        new Promise<number>((_, reject) =>
+          setTimeout(() => reject(new Error(`tick timed out after ${TICK_TIMEOUT_MS}ms`)), TICK_TIMEOUT_MS)
+        ),
+      ]);
     } catch (err) {
       log.error({ err, tickId }, "Mirror tick error");
     }
