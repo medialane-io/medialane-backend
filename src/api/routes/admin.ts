@@ -463,9 +463,12 @@ admin.post("/indexer/reset-cursor", async (c) => {
   const { CHAIN } = await import("../../mirror/index.js");
   const body = await c.req.json().catch(() => ({}));
   const chain = (body?.chain ?? CHAIN) as typeof CHAIN;
-  await resetCursor(chain);
+  // Optional `block` param lets you advance/rewind the cursor to any block.
+  const toBlock = body?.block != null ? BigInt(body.block) : undefined;
+  await resetCursor(chain, toBlock);
   const { env } = await import("../../config/env.js");
-  return c.json({ data: { chain, lastBlock: env.INDEXER_START_BLOCK } });
+  const lastBlock = toBlock != null ? toBlock.toString() : env.INDEXER_START_BLOCK;
+  return c.json({ data: { chain, lastBlock } });
 });
 
 export default admin;
