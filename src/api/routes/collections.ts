@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { env } from "../../config/env.js";
@@ -15,25 +16,66 @@ const log = createLogger("routes:collections");
 
 const collections = new Hono();
 
+// Valid sort values for GET /v1/collections
+const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
+type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
+
 // GET /v1/collections
 collections.get("/", async (c) => {
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const isKnown = c.req.query("isKnown");
-  const owner = c.req.query("owner");
+  const owner   = c.req.query("owner");
+  const sortRaw = c.req.query("sort") ?? "recent";
+  const sort: CollectionSort = (COLLECTION_SORT_VALUES as readonly string[]).includes(sortRaw)
+    ? (sortRaw as CollectionSort)
+    : "recent";
 
+  const skip = (page - 1) * limit;
+
+  // floor and volume are String? columns — need ::numeric cast via raw SQL
+  if (sort === "floor" || sort === "volume") {
+    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+    if (isKnown === "true")  conditions.push(Prisma.sql`"isKnown" = true`);
+    if (isKnown === "false") conditions.push(Prisma.sql`"isKnown" = false`);
+    if (owner) conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
+    const whereClause = Prisma.join(conditions, " AND ");
+
+    const orderExpr = sort === "floor"
+      ? Prisma.sql`"floorPrice"::numeric ASC NULLS LAST`
+      : Prisma.sql`"totalVolume"::numeric DESC NULLS LAST`;
+
+    const [data, rawTotal] = await Promise.all([
+      prisma.$queryRaw<any[]>`
+        SELECT * FROM "Collection"
+        WHERE ${whereClause}
+        ORDER BY ${orderExpr}
+        LIMIT ${limit} OFFSET ${skip}
+      `,
+      prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*) AS count FROM "Collection" WHERE ${whereClause}
+      `,
+    ]);
+
+    return c.json({
+      data:  data.map(serializeCollection),
+      meta:  { page, limit, total: Number(rawTotal[0].count) },
+    });
+  }
+
+  // ORM path for recent / supply / name
   const where: any = { chain: "STARKNET" };
-  if (isKnown === "true") where.isKnown = true;
-  else if (isKnown === "false") where.isKnown = false;
+  if (isKnown === "true")  where.isKnown = true;
+  if (isKnown === "false") where.isKnown = false;
   if (owner) where.owner = normalizeAddress(owner);
 
+  const orderBy =
+    sort === "supply" ? { totalSupply: "desc" as const } :
+    sort === "name"   ? { name: "asc"  as const }        :
+                        { createdAt: "desc" as const };  // "recent" — new default
+
   const [data, total] = await Promise.all([
-    prisma.collection.findMany({
-      where,
-      orderBy: { totalSupply: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
+    prisma.collection.findMany({ where, orderBy, skip, take: limit }),
     prisma.collection.count({ where }),
   ]);
 
