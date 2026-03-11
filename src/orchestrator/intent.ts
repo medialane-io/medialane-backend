@@ -136,7 +136,7 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
       end_amount: toHex(priceWei),
       recipient: toHex(body.offerer),   // ContractAddress
     },
-    start_time: toHex(Math.floor(Date.now() / 1000)),
+    start_time: toHex(Math.floor(Date.now() / 1000) + 300), // 5-min future buffer (contract requires start_time > block.timestamp)
     end_time: toHex(body.endTime),
     salt: toHex(salt),
     nonce: toHex(nonce),
@@ -193,7 +193,7 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
       end_amount: toHex("1"),
       recipient: toHex(body.offerer),
     },
-    start_time: toHex(Math.floor(Date.now() / 1000)),
+    start_time: toHex(Math.floor(Date.now() / 1000) + 300), // 5-min future buffer (contract requires start_time > block.timestamp)
     end_time: toHex(body.endTime),
     salt: toHex(salt),
     nonce: toHex(nonce),
