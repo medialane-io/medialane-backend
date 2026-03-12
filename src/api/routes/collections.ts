@@ -87,7 +87,7 @@ collections.get("/", async (c) => {
 collections.get("/:contract", async (c) => {
   const { contract } = c.req.param();
   const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
   return c.json({ data: serializeCollection(col) });
@@ -98,15 +98,16 @@ collections.get("/:contract/tokens", async (c) => {
   const { contract } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
+  const addr = normalizeAddress(contract);
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain: "STARKNET", contractAddress: contract.toLowerCase() },
+      where: { chain: "STARKNET", contractAddress: addr },
       orderBy: { tokenId: "asc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.token.count({ where: { chain: "STARKNET", contractAddress: contract.toLowerCase() } }),
+    prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr } }),
   ]);
 
   return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });

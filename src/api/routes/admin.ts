@@ -8,6 +8,7 @@ import { handleMetadataFetch } from "../../orchestrator/metadata.js";
 import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMetadata.js";
 import { enqueueJob } from "../../orchestrator/queue.js";
 import { createLogger } from "../../utils/logger.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -286,7 +287,7 @@ admin.post("/collections", async (c) => {
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
   const { contractAddress: rawAddr, chain, startBlock } = parsed.data;
-  const contractAddress = rawAddr.toLowerCase();
+  const contractAddress = normalizeAddress(rawAddr);
 
   const col = await prisma.collection.upsert({
     where: { chain_contractAddress: { chain: chain as any, contractAddress } },
@@ -320,13 +321,17 @@ admin.patch("/collections/:contract", async (c) => {
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
   const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
 
+  const updateData = {
+    ...parsed.data,
+    ...(parsed.data.owner ? { owner: normalizeAddress(parsed.data.owner) } : {}),
+  };
   const updated = await prisma.collection.update({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
-    data: parsed.data,
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
+    data: updateData,
   });
 
   return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, isKnown: updated.isKnown } });
