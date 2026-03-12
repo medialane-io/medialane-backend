@@ -9,7 +9,7 @@ Guidance for Claude Code when working in this repository.
 ~/.bun/bin/bun run dev          # watch mode
 ~/.bun/bin/bun run start        # production
 
-~/.bun/bin/bun run db:migrate   # Prisma migrate dev (prompts for migration name)
+~/.bun/bin/bun run db:migrate   # Prisma migrate dev (prompts for migration name) — ALWAYS run this when adding schema fields
 ~/.bun/bin/bun run db:generate  # regenerate Prisma client after schema changes
 ~/.bun/bin/bun run db:push      # push schema without a migration file
 ~/.bun/bin/bun run db:studio    # Prisma Studio at localhost:5555
@@ -164,7 +164,7 @@ Response headers on every `/v1/*` response:
 - **Path alias**: `@/*` → `src/*` (`tsconfig.json`).
 - **Imports**: `.js` extension in all import paths (ESM bundler resolution).
 - **BigInt**: Starknet amounts + block numbers as `BigInt` in TS; stored as `String` in DB.
-- **Address normalization**: Always `normalizeAddress()` (`src/utils/starknet.ts`) before DB writes AND before DB queries. 64-char lowercase 0x-padded hex. Applied in all route handlers: `GET /v1/tokens/owned/:address`, `GET /v1/orders/user/:address`, `GET /v1/activities/:address`, `GET /v1/collections?owner=`, and `offerer` filter in `GET /v1/orders`.
+- **Address normalization**: Always `normalizeAddress()` (`src/utils/starknet.ts`) before DB writes AND before DB queries. 64-char lowercase 0x-padded hex. Applied in all route handlers: `GET /v1/tokens/owned/:address`, `GET /v1/orders/user/:address`, `GET /v1/activities/:address`, `GET /v1/collections?owner=`, `GET /v1/collections/:contract`, `GET /v1/collections/:contract/tokens`, all `/admin/collections/*` routes, and `offerer` filter in `GET /v1/orders`. **Never use `.toLowerCase()` alone** — it does not pad short addresses and causes "not found" mismatches.
 - **Logging**: `createLogger(name)` from `src/utils/logger.ts` (pino). Never `console.log`.
 - **Error shape**: `{ error: string }` — not `{ message }`.
 - **Success shape**: `{ data: T }` for single items; `{ data: T[], meta: { page, limit, total } }` for lists. Exception: search returns `{ data: { tokens, collections }, query }`.
@@ -232,6 +232,8 @@ All order-returning endpoints (list, single, by-token, by-user) call `batchToken
 ## Database
 
 Prisma v5 + PostgreSQL.
+
+> **CRITICAL**: When adding a field to `schema.prisma`, you MUST also run `db:migrate` to generate a migration SQL file. Editing the schema alone does NOT update the production DB. Railway runs `prisma migrate deploy` on startup — if no migration file exists, the new column is absent in prod and any Prisma call that touches it will throw a runtime error (e.g. "column does not exist"). This caused a P0 incident on 2026-03-12 where `reaperAttempts`, `attemptCount`, and `isTerminal` were added to the schema without a migration, breaking all `job.create` calls and stalling the entire indexer/orchestrator.
 
 Key tables: `Tenant`, `ApiKey`, `Order`, `Token`, `Collection`, `Transfer`, `Job`, `IndexerCursor`, `MetadataCache`, `UsageLog`, `WebhookEndpoint`, `TransactionIntent`, `AuditLog`
 
