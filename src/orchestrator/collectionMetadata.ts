@@ -3,6 +3,7 @@ import { type Chain, type Prisma } from "@prisma/client";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
+import { enqueueJob } from "./queue.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
@@ -148,6 +149,14 @@ export async function handleCollectionMetadataFetch(payload: {
       { chain, contractAddress, name, symbol, baseUri, description },
       "Collection on-chain metadata fetched"
     );
+
+    // Always run a stats update after metadata fetch so totalSupply, holderCount,
+    // and image/description backfill from tokens are applied immediately.
+    try {
+      await enqueueJob("STATS_UPDATE", { chain, contractAddress });
+    } catch (statsErr) {
+      log.warn({ statsErr, chain, contractAddress }, "Failed to enqueue STATS_UPDATE after metadata fetch");
+    }
   } catch (err) {
     log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
     await prisma.collection.upsert({

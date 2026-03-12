@@ -6,6 +6,7 @@ import prisma from "../../db/client.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../orchestrator/metadata.js";
 import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMetadata.js";
+import { handleStatsUpdate } from "../../orchestrator/stats.js";
 import { enqueueJob } from "../../orchestrator/queue.js";
 import { createLogger } from "../../utils/logger.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -342,12 +343,32 @@ admin.patch("/collections/:contract", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/collections/:contract/refresh", async (c) => {
   const { contract } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
   try {
-    await handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress: contract.toLowerCase() });
+    await handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress });
+    // Also enqueue stats update to backfill totalSupply, holderCount, and image/description from tokens
+    await enqueueJob("STATS_UPDATE", { chain: "STARKNET", contractAddress });
     const col = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract.toLowerCase() } },
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
     });
     return c.json({ data: { metadataStatus: col?.metadataStatus, name: col?.name, symbol: col?.symbol } });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/collections/:contract/stats-refresh — force sync stats + backfill image/description
+// ---------------------------------------------------------------------------
+admin.post("/collections/:contract/stats-refresh", async (c) => {
+  const { contract } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+  try {
+    await handleStatsUpdate({ chain: "STARKNET", contractAddress });
+    const col = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    });
+    return c.json({ data: { totalSupply: col?.totalSupply, holderCount: col?.holderCount, image: col?.image, description: col?.description } });
   } catch (err) {
     return c.json({ error: String(err) }, 500);
   }
