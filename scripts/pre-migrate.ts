@@ -1,8 +1,6 @@
 /**
  * pre-migrate.ts — runs before `prisma migrate deploy` on every Railway startup.
- *
- * Directly applies any DB changes that are stuck in failed migrations,
- * so `prisma migrate deploy` can proceed cleanly.
+ * Directly applies any DB changes that are stuck in failed migrations.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -28,21 +26,35 @@ async function markApplied(name: string) {
 }
 
 async function main() {
-  // ── 1. Add missing columns from migration 20260312000001 ─────────────────
-  // These columns were added to the Prisma schema but the migration SQL never
-  // ran in production, causing every job.create / job.findFirst to fail.
+  // ── 1. FTS indexes — CREATE INDEX CONCURRENTLY cannot run inside a Prisma
+  //    migration transaction, so the migration always failed. Create them here
+  //    without CONCURRENTLY (safe, just briefly locks the table). ─────────────
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_token_fts ON "Token" USING GIN (
+      to_tsvector('english',
+        coalesce(name, '') || ' ' || coalesce(description, '') || ' ' ||
+        "contractAddress" || ' ' || "tokenId"
+      )
+    )
+  `;
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_collection_fts ON "Collection" USING GIN (
+      to_tsvector('english', coalesce(name, '') || ' ' || "contractAddress")
+    )
+  `;
+  await markApplied("20260312000000_add_fts_indexes");
+
+  // ── 2. Add missing Job/WebhookDelivery columns from migration 00001 ───────
   await prisma.$executeRaw`ALTER TABLE "Job" ADD COLUMN IF NOT EXISTS "reaperAttempts" INTEGER NOT NULL DEFAULT 0`;
   await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0`;
   await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "isTerminal" BOOLEAN NOT NULL DEFAULT false`;
-  console.log("[pre-migrate] Job/WebhookDelivery columns ensured.");
-
   await markApplied("20260312000001_add_job_reaper_and_delivery_tracking");
 
-  // ── 2. Mark 20260312000002 as applied (its UPDATE failed on unique constraint;
-  //    migration 20260312000003 does the actual cleanup below) ───────────────
+  // ── 3. Mark 00002 as applied (its UPDATE failed on unique constraint;
+  //    migration 00003 does the actual cleanup below) ────────────────────────
   await markApplied("20260312000002_normalize_collection_addresses");
 
-  // ── 3. Re-point Token rows referencing short-address collections ──────────
+  // ── 4. Re-point Token rows referencing short-address collections ──────────
   await prisma.$executeRaw`
     UPDATE "Token"
     SET "contractAddress" = '0x' || lpad(substring("contractAddress" FROM 3), 64, '0')
@@ -54,7 +66,7 @@ async function main() {
       )
   `;
 
-  // ── 4. Delete duplicate short-address Collection rows ────────────────────
+  // ── 5. Delete duplicate short-address Collection rows ────────────────────
   await prisma.$executeRaw`
     DELETE FROM "Collection"
     WHERE length(substring("contractAddress" FROM 3)) < 64
@@ -65,7 +77,7 @@ async function main() {
       )
   `;
 
-  // ── 5. Normalize any remaining short-address collections / owners ─────────
+  // ── 6. Normalize any remaining short-address collections / owners ─────────
   await prisma.$executeRaw`
     UPDATE "Collection"
     SET "contractAddress" = '0x' || lpad(substring("contractAddress" FROM 3), 64, '0')
@@ -75,6 +87,13 @@ async function main() {
     UPDATE "Collection"
     SET "owner" = '0x' || lpad(substring("owner" FROM 3), 64, '0')
     WHERE "owner" IS NOT NULL AND length(substring("owner" FROM 3)) < 64
+  `;
+
+  // ── 7. Mark permanently-failing METADATA_PIN jobs as DONE so the reaper
+  //    stops re-queuing them (Pinata free plan doesn't support pin_by_cid) ───
+  await prisma.$executeRaw`
+    UPDATE "Job" SET status = 'DONE'
+    WHERE type = 'METADATA_PIN' AND status IN ('FAILED', 'PENDING')
   `;
 
   console.log("[pre-migrate] Done.");

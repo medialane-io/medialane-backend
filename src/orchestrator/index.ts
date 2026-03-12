@@ -61,7 +61,8 @@ async function processNextJob(): Promise<void> {
     await completeJob(job.id);
     jlog.debug("Job complete");
   } catch (err: unknown) {
-    jlog.error({ err }, "Job failed");
-    await failJob(job.id, toErrorMessage(err));
+    const msg = toErrorMessage(err);
+    jlog.error({ err, errMsg: msg }, `Job failed: ${msg}`);
+    await failJob(job.id, msg);
   }
 }
