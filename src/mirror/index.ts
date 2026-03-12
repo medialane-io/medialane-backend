@@ -7,7 +7,7 @@ import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
-import { enqueueJob } from "../orchestrator/queue.js";
+import { enqueueJobTx } from "../orchestrator/queue.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
@@ -137,31 +137,33 @@ async function tick(tickId: string): Promise<number> {
     const resolved = await resolveCollectionCreated(event);
     if (!resolved) continue;
 
-    await prisma.collection.upsert({
-      where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
-      create: {
+    await prisma.$transaction(async (tx2) => {
+      await tx2.collection.upsert({
+        where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
+        create: {
+          chain: CHAIN,
+          contractAddress: resolved.contractAddress,
+          collectionId: event.collectionId,
+          name: resolved.name ?? undefined,
+          symbol: resolved.symbol ?? undefined,
+          baseUri: resolved.baseUri ?? undefined,
+          owner: resolved.owner,
+          startBlock: resolved.startBlock,
+          metadataStatus: "PENDING",
+        },
+        update: {
+          // Don't overwrite admin-set values
+          collectionId: event.collectionId,
+          name: resolved.name ?? undefined,
+          symbol: resolved.symbol ?? undefined,
+          owner: resolved.owner,
+        },
+      });
+
+      await enqueueJobTx(tx2, "COLLECTION_METADATA_FETCH", {
         chain: CHAIN,
         contractAddress: resolved.contractAddress,
-        collectionId: event.collectionId,
-        name: resolved.name ?? undefined,
-        symbol: resolved.symbol ?? undefined,
-        baseUri: resolved.baseUri ?? undefined,
-        owner: resolved.owner,
-        startBlock: resolved.startBlock,
-        metadataStatus: "PENDING",
-      },
-      update: {
-        // Don't overwrite admin-set values
-        collectionId: event.collectionId,
-        name: resolved.name ?? undefined,
-        symbol: resolved.symbol ?? undefined,
-        owner: resolved.owner,
-      },
-    });
-
-    await enqueueJob("COLLECTION_METADATA_FETCH", {
-      chain: CHAIN,
-      contractAddress: resolved.contractAddress,
+      });
     });
 
     affectedContracts.add(resolved.contractAddress);
@@ -182,47 +184,49 @@ async function tick(tickId: string): Promise<number> {
   // Merge all affected contracts for job enqueueing
   const allAffectedContracts = new Set([...affectedContracts, ...orderNftContracts]);
 
-  // Enqueue background jobs outside the transaction
-  const pendingTokens = await prisma.token.findMany({
-    where: {
-      chain: CHAIN,
-      contractAddress: { in: Array.from(allAffectedContracts) },
-      metadataStatus: "PENDING",
-      tokenUri: null,
-    },
-    select: { contractAddress: true, tokenId: true },
-    take: 200,
-  });
-
-  for (const token of pendingTokens) {
-    await enqueueJob("METADATA_FETCH", {
-      chain: CHAIN,
-      contractAddress: token.contractAddress,
-      tokenId: token.tokenId,
+  // Enqueue background jobs — each findMany+enqueue pair is atomic
+  await prisma.$transaction(async (tx) => {
+    const pendingTokens = await tx.token.findMany({
+      where: {
+        chain: CHAIN,
+        contractAddress: { in: Array.from(allAffectedContracts) },
+        metadataStatus: "PENDING",
+        tokenUri: null,
+      },
+      select: { contractAddress: true, tokenId: true },
+      take: 200,
     });
-  }
 
-  // Enqueue COLLECTION_METADATA_FETCH for any collection whose on-chain metadata
-  // hasn't been indexed yet (name/symbol from contract view calls)
-  const pendingCollections = await prisma.collection.findMany({
-    where: {
-      chain: CHAIN,
-      contractAddress: { in: Array.from(allAffectedContracts) },
-      metadataStatus: "PENDING",
-    },
-    select: { contractAddress: true },
-  });
+    for (const token of pendingTokens) {
+      await enqueueJobTx(tx, "METADATA_FETCH", {
+        chain: CHAIN,
+        contractAddress: token.contractAddress,
+        tokenId: token.tokenId,
+      });
+    }
 
-  for (const col of pendingCollections) {
-    await enqueueJob("COLLECTION_METADATA_FETCH", {
-      chain: CHAIN,
-      contractAddress: col.contractAddress,
+    // Enqueue COLLECTION_METADATA_FETCH for any collection whose on-chain metadata
+    // hasn't been indexed yet (name/symbol from contract view calls)
+    const pendingCollections = await tx.collection.findMany({
+      where: {
+        chain: CHAIN,
+        contractAddress: { in: Array.from(allAffectedContracts) },
+        metadataStatus: "PENDING",
+      },
+      select: { contractAddress: true },
     });
-  }
 
-  for (const contract of allAffectedContracts) {
-    await enqueueJob("STATS_UPDATE", { chain: CHAIN, contractAddress: contract });
-  }
+    for (const col of pendingCollections) {
+      await enqueueJobTx(tx, "COLLECTION_METADATA_FETCH", {
+        chain: CHAIN,
+        contractAddress: col.contractAddress,
+      });
+    }
+
+    for (const contract of allAffectedContracts) {
+      await enqueueJobTx(tx, "STATS_UPDATE", { chain: CHAIN, contractAddress: contract });
+    }
+  });
 
   // Fan out webhook deliveries for each parsed event (fire-and-forget errors)
   for (const event of parsedEvents) {
@@ -241,7 +245,7 @@ async function tick(tickId: string): Promise<number> {
       collectionCreatedEvents: collectionCreatedEvents.length,
       parsed: parsedEvents.length,
       orderNftContracts: orderNftContracts.size,
-      metadataJobs: pendingTokens.length,
+      metadataJobs: allAffectedContracts.size,
     },
     "Batch complete"
   );

@@ -7,6 +7,7 @@ const log = createLogger("orchestrator:webhook");
 
 const TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BODY = 2_000;
+const MAX_DELIVERY_ATTEMPTS = 5;
 
 export async function handleWebhookDeliver(payload: { deliveryId: string }): Promise<void> {
   const { deliveryId } = payload;
@@ -20,6 +21,12 @@ export async function handleWebhookDeliver(payload: { deliveryId: string }): Pro
     log.warn({ deliveryId }, "Delivery not found — skipping");
     return; // don't retry
   }
+
+  // Increment attempt counter atomically before attempting delivery
+  await prisma.webhookDelivery.update({
+    where: { id: deliveryId },
+    data: { attemptCount: { increment: 1 } },
+  });
 
   if (delivery.endpoint.status === "DISABLED") {
     log.info({ deliveryId, endpointId: delivery.endpoint.id }, "Endpoint disabled — skipping");
@@ -74,11 +81,13 @@ export async function handleWebhookDeliver(payload: { deliveryId: string }): Pro
 
     log.debug({ deliveryId, statusCode }, "Webhook delivered");
   } catch (err: unknown) {
+    const isTerminal = (delivery.attemptCount + 1) >= MAX_DELIVERY_ATTEMPTS;
     await prisma.webhookDelivery.update({
       where: { id: deliveryId },
       data: {
         statusCode: statusCode ?? null,
         responseBody: responseBody ?? toErrorMessage(err).slice(0, MAX_RESPONSE_BODY),
+        ...(isTerminal ? { isTerminal: true } : {}),
       },
     }).catch((updateErr) =>
       log.warn({ updateErr, deliveryId }, "Failed to update delivery record after error")

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import type { RawCollectionRow, RawCountRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { env } from "../../config/env.js";
@@ -46,13 +47,13 @@ collections.get("/", async (c) => {
       : Prisma.sql`"totalVolume"::numeric DESC NULLS LAST`;
 
     const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<any[]>`
+      prisma.$queryRaw<RawCollectionRow[]>`
         SELECT * FROM "Collection"
         WHERE ${whereClause}
         ORDER BY ${orderExpr}
         LIMIT ${limit} OFFSET ${skip}
       `,
-      prisma.$queryRaw<[{ count: bigint }]>`
+      prisma.$queryRaw<RawCountRow[]>`
         SELECT COUNT(*) AS count FROM "Collection" WHERE ${whereClause}
       `,
     ]);

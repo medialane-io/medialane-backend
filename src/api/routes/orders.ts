@@ -5,6 +5,7 @@ import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
 import { serializeOrder, batchTokenMeta } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 
 const orders = new Hono();
 
@@ -18,7 +19,19 @@ const listQuerySchema = z.object({
   offerer: z.string().optional(),
   minPrice: z.string().optional(),
   maxPrice: z.string().optional(),
-});
+}).refine(
+  (data) => {
+    if (data.minPrice !== undefined && data.maxPrice !== undefined) {
+      try {
+        return BigInt(data.minPrice) <= BigInt(data.maxPrice);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  },
+  { message: "minPrice must be less than or equal to maxPrice", path: ["minPrice"] }
+);
 
 // GET /v1/orders
 orders.get("/", async (c) => {
@@ -46,13 +59,13 @@ orders.get("/", async (c) => {
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<any[]>`
+      prisma.$queryRaw<RawOrderRow[]>`
         SELECT * FROM "Order"
         WHERE ${whereClause}
         ORDER BY "priceRaw"::numeric ${dir} NULLS LAST
         LIMIT ${limit} OFFSET ${skip}
       `,
-      prisma.$queryRaw<[{ count: bigint }]>`
+      prisma.$queryRaw<RawCountRow[]>`
         SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
       `,
     ]);
@@ -77,11 +90,11 @@ orders.get("/", async (c) => {
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<any[]>`
+      prisma.$queryRaw<RawOrderRow[]>`
         SELECT * FROM "Order" WHERE ${whereClause}
         ORDER BY "createdAt" DESC LIMIT ${limit} OFFSET ${skip}
       `,
-      prisma.$queryRaw<[{ count: bigint }]>`
+      prisma.$queryRaw<RawCountRow[]>`
         SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
       `,
     ]);

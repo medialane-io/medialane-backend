@@ -1,4 +1,4 @@
-import { type JobType } from "@prisma/client";
+import { type JobType, type Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -18,6 +18,24 @@ export async function enqueueJob(
     },
   });
   log.debug({ jobId: job.id, type }, "Job enqueued");
+  return job.id;
+}
+
+export async function enqueueJobTx(
+  tx: Prisma.TransactionClient,
+  type: JobType,
+  payload: Record<string, unknown>,
+  options?: { processAfter?: Date; maxAttempts?: number }
+): Promise<string> {
+  const job = await tx.job.create({
+    data: {
+      type,
+      payload: payload as any,
+      processAfter: options?.processAfter ?? new Date(),
+      ...(options?.maxAttempts !== undefined ? { maxAttempts: options.maxAttempts } : {}),
+    },
+  });
+  log.debug({ jobId: job.id, type }, "Job enqueued (tx)");
   return job.id;
 }
 

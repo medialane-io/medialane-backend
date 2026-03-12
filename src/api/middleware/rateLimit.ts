@@ -2,6 +2,8 @@ import type { MiddlewareHandler } from "hono";
 import type { TenantPlan } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
+import { createRedisStore } from "./redisRateLimit.js";
+import { env } from "../../config/env.js";
 
 const FREE_MONTHLY_LIMIT = 50;
 const PREMIUM_PER_MINUTE_LIMIT = 3000;
@@ -49,7 +51,9 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 }
 
 // Singleton store for PREMIUM per-minute rate limiting
-const defaultStore = new InMemoryRateLimitStore();
+const defaultStore: RateLimitStore = env.REDIS_URL
+  ? createRedisStore(env.REDIS_URL)
+  : new InMemoryRateLimitStore();
 
 // ---------------------------------------------------------------------------
 // Middleware factory — keyed by API key ID (not IP)

@@ -7,11 +7,13 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("middleware:apiKeyAuth");
 
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  // Accept both Authorization: Bearer <key> and x-api-key: <key>
+  // Accept Authorization: Bearer <key>, x-api-key: <key>, or ?apiKey= (for EventSource)
   const authHeader = c.req.header("authorization");
   const raw =
     authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim()
-    : c.req.header("x-api-key")?.trim() ?? null;
+    : c.req.header("x-api-key")?.trim()
+    ?? c.req.query("apiKey")?.trim()
+    ?? null;
 
   if (!raw) {
     return c.json({ error: "Missing API key" }, 401);

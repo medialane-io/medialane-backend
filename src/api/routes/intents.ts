@@ -249,6 +249,59 @@ intents.post("/create-collection", async (c) => {
   }
 });
 
+// POST /v1/intents/checkout — batch fulfill order intents
+const checkoutBodySchema = z.object({
+  fulfiller: z.string().min(1),
+  orderHashes: z.array(z.string().min(1)).min(1).max(20),
+});
+
+intents.post("/checkout", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = checkoutBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request body", details: parsed.error.flatten() }, 400);
+  }
+
+  const { fulfiller, orderHashes } = parsed.data;
+  const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+  const results = [];
+
+  for (const orderHash of orderHashes) {
+    try {
+      const { typedData, calls } = await buildFulfillOrderIntent({
+        fulfiller: normalizeAddress(fulfiller),
+        orderHash,
+      });
+
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "FULFILL_ORDER",
+          requester: normalizeAddress(fulfiller),
+          typedData: typedData as any,
+          calls: calls as any,
+          orderHash,
+          expiresAt,
+        },
+      });
+
+      results.push({
+        id: intent.id,
+        orderHash,
+        typedData,
+        calls,
+        expiresAt: expiresAt.toISOString(),
+      });
+    } catch (err) {
+      results.push({
+        orderHash,
+        error: err instanceof Error ? err.message : "Failed to create intent",
+      });
+    }
+  }
+
+  return c.json({ data: results }, 201);
+});
+
 // GET /v1/intents/:id
 intents.get("/:id", async (c) => {
   const { id } = c.req.param();

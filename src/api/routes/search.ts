@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
+import type { RawSearchTokenRow, RawSearchCollectionRow } from "../utils/rawTypes.js";
 
 const search = new Hono();
 
@@ -12,46 +13,38 @@ search.get("/", async (c) => {
 
   const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
 
-  const [tokens, collections] = await Promise.all([
-    prisma.token.findMany({
-      where: {
-        chain: "STARKNET",
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { description: { contains: q, mode: "insensitive" } },
-          { contractAddress: { contains: q, mode: "insensitive" } },
-          { tokenId: { contains: q } },
-        ],
-      },
-      take: limit,
-      select: {
-        contractAddress: true,
-        tokenId: true,
-        name: true,
-        image: true,
-        owner: true,
-        metadataStatus: true,
-      },
-    }),
-    prisma.collection.findMany({
-      where: {
-        chain: "STARKNET",
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { contractAddress: { contains: q, mode: "insensitive" } },
-        ],
-      },
-      take: limit,
-      select: {
-        contractAddress: true,
-        name: true,
-        image: true,
-        totalSupply: true,
-        floorPrice: true,
-        holderCount: true,
-      },
-    }),
+  const [tokenRows, collectionRows] = await Promise.all([
+    prisma.$queryRaw<RawSearchTokenRow[]>`
+      SELECT "contractAddress", "tokenId", name, image, owner, "metadataStatus",
+             ts_rank(
+               to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId"),
+               plainto_tsquery('english', ${q})
+             ) AS rank
+      FROM "Token"
+      WHERE chain = 'STARKNET'
+        AND to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId")
+            @@ plainto_tsquery('english', ${q})
+      ORDER BY rank DESC
+      LIMIT ${limit}
+    `,
+    prisma.$queryRaw<RawSearchCollectionRow[]>`
+      SELECT "contractAddress", name, image, "totalSupply", "floorPrice", "holderCount", "collectionId",
+             ts_rank(
+               to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress"),
+               plainto_tsquery('english', ${q})
+             ) AS rank
+      FROM "Collection"
+      WHERE chain = 'STARKNET'
+        AND to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress")
+            @@ plainto_tsquery('english', ${q})
+      ORDER BY rank DESC
+      LIMIT ${limit}
+    `,
   ]);
+
+  // Strip rank field before returning
+  const tokens = tokenRows.map(({ rank: _rank, ...rest }) => rest);
+  const collections = collectionRows.map(({ rank: _rank, ...rest }) => rest);
 
   return c.json({
     data: {

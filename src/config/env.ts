@@ -26,6 +26,7 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
+  REDIS_URL: z.string().url().optional(),
 });
 
 function parseEnv() {

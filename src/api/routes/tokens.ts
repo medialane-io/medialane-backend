@@ -9,6 +9,49 @@ import { normalizeAddress } from "../../utils/starknet.js";
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
 
+// GET /v1/tokens/batch — fetch multiple tokens by contract:tokenId pairs
+// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
+tokens.get("/batch", async (c) => {
+  const itemsParam = c.req.query("items") ?? "";
+  const pairs = itemsParam
+    .split(",")
+    .slice(0, 50)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (pairs.length === 0) {
+    return c.json({ error: "items query param required. Format: contract1:tokenId1,contract2:tokenId2" }, 400);
+  }
+
+  const parsed = pairs
+    .map((p) => {
+      const colonIdx = p.indexOf(":");
+      if (colonIdx === -1) return null;
+      const contract = p.slice(0, colonIdx);
+      const tokenId = p.slice(colonIdx + 1);
+      return contract && tokenId
+        ? { contractAddress: normalizeAddress(contract), tokenId }
+        : null;
+    })
+    .filter((x): x is { contractAddress: string; tokenId: string } => x !== null);
+
+  if (parsed.length === 0) {
+    return c.json({ error: "No valid contract:tokenId pairs found" }, 400);
+  }
+
+  const results = await prisma.token.findMany({
+    where: {
+      chain: "STARKNET",
+      OR: parsed.map((p) => ({
+        contractAddress: p.contractAddress,
+        tokenId: p.tokenId,
+      })),
+    },
+  });
+
+  return c.json({ data: results.map((t) => serializeToken(t, [])) });
+});
+
 // GET /v1/tokens/owned/:address  — must be registered BEFORE /:contract/:tokenId
 tokens.get("/owned/:address", async (c) => {
   const { address } = c.req.param();

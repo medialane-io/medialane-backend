@@ -4,6 +4,7 @@ import { handleMetadataPin } from "./metadataPin.js";
 import { handleStatsUpdate } from "./stats.js";
 import { handleCollectionMetadataFetch } from "./collectionMetadata.js";
 import { handleWebhookDeliver } from "./webhook.js";
+import { startReaper } from "./reaper.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
@@ -13,6 +14,9 @@ const POLL_INTERVAL_MS = 2000;
 
 export async function startOrchestrator(): Promise<void> {
   log.info("Orchestrator starting...");
+
+  // Fire-and-forget reaper loop — re-queues FAILED jobs after cooldown
+  startReaper().catch((err) => log.error({ err }, "Reaper crashed"));
 
   while (true) {
     try {

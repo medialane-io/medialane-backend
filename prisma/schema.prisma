@@ -79,6 +79,8 @@ enum MetadataStatus {
   FAILED
 }
 
+// GIN index for full-text search: idx_token_fts on to_tsvector('english', name||description||contractAddress||tokenId)
+// Created via raw migration: prisma/migrations/20260312000000_add_fts_indexes/migration.sql
 model Token {
   id              String         @id @default(cuid())
   chain           Chain          @default(STARKNET)
@@ -106,6 +108,8 @@ model Token {
   @@index([chain, metadataStatus])
 }
 
+// GIN index for full-text search: idx_collection_fts on to_tsvector('english', name||contractAddress)
+// Created via raw migration: prisma/migrations/20260312000000_add_fts_indexes/migration.sql
 model Collection {
   id              String         @id @default(cuid())
   chain           Chain          @default(STARKNET)
@@ -193,16 +197,17 @@ enum JobStatus {
 }
 
 model Job {
-  id           String    @id @default(cuid())
-  type         JobType
-  status       JobStatus @default(PENDING)
-  payload      Json
-  attempts     Int       @default(0)
-  maxAttempts  Int       @default(3)
-  error        String?
-  processAfter DateTime  @default(now())
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  type            JobType
+  status          JobStatus @default(PENDING)
+  payload         Json
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(3)
+  error           String?
+  processAfter    DateTime  @default(now())
+  reaperAttempts  Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([status, processAfter])
 }
@@ -314,6 +319,8 @@ model WebhookDelivery {
   statusCode   Int?
   responseBody String?
   deliveredAt  DateTime?
+  attemptCount Int              @default(0)
+  isTerminal   Boolean          @default(false)
   createdAt    DateTime         @default(now())
 
   @@index([endpointId])

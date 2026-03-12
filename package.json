@@ -20,6 +20,7 @@
     "@hono/zod-validator": "^0.7.6",
     "@prisma/client": "^5.22.0",
     "hono": "^4.6.0",
+    "ioredis": "^5.3.2",
     "pinata": "^2.0.0",
     "pino": "^9.5.0",
     "pino-pretty": "^11.3.0",
