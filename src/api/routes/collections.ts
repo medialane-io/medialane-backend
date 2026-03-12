@@ -203,11 +203,13 @@ collections.post("/", authMiddleware, async (c) => {
     ? BigInt(body.startBlock)
     : BigInt(env.INDEXER_START_BLOCK);
 
+  const contractAddress = normalizeAddress(body.contractAddress);
+
   const col = await prisma.collection.upsert({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: body.contractAddress.toLowerCase() } },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
     create: {
       chain: "STARKNET",
-      contractAddress: body.contractAddress.toLowerCase(),
+      contractAddress,
       name: body.name ?? null,
       symbol: body.symbol ?? null,
       description: body.description ?? null,
@@ -226,6 +228,7 @@ collections.post("/", authMiddleware, async (c) => {
 
   return c.json({ data: serializeCollection(col) }, 201);
 });
+
 
 function serializeCollection(c: any) {
   return {
