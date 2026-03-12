@@ -308,11 +308,13 @@ admin.patch("/collections/:contract", async (c) => {
   const { contract } = c.req.param();
   const body = await c.req.json().catch(() => ({}));
   const schema = z.object({
-    name:        z.string().optional(),
-    symbol:      z.string().optional(),
-    description: z.string().optional(),
-    image:       z.string().optional(),
-    isKnown:     z.boolean().optional(),
+    name:         z.string().optional(),
+    symbol:       z.string().optional(),
+    description:  z.string().optional(),
+    image:        z.string().optional(),
+    isKnown:      z.boolean().optional(),
+    owner:        z.string().optional(),
+    collectionId: z.string().optional(),
   });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
