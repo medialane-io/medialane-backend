@@ -175,7 +175,11 @@ collections.post("/sync-tx", async (c) => {
         },
       });
 
-      await enqueueJob("COLLECTION_METADATA_FETCH", { chain: "STARKNET", contractAddress: resolved.contractAddress });
+      try {
+        await enqueueJob("COLLECTION_METADATA_FETCH", { chain: "STARKNET", contractAddress: resolved.contractAddress });
+      } catch (jobErr) {
+        log.warn({ jobErr, contractAddress: resolved.contractAddress }, "sync-tx: enqueue failed, collection stored but metadata fetch delayed");
+      }
       synced++;
       log.info({ txHash, contractAddress: resolved.contractAddress, owner }, "Collection synced from tx");
     }

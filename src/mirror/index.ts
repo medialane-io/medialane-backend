@@ -137,34 +137,38 @@ async function tick(tickId: string): Promise<number> {
     const resolved = await resolveCollectionCreated(event);
     if (!resolved) continue;
 
-    await prisma.$transaction(async (tx2) => {
-      await tx2.collection.upsert({
-        where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
-        create: {
-          chain: CHAIN,
-          contractAddress: resolved.contractAddress,
-          collectionId: event.collectionId,
-          name: resolved.name ?? undefined,
-          symbol: resolved.symbol ?? undefined,
-          baseUri: resolved.baseUri ?? undefined,
-          owner: resolved.owner,
-          startBlock: resolved.startBlock,
-          metadataStatus: "PENDING",
-        },
-        update: {
-          // Don't overwrite admin-set values
-          collectionId: event.collectionId,
-          name: resolved.name ?? undefined,
-          symbol: resolved.symbol ?? undefined,
-          owner: resolved.owner,
-        },
-      });
+    // Upsert collection first (always safe), then enqueue job separately so a
+    // transient job-table failure cannot roll back the collection record.
+    await prisma.collection.upsert({
+      where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
+      create: {
+        chain: CHAIN,
+        contractAddress: resolved.contractAddress,
+        collectionId: event.collectionId,
+        name: resolved.name ?? undefined,
+        symbol: resolved.symbol ?? undefined,
+        baseUri: resolved.baseUri ?? undefined,
+        owner: resolved.owner,
+        startBlock: resolved.startBlock,
+        metadataStatus: "PENDING",
+      },
+      update: {
+        // Don't overwrite admin-set values
+        collectionId: event.collectionId,
+        name: resolved.name ?? undefined,
+        symbol: resolved.symbol ?? undefined,
+        owner: resolved.owner,
+      },
+    });
 
-      await enqueueJobTx(tx2, "COLLECTION_METADATA_FETCH", {
+    try {
+      await enqueueJob("COLLECTION_METADATA_FETCH", {
         chain: CHAIN,
         contractAddress: resolved.contractAddress,
       });
-    });
+    } catch (jobErr) {
+      tlog.warn({ jobErr, contractAddress: resolved.contractAddress }, "Failed to enqueue COLLECTION_METADATA_FETCH — will retry via reaper");
+    }
 
     affectedContracts.add(resolved.contractAddress);
     tlog.info({ collectionId: event.collectionId, contractAddress: resolved.contractAddress }, "New collection indexed");
@@ -184,7 +188,9 @@ async function tick(tickId: string): Promise<number> {
   // Merge all affected contracts for job enqueueing
   const allAffectedContracts = new Set([...affectedContracts, ...orderNftContracts]);
 
-  // Enqueue background jobs — each findMany+enqueue pair is atomic
+  // Enqueue background jobs — best-effort; a failure here must not abort the tick
+  // (cursor already advanced in the main transaction above).
+  try {
   await prisma.$transaction(async (tx) => {
     const pendingTokens = await tx.token.findMany({
       where: {
@@ -227,6 +233,9 @@ async function tick(tickId: string): Promise<number> {
       await enqueueJobTx(tx, "STATS_UPDATE", { chain: CHAIN, contractAddress: contract });
     }
   });
+  } catch (jobErr) {
+    tlog.warn({ jobErr }, "Background job enqueue failed — jobs will be retried on next tick");
+  }
 
   // Fan out webhook deliveries for each parsed event (fire-and-forget errors)
   for (const event of parsedEvents) {
