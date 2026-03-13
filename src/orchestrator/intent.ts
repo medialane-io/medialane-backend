@@ -54,7 +54,7 @@ const SNIP12_TYPES = {
 };
 
 const FULFILLMENT_TYPES = {
-  ...SNIP12_TYPES,
+  StarknetDomain: SNIP12_TYPES.StarknetDomain,
   OrderFulfillment: [
     { name: "order_hash", type: "felt" },
     { name: "fulfiller", type: "ContractAddress" },
@@ -63,7 +63,7 @@ const FULFILLMENT_TYPES = {
 };
 
 const CANCELLATION_TYPES = {
-  ...SNIP12_TYPES,
+  StarknetDomain: SNIP12_TYPES.StarknetDomain,
   OrderCancellation: [
     { name: "order_hash", type: "felt" },
     { name: "offerer", type: "ContractAddress" },
@@ -249,10 +249,11 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
   if (order?.considerationToken && order?.considerationStartAmount) {
+    const amountUint256 = cairo.uint256(order.considerationStartAmount);
     calls.push({
       contractAddress: order.considerationToken,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, order.considerationStartAmount, "0"],
+      calldata: [MARKETPLACE_CONTRACT, amountUint256.low.toString(), amountUint256.high.toString()],
     });
   }
 
