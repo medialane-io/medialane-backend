@@ -10,7 +10,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { RpcProvider, num as starkNum } from "starknet";
 import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
-import { enqueueJob } from "../../orchestrator/queue.js";
+import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:collections");
@@ -176,11 +176,7 @@ collections.post("/sync-tx", async (c) => {
         },
       });
 
-      try {
-        await enqueueJob("COLLECTION_METADATA_FETCH", { chain: "STARKNET", contractAddress: resolved.contractAddress });
-      } catch (jobErr) {
-        log.warn({ jobErr, contractAddress: resolved.contractAddress }, "sync-tx: enqueue failed, collection stored but metadata fetch delayed");
-      }
+      worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: resolved.contractAddress });
       synced++;
       log.info({ txHash, contractAddress: resolved.contractAddress, owner }, "Collection synced from tx");
     }
@@ -190,6 +186,37 @@ collections.post("/sync-tx", async (c) => {
     log.error({ err, txHash }, "sync-tx failed");
     return c.json({ error: String(err) }, 500);
   }
+});
+
+// POST /v1/collections/register — tenant-driven collection registration
+collections.post("/register", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body?.contractAddress) {
+    return c.json({ error: "contractAddress is required" }, 400);
+  }
+
+  const contractAddress = normalizeAddress(body.contractAddress);
+  const startBlock = typeof body.startBlock === "number" ? BigInt(body.startBlock) : BigInt(0);
+
+  const existing = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+  });
+  if (existing) {
+    return c.json({ data: serializeCollection(existing) });
+  }
+
+  const collection = await prisma.collection.create({
+    data: {
+      chain: "STARKNET",
+      contractAddress,
+      startBlock,
+      metadataStatus: "PENDING",
+    },
+  });
+
+  worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
+
+  return c.json({ data: serializeCollection(collection) }, 201);
 });
 
 // POST /v1/collections — register a collection (admin)

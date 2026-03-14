@@ -14,7 +14,7 @@ export async function resolveMetadata(
   uri: string
 ): Promise<Record<string, unknown> | null> {
   // Check cache
-  const cached = await getCachedMetadata(uri);
+  const cached = getCachedMetadata(uri);
   if (cached) return cached;
 
   const isIpfs = isIpfsUri(uri);
@@ -39,7 +39,7 @@ export async function resolveMetadata(
   }
 
   // Cache result (even null, to avoid repeated failed fetches)
-  await setCachedMetadata(uri, resolvedUrl, metadata, isIpfs);
+  setCachedMetadata(uri, resolvedUrl, metadata, isIpfs);
 
   return metadata;
 }

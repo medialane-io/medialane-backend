@@ -1,8 +1,5 @@
 import { PinataSDK } from "pinata";
 import { env } from "../config/env.js";
-import { createLogger } from "../utils/logger.js";
-
-const log = createLogger("orchestrator:metadataPin");
 
 let _pinata: PinataSDK | null = null;
 
@@ -23,22 +20,4 @@ function getPinata(): PinataSDK {
 export async function uploadJson(data: Record<string, unknown>): Promise<string> {
   const upload = await getPinata().upload.public.json(data);
   return `ipfs://${upload.cid}`;
-}
-
-/**
- * Pin an already-uploaded IPFS CID to Pinata so it is persistently hosted.
- * Enqueued by the metadata fetch handler after a token URI resolves to an
- * ipfs:// URI so the content remains available even if the origin disappears.
- */
-export async function handleMetadataPin(payload: { cid: string }): Promise<void> {
-  const { cid } = payload;
-
-  if (!cid) {
-    log.warn("METADATA_PIN job missing cid — skipping");
-    return;
-  }
-
-  log.debug({ cid }, "Pinning CID to Pinata");
-  await getPinata().upload.public.cid(cid);
-  log.info({ cid }, "CID pinned successfully");
 }

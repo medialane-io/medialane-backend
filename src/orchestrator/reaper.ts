@@ -2,40 +2,42 @@ import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:reaper");
+const REAPER_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-const MAX_REAPER_ATTEMPTS = 5;
-const REAPER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-const REAPER_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const TRANSFER_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const ORDER_HISTORY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function runReaper(): Promise<void> {
-  const cooldownThreshold = new Date(Date.now() - REAPER_COOLDOWN_MS);
-
-  const failedJobs = await prisma.job.findMany({
-    where: {
-      status: "FAILED",
-      reaperAttempts: { lt: MAX_REAPER_ATTEMPTS },
-      updatedAt: { lte: cooldownThreshold },
-    },
-    take: 50,
+  const { count: transfersDeleted } = await prisma.transfer.deleteMany({
+    where: { createdAt: { lt: new Date(Date.now() - TRANSFER_TTL_MS) } },
   });
+  if (transfersDeleted > 0) log.info({ count: transfersDeleted }, "Reaper: purged old transfers");
 
-  if (failedJobs.length === 0) return;
+  const { count: ordersDeleted } = await prisma.order.deleteMany({
+    where: {
+      status: { in: ["FULFILLED", "CANCELLED"] },
+      updatedAt: { lt: new Date(Date.now() - ORDER_HISTORY_TTL_MS) },
+    },
+  });
+  if (ordersDeleted > 0) log.info({ count: ordersDeleted }, "Reaper: purged old closed orders");
 
-  log.info({ count: failedJobs.length }, "Reaper: re-queuing failed jobs");
+  const { count: deliveriesDeleted } = await prisma.webhookDelivery.deleteMany({
+    where: {
+      isTerminal: true,
+      createdAt: { lt: new Date(Date.now() - WEBHOOK_DELIVERY_TTL_MS) },
+    },
+  });
+  if (deliveriesDeleted > 0) log.info({ count: deliveriesDeleted }, "Reaper: purged old webhook deliveries");
 
-  for (const job of failedJobs) {
-    await prisma.job.update({
-      where: { id: job.id },
-      data: {
-        status: "PENDING",
-        attempts: 0,
-        error: null,
-        processAfter: new Date(),
-        reaperAttempts: { increment: 1 },
-      },
-    });
-    log.info({ jobId: job.id, type: job.type, reaperAttempts: job.reaperAttempts + 1 }, "Reaper: re-queued job");
-  }
+  const { count: intentDeleted } = await prisma.transactionIntent.deleteMany({
+    where: {
+      status: { in: ["CONFIRMED", "FAILED", "EXPIRED"] },
+      updatedAt: { lt: new Date(Date.now() - INTENT_TTL_MS) },
+    },
+  });
+  if (intentDeleted > 0) log.info({ count: intentDeleted }, "Reaper: purged old terminal intents");
 }
 
 export async function startReaper(): Promise<void> {

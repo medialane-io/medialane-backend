@@ -101,47 +101,6 @@ portal.delete("/keys/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /v1/portal/usage/recent — last 10 requests (raw log rows)
-// Must be registered before /usage to avoid path shadowing
-// ---------------------------------------------------------------------------
-portal.get("/usage/recent", async (c) => {
-  const tenant = c.get("tenant");
-  const rows = await prisma.usageLog.findMany({
-    where: { tenantId: tenant.id },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    select: { method: true, path: true, statusCode: true, latencyMs: true, createdAt: true },
-  });
-  return c.json({ data: rows });
-});
-
-// ---------------------------------------------------------------------------
-// GET /v1/portal/usage — last 30 days grouped by day
-// ---------------------------------------------------------------------------
-portal.get("/usage", async (c) => {
-  const tenant = c.get("tenant");
-  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-
-  const rows = await prisma.$queryRaw<{ day: Date; requests: bigint }[]>`
-    SELECT
-      date_trunc('day', "createdAt") AS day,
-      COUNT(*) AS requests
-    FROM "UsageLog"
-    WHERE "tenantId" = ${tenant.id}
-      AND "createdAt" >= ${since}
-    GROUP BY day
-    ORDER BY day DESC
-  `;
-
-  return c.json({
-    data: rows.map((r) => ({
-      day: (r.day as Date).toISOString().slice(0, 10), // "YYYY-MM-DD" — avoids double-parse on client
-      requests: Number(r.requests),
-    })),
-  });
-});
-
-// ---------------------------------------------------------------------------
 // GET /v1/portal/webhooks — PREMIUM only
 // ---------------------------------------------------------------------------
 portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {

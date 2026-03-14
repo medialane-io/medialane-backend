@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
-import { enqueueJob } from "../../orchestrator/queue.js";
+import { worker } from "../../orchestrator/worker.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeOrder, serializeToken } from "../utils/serialize.js";
@@ -135,12 +135,8 @@ tokens.get("/:contract/:tokenId", async (c) => {
         }) ?? token;
       }
     } else {
-      // Enqueue async — best-effort, do not let a queue failure block the response
-      enqueueJob("METADATA_FETCH", {
-        chain: "STARKNET",
-        contractAddress,
-        tokenId,
-      }).catch((err) => log.warn({ err, contractAddress, tokenId }, "Failed to enqueue METADATA_FETCH"));
+      // Enqueue async — best-effort, worker deduplicates internally
+      worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId });
     }
   }
 

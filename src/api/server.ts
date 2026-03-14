@@ -8,7 +8,6 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
 import { apiKeyRateLimit } from "./middleware/rateLimit.js";
-import { usageLogger } from "./middleware/usageLogger.js";
 import health from "./routes/health.js";
 import orders from "./routes/orders.js";
 import tokens from "./routes/tokens.js";
@@ -39,7 +38,6 @@ export function createApp(): Hono<AppEnv> {
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);
   app.use("/v1/*", apiKeyRateLimit());
-  app.use("/v1/*", usageLogger);
 
   // Tenant self-service portal
   app.route("/v1/portal", portal);

@@ -1,13 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { authMiddleware } from "../middleware/auth.js";
 import prisma from "../../db/client.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../orchestrator/metadata.js";
 import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMetadata.js";
 import { handleStatsUpdate } from "../../orchestrator/stats.js";
-import { enqueueJob } from "../../orchestrator/queue.js";
+import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 
@@ -53,16 +52,6 @@ admin.post("/tenants", async (c) => {
       },
     },
     include: { apiKeys: true },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      tenantId: tenant.id,
-      actorType: "admin",
-      actor: "system",
-      action: "TENANT_CREATED",
-      detail: { name, email, plan },
-    },
   });
 
   log.info({ tenantId: tenant.id, email }, "Tenant created");
@@ -134,53 +123,7 @@ admin.patch("/tenants/:id", async (c) => {
     data: parsed.data,
   });
 
-  await prisma.auditLog.create({
-    data: {
-      tenantId: id,
-      actorType: "admin",
-      actor: "system",
-      action: "TENANT_UPDATED",
-      detail: parsed.data,
-    },
-  });
-
   return c.json({ data: { id, plan: updated.plan, status: updated.status } });
-});
-
-// ---------------------------------------------------------------------------
-// GET /admin/usage — usage stats
-// ---------------------------------------------------------------------------
-admin.get("/usage", async (c) => {
-  const tenantId = c.req.query("tenantId");
-  const daysParam = parseInt(c.req.query("days") ?? "30", 10);
-  const days = Math.min(Number.isFinite(daysParam) ? daysParam : 30, 90);
-  const since = new Date(Date.now() - days * 24 * 3600 * 1000);
-
-  const tenantFilter = tenantId
-    ? Prisma.sql`AND "tenantId" = ${tenantId}`
-    : Prisma.empty;
-
-  const rows = await prisma.$queryRaw<
-    { tenant_id: string; day: Date; requests: bigint }[]
-  >`
-    SELECT
-      "tenantId"   AS tenant_id,
-      date_trunc('day', "createdAt") AS day,
-      COUNT(*)     AS requests
-    FROM "UsageLog"
-    WHERE "createdAt" >= ${since}
-      ${tenantFilter}
-    GROUP BY "tenantId", day
-    ORDER BY day DESC
-  `;
-
-  return c.json({
-    data: rows.map((r) => ({
-      tenantId: r.tenant_id,
-      day: (r.day as Date).toISOString().slice(0, 10),
-      requests: Number(r.requests),
-    })),
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -203,16 +146,6 @@ admin.post("/tenants/:id/keys", async (c) => {
 
   const apiKey = await prisma.apiKey.create({
     data: { tenantId: id, prefix, keyHash, label },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      tenantId: id,
-      actorType: "admin",
-      actor: "system",
-      action: "API_KEY_CREATED",
-      detail: { keyId: apiKey.id, label },
-    },
   });
 
   return c.json(
@@ -243,16 +176,6 @@ admin.delete("/keys/:keyId", async (c) => {
   await prisma.apiKey.update({
     where: { id: keyId },
     data: { status: "REVOKED" },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      tenantId: apiKey.tenantId,
-      actorType: "admin",
-      actor: "system",
-      action: "API_KEY_REVOKED",
-      detail: { keyId, prefix: apiKey.prefix },
-    },
   });
 
   return c.json({ data: { id: keyId, status: "REVOKED" } });
@@ -296,7 +219,7 @@ admin.post("/collections", async (c) => {
     update: {},
   });
 
-  await enqueueJob("COLLECTION_METADATA_FETCH", { chain, contractAddress });
+  worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: chain as any, contractAddress });
 
   log.info({ contractAddress, chain }, "Collection registered via admin");
 
@@ -347,7 +270,7 @@ admin.post("/collections/:contract/refresh", async (c) => {
   try {
     await handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress });
     // Also enqueue stats update to backfill totalSupply, holderCount, and image/description from tokens
-    await enqueueJob("STATS_UPDATE", { chain: "STARKNET", contractAddress });
+    worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
     const col = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
     });
@@ -391,10 +314,7 @@ admin.post("/collections/backfill-metadata", async (c) => {
   });
 
   for (const col of collections) {
-    await enqueueJob("COLLECTION_METADATA_FETCH", {
-      chain: col.chain,
-      contractAddress: col.contractAddress,
-    });
+    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: col.chain as any, contractAddress: col.contractAddress });
   }
 
   return c.json({ data: { enqueued: collections.length } });
@@ -467,10 +387,7 @@ admin.post("/collections/backfill-registry", async (c) => {
         },
       });
 
-      await enqueueJob("COLLECTION_METADATA_FETCH", {
-        chain: "STARKNET",
-        contractAddress: resolved.contractAddress,
-      });
+      worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: resolved.contractAddress });
 
       inserted++;
     }

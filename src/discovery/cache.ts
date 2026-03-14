@@ -1,41 +1,43 @@
-import prisma from "../db/client.js";
+const IPFS_TTL_MS = 7 * 24 * 3600 * 1000;
+const HTTP_TTL_MS = 24 * 3600 * 1000;
+const MAX_ENTRIES = 10_000;
 
-const IPFS_TTL = 7 * 24 * 3600; // 7 days
-const HTTP_TTL = 24 * 3600;      // 24 hours
-
-export async function getCachedMetadata(
-  uri: string
-): Promise<Record<string, unknown> | null> {
-  const row = await prisma.metadataCache.findUnique({ where: { uri } });
-  if (!row) return null;
-
-  const ageSeconds = (Date.now() - row.fetchedAt.getTime()) / 1000;
-  if (ageSeconds > row.ttlSeconds) return null;
-
-  return row.content as Record<string, unknown> | null;
+interface CacheEntry {
+  resolvedUrl: string | null;
+  content: Record<string, unknown> | null;
+  expiresAt: number;
 }
 
-export async function setCachedMetadata(
+const store = new Map<string, CacheEntry>();
+
+export function getCachedMetadata(uri: string): Record<string, unknown> | null {
+  const entry = store.get(uri);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    store.delete(uri);
+    return null;
+  }
+  return entry.content;
+}
+
+export function setCachedMetadata(
   uri: string,
   resolvedUrl: string | null,
   content: Record<string, unknown> | null,
   isIpfs: boolean
-): Promise<void> {
-  const ttlSeconds = isIpfs ? IPFS_TTL : HTTP_TTL;
-  await prisma.metadataCache.upsert({
-    where: { uri },
-    create: {
-      uri,
-      resolvedUrl,
-      content: (content ?? undefined) as any,
-      fetchedAt: new Date(),
-      ttlSeconds,
-    },
-    update: {
-      resolvedUrl,
-      content: (content ?? undefined) as any,
-      fetchedAt: new Date(),
-      ttlSeconds,
-    },
+): void {
+  if (store.size >= MAX_ENTRIES) {
+    const evictCount = Math.floor(MAX_ENTRIES * 0.2);
+    const keys = store.keys();
+    for (let i = 0; i < evictCount; i++) {
+      const { value, done } = keys.next();
+      if (done) break;
+      store.delete(value);
+    }
+  }
+  store.set(uri, {
+    resolvedUrl,
+    content,
+    expiresAt: Date.now() + (isIpfs ? IPFS_TTL_MS : HTTP_TTL_MS),
   });
 }

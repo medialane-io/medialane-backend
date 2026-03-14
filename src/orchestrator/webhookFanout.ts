@@ -2,16 +2,10 @@ import { randomUUID } from "crypto";
 import type { WebhookEventType } from "@prisma/client";
 import type { ParsedEvent } from "../types/marketplace.js";
 import prisma from "../db/client.js";
-import { enqueueJob } from "./queue.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("webhookFanout");
 
-/**
- * For a given event type, find all active webhook endpoints subscribed to it
- * (belonging to ACTIVE tenants), create a WebhookDelivery record, and enqueue
- * a WEBHOOK_DELIVER job for each.
- */
 export async function fanoutWebhooks(
   eventType: WebhookEventType,
   payload: Record<string, unknown>
@@ -31,23 +25,13 @@ export async function fanoutWebhooks(
 
   for (const endpoint of endpoints) {
     try {
-      // Pre-generate the delivery ID so we can pass it to the job and create
-      // the delivery record in 2 DB calls instead of 3 (no update needed).
       const deliveryId = randomUUID();
-
-      const jobId = await enqueueJob(
-        "WEBHOOK_DELIVER",
-        { deliveryId },
-        { maxAttempts: 5 }
-      );
-
       await prisma.webhookDelivery.create({
         data: {
           id: deliveryId,
           endpointId: endpoint.id,
           eventType,
           payload: payload as any,
-          jobId,
         },
       });
     } catch (err) {
@@ -56,7 +40,6 @@ export async function fanoutWebhooks(
   }
 }
 
-/** Map a ParsedEvent to its WebhookEventType + serialisable payload. */
 export function buildWebhookPayload(event: ParsedEvent): {
   eventType: WebhookEventType;
   payload: Record<string, unknown>;
@@ -101,7 +84,7 @@ export function buildWebhookPayload(event: ParsedEvent): {
       };
     case "CollectionCreated":
       return {
-        eventType: "TRANSFER", // reuse TRANSFER type — no dedicated webhook type for collections yet
+        eventType: "TRANSFER",
         payload: { ...base, collectionId: event.collectionId, owner: event.owner },
       };
   }
