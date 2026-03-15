@@ -14,6 +14,28 @@ enum Chain {
   BITCOIN
 }
 
+enum CollectionSource {
+  MEDIALANE_REGISTRY
+  EXTERNAL
+  PARTNERSHIP
+  IP_TICKET
+  IP_CLUB
+  GAME
+}
+
+enum ClaimStatus {
+  PENDING
+  AUTO_APPROVED
+  APPROVED
+  REJECTED
+}
+
+enum VerificationMethod {
+  ONCHAIN
+  SIGNATURE
+  MANUAL
+}
+
 model IndexerCursor {
   chain             Chain    @id
   lastBlock         BigInt
@@ -129,10 +151,76 @@ model Collection {
   holderCount     Int            @default(0)
   totalSupply     Int            @default(0)
   tokens          Token[]
+  source          CollectionSource  @default(MEDIALANE_REGISTRY)
+  claimedBy       String?
+  profile         CollectionProfile?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@unique([chain, contractAddress])
+}
+
+model CollectionProfile {
+  id               String     @id @default(cuid())
+  collection       Collection @relation(fields: [chain, contractAddress], references: [chain, contractAddress])
+  contractAddress  String
+  chain            Chain
+  displayName      String?
+  description      String?
+  image            String?
+  bannerImage      String?
+  websiteUrl       String?
+  twitterUrl       String?
+  discordUrl       String?
+  telegramUrl      String?
+  updatedBy        String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([chain, contractAddress])
+}
+
+model CreatorProfile {
+  id             String   @id @default(cuid())
+  walletAddress  String   @unique
+  chain          Chain    @default(STARKNET)
+  displayName    String?
+  bio            String?
+  avatarImage    String?
+  bannerImage    String?
+  websiteUrl     String?
+  twitterUrl     String?
+  discordUrl     String?
+  telegramUrl    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model CollectionClaim {
+  id                  String             @id @default(cuid())
+  contractAddress     String
+  chain               Chain              @default(STARKNET)
+  claimantAddress     String?
+  claimantEmail       String?
+  status              ClaimStatus        @default(PENDING)
+  verificationMethod  VerificationMethod
+  notes               String?
+  adminNotes          String?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+}
+
+model ClaimChallenge {
+  id               String   @id @default(cuid())
+  contractAddress  String
+  walletAddress    String
+  challenge        String   @unique
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([walletAddress, contractAddress])
 }
 
 model Transfer {
