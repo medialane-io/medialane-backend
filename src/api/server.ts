@@ -18,6 +18,7 @@ import metadata from "./routes/metadata.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin.js";
+import claims from "./routes/claims.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 
@@ -34,6 +35,10 @@ export function createApp(): Hono<AppEnv> {
 
   // Admin routes — internal auth (API_SECRET_KEY) handled inside admin.ts
   app.route("/admin", admin);
+
+  // Claims router — mounted BEFORE global apiKeyAuth because Path 1 handles its own auth
+  // (Path 1 uses Authorization: Bearer <clerk-jwt> which apiKeyAuth would misinterpret as API key)
+  app.route("/v1/collections/claim", claims);
 
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);
