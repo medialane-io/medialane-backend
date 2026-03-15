@@ -36,7 +36,7 @@ collections.get("/", async (c) => {
 
   // floor and volume are String? columns — need ::numeric cast via raw SQL
   if (sort === "floor" || sort === "volume") {
-    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`, Prisma.sql`"isHidden" = false`];
     if (isKnown === "true")  conditions.push(Prisma.sql`"isKnown" = true`);
     if (isKnown === "false") conditions.push(Prisma.sql`"isKnown" = false`);
     if (owner) conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
@@ -65,7 +65,7 @@ collections.get("/", async (c) => {
   }
 
   // ORM path for recent / supply / name
-  const where: any = { chain: "STARKNET" };
+  const where: any = { chain: "STARKNET", isHidden: false };
   if (isKnown === "true")  where.isKnown = true;
   if (isKnown === "false") where.isKnown = false;
   if (owner) where.owner = normalizeAddress(owner);
@@ -107,14 +107,32 @@ collections.get("/:contract/tokens", async (c) => {
   const limit = Number(c.req.query("limit") ?? 20);
   const addr = normalizeAddress(contract);
 
+  const collection = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: addr } },
+  });
+
+  if (collection) {
+    const hiddenCreator = await prisma.hiddenCreator.findUnique({
+      where: {
+        chain_address: {
+          chain: collection.chain,
+          address: collection.owner ?? "",
+        },
+      },
+    });
+    if (hiddenCreator) {
+      return c.json({ data: [], meta: { page, limit, total: 0 } });
+    }
+  }
+
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain: "STARKNET", contractAddress: addr },
+      where: { chain: "STARKNET", contractAddress: addr, isHidden: false },
       orderBy: { tokenId: "asc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr } }),
+    prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
   ]);
 
   return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
@@ -278,6 +296,7 @@ function serializeCollection(c: any) {
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
     isKnown: c.isKnown,
+    isHidden: c.isHidden,
     source: c.source,
     claimedBy: c.claimedBy ?? null,
     floorPrice: c.floorPrice,

@@ -60,12 +60,12 @@ tokens.get("/owned/:address", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain: "STARKNET", owner: normalizeAddress(address) },
+      where: { chain: "STARKNET", owner: normalizeAddress(address), isHidden: false },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.token.count({ where: { chain: "STARKNET", owner: normalizeAddress(address) } }),
+    prisma.token.count({ where: { chain: "STARKNET", owner: normalizeAddress(address), isHidden: false } }),
   ]);
 
   // Batch-load active orders for all returned tokens in a single query
