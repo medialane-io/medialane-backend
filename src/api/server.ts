@@ -19,6 +19,7 @@ import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin.js";
 import claims from "./routes/claims.js";
+import profiles from "./routes/profiles.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 
@@ -50,6 +51,7 @@ export function createApp(): Hono<AppEnv> {
   // Existing data routes
   app.route("/v1/orders", orders);
   app.route("/v1/tokens", tokens);
+  app.route("/v1", profiles);               // profiles before collections (prevents route shadowing)
   app.route("/v1/collections", collections);
   app.route("/v1/activities", activities);
   app.route("/v1/intents", intents);
