@@ -515,7 +515,7 @@ admin.get("/collections", async (c) => {
 // POST /admin/orders/:orderHash/resync — re-fetch order details from chain and fix price
 // ---------------------------------------------------------------------------
 admin.post("/orders/:orderHash/resync", async (c) => {
-  const orderHash = normalizeAddress(c.req.param("orderHash"));
+  const orderHash = c.req.param("orderHash");
   const order = await prisma.order.findFirst({ where: { orderHash } });
   if (!order) return c.json({ error: "Order not found" }, 404);
 
