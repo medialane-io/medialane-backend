@@ -39,15 +39,15 @@ export async function handleOrderCreated(
     return null;
   }
 
-  const token = getTokenByAddress(details.considerationToken);
-  const priceRaw = details.considerationStartAmount;
-  const priceFormatted = token ? formatAmount(priceRaw, token.decimals) : priceRaw;
-  const currencySymbol = token?.symbol ?? null;
-
-  // Listing: offer side is ERC721/ERC1155 → NFT is the offer
-  // Bid: offer side is ERC20, consideration side is ERC721/ERC1155 → NFT is the consideration
+  // Listing: offer side is ERC721/ERC1155 → NFT is the offer, price is on consideration side (ERC20)
+  // Bid: offer side is ERC20, consideration side is ERC721/ERC1155 → price is on offer side (ERC20)
   const isListing = details.offerItemType === "ERC721" || details.offerItemType === "ERC1155";
   const isBid = details.considerationItemType === "ERC721" || details.considerationItemType === "ERC1155";
+  const priceTokenAddress = isBid ? details.offerToken : details.considerationToken;
+  const priceRaw = isBid ? details.offerStartAmount : details.considerationStartAmount;
+  const token = getTokenByAddress(priceTokenAddress);
+  const priceFormatted = token ? formatAmount(priceRaw, token.decimals) : priceRaw;
+  const currencySymbol = token?.symbol ?? null;
   const nftContract = isListing
     ? details.offerToken
     : isBid

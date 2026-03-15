@@ -206,7 +206,7 @@ claims.post(
       };
 
       const account = new Account(provider, normWallet, "0x1");
-      const isValid = await account.verifyMessage(typedDataObj, [BigInt(signature.r), BigInt(signature.s)]);
+      const isValid = await account.verifyMessage(typedDataObj, [BigInt(signature.r).toString(), BigInt(signature.s).toString()]);
       if (!isValid) return c.json({ verified: false, reason: "invalid_signature" });
     } catch {
       return c.json({ verified: false, reason: "signature_verification_failed" });

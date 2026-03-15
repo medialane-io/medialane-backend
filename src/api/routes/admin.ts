@@ -9,6 +9,7 @@ import { handleStatsUpdate } from "../../orchestrator/stats.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -328,7 +329,6 @@ import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreate
 import { RpcProvider, num as starkNum } from "starknet";
 import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { env } from "../../config/env.js";
-import { normalizeAddress } from "../../utils/starknet.js";
 
 admin.post("/collections/backfill-registry", async (c) => {
   const provider = new RpcProvider({ nodeUrl: env.ALCHEMY_RPC_URL });
@@ -509,6 +509,26 @@ admin.get("/collections", async (c) => {
 
   const serialized = collections.map(col => ({ ...col, startBlock: col.startBlock.toString() }));
   return c.json({ collections: serialized, total, page, limit });
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/orders/:orderHash/resync — re-fetch order details from chain and fix price
+// ---------------------------------------------------------------------------
+admin.post("/orders/:orderHash/resync", async (c) => {
+  const orderHash = normalizeAddress(c.req.param("orderHash"));
+  const order = await prisma.order.findFirst({ where: { orderHash } });
+  if (!order) return c.json({ error: "Order not found" }, 404);
+
+  await prisma.$transaction(async (tx) => {
+    await handleOrderCreated(
+      { type: "OrderCreated", orderHash, offerer: order.offerer, blockNumber: order.createdBlockNumber, txHash: order.createdTxHash ?? "", logIndex: 0 },
+      tx,
+      order.chain
+    );
+  });
+
+  const updated = await prisma.order.findFirst({ where: { orderHash } });
+  return c.json({ priceRaw: updated?.priceRaw, priceFormatted: updated?.priceFormatted, currencySymbol: updated?.currencySymbol });
 });
 
 export default admin;
