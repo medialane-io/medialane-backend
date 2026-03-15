@@ -210,6 +210,10 @@ model CollectionClaim {
   reviewedAt          DateTime?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
+
+  @@index([chain, contractAddress])
+  @@index([status])
+  @@index([chain, claimantAddress])
 }
 
 model ClaimChallenge {

@@ -97,3 +97,7 @@ CREATE INDEX "ClaimChallenge_walletAddress_contractAddress_idx" ON "ClaimChallen
 ALTER TABLE "CollectionProfile" ADD CONSTRAINT "CollectionProfile_chain_contractAddress_fkey"
     FOREIGN KEY ("chain", "contractAddress") REFERENCES "Collection"("chain", "contractAddress")
     ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE INDEX "CollectionClaim_chain_contractAddress_idx" ON "CollectionClaim"("chain", "contractAddress");
+CREATE INDEX "CollectionClaim_status_idx" ON "CollectionClaim"("status");
+CREATE INDEX "CollectionClaim_chain_claimantAddress_idx" ON "CollectionClaim"("chain", "claimantAddress");
