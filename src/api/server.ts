@@ -22,6 +22,7 @@ import claims from "./routes/claims.js";
 import profiles from "./routes/profiles.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
+import reports from "./routes/reports.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -59,6 +60,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/search", search);
   app.route("/v1/stats", stats);
   app.route("/v1/events", events);
+  app.route("/v1/reports", reports);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));
