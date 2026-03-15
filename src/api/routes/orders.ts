@@ -45,6 +45,13 @@ orders.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
+  // Pre-fetch hidden contracts for price-sort path guards
+  const hiddenCollections = await prisma.collection.findMany({
+    where: { isHidden: true },
+    select: { contractAddress: true },
+  });
+  const hiddenContracts = hiddenCollections.map((c) => c.contractAddress);
+
   // Price sorts require numeric ordering — priceRaw is a text column, so we cast
   // to numeric via raw SQL (length+lex trick works too, but ::numeric is cleaner).
   if (sort === "price_asc" || sort === "price_desc") {
@@ -56,6 +63,10 @@ orders.get("/", async (c) => {
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
     if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
     if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
+    if (hiddenContracts.length > 0) {
+      conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
+      conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
+    }
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
@@ -87,6 +98,10 @@ orders.get("/", async (c) => {
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
     if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
     if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
+    if (hiddenContracts.length > 0) {
+      conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
+      conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
+    }
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
@@ -106,27 +121,36 @@ orders.get("/", async (c) => {
     });
   }
 
-  const where: any = { chain: "STARKNET" };
-  if (status) where.status = status as OrderStatus;
-  if (collection) where.nftContract = collection.toLowerCase();
-  if (currency) where.considerationToken = currency.toLowerCase();
-  if (offerer) where.offerer = normalizeAddress(offerer);
+  // Default: recent sort via $queryRaw to apply hidden-token filtering at DB level,
+  // preventing pagination drift and total overcounting when hidden tokens exist.
+  {
+    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
+    if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
+    if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
+    conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
+    conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
+    const whereClause = Prisma.join(conditions, " AND ");
 
-  const [data, total] = await Promise.all([
-    prisma.order.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.order.count({ where }),
-  ]);
+    const [data, rawTotal] = await Promise.all([
+      prisma.$queryRaw<RawOrderRow[]>`
+        SELECT * FROM "Order"
+        WHERE ${whereClause}
+        ORDER BY "createdAt" DESC
+        LIMIT ${limit} OFFSET ${skip}
+      `,
+      prisma.$queryRaw<RawCountRow[]>`
+        SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
+      `,
+    ]);
 
-  const tokenMeta = await batchTokenMeta(data);
-  return c.json({
-    data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
-    meta: { page, limit, total },
-  });
+    const tokenMeta = await batchTokenMeta(data);
+    return c.json({
+      data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
+      meta: { page, limit, total: Number(rawTotal[0].count) },
+    });
+  }
 });
 
 // GET /v1/orders/:orderHash
@@ -142,10 +166,26 @@ orders.get("/:orderHash", async (c) => {
 // GET /v1/orders/token/:contract/:tokenId
 orders.get("/token/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
+  const normalizedContract = normalizeAddress(contract);
+
+  const [hiddenToken, hiddenCollection] = await Promise.all([
+    prisma.token.findFirst({
+      where: { contractAddress: normalizedContract, tokenId, isHidden: true },
+      select: { tokenId: true },
+    }),
+    prisma.collection.findFirst({
+      where: { contractAddress: normalizedContract, isHidden: true },
+      select: { contractAddress: true },
+    }),
+  ]);
+  if (hiddenToken || hiddenCollection) {
+    return c.json({ data: [] });
+  }
+
   const data = await prisma.order.findMany({
     where: {
       chain: "STARKNET",
-      nftContract: contract.toLowerCase(),
+      nftContract: normalizedContract,
       nftTokenId: tokenId,
       status: "ACTIVE",
     },

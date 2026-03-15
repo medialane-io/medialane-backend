@@ -22,6 +22,7 @@ search.get("/", async (c) => {
              ) AS rank
       FROM "Token"
       WHERE chain = 'STARKNET'
+        AND "isHidden" = false
         AND to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId")
             @@ plainto_tsquery('english', ${q})
       ORDER BY rank DESC
@@ -35,6 +36,11 @@ search.get("/", async (c) => {
              ) AS rank
       FROM "Collection"
       WHERE chain = 'STARKNET'
+        AND "isHidden" = false
+        AND "contractAddress" NOT IN (
+          SELECT c."contractAddress" FROM "Collection" c
+          INNER JOIN "HiddenCreator" hc ON hc.address = c.owner AND hc.chain::text = c.chain::text
+        )
         AND to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress")
             @@ plainto_tsquery('english', ${q})
       ORDER BY rank DESC

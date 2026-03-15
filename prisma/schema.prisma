@@ -23,6 +23,30 @@ enum CollectionSource {
   GAME
 }
 
+enum ReportTargetType {
+  COLLECTION
+  TOKEN
+  CREATOR
+}
+
+enum ReportCategory {
+  COPYRIGHT_PIRACY
+  VIOLENCE_GRAPHIC
+  HATE_SPEECH
+  SCAM_FRAUD
+  SPAM
+  NSFW
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  HIDDEN
+  DISMISSED
+  RESTORED
+}
+
 enum ClaimStatus {
   PENDING
   AUTO_APPROVED
@@ -111,6 +135,7 @@ model Token {
   owner           String
   tokenUri        String?
   metadataStatus  MetadataStatus @default(PENDING)
+  isHidden         Boolean          @default(false)
   name            String?
   description     String?
   image           String?
@@ -146,6 +171,7 @@ model Collection {
   metadataStatus  MetadataStatus @default(PENDING)
   startBlock      BigInt
   isKnown         Boolean        @default(false)
+  isHidden         Boolean          @default(false)
   floorPrice      String?
   totalVolume     String?
   holderCount     Int            @default(0)
@@ -374,4 +400,36 @@ model WebhookDelivery {
 
   @@index([endpointId])
   @@index([eventType])
+}
+
+model Report {
+  id             String           @id @default(cuid())
+  chain          Chain            @default(STARKNET)
+  targetType     ReportTargetType
+  targetKey      String           // canonical: "TOKEN:0x<contract>:<tokenId>", "COLLECTION:0x<contract>", "CREATOR:0x<address>"
+  targetContract String?
+  targetTokenId  String?
+  targetAddress  String?
+  reporterUserId String           // Clerk user ID — trusted via platform API key
+  reviewedBy     String?          // Clerk admin user ID — honor-system
+  categories     ReportCategory[]
+  description    String?
+  status         ReportStatus     @default(PENDING)
+  adminNotes     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([targetKey, reporterUserId])
+  @@index([status])
+  @@index([targetType, targetKey])
+  @@index([createdAt])
+}
+
+model HiddenCreator {
+  chain    Chain    @default(STARKNET)
+  address  String   // normalized 64-char 0x-padded hex
+  hiddenAt DateTime @default(now())
+
+  @@id([chain, address])
 }
