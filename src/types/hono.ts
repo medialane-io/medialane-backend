@@ -9,6 +9,8 @@ export type AppVariables = {
   requestId: string;
   tenant: Tenant;
   apiKey: ApiKey & { tenant: Tenant };
+  clerkWallet?: string;  // normalized 64-char wallet address from Clerk JWT
+  isAdmin?: boolean;     // true when authenticated via API_SECRET_KEY
 };
 
 /**
