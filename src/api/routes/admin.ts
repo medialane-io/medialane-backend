@@ -416,4 +416,99 @@ admin.post("/indexer/reset-cursor", async (c) => {
   return c.json({ data: { chain, lastBlock } });
 });
 
+// ---------------------------------------------------------------------------
+// GET /admin/claims — list collection claims with optional filters
+// ---------------------------------------------------------------------------
+admin.get("/claims", async (c) => {
+  const status = c.req.query("status");
+  const verificationMethod = c.req.query("verificationMethod");
+  const page = parseInt(c.req.query("page") ?? "1");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+  const where: Record<string, unknown> = {};
+  if (status) where.status = status;
+  if (verificationMethod) where.verificationMethod = verificationMethod;
+
+  const [claims, total] = await Promise.all([
+    prisma.collectionClaim.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.collectionClaim.count({ where }),
+  ]);
+
+  return c.json({ claims, total, page, limit });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/claims/:id — approve or reject a manual claim
+// ---------------------------------------------------------------------------
+admin.patch("/claims/:id", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { status, adminNotes, source } = body;
+
+  if (!["APPROVED", "REJECTED"].includes(status)) {
+    return c.json({ error: "status must be APPROVED or REJECTED" }, 400);
+  }
+
+  const claim = await prisma.collectionClaim.findUnique({ where: { id } });
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+
+  const updated = await prisma.collectionClaim.update({
+    where: { id },
+    data: { status, adminNotes, reviewedBy: "admin", reviewedAt: new Date() },
+  });
+
+  if (status === "APPROVED") {
+    const normContract = normalizeAddress(claim.contractAddress);
+    const normWallet = claim.claimantAddress ? normalizeAddress(claim.claimantAddress) : null;
+
+    const existing = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+    });
+
+    if (!existing) {
+      await prisma.collection.create({
+        data: { chain: "STARKNET", contractAddress: normContract, source: source ?? "EXTERNAL", claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
+      });
+      worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: normContract });
+    } else {
+      await prisma.collection.update({
+        where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+        data: { claimedBy: normWallet, ...(source ? { source } : {}) },
+      });
+    }
+  }
+
+  return c.json({ claim: updated });
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/collections — list collections with optional filters
+// ---------------------------------------------------------------------------
+admin.get("/collections", async (c) => {
+  const page = parseInt(c.req.query("page") ?? "1");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+  const source = c.req.query("source");
+  const metadataStatus = c.req.query("metadataStatus");
+  const isKnownParam = c.req.query("isKnown");
+  const search = c.req.query("search");
+
+  const where: Record<string, unknown> = {};
+  if (source) where.source = source;
+  if (metadataStatus) where.metadataStatus = metadataStatus;
+  if (isKnownParam !== undefined && isKnownParam !== "") where.isKnown = isKnownParam === "true";
+  if (search) {
+    where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { contractAddress: search },
+    ];
+  }
+
+  const [collections, total] = await Promise.all([
+    prisma.collection.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.collection.count({ where }),
+  ]);
+
+  const serialized = collections.map(col => ({ ...col, startBlock: col.startBlock.toString() }));
+  return c.json({ collections: serialized, total, page, limit });
+});
+
 export default admin;

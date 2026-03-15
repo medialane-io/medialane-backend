@@ -86,11 +86,18 @@ collections.get("/", async (c) => {
 // GET /v1/collections/:contract
 collections.get("/:contract", async (c) => {
   const { contract } = c.req.param();
+  const include = c.req.query("include");
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
+    ...(include === "profile" ? { include: { profile: true } } : {}),
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
-  return c.json({ data: serializeCollection(col) });
+  return c.json({
+    data: {
+      ...serializeCollection(col),
+      ...(include === "profile" ? { profile: (col as any).profile ?? null } : {}),
+    },
+  });
 });
 
 // GET /v1/collections/:contract/tokens
@@ -271,6 +278,8 @@ function serializeCollection(c: any) {
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
     isKnown: c.isKnown,
+    source: c.source,
+    claimedBy: c.claimedBy ?? null,
     floorPrice: c.floorPrice,
     totalVolume: c.totalVolume,
     holderCount: c.holderCount,
