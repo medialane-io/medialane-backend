@@ -45,3 +45,4 @@ bun.lockb
 # prisma generated migrations (keep schema, ignore migrations in dev)
 # Remove this line when you're ready to commit migrations to production
 # prisma/migrations/
+.worktrees/
