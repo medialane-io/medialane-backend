@@ -50,7 +50,7 @@ orders.get("/", async (c) => {
   if (sort === "price_asc" || sort === "price_desc") {
     const dir = Prisma.raw(sort === "price_asc" ? "ASC" : "DESC");
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
@@ -91,7 +91,7 @@ orders.get("/", async (c) => {
   // Price range filters require raw SQL even here since priceRaw is a text column
   if ((minPrice || maxPrice) && sort === "recent") {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
@@ -130,7 +130,7 @@ orders.get("/", async (c) => {
   // preventing pagination drift and total overcounting when hidden tokens exist.
   {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
