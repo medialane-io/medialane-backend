@@ -45,13 +45,6 @@ orders.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  // Pre-fetch hidden contracts for price-sort path guards
-  const hiddenCollections = await prisma.collection.findMany({
-    where: { isHidden: true },
-    select: { contractAddress: true },
-  });
-  const hiddenContracts = hiddenCollections.map((c) => c.contractAddress);
-
   // Price sorts require numeric ordering — priceRaw is a text column, so we cast
   // to numeric via raw SQL (length+lex trick works too, but ::numeric is cleaner).
   if (sort === "price_asc" || sort === "price_desc") {
@@ -63,10 +56,16 @@ orders.get("/", async (c) => {
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
     if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
     if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
-    if (hiddenContracts.length > 0) {
-      conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
-      conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
-    }
+    conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Collection"
+  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
+)`);
+    conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Token"
+  WHERE "contractAddress" = "Order"."nftContract"
+    AND "tokenId" = "Order"."nftTokenId"
+    AND "isHidden" = true
+)`);
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
@@ -98,10 +97,16 @@ orders.get("/", async (c) => {
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
     if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
     if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
-    if (hiddenContracts.length > 0) {
-      conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
-      conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
-    }
+    conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Collection"
+  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
+)`);
+    conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Token"
+  WHERE "contractAddress" = "Order"."nftContract"
+    AND "tokenId" = "Order"."nftTokenId"
+    AND "isHidden" = true
+)`);
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
@@ -129,8 +134,16 @@ orders.get("/", async (c) => {
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
-    conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
-    conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
+    conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Collection"
+  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
+)`);
+    conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Token"
+  WHERE "contractAddress" = "Order"."nftContract"
+    AND "tokenId" = "Order"."nftTokenId"
+    AND "isHidden" = true
+)`);
     const whereClause = Prisma.join(conditions, " AND ");
 
     const [data, rawTotal] = await Promise.all([
