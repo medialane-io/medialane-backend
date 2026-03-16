@@ -92,6 +92,16 @@ profiles.patch(
   }
 );
 
+// ─── Creator Hidden Indicator (public read) ──────────────────────────────────
+
+profiles.get("/creators/:wallet/hidden", async (c) => {
+  const normalizedAddress = normalizeAddress(c.req.param("wallet"));
+  const row = await prisma.hiddenCreator.findUnique({
+    where: { chain_address: { chain: "STARKNET", address: normalizedAddress } },
+  });
+  return c.json({ isHidden: row !== null });
+});
+
 // ─── Creator Profile (public read, Clerk JWT for write) ─────────────────────
 
 profiles.get("/creators/:wallet/profile", async (c) => {

@@ -542,7 +542,13 @@ admin.get("/reports", async (c) => {
   const skip = (pageNum - 1) * limitNum;
 
   const where: Record<string, unknown> = {};
-  if (status) where.status = status;
+  if (status) {
+    const statuses = status
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    where.status = statuses.length === 1 ? statuses[0] : ({ in: statuses } as any);
+  }
   if (targetType) where.targetType = targetType;
 
   const [rawReports, total] = await Promise.all([
