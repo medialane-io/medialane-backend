@@ -2,10 +2,11 @@ import prisma from "../../db/client.js";
 
 const CURRENCY_DECIMALS: Record<string, number> = {
   USDC: 6,
-  "USDC.E": 6,
+  "USDC.E": 6, // legacy — existing DB orders only, never created via UI going forward
   USDT: 6,
   ETH: 18,
   STRK: 18,
+  WBTC: 8,
 };
 
 /** Batch-fetch token name/image/description for a list of orders (single query). */
