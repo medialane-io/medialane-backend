@@ -197,6 +197,21 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 ### Price sorting
 `priceRaw` is a String DB column. Uses `$queryRaw` with `::numeric NULLS LAST`. Do not change to ORM sort.
 
+### $queryRaw with PostgreSQL enum columns (CRITICAL — fixed 2026-03-16)
+Prisma `$queryRaw` tagged templates send interpolated values as typed `text` parameters. PostgreSQL **cannot implicitly cast `text` to a named enum type** — this causes:
+```
+ERROR: operator does not exist: "OrderStatus" = text  (code 42883)
+```
+Always append the explicit cast after the interpolated param:
+```ts
+// ❌ wrong — causes 500
+conditions.push(Prisma.sql`status = ${status}`);
+
+// ✅ correct
+conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
+```
+Apply this pattern to **every** `$queryRaw` that compares against an enum column. All three occurrences in `src/api/routes/orders.ts` use the cast.
+
 ### Intents
 - TTL: 24 hours. `PENDING → SIGNED` (on signature submit) or `PENDING → EXPIRED` (on GET read after TTL)
 - `PATCH /:id/signature` → `buildPopulatedCalls()` injects signature into stored calldata, returns updated intent
@@ -282,14 +297,14 @@ Local values (this machine — do not commit):
 All 5 tokens confirmed from source:
 
 | Symbol | Address | Decimals |
-|---|---|---|
+|--------|---------|----------|
 | USDC (native) | `0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb` | 6 |
-| USDC.e (bridged) | `0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8` | 6 |
 | USDT | `0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8` | 6 |
 | ETH | `0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7` | 18 |
 | STRK | `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` | 18 |
+| WBTC | `0x03fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac` | 8 |
 
-Note: SDK `constants.ts` only lists 4 tokens (missing native USDC). The backend is the source of truth.
+Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in `src/api/utils/serialize.ts` as a permanent legacy read entry for existing DB orders denominated in USDC.e.
 
 ---
 
