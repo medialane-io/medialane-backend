@@ -1,6 +1,6 @@
 // SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
-import { Contract, byteArray, num, cairo } from "starknet";
+import { Contract, num, cairo } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import { IPMarketplaceABI } from "../config/abis.js";
 import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
@@ -294,14 +294,37 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   return { typedData, calls, cancelation };
 }
 
-/** Serialize a string as Cairo ByteArray calldata felts. */
+/** Serialize a string as Cairo ByteArray calldata felts.
+ *
+ * starknet.js's `byteArray.byteArrayFromString` internally calls `encodeShortString`
+ * which rejects non-ASCII characters (e.g. accented letters). We implement UTF-8
+ * encoding directly: convert to bytes, pack into 31-byte chunks as big-endian felts.
+ */
 function encodeByteArray(str: string): string[] {
-  const ba = byteArray.byteArrayFromString(str);
+  const bytes = new TextEncoder().encode(str);
+  const fullChunks: string[] = [];
+
+  let i = 0;
+  while (i + 31 <= bytes.length) {
+    let val = 0n;
+    for (const b of bytes.slice(i, i + 31)) {
+      val = (val << 8n) | BigInt(b);
+    }
+    fullChunks.push(num.toHex(val));
+    i += 31;
+  }
+
+  const remaining = bytes.slice(i);
+  let pendingVal = 0n;
+  for (const b of remaining) {
+    pendingVal = (pendingVal << 8n) | BigInt(b);
+  }
+
   return [
-    ba.data.length.toString(),
-    ...ba.data.map((d) => num.toHex(d)),
-    num.toHex(ba.pending_word),
-    ba.pending_word_len.toString(),
+    fullChunks.length.toString(),
+    ...fullChunks,
+    num.toHex(pendingVal),
+    remaining.length.toString(),
   ];
 }
 
