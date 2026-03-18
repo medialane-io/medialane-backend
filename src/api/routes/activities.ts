@@ -1,8 +1,14 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { ZERO_ADDRESS } from "../../config/constants.js";
 
 const activities = new Hono();
+
+/** Classify a Transfer row as "mint" (fromAddress is zero) or "transfer". */
+function transferType(fromAddress: string): "mint" | "transfer" {
+  return fromAddress === ZERO_ADDRESS ? "mint" : "transfer";
+}
 
 // GET /v1/activities
 activities.get("/", async (c) => {
@@ -40,14 +46,15 @@ activities.get("/", async (c) => {
   const hiddenContractFilter =
     hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined;
 
-  const wantTransfers = !type || type === "transfer";
+  // "mint" and "transfer" both come from the Transfer table; mints have fromAddress = ZERO_ADDRESS
+  const wantTransfers = !type || type === "transfer" || type === "mint";
   const wantOrders = !type || ["sale", "listing", "offer", "cancelled"].includes(type);
 
   const orderStatusFilter =
     type === "sale"
       ? { status: "FULFILLED" as const }
       : type === "listing"
-      ? { status: "ACTIVE" as const }
+      ? { status: "ACTIVE" as const, offerItemType: "ERC721" as const }
       : type === "cancelled"
       ? { status: "CANCELLED" as const }
       : type === "offer"
@@ -55,6 +62,8 @@ activities.get("/", async (c) => {
       : {};
 
   const transferWhere: any = { chain: "STARKNET" };
+  if (type === "mint") transferWhere.fromAddress = ZERO_ADDRESS;
+  if (type === "transfer") transferWhere.fromAddress = { not: ZERO_ADDRESS };
   if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
 
   const orderWhere: any = { chain: "STARKNET", ...orderStatusFilter };
@@ -81,17 +90,27 @@ activities.get("/", async (c) => {
     wantOrders ? prisma.order.count({ where: orderWhere }) : 0,
   ]);
 
+  // Collect txHashes of fulfilled orders so we can suppress the redundant Transfer
+  // row that the marketplace contract emits during a sale (same tx, misleading type).
+  const saleTxHashes = new Set(
+    (orders as any[])
+      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
+      .map((o) => o.createdTxHash as string)
+  );
+
   const rawFeed = [
-    ...(transfers as any[]).map((t) => ({
-      type: "transfer",
-      contractAddress: t.contractAddress,
-      tokenId: t.tokenId,
-      from: t.fromAddress,
-      to: t.toAddress,
-      blockNumber: t.blockNumber.toString(),
-      txHash: t.txHash,
-      timestamp: t.createdAt,
-    })),
+    ...(transfers as any[])
+      .filter((t) => !saleTxHashes.has(t.txHash)) // suppress transfer rows that belong to a sale
+      .map((t) => ({
+        type: transferType(t.fromAddress),
+        contractAddress: t.contractAddress,
+        tokenId: t.tokenId,
+        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
+        to: t.toAddress,
+        blockNumber: t.blockNumber.toString(),
+        txHash: t.txHash,
+        timestamp: t.createdAt,
+      })),
     ...(orders as any[]).map((o) => ({
       type:
         o.status === "FULFILLED"
@@ -162,7 +181,10 @@ activities.get("/:address", async (c) => {
   const hiddenContractFilter =
     hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined;
 
-  const transferWhere: any = { chain: "STARKNET", OR: [{ fromAddress: addr }, { toAddress: addr }] };
+  const transferWhere: any = {
+    chain: "STARKNET",
+    OR: [{ fromAddress: addr }, { toAddress: addr }],
+  };
   if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
 
   const orderWhere: any = { chain: "STARKNET", OR: [{ offerer: addr }, { fulfiller: addr }] };
@@ -183,21 +205,32 @@ activities.get("/:address", async (c) => {
     }),
   ]);
 
+  // Suppress transfer rows that are part of a fulfilled sale
+  const saleTxHashes = new Set(
+    orders
+      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
+      .map((o) => o.createdTxHash as string)
+  );
+
   const rawFeed = [
-    ...transfers.map((t) => ({
-      type: "transfer",
-      contractAddress: t.contractAddress,
-      tokenId: t.tokenId,
-      from: t.fromAddress,
-      to: t.toAddress,
-      blockNumber: t.blockNumber.toString(),
-      txHash: t.txHash,
-      timestamp: t.createdAt,
-    })),
+    ...transfers
+      .filter((t) => !saleTxHashes.has(t.txHash))
+      .map((t) => ({
+        type: transferType(t.fromAddress),
+        contractAddress: t.contractAddress,
+        tokenId: t.tokenId,
+        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
+        to: t.toAddress,
+        blockNumber: t.blockNumber.toString(),
+        txHash: t.txHash,
+        timestamp: t.createdAt,
+      })),
     ...orders.map((o) => ({
       type:
         o.status === "FULFILLED"
           ? "sale"
+          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
+          ? "offer"
           : o.status === "ACTIVE"
           ? "listing"
           : "cancelled",

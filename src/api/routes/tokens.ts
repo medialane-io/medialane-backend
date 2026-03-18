@@ -5,6 +5,7 @@ import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeOrder, serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { ZERO_ADDRESS } from "../../config/constants.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -170,17 +171,33 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
     }),
   ]);
 
+  // Suppress transfer rows that are part of a fulfilled sale (same txHash)
+  const saleTxHashes = new Set(
+    orders
+      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
+      .map((o) => o.createdTxHash as string)
+  );
+
   const activities = [
-    ...transfers.map((t) => ({
-      type: "transfer",
-      from: t.fromAddress,
-      to: t.toAddress,
-      blockNumber: t.blockNumber.toString(),
-      txHash: t.txHash,
-      timestamp: t.createdAt,
-    })),
+    ...transfers
+      .filter((t) => !saleTxHashes.has(t.txHash))
+      .map((t) => ({
+        type: t.fromAddress === ZERO_ADDRESS ? "mint" : "transfer",
+        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
+        to: t.toAddress,
+        blockNumber: t.blockNumber.toString(),
+        txHash: t.txHash,
+        timestamp: t.createdAt,
+      })),
     ...orders.map((o) => ({
-      type: o.status === "FULFILLED" ? "sale" : o.status === "ACTIVE" ? "listing" : "cancelled",
+      type:
+        o.status === "FULFILLED"
+          ? "sale"
+          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
+          ? "offer"
+          : o.status === "ACTIVE"
+          ? "listing"
+          : "cancelled",
       orderHash: o.orderHash,
       price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
       offerer: o.offerer,
