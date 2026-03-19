@@ -32,6 +32,29 @@ function validateUsername(username: string): string | null {
   return null;
 }
 
+// ─── GET /v1/username-claims/check/:username ─────────────────────────────────
+// Public availability check — no auth required.
+
+usernameClaims.get("/check/:username", async (c) => {
+  const slug = c.req.param("username").toLowerCase().trim();
+
+  const validationError = validateUsername(slug);
+  if (validationError) return c.json({ available: false, reason: validationError });
+
+  if (RESERVED.has(slug)) return c.json({ available: false, reason: "That username is reserved." });
+
+  const [takenProfile, pendingClaim] = await Promise.all([
+    prisma.creatorProfile.findUnique({ where: { username: slug }, select: { walletAddress: true } }),
+    prisma.usernameClaim.findFirst({ where: { username: slug, status: { in: ["PENDING", "APPROVED"] } } }),
+  ]);
+
+  if (takenProfile || pendingClaim) {
+    return c.json({ available: false, reason: "That username is already taken." });
+  }
+
+  return c.json({ available: true });
+});
+
 // ─── POST /v1/username-claims ─────────────────────────────────────────────────
 // Submit a username claim for DAO review.
 // Auth: standard API key (handled by global middleware) + Clerk JWT.
