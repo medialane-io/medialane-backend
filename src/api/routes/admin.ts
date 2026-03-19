@@ -481,6 +481,69 @@ admin.patch("/claims/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /admin/username-claims — list username claims with optional status filter
+// ---------------------------------------------------------------------------
+admin.get("/username-claims", async (c) => {
+  const status = c.req.query("status");
+  const page = parseInt(c.req.query("page") ?? "1");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+  const where = status ? { status: status as any } : {};
+
+  const [claims, total] = await Promise.all([
+    prisma.usernameClaim.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.usernameClaim.count({ where }),
+  ]);
+
+  return c.json({ claims, total, page, limit });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/username-claims/:id — approve or reject a username claim
+// On approve: sets username on CreatorProfile and rejects any other pending
+// claims for the same wallet or the same username.
+// ---------------------------------------------------------------------------
+admin.patch("/username-claims/:id", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { status, adminNotes } = body;
+
+  if (!["APPROVED", "REJECTED"].includes(status)) {
+    return c.json({ error: "status must be APPROVED or REJECTED" }, 400);
+  }
+
+  const claim = await prisma.usernameClaim.findUnique({ where: { id } });
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.status !== "PENDING") return c.json({ error: "Claim is no longer pending" }, 409);
+
+  const updated = await prisma.usernameClaim.update({
+    where: { id },
+    data: { status, adminNotes: adminNotes ?? null, reviewedAt: new Date() },
+  });
+
+  if (status === "APPROVED") {
+    // Write the approved username onto the creator's profile (upsert in case
+    // they haven't created a profile record yet)
+    await prisma.creatorProfile.upsert({
+      where: { walletAddress: claim.walletAddress },
+      create: { walletAddress: claim.walletAddress, chain: "STARKNET", username: claim.username },
+      update: { username: claim.username },
+    });
+
+    // Reject any other pending claims from this wallet or for this username
+    await prisma.usernameClaim.updateMany({
+      where: {
+        id: { not: id },
+        status: "PENDING",
+        OR: [{ walletAddress: claim.walletAddress }, { username: claim.username }],
+      },
+      data: { status: "REJECTED", adminNotes: "Superseded by approved claim", reviewedAt: new Date() },
+    });
+  }
+
+  return c.json({ claim: updated });
+});
+
+// ---------------------------------------------------------------------------
 // GET /admin/collections — list collections with optional filters
 // ---------------------------------------------------------------------------
 admin.get("/collections", async (c) => {

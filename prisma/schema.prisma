@@ -54,6 +54,12 @@ enum ClaimStatus {
   REJECTED
 }
 
+enum UsernameClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum VerificationMethod {
   ONCHAIN
   SIGNATURE
@@ -218,8 +224,24 @@ model CreatorProfile {
   twitterUrl     String?
   discordUrl     String?
   telegramUrl    String?
+  username       String?  @unique  // approved slug — set by admin on claim approval
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+model UsernameClaim {
+  id            String              @id @default(cuid())
+  username      String
+  walletAddress String
+  status        UsernameClaimStatus @default(PENDING)
+  adminNotes    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([walletAddress])
+  @@index([status])
+  @@index([username])
 }
 
 model CollectionClaim {

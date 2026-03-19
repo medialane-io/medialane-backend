@@ -92,6 +92,23 @@ profiles.patch(
   }
 );
 
+// ─── Creator by Username (public read) ───────────────────────────────────────
+// Resolves a username slug to a wallet address + profile. Used by /creator/[username].
+
+profiles.get("/creators/by-username/:username", async (c) => {
+  const username = c.req.param("username").toLowerCase().trim();
+  const profile = await prisma.creatorProfile.findUnique({
+    where: { username },
+    select: {
+      walletAddress: true, username: true, displayName: true, bio: true,
+      avatarImage: true, bannerImage: true, websiteUrl: true,
+      twitterUrl: true, discordUrl: true, telegramUrl: true,
+    },
+  });
+  if (!profile) return c.json({ error: "Creator not found" }, 404);
+  return c.json(profile);
+});
+
 // ─── Creator Hidden Indicator (public read) ──────────────────────────────────
 
 profiles.get("/creators/:wallet/hidden", async (c) => {
