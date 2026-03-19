@@ -1,22 +1,27 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("mailer");
 
-let _resend: Resend | null = null;
-function getResend(): Resend | null {
-  if (!env.RESEND_API_KEY) return null;
-  if (!_resend) _resend = new Resend(env.RESEND_API_KEY);
-  return _resend;
+function createTransporter() {
+  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_PORT === 465,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+  });
 }
 
+const from = () => env.CONTACT_FROM_EMAIL || env.SMTP_USER;
+
 export async function sendUsernameClaimApproved(to: string, username: string): Promise<void> {
-  const resend = getResend();
-  if (!resend) { log.warn("RESEND_API_KEY not set — skipping approval email"); return; }
+  const transporter = createTransporter();
+  if (!transporter) { log.warn("SMTP not configured — skipping approval email"); return; }
   try {
-    await resend.emails.send({
-      from: env.RESEND_FROM_EMAIL,
+    await transporter.sendMail({
+      from: from(),
       to,
       subject: `@${username} is yours on Medialane!`,
       html: `
@@ -33,11 +38,11 @@ export async function sendUsernameClaimApproved(to: string, username: string): P
 }
 
 export async function sendUsernameClaimRejected(to: string, username: string, adminNotes: string | null): Promise<void> {
-  const resend = getResend();
-  if (!resend) { log.warn("RESEND_API_KEY not set — skipping rejection email"); return; }
+  const transporter = createTransporter();
+  if (!transporter) { log.warn("SMTP not configured — skipping rejection email"); return; }
   try {
-    await resend.emails.send({
-      from: env.RESEND_FROM_EMAIL,
+    await transporter.sendMail({
+      from: from(),
       to,
       subject: `Username claim for @${username} — update`,
       html: `

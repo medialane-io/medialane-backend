@@ -28,8 +28,11 @@ const envSchema = z.object({
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
   REDIS_URL: z.string().url().optional(),
-  RESEND_API_KEY: z.string().default(""),
-  RESEND_FROM_EMAIL: z.string().default("Medialane <noreply@medialane.io>"),
+  SMTP_HOST: z.string().default(""),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASS: z.string().default(""),
+  CONTACT_FROM_EMAIL: z.string().default("Medialane <noreply@medialane.io>"),
 });
 
 function parseEnv() {
