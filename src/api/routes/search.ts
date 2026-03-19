@@ -13,7 +13,7 @@ search.get("/", async (c) => {
 
   const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
 
-  const [tokenRows, collectionRows] = await Promise.all([
+  const [tokenRows, collectionRows, creatorRows] = await Promise.all([
     prisma.$queryRaw<RawSearchTokenRow[]>`
       SELECT "contractAddress", "tokenId", name, image, owner, "metadataStatus",
              ts_rank(
@@ -46,6 +46,16 @@ search.get("/", async (c) => {
       ORDER BY rank DESC
       LIMIT ${limit}
     `,
+    prisma.$queryRaw<{ walletAddress: string; username: string | null; displayName: string | null; bio: string | null; avatarImage: string | null }[]>`
+      SELECT "walletAddress", username, "displayName", bio, "avatarImage"
+      FROM "CreatorProfile"
+      WHERE username IS NOT NULL
+        AND (
+          username ILIKE ${'%' + q + '%'}
+          OR "displayName" ILIKE ${'%' + q + '%'}
+        )
+      LIMIT ${limit}
+    `,
   ]);
 
   // Strip rank field before returning
@@ -56,6 +66,7 @@ search.get("/", async (c) => {
     data: {
       tokens,
       collections,
+      creators: creatorRows,
     },
     query: q,
   });
