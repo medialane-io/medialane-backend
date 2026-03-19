@@ -92,6 +92,42 @@ profiles.patch(
   }
 );
 
+// ─── Creators List (public read) ─────────────────────────────────────────────
+// Lists all creator profiles that have an approved username. Supports search + pagination.
+
+profiles.get("/creators", async (c) => {
+  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
+  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const search = c.req.query("search")?.trim().toLowerCase() ?? "";
+
+  const where = {
+    username: { not: null as null },
+    ...(search ? {
+      OR: [
+        { username:    { contains: search, mode: "insensitive" as const } },
+        { displayName: { contains: search, mode: "insensitive" as const } },
+      ],
+    } : {}),
+  };
+
+  const [total, creators] = await Promise.all([
+    prisma.creatorProfile.count({ where }),
+    prisma.creatorProfile.findMany({
+      where,
+      select: {
+        walletAddress: true, username: true, displayName: true, bio: true,
+        avatarImage: true, bannerImage: true, websiteUrl: true,
+        twitterUrl: true, discordUrl: true, telegramUrl: true,
+      },
+      orderBy: { username: "asc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  return c.json({ creators, total, page, limit });
+});
+
 // ─── Creator by Username (public read) ───────────────────────────────────────
 // Resolves a username slug to a wallet address + profile. Used by /creator/[username].
 
