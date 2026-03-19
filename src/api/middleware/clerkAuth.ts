@@ -27,7 +27,7 @@ export async function clerkAuth(c: Context, next: Next) {
       secretKey: process.env.CLERK_SECRET_KEY!,
     });
     const user = await clerk.users.getUser(payload.sub);
-    const rawWallet = user.publicMetadata?.walletAddress as string | undefined;
+    const rawWallet = (user.publicMetadata?.walletAddress ?? user.publicMetadata?.publicKey) as string | undefined;
     if (!rawWallet) {
       return c.json({ error: "No wallet associated with this account" }, 403);
     }
