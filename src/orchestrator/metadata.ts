@@ -53,6 +53,10 @@ const ERC721_METADATA_ABI_FELT_ARRAY = [
   },
 ];
 
+// Cache which ABI variant worked for a given contract address so subsequent
+// token_uri calls skip the failing variant entirely.
+const contractAbiCache = new Map<string, typeof ERC721_METADATA_ABI_BYTEARRAY>();
+
 export async function handleMetadataFetch(payload: {
   chain: string;
   contractAddress: string;
@@ -127,15 +131,24 @@ async function fetchTokenUri(
   const high = tokenIdBig >> 128n;
   const u256 = { low: low.toString(), high: high.toString() };
 
-  // Try ByteArray ABI first (modern OZ contracts), then felt252 array fallback
-  for (const abi of [ERC721_METADATA_ABI_BYTEARRAY, ERC721_METADATA_ABI_FELT_ARRAY]) {
+  // If we already know which ABI works for this contract, try it first.
+  // Otherwise iterate both and cache the winner.
+  const knownAbi = contractAbiCache.get(contractAddress);
+  const abisToTry = knownAbi
+    ? [knownAbi]
+    : [ERC721_METADATA_ABI_BYTEARRAY, ERC721_METADATA_ABI_FELT_ARRAY];
+
+  for (const abi of abisToTry) {
     const contract = new Contract(abi as any, contractAddress, provider);
     for (const fn of ["token_uri", "tokenURI"]) {
       try {
         const result = await (contract as any)[fn](u256);
         if (result != null) {
           const uri = decodeTokenUri(result);
-          if (uri) return uri;
+          if (uri) {
+            contractAbiCache.set(contractAddress, abi);
+            return uri;
+          }
         }
       } catch {
         // Try next variant

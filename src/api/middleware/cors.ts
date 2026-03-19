@@ -1,14 +1,14 @@
 import { cors } from "hono/cors";
 import { env } from "../../config/env.js";
 
-const explicitOrigins = env.CORS_ORIGINS.split(",").map((o) => o.trim());
+// Allowed origins are controlled entirely by CORS_ORIGINS env var.
+// Use an explicit allowlist rather than a wildcard subdomain pattern —
+// any *.medialane.io pattern would allow a compromised or attacker-registered
+// subdomain to make credentialed requests.
+const allowedOrigins = new Set(env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean));
 
-// Allow any origin that ends with medialane.io (handles www + subdomains)
-// plus any explicitly listed origins (localhost, custom domains, etc.)
 function isAllowedOrigin(origin: string): string | undefined {
-  if (explicitOrigins.includes(origin)) return origin;
-  if (origin.endsWith(".medialane.io") || origin === "https://medialane.io") return origin;
-  return undefined;
+  return allowedOrigins.has(origin) ? origin : undefined;
 }
 
 export const corsMiddleware = cors({

@@ -18,9 +18,10 @@ const envSchema = z.object({
   API_SECRET_KEY: z.string().min(16),
   CORS_ORIGINS: z
     .string()
-    .default("https://medialane.xyz,https://mediolano.app,http://localhost:3000"),
+    .default("https://medialane.io,https://www.medialane.io,https://app.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000"),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(6000),
-  INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(50),
+  INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(500),
+  TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(120_000),
   CHIPIPAY_API_KEY: z.string().default(""),
   CHIPIPAY_API_URL: z.string().default("https://api.chipi.io"),
   LOG_LEVEL: z

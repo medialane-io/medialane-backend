@@ -110,9 +110,15 @@ export function parseEvent(
 }
 
 export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
+  // Assign logIndex per-transaction (0 = first event from that tx, 1 = second, etc.)
+  // so that the unique constraint [chain, txHash, logIndex] stays stable across
+  // re-processing — regardless of where each event falls in the overall batch array.
+  const txCounters = new Map<string, number>();
   const results: ParsedEvent[] = [];
-  for (let i = 0; i < events.length; i++) {
-    const parsed = parseEvent(events[i], i);
+  for (const event of events) {
+    const n = txCounters.get(event.transaction_hash) ?? 0;
+    txCounters.set(event.transaction_hash, n + 1);
+    const parsed = parseEvent(event, n);
     if (parsed) results.push(parsed);
   }
   return results;

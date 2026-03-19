@@ -40,14 +40,19 @@ export async function handleStatsUpdate(payload: {
   });
 
   let floorPrice: string | null = null;
-  if (activeOrders.length > 0) {
+  // Filter out zero or missing prices before sorting — a priceRaw of "0" would
+  // otherwise always win as the floor, masking real listings.
+  const positiveOrders = activeOrders.filter((o) => {
+    try { return BigInt(o.priceRaw ?? "0") > 0n; } catch { return false; }
+  });
+  if (positiveOrders.length > 0) {
     // Sort numerically — priceRaw is stored as a decimal string
-    activeOrders.sort((a, b) => {
+    positiveOrders.sort((a, b) => {
       const aVal = BigInt(a.priceRaw ?? "0");
       const bVal = BigInt(b.priceRaw ?? "0");
       return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
     });
-    const floor = activeOrders[0];
+    const floor = positiveOrders[0];
     if (floor.priceRaw) {
       const token = floor.considerationToken
         ? getTokenByAddress(floor.considerationToken)

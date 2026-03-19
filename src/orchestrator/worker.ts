@@ -38,6 +38,21 @@ class InMemoryWorker {
     if (!this.running) this.drain();
   }
 
+  /** Wait for the in-flight job and queue to empty, or until timeoutMs elapses. */
+  async waitDrain(timeoutMs: number): Promise<void> {
+    if (!this.running && this.queue.length === 0) return;
+    return new Promise<void>((resolve) => {
+      const deadline = setTimeout(resolve, timeoutMs);
+      const poll = setInterval(() => {
+        if (!this.running && this.queue.length === 0) {
+          clearInterval(poll);
+          clearTimeout(deadline);
+          resolve();
+        }
+      }, 100);
+    });
+  }
+
   private async drain(): Promise<void> {
     this.running = true;
     while (this.queue.length > 0) {

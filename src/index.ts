@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./api/server.js";
 import { startMirror } from "./mirror/index.js";
 import { startOrchestrator } from "./orchestrator/index.js";
+import { worker } from "./orchestrator/worker.js";
 import { env } from "./config/env.js";
 import { createLogger } from "./utils/logger.js";
 import prisma from "./db/client.js";
@@ -10,6 +11,11 @@ const log = createLogger("main");
 
 async function main() {
   log.info({ network: env.STARKNET_NETWORK, port: env.PORT }, "Starting Medialane Backend");
+
+  // Warn about optional-but-important env vars that have empty defaults
+  if (!env.PINATA_JWT) {
+    log.warn("PINATA_JWT is not set — metadata uploads and IPFS pinning will fail");
+  }
 
   // Verify DB connection
   try {
@@ -49,6 +55,9 @@ async function main() {
 
 async function shutdown() {
   log.info("Shutting down Medialane...");
+  // Drain the in-memory worker queue before exiting so in-flight metadata/stats
+  // jobs are not abandoned mid-execution. Give it up to 10 seconds.
+  await worker.waitDrain(10_000);
   await prisma.$disconnect();
   process.exit(0);
 }

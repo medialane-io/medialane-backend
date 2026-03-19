@@ -26,7 +26,9 @@ const TICK_TIMEOUT_MS = 60_000;
 // Transfer events are polled on a separate (slower) schedule to avoid making one
 // starknet_getEvents RPC call per collection per block — with 50 collections that
 // was generating ~100M compute units/week at steady state.
-const TRANSFER_POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+// Tunable via TRANSFER_POLL_INTERVAL_MS env var (default 120s).
+// Evaluated lazily so it picks up the parsed env value.
+const transferPollIntervalMs = () => env.TRANSFER_POLL_INTERVAL_MS;
 
 // Tracks the last block up to which Transfer events were fetched, and when.
 // Kept in memory — a restart re-polls from the indexer cursor (safe, idempotent).
@@ -95,7 +97,7 @@ async function tick(tickId: string): Promise<number> {
   // block range, which is 1 call vs ~20 calls for the same block window.
   let rawTransferEvents: RawStarknetEvent[] = [];
   const now = Date.now();
-  if (nftContracts.length > 0 && now - _lastTransferPollTime >= TRANSFER_POLL_INTERVAL_MS) {
+  if (nftContracts.length > 0 && now - _lastTransferPollTime >= transferPollIntervalMs()) {
     const transferFromBlock = _lastTransferBlock != null ? _lastTransferBlock + 1 : fromBlock;
     if (transferFromBlock <= toBlock) {
       rawTransferEvents = (
@@ -104,9 +106,6 @@ async function tick(tickId: string): Promise<number> {
     }
     _lastTransferBlock = toBlock;
     _lastTransferPollTime = now;
-  } else if (_lastTransferBlock === null) {
-    // First tick — initialize cursor without polling (avoids a cold-start spike).
-    _lastTransferBlock = toBlock;
   }
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
