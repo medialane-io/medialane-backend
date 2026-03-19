@@ -12,12 +12,19 @@ function timedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respo
   );
 }
 
+// Singleton provider — one HTTP client shared across all callers.
+// Creating a new RpcProvider per call was generating unnecessary connection overhead.
+let _provider: RpcProvider | null = null;
+
 export function createProvider(): RpcProvider {
-  return new RpcProvider({
-    nodeUrl: env.ALCHEMY_RPC_URL,
-    blockIdentifier: "latest",
-    fetch: timedFetch as typeof fetch,
-  } as any);
+  if (!_provider) {
+    _provider = new RpcProvider({
+      nodeUrl: env.ALCHEMY_RPC_URL,
+      blockIdentifier: "latest",
+      fetch: timedFetch as typeof fetch,
+    } as any);
+  }
+  return _provider;
 }
 
 /**

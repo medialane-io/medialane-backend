@@ -13,6 +13,7 @@ import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
+import type { RawStarknetEvent } from "../types/starknet.js";
 
 const log = createLogger("mirror");
 export const CHAIN = "STARKNET" as const;
@@ -21,6 +22,16 @@ export const CHAIN = "STARKNET" as const;
 const CATCHUP_THRESHOLD = 1000;
 // Abort a hung tick after this many ms to prevent the loop from freezing.
 const TICK_TIMEOUT_MS = 60_000;
+// How often to poll Transfer events across all known NFT collections.
+// Transfer events are polled on a separate (slower) schedule to avoid making one
+// starknet_getEvents RPC call per collection per block — with 50 collections that
+// was generating ~100M compute units/week at steady state.
+const TRANSFER_POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+
+// Tracks the last block up to which Transfer events were fetched, and when.
+// Kept in memory — a restart re-polls from the indexer cursor (safe, idempotent).
+let _lastTransferPollTime = 0;
+let _lastTransferBlock: number | null = null;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -37,9 +48,12 @@ export async function startMirror(): Promise<void> {
     } catch (err) {
       log.error({ err, tickId }, "Mirror tick error");
     }
-    // Skip sleep when catching up so we process batches back-to-back.
+    // Always sleep at least 500ms even in catchup mode to avoid saturating the RPC
+    // endpoint during historical backfills. When caught up, sleep the full interval.
     if (lagBlocks <= CATCHUP_THRESHOLD) {
       await sleep(env.INDEXER_POLL_INTERVAL_MS);
+    } else {
+      await sleep(500);
     }
   }
 }
@@ -68,16 +82,32 @@ async function tick(tickId: string): Promise<number> {
   });
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
-  // Poll marketplace events and CollectionCreated events, then Transfer events from
-  // every known NFT collection contract in parallel.
+  // Poll marketplace events and CollectionCreated events in parallel on every tick.
   const [rawMarketplaceEvents, rawCollectionCreatedEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
   ]);
 
-  const rawTransferEvents = nftContracts.length > 0
-    ? (await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, fromBlock, toBlock)))).flat()
-    : [];
+  // Poll Transfer events on a separate 2-minute schedule.
+  // Previously this made one starknet_getEvents call per collection per block tick
+  // (50 collections × every new block = ~100M compute units/week at steady state).
+  // Now we batch: one call per collection every 2 minutes, covering the accumulated
+  // block range, which is 1 call vs ~20 calls for the same block window.
+  let rawTransferEvents: RawStarknetEvent[] = [];
+  const now = Date.now();
+  if (nftContracts.length > 0 && now - _lastTransferPollTime >= TRANSFER_POLL_INTERVAL_MS) {
+    const transferFromBlock = _lastTransferBlock != null ? _lastTransferBlock + 1 : fromBlock;
+    if (transferFromBlock <= toBlock) {
+      rawTransferEvents = (
+        await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, transferFromBlock, toBlock)))
+      ).flat();
+    }
+    _lastTransferBlock = toBlock;
+    _lastTransferPollTime = now;
+  } else if (_lastTransferBlock === null) {
+    // First tick — initialize cursor without polling (avoids a cold-start spike).
+    _lastTransferBlock = toBlock;
+  }
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(
