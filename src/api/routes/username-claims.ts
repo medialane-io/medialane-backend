@@ -39,10 +39,10 @@ function validateUsername(username: string): string | null {
 usernameClaims.post(
   "/",
   clerkAuth,
-  zValidator("json", z.object({ username: z.string() })),
+  zValidator("json", z.object({ username: z.string(), notifyEmail: z.string().email().optional() })),
   async (c) => {
     const jwtWallet = c.get("clerkWallet") as string;
-    const { username } = c.req.valid("json");
+    const { username, notifyEmail } = c.req.valid("json");
     const slug = username.toLowerCase().trim();
 
     const validationError = validateUsername(slug);
@@ -78,7 +78,7 @@ usernameClaims.post(
     if (pendingClaim) return c.json({ error: "That username is already claimed or pending review." }, 409);
 
     const claim = await prisma.usernameClaim.create({
-      data: { username: slug, walletAddress: jwtWallet, status: "PENDING" },
+      data: { username: slug, walletAddress: jwtWallet, status: "PENDING", notifyEmail: notifyEmail ?? null },
     });
 
     return c.json({ claim }, 201);

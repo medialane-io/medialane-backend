@@ -235,6 +235,7 @@ model UsernameClaim {
   walletAddress String
   status        UsernameClaimStatus @default(PENDING)
   adminNotes    String?
+  notifyEmail   String?
   reviewedAt    DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt

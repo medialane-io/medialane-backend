@@ -8,6 +8,7 @@ import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMeta
 import { handleStatsUpdate } from "../../orchestrator/stats.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
+import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../utils/mailer.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 
@@ -538,6 +539,12 @@ admin.patch("/username-claims/:id", async (c) => {
       },
       data: { status: "REJECTED", adminNotes: "Superseded by approved claim", reviewedAt: new Date() },
     });
+
+    if (claim.notifyEmail) {
+      sendUsernameClaimApproved(claim.notifyEmail, claim.username).catch(() => {});
+    }
+  } else if (status === "REJECTED" && claim.notifyEmail) {
+    sendUsernameClaimRejected(claim.notifyEmail, claim.username, adminNotes ?? null).catch(() => {});
   }
 
   return c.json({ claim: updated });
