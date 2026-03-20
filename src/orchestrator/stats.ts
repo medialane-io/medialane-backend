@@ -57,9 +57,10 @@ export async function handleStatsUpdate(payload: {
       const token = floor.considerationToken
         ? getTokenByAddress(floor.considerationToken)
         : null;
-      floorPrice = token
-        ? `${formatAmount(floor.priceRaw, token.decimals)} ${token.symbol}`
-        : floor.priceRaw;
+      if (token) {
+        floorPrice = `${formatAmount(floor.priceRaw, token.decimals)} ${token.symbol}`;
+      }
+      // token is null: considerationToken missing or unrecognised — don't store raw wei
     }
   }
 
