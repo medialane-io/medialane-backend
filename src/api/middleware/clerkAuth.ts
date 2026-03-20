@@ -32,6 +32,7 @@ export async function clerkAuth(c: Context, next: Next) {
       return c.json({ error: "No wallet associated with this account" }, 403);
     }
     c.set("clerkWallet", normalizeAddress(rawWallet));
+    c.set("clerkUserId", payload.sub);
   } catch {
     return c.json({ error: "Invalid or expired session token" }, 401);
   }

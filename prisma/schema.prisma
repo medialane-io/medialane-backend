@@ -456,3 +456,14 @@ model HiddenCreator {
 
   @@id([chain, address])
 }
+
+
+model User {
+  id            String   @id @default(cuid())
+  clerkUserId   String   @unique
+  walletAddress String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([clerkUserId])
+}

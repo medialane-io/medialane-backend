@@ -10,6 +10,29 @@ function transferType(fromAddress: string): "mint" | "transfer" {
   return fromAddress === ZERO_ADDRESS ? "mint" : "transfer";
 }
 
+/** Fetch token name/image for a list of activity items (single DB query). */
+async function batchActivityTokenMeta(
+  feed: any[]
+): Promise<Map<string, { name: string | null; image: string | null }>> {
+  const pairs = feed
+    .map((item) => ({
+      contractAddress: item.contractAddress ?? item.nftContract,
+      tokenId: item.tokenId ?? item.nftTokenId,
+    }))
+    .filter((p) => p.contractAddress && p.tokenId);
+
+  if (!pairs.length) return new Map();
+
+  const tokens = await prisma.token.findMany({
+    where: { chain: "STARKNET", OR: pairs },
+    select: { contractAddress: true, tokenId: true, name: true, image: true },
+  });
+
+  return new Map(
+    tokens.map((t) => [`${t.contractAddress}-${t.tokenId}`, { name: t.name, image: t.image }])
+  );
+}
+
 // GET /v1/activities
 activities.get("/", async (c) => {
   const page = Number(c.req.query("page") ?? 1);
@@ -142,7 +165,16 @@ activities.get("/", async (c) => {
         })
       : rawFeed;
 
-  return c.json({ data: feed, meta: { page, limit, total: transferCount + orderCount } });
+  // Enrich feed items with token name/image
+  const tokenMeta = await batchActivityTokenMeta(feed);
+  const enrichedFeed = feed.map((item) => {
+    const contract = (item as any).contractAddress ?? (item as any).nftContract;
+    const tokenId = (item as any).tokenId ?? (item as any).nftTokenId;
+    const meta = tokenMeta.get(`${contract}-${tokenId}`);
+    return { ...item, token: meta ? { name: meta.name, image: meta.image } : null };
+  });
+
+  return c.json({ data: enrichedFeed, meta: { page, limit, total: transferCount + orderCount } });
 });
 
 // GET /v1/activities/:address
@@ -256,7 +288,16 @@ activities.get("/:address", async (c) => {
         })
       : rawFeed;
 
-  return c.json({ data: feed, meta: { page, limit } });
+  // Enrich feed items with token name/image
+  const tokenMeta = await batchActivityTokenMeta(feed);
+  const enrichedFeed = feed.map((item) => {
+    const contract = (item as any).contractAddress ?? (item as any).nftContract;
+    const tokenId = (item as any).tokenId ?? (item as any).nftTokenId;
+    const meta = tokenMeta.get(`${contract}-${tokenId}`);
+    return { ...item, token: meta ? { name: meta.name, image: meta.image } : null };
+  });
+
+  return c.json({ data: enrichedFeed, meta: { page, limit } });
 });
 
 export default activities;
