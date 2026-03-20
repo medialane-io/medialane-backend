@@ -221,6 +221,9 @@ Apply this pattern to **every** `$queryRaw` that compares against an enum column
 - Collection contract: `COLLECTION_CONTRACT` constant (`0x05e73b7...`) — can be overridden per-request via `collectionContract` field
 - `cairo.uint256(collectionId)` used for u256 encoding; `encodeByteArray()` used for Cairo ByteArray felts
 
+### Floor price storage (fixed 2026-03-20)
+`STATS_UPDATE` stores `floorPrice` as `"1.500000 USDC"` (human-readable + symbol). If `considerationToken` is null or unknown to `getTokenByAddress()`, `floorPrice` is set to `null` — raw wei is **never** stored. Previous behaviour stored raw wei (e.g. `"1000000000000000000"`) which the frontend rendered as `"1,000,000,000,000,000,000"`. Fix is in `src/orchestrator/stats.ts`.
+
 ### Metadata
 - `?wait=true` on GET /tokens → JIT resolution, blocks up to 3s via `Promise.race`
 - Results (including failures) cached in `MetadataCache` to avoid repeat fetches
