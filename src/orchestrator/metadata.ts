@@ -86,6 +86,16 @@ export async function handleMetadataFetch(payload: {
     // Fetch and parse metadata
     const metadata = await resolveMetadata(tokenUri);
 
+    // Helper: scan OpenSea-style attributes array for a trait value
+    const _findAttr = (attrs: unknown[], name: string): string | null =>
+      ((attrs ?? []).find(
+        (a: any) =>
+          typeof a?.trait_type === "string" &&
+          a.trait_type.toLowerCase() === name.toLowerCase()
+      ) as any)?.value ?? null;
+
+    const _attrs = Array.isArray(metadata?.attributes) ? (metadata.attributes as unknown[]) : [];
+
     await prisma.token.updateMany({
       where: { chain, contractAddress, tokenId },
       data: {
@@ -95,11 +105,14 @@ export async function handleMetadataFetch(payload: {
         description: metadata?.description ?? null,
         image: metadata?.image ?? null,
         attributes: metadata?.attributes ?? undefined,
-        ipType: (metadata?.properties as any)?.ip_type ?? (metadata as any)?.ip_type ?? null,
+        ipType:
+          (metadata?.properties as any)?.ip_type ??
+          (metadata as any)?.ip_type ??
+          _findAttr(_attrs, "ip type"),
         licenseType:
           (metadata?.properties as any)?.license_type ??
           (metadata as any)?.license_type ??
-          null,
+          _findAttr(_attrs, "license"),
         commercialUse:
           (metadata?.properties as any)?.commercial_use ??
           (metadata as any)?.commercial_use ??
