@@ -27,7 +27,9 @@ export async function clerkAuth(c: Context, next: Next) {
       secretKey: process.env.CLERK_SECRET_KEY!,
     });
     const user = await clerk.users.getUser(payload.sub);
-    const rawWallet = (user.publicMetadata?.walletAddress ?? user.publicMetadata?.publicKey) as string | undefined;
+    // publicKey is ChipiPay's canonical field — always prefer it.
+    // walletAddress is a legacy key written by older code; if both exist publicKey wins.
+    const rawWallet = (user.publicMetadata?.publicKey ?? user.publicMetadata?.walletAddress) as string | undefined;
     if (!rawWallet) {
       return c.json({ error: "No wallet associated with this account" }, 403);
     }

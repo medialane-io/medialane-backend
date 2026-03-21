@@ -810,5 +810,33 @@ admin.patch("/reports/:id", async (c) => {
   return c.json({ data: updated });
 });
 
+// ---------------------------------------------------------------------------
+// PATCH /admin/creators/:oldAddress/fix-wallet — correct a wrong wallet address
+// Updates walletAddress on CreatorProfile, UsernameClaim, and User records.
+// ---------------------------------------------------------------------------
+admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
+  const oldRaw = c.req.param("oldAddress");
+  const body = await c.req.json();
+  const newRaw = body.newAddress as string | undefined;
+  if (!newRaw) return c.json({ error: "newAddress required" }, 400);
+
+  const oldAddr = normalizeAddress(oldRaw);
+  const newAddr = normalizeAddress(newRaw);
+
+  const [profileUpdate, claimUpdate] = await Promise.all([
+    prisma.creatorProfile.updateMany({
+      where: { walletAddress: oldAddr },
+      data: { walletAddress: newAddr },
+    }),
+    prisma.usernameClaim.updateMany({
+      where: { walletAddress: oldAddr },
+      data: { walletAddress: newAddr },
+    }),
+  ]);
+
+  log.info({ oldAddr, newAddr, profileUpdate, claimUpdate }, "Creator wallet address corrected");
+  return c.json({ data: { oldAddr, newAddr, profileUpdate, claimUpdate } });
+});
+
 export default admin;
 
