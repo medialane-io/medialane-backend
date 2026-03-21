@@ -11,6 +11,9 @@ import { createLogger } from "../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../utils/mailer.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
+import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
+import { handleTransfer } from "../../mirror/handlers/transfer.js";
+import { parseEvents } from "../../mirror/parser.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -297,6 +300,86 @@ admin.post("/collections/:contract/stats-refresh", async (c) => {
   } catch (err) {
     return c.json({ error: String(err) }, 500);
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/collections/:contract/backfill-transfers — scan historical Transfer events
+// ---------------------------------------------------------------------------
+// Fetches all ERC-721 Transfer events for the contract between fromBlock and toBlock,
+// upserts Token + Transfer rows, and enqueues METADATA_FETCH for every new token.
+// Use this when a collection was registered after its mints already happened.
+admin.post("/collections/:contract/backfill-transfers", async (c) => {
+  const { contract } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schema = z.object({
+    fromBlock: z.number().int().min(0).default(0),
+    toBlock:   z.number().int().min(0).optional(),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+
+  const latestBlock = await getLatestBlock();
+  const fromBlock   = parsed.data.fromBlock;
+  const toBlock     = parsed.data.toBlock ?? latestBlock;
+
+  if (fromBlock > toBlock) {
+    return c.json({ error: `fromBlock (${fromBlock}) must be ≤ toBlock (${toBlock})` }, 400);
+  }
+
+  log.info({ contractAddress, fromBlock, toBlock }, "Starting Transfer backfill");
+
+  const rawEvents = await pollTransferEvents(contractAddress, fromBlock, toBlock);
+  const parsedEvents = parseEvents(rawEvents);
+  const transferEvents = parsedEvents.filter((e) => e.type === "Transfer");
+
+  let inserted = 0;
+  let skipped  = 0;
+
+  for (const event of transferEvents) {
+    if (event.type !== "Transfer") continue;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await handleTransfer(event, tx, "STARKNET");
+      });
+      inserted++;
+    } catch (err: unknown) {
+      // P2002 = unique constraint — already processed
+      if ((err as { code?: string }).code === "P2002") {
+        skipped++;
+      } else {
+        log.warn({ err, tokenId: event.tokenId }, "Transfer backfill row error — skipping");
+        skipped++;
+      }
+    }
+  }
+
+  // Enqueue metadata fetch for all PENDING tokens in this collection
+  const pendingTokens = await prisma.token.findMany({
+    where: { chain: "STARKNET", contractAddress, metadataStatus: "PENDING" },
+    select: { tokenId: true },
+  });
+  for (const t of pendingTokens) {
+    worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId: t.tokenId });
+  }
+
+  // Trigger stats update
+  worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
+
+  log.info({ contractAddress, inserted, skipped, metadataJobs: pendingTokens.length }, "Transfer backfill complete");
+
+  return c.json({
+    data: {
+      contractAddress,
+      fromBlock,
+      toBlock,
+      rawEvents: rawEvents.length,
+      inserted,
+      skipped,
+      metadataJobsEnqueued: pendingTokens.length,
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------
