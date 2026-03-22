@@ -7,6 +7,8 @@ import {
   ORDER_CANCELLED_SELECTOR,
   TRANSFER_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
+  COMMENTS_CONTRACT,
+  COMMENT_ADDED_SELECTOR,
 } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -118,6 +120,40 @@ export async function pollCollectionCreatedEvents(
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
       keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
+
+  return allEvents;
+}
+
+/**
+ * Fetch CommentAdded events from the NFTComments contract.
+ * Returns an empty array when COMMENTS_CONTRACT is not configured.
+ */
+export async function pollCommentEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!COMMENTS_CONTRACT) return [];
+
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: COMMENTS_CONTRACT,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(COMMENT_ADDED_SELECTOR)]],
       chunk_size: 1000,
       continuation_token: continuationToken,
     });
