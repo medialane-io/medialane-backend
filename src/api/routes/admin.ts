@@ -15,11 +15,27 @@ import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
 import { handleTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
 
+import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
+
 const log = createLogger("routes:admin");
 const admin = new Hono();
 
-// All admin routes require the admin secret
+// Simple IP-based rate limiter for admin routes (20 req/min per IP)
+const adminRateLimitStore = new InMemoryRateLimitStore();
+const ADMIN_RATE_LIMIT = 20;
+const ADMIN_WINDOW_MS = 60_000;
+
+// All admin routes require the admin secret + IP-based rate limit
 admin.use("*", authMiddleware);
+admin.use("*", async (c, next) => {
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { count, resetAt } = await adminRateLimitStore.increment(`admin:${ip}`, ADMIN_WINDOW_MS);
+  if (count > ADMIN_RATE_LIMIT) {
+    c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
+    return c.json({ error: "Too many requests" }, 429);
+  }
+  await next();
+});
 
 // ---------------------------------------------------------------------------
 // POST /admin/tenants — create tenant + initial API key

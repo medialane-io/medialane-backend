@@ -35,7 +35,7 @@ export function normalizeAddress(address: string): string {
     const hex = num.toHex(BigInt(address));
     return "0x" + hex.slice(2).padStart(64, "0");
   } catch {
-    return address.toLowerCase();
+    throw new Error(`Invalid Starknet address: "${address}"`);
   }
 }
 

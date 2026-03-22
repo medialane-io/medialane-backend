@@ -41,7 +41,7 @@ const cancelSchema = z.object({
 
 const mintSchema = z.object({
   owner: z.string(),
-  collectionId: z.string(),
+  collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string"),
   recipient: z.string(),
   tokenUri: z.string().min(1),
   collectionContract: z.string().optional(),

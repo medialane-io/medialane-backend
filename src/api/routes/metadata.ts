@@ -60,6 +60,23 @@ metadata.get("/resolve", async (c) => {
   const uri = c.req.query("uri");
   if (!uri) return c.json({ error: "uri query param required" }, 400);
 
+  // SSRF guard — only allow ipfs://, data:, and https:// URIs.
+  // Block file://, gopher://, http://, and private/internal IP ranges.
+  if (!uri.startsWith("ipfs://") && !uri.startsWith("data:")) {
+    let parsed: URL;
+    try { parsed = new URL(uri); } catch {
+      return c.json({ error: "Invalid URI" }, 400);
+    }
+    if (parsed.protocol !== "https:") {
+      return c.json({ error: "Only ipfs://, data:, and https:// URIs are supported" }, 400);
+    }
+    // Block private/internal IP ranges and loopback
+    const privateRange = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/i;
+    if (privateRange.test(parsed.hostname)) {
+      return c.json({ error: "Internal addresses are not allowed" }, 400);
+    }
+  }
+
   const resolved = await resolveMetadata(uri);
   return c.json({ data: resolved });
 });

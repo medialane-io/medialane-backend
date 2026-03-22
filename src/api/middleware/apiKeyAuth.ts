@@ -7,12 +7,12 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("middleware:apiKeyAuth");
 
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  // Accept Authorization: Bearer <key>, x-api-key: <key>, or ?apiKey= (for EventSource)
+  // Accept Authorization: Bearer <key> or x-api-key: <key>
+  // Query-param ?apiKey= was removed — API keys in URLs appear in access logs and browser history
   const authHeader = c.req.header("authorization");
   const raw =
     authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim()
     : c.req.header("x-api-key")?.trim()
-    ?? c.req.query("apiKey")?.trim()
     ?? null;
 
   if (!raw) {
