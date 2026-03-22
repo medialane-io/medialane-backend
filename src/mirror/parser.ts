@@ -73,18 +73,46 @@ export function parseEvent(
       } satisfies ParsedOrderCancelled;
     }
 
-    if (selector === SEL_TRANSFER && keys.length >= 5) {
-      // ERC-721 Transfer: keys = [selector, from, to, tokenId.low, tokenId.high]
-      return {
-        type: "Transfer",
-        contractAddress,
-        from: normalizeAddress(keys[1]),
-        to: normalizeAddress(keys[2]),
-        tokenId: u256ToBigInt(keys[3], keys[4]).toString(),
-        blockNumber,
-        txHash,
-        logIndex,
-      } satisfies ParsedTransfer;
+    if (selector === SEL_TRANSFER) {
+      // Cairo 1 ERC-721: keys = [selector, from, to, tokenId.low, tokenId.high]
+      if (keys.length >= 5) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(keys[1]),
+          to: normalizeAddress(keys[2]),
+          tokenId: u256ToBigInt(keys[3], keys[4]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
+      // Cairo 0 ERC-721: keys = [selector, from, to, tokenId] (tokenId as felt252)
+      if (keys.length === 4) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(keys[1]),
+          to: normalizeAddress(keys[2]),
+          tokenId: BigInt(keys[3]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
+      // Cairo 0 variant: tokenId in data array as u256
+      if (keys.length === 3 && event.data.length >= 2) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(keys[1]),
+          to: normalizeAddress(keys[2]),
+          tokenId: u256ToBigInt(event.data[0], event.data[1]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
     }
 
     if (selector === SEL_COLLECTION_CREATED) {
