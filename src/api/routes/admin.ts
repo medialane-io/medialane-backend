@@ -259,6 +259,7 @@ admin.patch("/collections/:contract", async (c) => {
     description:  z.string().optional(),
     image:        z.string().optional(),
     isKnown:      z.boolean().optional(),
+    isHidden:     z.boolean().optional(),
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
   });
