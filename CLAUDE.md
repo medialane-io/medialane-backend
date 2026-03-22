@@ -114,6 +114,7 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/tokens/owned/:address` | `page`, `limit` |
 | GET | `/v1/tokens/:contract/:tokenId` | `?wait=true` blocks 3s for JIT metadata |
 | GET | `/v1/tokens/:contract/:tokenId/history` | Mixed transfers + orders, sorted by timestamp |
+| GET | `/v1/tokens/:contract/:tokenId/comments` | On-chain comments for token. `page`, `limit`. Excludes `isHidden=true` comments. Returns `{ data: ApiComment[], meta }` |
 | GET | `/v1/activities` | `?type=transfer\|sale\|listing\|offer`, `page`, `limit` |
 | GET | `/v1/activities/:address` | `page`, `limit` |
 | GET | `/v1/search` | `?q=` (min 2 chars), `limit` (max 50). Returns `{ data: { tokens, collections }, query }` |
@@ -155,6 +156,9 @@ Response headers on every `/v1/*` response:
 | POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all PENDING/FAILED/unnamed/ownerless collections |
 | POST | `/admin/collections/backfill-registry` | Scan ALL `CollectionCreated` events on-chain + upsert every missing collection. Returns `{ inserted, skipped }` |
 | POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection (uses upsert, can create from scratch) |
+| GET | `/admin/comments` | List comments. `?hidden=true\|false`, `?author=address`, `?contract=address`, `page`, `limit` |
+| PATCH | `/admin/comments/:id/hide` | Set `isHidden = true` on a comment |
+| PATCH | `/admin/comments/:id/show` | Set `isHidden = false` on a comment |
 
 ---
 
@@ -221,6 +225,28 @@ Apply this pattern to **every** `$queryRaw` that compares against an enum column
 - Collection contract: `COLLECTION_CONTRACT` constant (`0x05e73b7...`) — can be overridden per-request via `collectionContract` field
 - `cairo.uint256(collectionId)` used for u256 encoding; `encodeByteArray()` used for Cairo ByteArray felts
 
+### On-chain NFT comments (added 2026-03-22)
+
+Comments are indexed from `CommentAdded` events emitted by the NFTComments contract (`0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232`). Separate from the marketplace poller — `pollCommentEvents` in `src/mirror/commentPoller.ts` runs in parallel.
+
+**Token existence filter**: `handleCommentAdded` in `src/mirror/handlers/commentAdded.ts` checks if the token exists in the DB before indexing. Comments on unindexed tokens are silently skipped (avoids orphan rows and spam from non-Medialane NFTs).
+
+**`Comment` model**: `id`, `chain`, `contractAddress`, `tokenId`, `author`, `content`, `txHash`, `logIndex`, `blockNumber`, `blockTimestamp`, `isHidden`. Idempotency: `@@unique([txHash, logIndex])`.
+
+**`NFTComments_CONTRACT` env var**: must be set in Railway. Value: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232`.
+
+**COMMENT report type**: `ReportTargetType` enum extended with `COMMENT`. `targetKey` format = `COMMENT::<commentId>` (double-colon to avoid collision). After 3 unique reports, `isHidden = true` is set automatically in `src/api/routes/reports.ts`. **Split on `"::"` not `":"` when parsing COMMENT targetKeys.**
+
+### Prisma enum addition pitfall (discovered 2026-03-22)
+
+`prisma migrate dev` fails for enum additions when the shadow DB blocks on `CREATE INDEX CONCURRENTLY`. Workaround:
+1. Write the migration SQL manually (e.g. `ALTER TYPE "ReportTargetType" ADD VALUE 'COMMENT';`)
+2. Save to `prisma/migrations/<timestamp>_<name>/migration.sql`
+3. Run `prisma migrate resolve --applied <migration-name>` locally (marks it applied without running it)
+4. Commit — Railway's `prisma migrate deploy` will apply on next deploy
+
+If a migration gets stuck as "failed" in Railway but was actually applied: `prisma migrate resolve --applied <name>` fixes it without data loss.
+
 ### Floor price storage (fixed 2026-03-20)
 `STATS_UPDATE` stores `floorPrice` as `"1.500000 USDC"` (human-readable + symbol). If `considerationToken` is null or unknown to `getTokenByAddress()`, `floorPrice` is set to `null` — raw wei is **never** stored. Previous behaviour stored raw wei (e.g. `"1000000000000000000"`) which the frontend rendered as `"1,000,000,000,000,000,000"`. Fix is in `src/orchestrator/stats.ts`.
 
@@ -253,7 +279,7 @@ Prisma v5 + PostgreSQL.
 
 > **CRITICAL**: When adding a field to `schema.prisma`, you MUST also run `db:migrate` to generate a migration SQL file. Editing the schema alone does NOT update the production DB. Railway runs `prisma migrate deploy` on startup — if no migration file exists, the new column is absent in prod and any Prisma call that touches it will throw a runtime error (e.g. "column does not exist"). This caused a P0 incident on 2026-03-12 where `reaperAttempts`, `attemptCount`, and `isTerminal` were added to the schema without a migration, breaking all `job.create` calls and stalling the entire indexer/orchestrator.
 
-Key tables: `Tenant`, `ApiKey`, `Order`, `Token`, `Collection`, `Transfer`, `Job`, `IndexerCursor`, `MetadataCache`, `UsageLog`, `WebhookEndpoint`, `TransactionIntent`, `AuditLog`
+Key tables: `Tenant`, `ApiKey`, `Order`, `Token`, `Collection`, `Transfer`, `Comment`, `Job`, `IndexerCursor`, `MetadataCache`, `UsageLog`, `WebhookEndpoint`, `TransactionIntent`, `AuditLog`, `Report`
 
 psql on this machine: `/opt/homebrew/Cellar/postgresql@16/16.13/bin/psql`
 
@@ -315,6 +341,7 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 - Marketplace: `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f`
 - Collection (ERC-721): `0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03`
+- NFTComments: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` (class hash: `0x1edbebcd184c3ea65c19f59f2cbc11ef8b3a2883b4fe97db1caf0b29c6ea0dd` after 2026-03-22 upgrade)
 - Indexer start block: `6204232`
 - SNIP-12 domain: `{ name: "Medialane", version: "1", revision: "1" }`
 - Event selectors computed via `hash.getSelectorFromName()` at startup
