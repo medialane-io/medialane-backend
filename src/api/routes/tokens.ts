@@ -97,6 +97,48 @@ tokens.get("/owned/:address", async (c) => {
   });
 });
 
+// GET /v1/tokens/:contract/:tokenId/comments
+// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
+tokens.get("/:contract/:tokenId/comments", async (c) => {
+  const contract = normalizeAddress(c.req.param("contract"));
+  const tokenId = c.req.param("tokenId");
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const skip = (page - 1) * limit;
+
+  const [comments, total] = await Promise.all([
+    prisma.comment.findMany({
+      where: { chain: "starknet", contractAddress: contract, tokenId, isHidden: false },
+      orderBy: { blockTimestamp: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        chain: true,
+        contractAddress: true,
+        tokenId: true,
+        author: true,
+        content: true,
+        txHash: true,
+        blockNumber: true,
+        blockTimestamp: true,
+      },
+    }),
+    prisma.comment.count({
+      where: { chain: "starknet", contractAddress: contract, tokenId, isHidden: false },
+    }),
+  ]);
+
+  const data = comments.map((row) => ({
+    ...row,
+    blockNumber: row.blockNumber.toString(),
+    blockTimestamp: row.blockTimestamp.toString(),
+    postedAt: new Date(Number(row.blockTimestamp) * 1000).toISOString(),
+  }));
+
+  return c.json({ data, meta: { page, limit, total } });
+});
+
 // GET /v1/tokens/:contract/:tokenId
 tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
