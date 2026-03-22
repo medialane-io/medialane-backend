@@ -27,8 +27,9 @@ function utf8FromByteArray(felts: string[]): string {
       bytes[offset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
     }
   }
+  // pending_word is right-aligned: bytes are at (pendingWordLen-1)*8 .. 0, NOT at (30-j)*8
   for (let j = 0; j < pendingWordLen; j++) {
-    bytes[offset++] = Number((pendingWord >> BigInt((30 - j) * 8)) & 0xffn);
+    bytes[offset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
   }
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
