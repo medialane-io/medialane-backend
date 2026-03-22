@@ -100,7 +100,7 @@ export function parseEvent(
           logIndex,
         } satisfies ParsedTransfer;
       }
-      // Cairo 0 variant: tokenId in data array as u256
+      // Cairo 0 ERC-721: keys = [selector, from, to], tokenId as u256 in data
       if (keys.length === 3 && event.data.length >= 2) {
         return {
           type: "Transfer",
@@ -108,6 +108,20 @@ export function parseEvent(
           from: normalizeAddress(keys[1]),
           to: normalizeAddress(keys[2]),
           tokenId: u256ToBigInt(event.data[0], event.data[1]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
+      // Cairo 0 ERC-721 (old format): only selector in keys, all fields in data
+      // data = [from, to, tokenId.low, tokenId.high]
+      if (keys.length === 1 && event.data.length >= 4) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(event.data[0]),
+          to: normalizeAddress(event.data[1]),
+          tokenId: u256ToBigInt(event.data[2], event.data[3]).toString(),
           blockNumber,
           txHash,
           logIndex,
