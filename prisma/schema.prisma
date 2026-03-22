@@ -467,3 +467,22 @@ model User {
 
   @@index([clerkUserId])
 }
+
+model Comment {
+  id              String   @id @default(cuid())
+  chain           String   @default("starknet")
+  contractAddress String
+  tokenId         String
+  author          String
+  content         String
+  isHidden        Boolean  @default(false)
+  txHash          String?
+  blockNumber     BigInt
+  blockTimestamp  BigInt
+  logIndex        Int
+  createdAt       DateTime @default(now())
+
+  @@unique([txHash, logIndex])
+  @@index([chain, contractAddress, tokenId])
+  @@index([author])
+}
