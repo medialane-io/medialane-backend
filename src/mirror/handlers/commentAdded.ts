@@ -63,6 +63,16 @@ export async function handleCommentAdded(
     const tokenId = ((tokenIdHigh << 128n) | tokenIdLow).toString();
     const author = normalizeAddress(event.keys[4]);
 
+    // Only index comments for tokens that exist on the platform
+    const tokenExists = await prisma.token.findUnique({
+      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: nftContract, tokenId } },
+      select: { id: true },
+    });
+    if (!tokenExists) {
+      log.debug({ txHash, nftContract, tokenId }, "Comment skipped — token not indexed");
+      return;
+    }
+
     // Timestamp is the last felt in data; everything before it is the ByteArray.
     const dataArr = event.data;
     const blockTimestamp = BigInt(parseInt(dataArr[dataArr.length - 1], 16));

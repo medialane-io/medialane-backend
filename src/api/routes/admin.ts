@@ -962,5 +962,67 @@ admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
   return c.json({ data: { oldAddr, newAddr, profileUpdate, claimUpdate } });
 });
 
+// ---------------------------------------------------------------------------
+// GET /admin/comments — list comments (newest first, optional filters)
+// Query params: ?hidden=true|false, ?author=0x..., ?contract=0x..., ?page=1, ?limit=50
+// ---------------------------------------------------------------------------
+admin.get("/comments", async (c) => {
+  const hidden = c.req.query("hidden");
+  const author = c.req.query("author");
+  const contract = c.req.query("contract");
+  const page = Math.max(1, Number(c.req.query("page") ?? "1"));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? "50")));
+
+  const where: Record<string, unknown> = {};
+  if (hidden === "true") where.isHidden = true;
+  if (hidden === "false") where.isHidden = false;
+  if (author) where.author = normalizeAddress(author);
+  if (contract) where.contractAddress = normalizeAddress(contract);
+
+  const [comments, total] = await Promise.all([
+    prisma.comment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.comment.count({ where }),
+  ]);
+
+  return c.json({ data: comments, meta: { page, limit, total } });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/comments/:id/hide
+// ---------------------------------------------------------------------------
+admin.patch("/comments/:id/hide", async (c) => {
+  const { id } = c.req.param();
+  const comment = await prisma.comment.findUnique({ where: { id } });
+  if (!comment) return c.json({ error: "Comment not found" }, 404);
+
+  const updated = await prisma.comment.update({
+    where: { id },
+    data: { isHidden: true },
+  });
+  log.info({ id }, "Comment hidden by admin");
+  return c.json({ data: updated });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/comments/:id/show
+// ---------------------------------------------------------------------------
+admin.patch("/comments/:id/show", async (c) => {
+  const { id } = c.req.param();
+  const comment = await prisma.comment.findUnique({ where: { id } });
+  if (!comment) return c.json({ error: "Comment not found" }, 404);
+
+  const updated = await prisma.comment.update({
+    where: { id },
+    data: { isHidden: false },
+  });
+  log.info({ id }, "Comment restored by admin");
+  return c.json({ data: updated });
+});
+
 export default admin;
 

@@ -27,6 +27,7 @@ enum ReportTargetType {
   COLLECTION
   TOKEN
   CREATOR
+  COMMENT
 }
 
 enum ReportCategory {
