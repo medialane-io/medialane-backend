@@ -284,6 +284,30 @@ admin.patch("/collections/:contract", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// DELETE /admin/collections/:contract — permanently remove collection + all tokens/transfers/jobs
+// ---------------------------------------------------------------------------
+admin.delete("/collections/:contract", async (c) => {
+  const { contract } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+  });
+  if (!col) return c.json({ error: "Collection not found" }, 404);
+
+  // Delete in dependency order: transfers → tokens → collection
+  const [transfers, tokens] = await prisma.$transaction([
+    prisma.transfer.deleteMany({ where: { contractAddress } }),
+    prisma.token.deleteMany({ where: { contractAddress } }),
+    prisma.collection.delete({ where: { chain_contractAddress: { chain: "STARKNET", contractAddress } } }),
+  ]);
+
+  log.info({ contractAddress, transfers, tokens }, "Collection deleted via admin");
+
+  return c.json({ data: { contractAddress, deleted: { transfers, tokens } } });
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/collections/:contract/refresh — force sync collection metadata
 // ---------------------------------------------------------------------------
 admin.post("/collections/:contract/refresh", async (c) => {
