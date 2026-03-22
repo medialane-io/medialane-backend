@@ -27,12 +27,15 @@ export async function handleStatsUpdate(payload: {
     where: { chain, contractAddress },
   });
 
-  // Calculate floor price from active orders
+  // Calculate floor price from active listing orders only.
+  // Bids (offerItemType = "ERC20") are excluded — their considerationToken is the NFT address,
+  // not a currency, so they cannot be priced correctly here. Floor price = cheapest active listing.
   const activeOrders = await prisma.order.findMany({
     where: {
       chain,
       nftContract: contractAddress,
       status: "ACTIVE",
+      offerItemType: "ERC721",
       endTime: { gt: BigInt(Math.floor(Date.now() / 1000)) },
       priceRaw: { not: null },
     },
