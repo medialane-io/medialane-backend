@@ -10,6 +10,82 @@ import { ZERO_ADDRESS } from "../../config/constants.js";
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
 
+// Slug → canonical DB value for ipType column
+const SLUG_TO_IP_TYPE: Record<string, string> = {
+  audio: "Audio",
+  art: "Art",
+  documents: "Documents",
+  video: "Video",
+  photography: "Photography",
+  patents: "Patents",
+  posts: "Posts",
+  publications: "Publications",
+  rwa: "RWA",
+  software: "Software",
+  custom: "Custom",
+  // "nft" is handled separately (NFT | null)
+};
+
+// GET /v1/tokens — browse all indexed tokens, optionally filtered by IP type
+// Query params: ?ipType=audio|art|video|nft|... &page= &limit= &sort=recent|oldest
+tokens.get("/", async (c) => {
+  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
+  const limit = Math.min(48, Math.max(1, Number(c.req.query("limit") ?? 24)));
+  const sort  = c.req.query("sort") === "oldest" ? "oldest" : "recent";
+  const ipTypeSlug = (c.req.query("ipType") ?? "").toLowerCase().trim();
+  const skip  = (page - 1) * limit;
+
+  const where: any = { chain: "STARKNET", isHidden: false };
+
+  if (ipTypeSlug) {
+    if (ipTypeSlug === "nft") {
+      // "nft" catches explicitly tagged NFT + untagged/external tokens (null)
+      where.OR = [{ ipType: "NFT" }, { ipType: null }];
+    } else {
+      const canonical = SLUG_TO_IP_TYPE[ipTypeSlug];
+      if (canonical) where.ipType = canonical;
+      // Unknown slug → no ipType filter (returns all tokens)
+    }
+  }
+
+  const [data, total] = await Promise.all([
+    prisma.token.findMany({
+      where,
+      orderBy: sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.token.count({ where }),
+  ]);
+
+  // Batch-load active orders for returned tokens in a single query
+  const activeOrdersAll =
+    data.length > 0
+      ? await prisma.order.findMany({
+          where: {
+            chain: "STARKNET",
+            status: "ACTIVE",
+            OR: data.map((t) => ({ nftContract: t.contractAddress, nftTokenId: t.tokenId })),
+          },
+        })
+      : [];
+
+  const ordersByToken = new Map<string, typeof activeOrdersAll>();
+  for (const order of activeOrdersAll) {
+    const key = `${order.nftContract}:${order.nftTokenId}`;
+    const existing = ordersByToken.get(key) ?? [];
+    existing.push(order);
+    ordersByToken.set(key, existing);
+  }
+
+  return c.json({
+    data: data.map((t) =>
+      serializeToken(t, ordersByToken.get(`${t.contractAddress}:${t.tokenId}`) ?? [])
+    ),
+    meta: { page, limit, total },
+  });
+});
+
 // GET /v1/tokens/batch — fetch multiple tokens by contract:tokenId pairs
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/batch", async (c) => {

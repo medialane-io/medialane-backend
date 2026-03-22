@@ -160,6 +160,7 @@ model Token {
   @@index([chain, owner])
   @@index([chain, contractAddress])
   @@index([chain, metadataStatus])
+  @@index([chain, ipType])
 }
 
 // GIN index for full-text search: idx_collection_fts on to_tsvector('english', name||contractAddress)
