@@ -1024,5 +1024,23 @@ admin.patch("/comments/:id/show", async (c) => {
   return c.json({ data: updated });
 });
 
+// ---------------------------------------------------------------------------
+// PATCH /admin/remix-offers/:id — override creatorAddress when token transfer caused stale state
+// ---------------------------------------------------------------------------
+admin.patch("/remix-offers/:id", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json().catch(() => ({}));
+  if (!body.creatorAddress) {
+    return c.json({ error: "creatorAddress is required" }, 400);
+  }
+
+  const updated = await prisma.remixOffer.update({
+    where: { id },
+    data: { creatorAddress: normalizeAddress(body.creatorAddress) },
+  });
+
+  return c.json({ data: { id: updated.id, creatorAddress: updated.creatorAddress } });
+});
+
 export default admin;
 
