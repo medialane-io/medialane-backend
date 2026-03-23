@@ -488,3 +488,47 @@ model Comment {
   @@index([chain, contractAddress, tokenId])
   @@index([author])
 }
+
+enum RemixOfferStatus {
+  PENDING
+  AUTO_PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  EXPIRED
+  SELF_MINTED
+}
+
+model RemixOffer {
+  id        String           @id @default(cuid())
+  status    RemixOfferStatus @default(PENDING)
+
+  originalContract  String
+  originalTokenId   String
+  creatorAddress    String
+
+  requesterAddress  String?
+  message           String?
+
+  proposedPrice     String
+  proposedCurrency  String
+
+  licenseType    String
+  commercial     Boolean  @default(false)
+  derivatives    Boolean  @default(true)
+  royaltyPct     Int?
+
+  approvedCollection  String?
+  remixContract       String?
+  remixTokenId        String?
+  orderHash           String?
+
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orderHash])
+  @@index([originalContract, originalTokenId])
+  @@index([creatorAddress])
+  @@index([requesterAddress])
+}
