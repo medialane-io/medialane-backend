@@ -18,6 +18,19 @@ export async function handleOrderFulfilled(
     },
   });
 
+  // Complete any RemixOffer whose listing was just fulfilled
+  const { count } = await tx.remixOffer.updateMany({
+    where: { orderHash: event.orderHash, status: "APPROVED" },
+    data: { status: "COMPLETED" },
+  });
+
+  if (count > 0) {
+    log.info(
+      { orderHash: event.orderHash, fulfiller: event.fulfiller },
+      "RemixOffer completed via OrderFulfilled"
+    );
+  }
+
   log.debug(
     { chain, orderHash: event.orderHash, fulfiller: event.fulfiller },
     "Order fulfilled"
