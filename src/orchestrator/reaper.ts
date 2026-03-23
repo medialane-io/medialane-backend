@@ -38,6 +38,16 @@ export async function runReaper(): Promise<void> {
     },
   });
   if (intentDeleted > 0) log.info({ count: intentDeleted }, "Reaper: purged old terminal intents");
+
+  // Expire remix offers that passed their expiresAt
+  const { count: offersExpired } = await prisma.remixOffer.updateMany({
+    where: {
+      status: { in: ["PENDING", "AUTO_PENDING"] },
+      expiresAt: { lt: new Date() },
+    },
+    data: { status: "EXPIRED" },
+  });
+  if (offersExpired > 0) log.info({ count: offersExpired }, "Reaper: expired remix offers");
 }
 
 export async function startReaper(): Promise<void> {
