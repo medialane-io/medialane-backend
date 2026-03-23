@@ -52,9 +52,11 @@ GET  /v1/orders/user/:address            All orders by user
 
 ### Tokens
 ```
-GET  /v1/tokens/owned/:address            Tokens owned by address
-GET  /v1/tokens/:contract/:tokenId        Token + metadata (?wait=true for JIT fetch)
-GET  /v1/tokens/:contract/:tokenId/history Transfer + order history
+GET  /v1/tokens/owned/:address                    Tokens owned by address
+GET  /v1/tokens/:contract/:tokenId                Token + metadata (?wait=true for JIT fetch)
+GET  /v1/tokens/:contract/:tokenId/history        Transfer + order history
+GET  /v1/tokens/:contract/:tokenId/comments       On-chain comments for token (page, limit; excludes hidden)
+GET  /v1/tokens/:contract/:tokenId/remixes        Public remixes of token (page, limit)
 ```
 
 ### Collections
@@ -72,6 +74,23 @@ GET  /v1/collections/:contract/tokens     Tokens in collection
 GET  /v1/activities                       Global activity feed (type, page, limit)
 GET  /v1/activities/:address              Activity by user
 ```
+
+### Remix Offers
+```
+POST /v1/remix-offers                     Submit a custom license offer (Clerk JWT required)
+POST /v1/remix-offers/auto                Auto-approve offer for open-license assets (Clerk JWT required)
+POST /v1/remix-offers/self/confirm        Record completed self-remix (owner only, Clerk JWT required)
+GET  /v1/remix-offers                     List offers for authenticated user (?role=creator|requester, ?status, page, limit)
+GET  /v1/remix-offers/:id                 Single offer
+POST /v1/remix-offers/:id/approve         Creator approves offer (sets approvedCollection, Clerk JWT required)
+POST /v1/remix-offers/:id/reject          Creator rejects offer (Clerk JWT required)
+POST /v1/remix-offers/:id/confirm         Mark offer completed after mint (Clerk JWT required)
+GET  /v1/tokens/:contract/:tokenId/remixes  Public remixes for a token (page, limit)
+```
+
+All remix-offer mutation endpoints require both a valid `x-api-key` header and `Authorization: Bearer <clerk-jwt>`. The Clerk JWT is used to derive the caller's Starknet wallet address. Price/currency fields are only visible in responses to the creator or requester — not to third parties.
+
+**RemixOffer statuses**: `PENDING` (awaiting creator), `AUTO_PENDING` (open-license, auto-approved), `APPROVED` (creator approved), `COMPLETED` (remix minted + listed), `REJECTED`, `EXPIRED`, `SELF_MINTED` (owner self-remix recorded).
 
 ### Search
 ```
@@ -135,6 +154,9 @@ POST   /admin/collections/backfill-metadata         Enqueue COLLECTION_METADATA_
 POST   /admin/collections/backfill-registry         Scan all CollectionCreated events on-chain and upsert missing collections
 POST   /admin/collections/:contract/refresh         Force COLLECTION_METADATA_FETCH for one collection
 POST   /admin/collections/:contract/stats-refresh   Force STATS_UPDATE for one collection
+GET    /admin/comments                              List comments (?hidden=true|false, ?author, ?contract, page, limit)
+PATCH  /admin/comments/:id/hide                     Set isHidden = true
+PATCH  /admin/comments/:id/show                     Set isHidden = false
 ```
 
 ---
@@ -184,6 +206,7 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 |---|---|
 | Marketplace | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
 | Collection Registry (ERC-721) | `0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03` |
+| NFTComments | `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` |
 | Indexer start block | `6204232` |
 
 ---
