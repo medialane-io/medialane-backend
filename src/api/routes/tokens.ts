@@ -215,6 +215,46 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
   return c.json({ data, meta: { page, limit, total } });
 });
 
+// GET /v1/tokens/:contract/:tokenId/remixes — public list of minted remixes
+// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
+tokens.get("/:contract/:tokenId/remixes", async (c) => {
+  const contract = normalizeAddress(c.req.param("contract"));
+  const tokenId = c.req.param("tokenId");
+  const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
+  const limit = Math.min(50, Math.max(1, parseInt(c.req.query("limit") ?? "20", 10)));
+
+  const [remixes, total] = await Promise.all([
+    prisma.remixOffer.findMany({
+      where: {
+        originalContract: contract,
+        originalTokenId: tokenId,
+        status: { in: ["APPROVED", "COMPLETED", "SELF_MINTED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+      select: {
+        id: true,
+        remixContract: true,
+        remixTokenId: true,
+        licenseType: true,
+        commercial: true,
+        derivatives: true,
+        createdAt: true,
+      },
+    }),
+    prisma.remixOffer.count({
+      where: {
+        originalContract: contract,
+        originalTokenId: tokenId,
+        status: { in: ["APPROVED", "COMPLETED", "SELF_MINTED"] },
+      },
+    }),
+  ]);
+
+  return c.json({ data: remixes, meta: { page, limit, total } });
+});
+
 // GET /v1/tokens/:contract/:tokenId
 tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();

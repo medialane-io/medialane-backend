@@ -25,6 +25,7 @@ import profiles from "./routes/profiles.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 import reports from "./routes/reports.js";
+import remixOffers from "./routes/remix-offers.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -44,6 +45,8 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/collections/claim", claims);
   app.route("/v1/username-claims", usernameClaims);
   app.route("/v1/users", users);
+  // Remix offers — Clerk JWT auth + x-api-key (mounted before global apiKeyAuth)
+  app.route("/v1/remix-offers", remixOffers);
 
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);
