@@ -7,12 +7,14 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("middleware:apiKeyAuth");
 
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  // Accept Authorization: Bearer <key> or x-api-key: <key>
-  // Query-param ?apiKey= was removed — API keys in URLs appear in access logs and browser history
+  // Prefer x-api-key header; fall back to Authorization: Bearer <key>
+  // x-api-key takes priority because some endpoints send both x-api-key (tenant key)
+  // and Authorization: Bearer (Clerk JWT) simultaneously — reading Authorization first
+  // would cause the Clerk token to be treated as the API key and rejected.
   const authHeader = c.req.header("authorization");
   const raw =
-    authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim()
-    : c.req.header("x-api-key")?.trim()
+    c.req.header("x-api-key")?.trim()
+    ?? (authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null)
     ?? null;
 
   if (!raw) {
