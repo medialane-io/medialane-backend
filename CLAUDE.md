@@ -67,6 +67,8 @@ x-api-key: ml_live_...
 Authorization: Bearer ml_live_...
 ```
 
+**`x-api-key` takes priority over `Authorization: Bearer`**. Some routes (e.g. `PATCH /v1/creators/:wallet/profile`) require both a tenant key (`apiKeyAuth`) and a Clerk JWT (`clerkAuth`). The SDK sends both simultaneously: `x-api-key: ml_live_...` + `Authorization: Bearer <clerkToken>`. Reading `Authorization` first would cause the Clerk JWT to be treated as the API key and fail. Do not change this priority.
+
 Lookup: `hashApiKey(raw)` → DB lookup on `ApiKey.keyHash`. Rejected if key `status !== "ACTIVE"` or tenant `status !== "ACTIVE"` (SUSPENDED tenants → 401 even with valid key). `lastUsedAt` updated fire-and-forget (non-blocking).
 
 PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error: "Upgrade required", requiredPlan: "PREMIUM" }` for FREE tenants.
