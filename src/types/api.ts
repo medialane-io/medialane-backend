@@ -44,6 +44,16 @@ export interface MakeOfferIntentBody {
   salt?: string;
 }
 
+export interface CounterOfferIntentBody {
+  sellerAddress:   string;  // normalized 0x address
+  nftContract:     string;  // from original bid's considerationToken
+  tokenId:         string;  // from original bid's considerationIdentifier
+  currencyAddress: string;  // from original bid's offerToken
+  priceRaw:        string;  // raw wei bigint string — NOT human-readable
+  durationSeconds: number;
+  salt?:           string;
+}
+
 export interface FulfillOrderIntentBody {
   fulfiller: string;
   orderHash: string;

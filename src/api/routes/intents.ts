@@ -8,6 +8,7 @@ import {
   buildCancelOrderIntent,
   buildMintIntent,
   buildCreateCollectionIntent,
+  buildCounterOfferIntent,
 } from "../../orchestrator/intent.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -113,6 +114,90 @@ intents.post("/offer", async (c) => {
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to build offer intent");
+    return c.json({ error: toErrorMessage(err) }, 500);
+  }
+});
+
+const counterOfferSchema = z.object({
+  sellerAddress:     z.string().min(1),
+  originalOrderHash: z.string().min(1),
+  durationSeconds:   z.number().int().min(3600).max(2592000),
+  counterPrice:      z.string().regex(/^\d+$/, "counterPrice must be a non-negative integer string"),
+  message:           z.string().max(500).optional(),
+});
+
+// POST /v1/intents/counter-offer
+intents.post("/counter-offer", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = counterOfferSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  }
+
+  const { sellerAddress, originalOrderHash, durationSeconds, counterPrice, message } = parsed.data;
+  const normalizedSeller = normalizeAddress(sellerAddress);
+
+  // 1. Validate original order: must be active + a bid (ERC20 offer)
+  const originalOrder = await prisma.order.findFirst({
+    where: {
+      chain: "STARKNET",
+      orderHash: originalOrderHash,
+      status: "ACTIVE",
+      offerItemType: "ERC20",
+    },
+  });
+  if (!originalOrder) {
+    return c.json({ error: "Original order not found or not active" }, 400);
+  }
+
+  // 2. Validate no active counter already exists for this bid
+  const existingCounter = await prisma.order.findFirst({
+    where: { chain: "STARKNET", parentOrderHash: originalOrderHash, status: "ACTIVE" },
+  });
+  if (existingCounter) {
+    return c.json({ error: "A counter-offer already exists for this order" }, 400);
+  }
+
+  // 3. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
+  if (normalizedSeller !== normalizeAddress(originalOrder.considerationRecipient)) {
+    return c.json({ error: "sellerAddress does not match order recipient" }, 400);
+  }
+
+  try {
+    // Currency is derived server-side from the original bid — never trusted from client
+    const { typedData, calls } = await buildCounterOfferIntent({
+      sellerAddress:   normalizedSeller,
+      nftContract:     originalOrder.considerationToken,
+      tokenId:         originalOrder.considerationIdentifier,
+      currencyAddress: originalOrder.offerToken,
+      priceRaw:        counterPrice,
+      durationSeconds,
+    });
+
+    const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+
+    // Atomic: create intent + mark original order COUNTER_OFFERED
+    const [intent] = await prisma.$transaction([
+      prisma.transactionIntent.create({
+        data: {
+          type: "COUNTER_OFFER",
+          requester: normalizedSeller,
+          typedData: typedData as any,
+          calls: calls as any,
+          expiresAt,
+          parentOrderHash: originalOrderHash,
+          counterOfferMessage: message ?? null,
+        },
+      }),
+      prisma.order.update({
+        where: { chain_orderHash: { chain: "STARKNET", orderHash: originalOrderHash } },
+        data: { status: "COUNTER_OFFERED" },
+      }),
+    ]);
+
+    return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
+  } catch (err: unknown) {
+    log.error({ err }, "Failed to build counter-offer intent");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
 });

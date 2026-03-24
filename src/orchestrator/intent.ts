@@ -11,6 +11,7 @@ import type {
   CancelOrderIntentBody,
   MintIntentBody,
   CreateCollectionIntentBody,
+  CounterOfferIntentBody,
 } from "../types/api.js";
 import prisma from "../db/client.js";
 import { uploadJson } from "./metadataPin.js";
@@ -395,4 +396,66 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     ...encodeByteArray(baseUri),
   ];
   return { calls: [{ contractAddress: contract, entrypoint: "create_collection", calldata }] };
+}
+
+/**
+ * Build a COUNTER_OFFER intent — a standard ERC721 listing where the seller
+ * responds to a buyer's bid with a specific counter price.
+ *
+ * Key difference from buildCreateListingIntent: priceRaw is already in raw wei
+ * (not human-readable), and the currency comes from the original bid's offerToken.
+ */
+export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
+  const nonce = await fetchNonce(body.sellerAddress);
+  const salt = body.salt ?? generateSalt();
+  const chainId = getChainId();
+  const priceWei = BigInt(body.priceRaw);
+  const endTime = Math.floor(Date.now() / 1000) + body.durationSeconds;
+
+  const orderParams = {
+    offerer: toHex(body.sellerAddress),
+    offer: {
+      item_type: "ERC721",
+      token: toHex(body.nftContract),
+      identifier_or_criteria: toHex(body.tokenId),
+      start_amount: toHex("1"),
+      end_amount: toHex("1"),
+    },
+    consideration: {
+      item_type: "ERC20",
+      token: toHex(body.currencyAddress),
+      identifier_or_criteria: toHex("0"),
+      start_amount: toHex(priceWei),
+      end_amount: toHex(priceWei),
+      recipient: toHex(body.sellerAddress),
+    },
+    start_time: toHex(Math.floor(Date.now() / 1000) + 30),
+    end_time: toHex(endTime),
+    salt: toHex(salt),
+    nonce: toHex(nonce),
+  };
+
+  const typedData: TypedData = {
+    types: SNIP12_TYPES,
+    primaryType: "OrderParameters",
+    domain: { ...DOMAIN, chainId },
+    message: orderParams,
+  };
+
+  // approve(marketplace, tokenId as u256)
+  const tokenIdUint256 = cairo.uint256(body.tokenId);
+  const calls = [
+    {
+      contractAddress: body.nftContract,
+      entrypoint: "approve",
+      calldata: [MARKETPLACE_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
+    },
+    {
+      contractAddress: MARKETPLACE_CONTRACT,
+      entrypoint: "register_order",
+      calldata: [],
+    },
+  ];
+
+  return { typedData, calls, orderParams };
 }
