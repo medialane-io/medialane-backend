@@ -166,6 +166,40 @@ orders.get("/", async (c) => {
   }
 });
 
+// GET /v1/orders/counter-offers
+// ?originalOrderHash=<hash>  — the counter-offer order for a specific bid (buyer view)
+// ?sellerAddress=<addr>       — all counter-offers sent by a seller
+orders.get("/counter-offers", async (c) => {
+  const originalOrderHash = c.req.query("originalOrderHash");
+  const sellerAddress = c.req.query("sellerAddress");
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+
+  if (!originalOrderHash && !sellerAddress) {
+    return c.json({ error: "originalOrderHash or sellerAddress is required" }, 400);
+  }
+
+  const where: Record<string, unknown> = { chain: "STARKNET", parentOrderHash: { not: null } };
+  if (originalOrderHash) where.parentOrderHash = originalOrderHash;
+  if (sellerAddress) where.offerer = normalizeAddress(sellerAddress);
+
+  const [data, total] = await Promise.all([
+    prisma.order.findMany({
+      where: where as any,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.order.count({ where: where as any }),
+  ]);
+
+  const tokenMeta = await batchTokenMeta(data);
+  return c.json({
+    data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
+    meta: { page, limit, total },
+  });
+});
+
 // GET /v1/orders/:orderHash
 orders.get("/:orderHash", async (c) => {
   const { orderHash } = c.req.param();
