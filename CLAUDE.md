@@ -315,9 +315,7 @@ Required:
 
 Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK`, `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_CONTRACT_MAINNET`, `COLLECTION_CONTRACT_MAINNET`
 
-Local values (this machine — do not commit):
-- `API_SECRET_KEY`: `060f0dd0c6707a93914b9f4ca6321d3c9ab68c359ad5f20c2d66f49cf0300549`
-- Internal PREMIUM key: `ml_live_f530ed43e0be63ead84aa6492268d9e95145bf35c407f5eed418d1f67a7284b2`
+Local values: use `.env.local` — never put secrets in this file.
 
 ---
 
