@@ -97,6 +97,22 @@ export async function handleOrderCreated(
     },
   });
 
+  // If this is a listing (ERC721 offer), check if it was created as a counter-offer
+  // by looking for a COUNTER_OFFER intent from the same seller for the same NFT
+  if (isListing && nftContract && nftTokenId) {
+    const parentOrderHash = await findCounterOfferParent(tx, details.offerer, nftContract, nftTokenId);
+    if (parentOrderHash) {
+      await tx.order.update({
+        where: { chain_orderHash: { chain, orderHash: event.orderHash } },
+        data: { parentOrderHash },
+      });
+      log.info(
+        { chain, orderHash: event.orderHash, parentOrderHash },
+        "Counter-offer order linked to original bid"
+      );
+    }
+  }
+
   if (nftContract && nftTokenId) {
     // Collection must be upserted before Token due to FK constraint
     await tx.collection.upsert({
@@ -129,6 +145,36 @@ export async function handleOrderCreated(
   );
 
   return nftContract;
+}
+
+/**
+ * For a new ERC721 listing, check if a COUNTER_OFFER intent exists for this
+ * seller + NFT coordinates. Returns the original bid's orderHash to set as
+ * parentOrderHash, or null if this is a regular listing.
+ */
+async function findCounterOfferParent(
+  tx: Prisma.TransactionClient,
+  offerer: string,
+  nftContract: string,
+  nftTokenId: string
+): Promise<string | null> {
+  const intents = await tx.transactionIntent.findMany({
+    where: {
+      type: "COUNTER_OFFER",
+      requester: offerer,
+      status: { in: ["SIGNED", "CONFIRMED"] },
+      parentOrderHash: { not: null },
+    },
+    select: { parentOrderHash: true },
+  });
+  if (!intents.length) return null;
+
+  const parentHashes = intents.map((i) => i.parentOrderHash!);
+  const originalOrder = await tx.order.findFirst({
+    where: { orderHash: { in: parentHashes }, nftContract, nftTokenId },
+    select: { orderHash: true },
+  });
+  return originalOrder?.orderHash ?? null;
 }
 
 function parseOrderDetails(raw: any): OnChainOrderDetails {
