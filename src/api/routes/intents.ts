@@ -14,6 +14,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
+import { verifyMarketplaceTx } from "../../utils/txVerifier.js";
 
 const log = createLogger("routes:intents");
 const intents = new Hono();
@@ -438,6 +439,74 @@ intents.patch("/:id/signature", async (c) => {
 
   log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
   return c.json({ data: updated });
+});
+
+const confirmSchema = z.object({
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid transaction hash"),
+});
+
+// Intent types that go through the marketplace contract and need event verification
+const MARKETPLACE_INTENT_TYPES = new Set([
+  "CREATE_LISTING",
+  "MAKE_OFFER",
+  "FULFILL_ORDER",
+  "CANCEL_ORDER",
+  "COUNTER_OFFER",
+]);
+
+/** Background: verify tx receipt and settle intent to CONFIRMED or FAILED. */
+async function verifyAndSettle(intentId: string, txHash: string): Promise<void> {
+  const result = await verifyMarketplaceTx(txHash);
+  await prisma.transactionIntent.update({
+    where: { id: intentId },
+    data: { status: result.status === "CONFIRMED" ? "CONFIRMED" : "FAILED" },
+  });
+  if (result.status === "CONFIRMED") {
+    log.info({ intentId, txHash }, "Intent CONFIRMED");
+  } else {
+    log.warn({ intentId, txHash, reason: result.failReason }, "Intent FAILED");
+  }
+}
+
+// PATCH /v1/intents/:id/confirm — submit tx hash; background verification settles status
+intents.patch("/:id/confirm", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json().catch(() => null);
+
+  const parsed = confirmSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  }
+
+  const { txHash } = parsed.data;
+  const intent = await prisma.transactionIntent.findUnique({ where: { id } });
+  if (!intent) return c.json({ error: "Intent not found" }, 404);
+
+  if (!MARKETPLACE_INTENT_TYPES.has(intent.type)) {
+    return c.json({ error: "Intent type does not require tx confirmation" }, 400);
+  }
+
+  // Idempotent — already processing or settled
+  if (intent.status === "SUBMITTED" || intent.status === "CONFIRMED" || intent.status === "FAILED") {
+    return c.json({ data: intent });
+  }
+
+  if (intent.status !== "SIGNED") {
+    return c.json({ error: `Intent is ${intent.status}` }, 409);
+  }
+
+  const updated = await prisma.transactionIntent.update({
+    where: { id },
+    data: { status: "SUBMITTED", txHash },
+  });
+
+  // Fire-and-forget — client polls GET /:id for the terminal status
+  verifyAndSettle(id, txHash).catch((err) => {
+    log.error({ err, id, txHash }, "verifyAndSettle threw unexpectedly");
+  });
+
+  log.info({ id, txHash }, "Intent submitted for background verification");
+  return c.json({ data: updated }, 202);
 });
 
 export default intents;
