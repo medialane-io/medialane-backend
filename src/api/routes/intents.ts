@@ -454,17 +454,44 @@ const MARKETPLACE_INTENT_TYPES = new Set([
   "COUNTER_OFFER",
 ]);
 
-/** Background: verify tx receipt and settle intent to CONFIRMED or FAILED. */
+/** Background: verify tx receipt and settle intent to CONFIRMED or FAILED.
+ *  For FULFILL_ORDER intents, also marks the order FULFILLED so the API
+ *  reflects the correct state before the indexer catches up (~6s delay). */
 async function verifyAndSettle(intentId: string, txHash: string): Promise<void> {
-  const result = await verifyMarketplaceTx(txHash);
-  await prisma.transactionIntent.update({
-    where: { id: intentId },
-    data: { status: result.status === "CONFIRMED" ? "CONFIRMED" : "FAILED" },
-  });
-  if (result.status === "CONFIRMED") {
-    log.info({ intentId, txHash }, "Intent CONFIRMED");
+  const [intent, verifyResult] = await Promise.all([
+    prisma.transactionIntent.findUnique({
+      where: { id: intentId },
+      select: { type: true, orderHash: true },
+    }),
+    verifyMarketplaceTx(txHash),
+  ]);
+
+  if (verifyResult.status === "CONFIRMED") {
+    if (intent?.type === "FULFILL_ORDER" && intent.orderHash) {
+      // Atomic: confirm intent + mark order FULFILLED so the UI updates immediately
+      await prisma.$transaction([
+        prisma.transactionIntent.update({
+          where: { id: intentId },
+          data: { status: "CONFIRMED" },
+        }),
+        prisma.order.update({
+          where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
+          data: { status: "FULFILLED" },
+        }),
+      ]);
+    } else {
+      await prisma.transactionIntent.update({
+        where: { id: intentId },
+        data: { status: "CONFIRMED" },
+      });
+    }
+    log.info({ intentId, txHash, type: intent?.type }, "Intent CONFIRMED");
   } else {
-    log.warn({ intentId, txHash, reason: result.failReason }, "Intent FAILED");
+    await prisma.transactionIntent.update({
+      where: { id: intentId },
+      data: { status: "FAILED" },
+    });
+    log.warn({ intentId, txHash, reason: verifyResult.failReason }, "Intent FAILED");
   }
 }
 
