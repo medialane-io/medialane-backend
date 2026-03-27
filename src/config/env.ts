@@ -20,7 +20,7 @@ const envSchema = z.object({
   API_SECRET_KEY: z.string().min(16),
   CORS_ORIGINS: z
     .string()
-    .default("https://medialane.io,https://www.medialane.io,https://dapp.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000"),
+    .default("https://medialane.io,https://www.medialane.io,https://dapp.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(6000),
   INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(500),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(120_000),
