@@ -127,6 +127,9 @@ model Order {
   @@index([chain, status])
   @@index([chain, nftContract, nftTokenId])
   @@index([chain, parentOrderHash])
+  @@index([chain, status, nftContract])
+  @@index([considerationToken])
+  @@index([createdAt])
 }
 
 enum MetadataStatus {
@@ -165,6 +168,7 @@ model Token {
   @@index([chain, contractAddress])
   @@index([chain, metadataStatus])
   @@index([chain, ipType])
+  @@index([chain, isHidden])
 }
 
 // GIN index for full-text search: idx_collection_fts on to_tsvector('english', name||contractAddress)
@@ -196,6 +200,8 @@ model Collection {
   updatedAt       DateTime       @updatedAt
 
   @@unique([chain, contractAddress])
+  @@index([owner])
+  @@index([chain, isHidden])
 }
 
 model CollectionProfile {
@@ -366,6 +372,7 @@ model TransactionIntent {
 
   @@index([chain, requester])
   @@index([chain, status])
+  @@index([expiresAt, status])
 }
 
 model Tenant {
@@ -538,4 +545,5 @@ model RemixOffer {
   @@index([originalContract, originalTokenId])
   @@index([creatorAddress])
   @@index([requesterAddress])
+  @@index([status, expiresAt])
 }
