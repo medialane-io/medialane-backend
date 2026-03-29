@@ -6,7 +6,8 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { clerkAuth } from "../middleware/clerkAuth.js";
 import { hashApiKey } from "../../utils/apiKey.js";
 import type { AppEnv } from "../../types/hono.js";
-import { SUPPORTED_TOKENS } from "../../config/constants.js";
+import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
+import { formatAmount } from "../../utils/bigint.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:remix-offers");
@@ -105,6 +106,19 @@ function serializeOffer(offer: any, callerWallet?: string) {
     offer.creatorAddress === callerWallet ||
     offer.requesterAddress === callerWallet;
 
+  let price: object | undefined;
+  if (isParticipant && offer.proposedPrice && offer.proposedCurrency) {
+    const token = getTokenByAddress(offer.proposedCurrency);
+    price = token
+      ? {
+          raw: offer.proposedPrice,
+          formatted: formatAmount(offer.proposedPrice, token.decimals),
+          currency: token.symbol,
+          decimals: token.decimals,
+        }
+      : { raw: offer.proposedPrice, formatted: offer.proposedPrice, currency: "TOKEN", decimals: 18 };
+  }
+
   return {
     id: offer.id,
     status: offer.status,
@@ -116,9 +130,7 @@ function serializeOffer(offer: any, callerWallet?: string) {
     commercial: offer.commercial,
     derivatives: offer.derivatives,
     royaltyPct: offer.royaltyPct,
-    ...(isParticipant
-      ? { proposedPrice: offer.proposedPrice, proposedCurrency: offer.proposedCurrency, message: offer.message }
-      : {}),
+    ...(isParticipant ? { price, message: offer.message } : {}),
     approvedCollection: offer.approvedCollection,
     remixContract: offer.remixContract,
     remixTokenId: offer.remixTokenId,
@@ -147,11 +159,11 @@ remixOffers.post(
     // Look up token to get creator address
     const token = await prisma.token.findFirst({
       where: { contractAddress: originalContract, tokenId: originalTokenId },
-      select: { ownerAddress: true },
+      select: { owner: true },
     });
     if (!token) return c.json({ error: "Token not found or not yet indexed" }, 404);
 
-    const creatorAddress = normalizeAddress(token.ownerAddress ?? "");
+    const creatorAddress = normalizeAddress(token.owner ?? "");
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
 
     // Owner cannot offer on their own token
@@ -210,12 +222,12 @@ remixOffers.post(
 
     const token = await prisma.token.findFirst({
       where: { contractAddress: originalContract, tokenId: originalTokenId },
-      select: { ownerAddress: true, metadata: true },
+      select: { owner: true, attributes: true },
     });
     if (!token) return c.json({ error: "Token not found or not yet indexed" }, 422);
 
-    // Parse license and price from metadata attributes
-    const attrs = (token.metadata as any)?.attributes as Array<{ trait_type: string; value: string }> | undefined;
+    // Parse license and price from token attributes
+    const attrs = token.attributes as Array<{ trait_type: string; value: string }> | undefined;
     if (!attrs) return c.json({ error: "Token has no metadata attributes" }, 422);
 
     const OPEN_LICENSES = ["CC0", "CC BY", "CC BY-SA", "CC BY-NC"];
@@ -232,7 +244,7 @@ remixOffers.post(
       return c.json({ error: `Invalid License Price format: "${priceAttr.value}". Expected "<amount> <SYMBOL>" e.g. "0.5 STRK"` }, 422);
     }
 
-    const creatorAddress = normalizeAddress(token.ownerAddress ?? "");
+    const creatorAddress = normalizeAddress(token.owner ?? "");
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
     if (requesterAddress === creatorAddress) {
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
@@ -296,11 +308,11 @@ remixOffers.post(
     // Verify caller owns the original token
     const token = await prisma.token.findFirst({
       where: { contractAddress: originalContract, tokenId: originalTokenId },
-      select: { ownerAddress: true },
+      select: { owner: true },
     });
     if (!token) return c.json({ error: "Token not found" }, 404);
 
-    const ownerAddress = normalizeAddress(token.ownerAddress ?? "");
+    const ownerAddress = normalizeAddress(token.owner ?? "");
     if (ownerAddress !== walletAddress) {
       return c.json({ error: "You do not own this token" }, 403);
     }

@@ -9,6 +9,40 @@ import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 
 const orders = new Hono();
 
+// ---------------------------------------------------------------------------
+// Shared condition builder — used by all three $queryRaw branches in GET /
+// ---------------------------------------------------------------------------
+interface OrderFilterParams {
+  status?: string;
+  collection?: string;
+  currency?: string;
+  offerer?: string;
+  minPrice?: string;
+  maxPrice?: string;
+}
+
+function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
+  const { status, collection, currency, offerer, minPrice, maxPrice } = params;
+  const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+  if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
+  if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
+  if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
+  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
+  if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
+  if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
+  conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Collection"
+  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
+)`);
+  conditions.push(Prisma.sql`NOT EXISTS (
+  SELECT 1 FROM "Token"
+  WHERE "contractAddress" = "Order"."nftContract"
+    AND "tokenId" = "Order"."nftTokenId"
+    AND "isHidden" = true
+)`);
+  return conditions;
+}
+
 const listQuerySchema = z.object({
   status: z.enum(["ACTIVE", "FULFILLED", "CANCELLED", "EXPIRED"]).optional(),
   collection: z.string().optional(),
@@ -45,125 +79,37 @@ orders.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  // Price sorts require numeric ordering — priceRaw is a text column, so we cast
-  // to numeric via raw SQL (length+lex trick works too, but ::numeric is cleaner).
-  if (sort === "price_asc" || sort === "price_desc") {
-    const dir = Prisma.raw(sort === "price_asc" ? "ASC" : "DESC");
-    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
-    if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
-    if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-    if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
-    if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
-    if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
-    conditions.push(Prisma.sql`NOT EXISTS (
-  SELECT 1 FROM "Collection"
-  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
-)`);
-    conditions.push(Prisma.sql`NOT EXISTS (
-  SELECT 1 FROM "Token"
-  WHERE "contractAddress" = "Order"."nftContract"
-    AND "tokenId" = "Order"."nftTokenId"
-    AND "isHidden" = true
-)`);
-    const whereClause = Prisma.join(conditions, " AND ");
+  const whereClause = Prisma.join(
+    buildOrderConditions({ status, collection, currency, offerer, minPrice, maxPrice }),
+    " AND "
+  );
 
-    const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<RawOrderRow[]>`
-        SELECT * FROM "Order"
-        WHERE ${whereClause}
-        ORDER BY "priceRaw"::numeric ${dir} NULLS LAST
-        LIMIT ${limit} OFFSET ${skip}
-      `,
-      prisma.$queryRaw<RawCountRow[]>`
-        SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
-      `,
-    ]);
-
-    const tokenMeta = await batchTokenMeta(data);
-    return c.json({
-      data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
-      meta: { page, limit, total: Number(rawTotal[0].count) },
-    });
+  let orderBy: Prisma.Sql;
+  if (sort === "price_asc") {
+    orderBy = Prisma.sql`"priceRaw"::numeric ASC NULLS LAST`;
+  } else if (sort === "price_desc") {
+    orderBy = Prisma.sql`"priceRaw"::numeric DESC NULLS LAST`;
+  } else {
+    orderBy = Prisma.sql`"createdAt" DESC`;
   }
 
-  // Default: recent sort via Prisma ORM
-  // Price range filters require raw SQL even here since priceRaw is a text column
-  if ((minPrice || maxPrice) && sort === "recent") {
-    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
-    if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
-    if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-    if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
-    if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
-    if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
-    conditions.push(Prisma.sql`NOT EXISTS (
-  SELECT 1 FROM "Collection"
-  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
-)`);
-    conditions.push(Prisma.sql`NOT EXISTS (
-  SELECT 1 FROM "Token"
-  WHERE "contractAddress" = "Order"."nftContract"
-    AND "tokenId" = "Order"."nftTokenId"
-    AND "isHidden" = true
-)`);
-    const whereClause = Prisma.join(conditions, " AND ");
+  const [data, rawTotal] = await Promise.all([
+    prisma.$queryRaw<RawOrderRow[]>`
+      SELECT * FROM "Order"
+      WHERE ${whereClause}
+      ORDER BY ${orderBy}
+      LIMIT ${limit} OFFSET ${skip}
+    `,
+    prisma.$queryRaw<RawCountRow[]>`
+      SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
+    `,
+  ]);
 
-    const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<RawOrderRow[]>`
-        SELECT * FROM "Order" WHERE ${whereClause}
-        ORDER BY "createdAt" DESC LIMIT ${limit} OFFSET ${skip}
-      `,
-      prisma.$queryRaw<RawCountRow[]>`
-        SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
-      `,
-    ]);
-
-    const tokenMeta = await batchTokenMeta(data);
-    return c.json({
-      data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
-      meta: { page, limit, total: Number(rawTotal[0].count) },
-    });
-  }
-
-  // Default: recent sort via $queryRaw to apply hidden-token filtering at DB level,
-  // preventing pagination drift and total overcounting when hidden tokens exist.
-  {
-    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
-    if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
-    if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-    if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
-    conditions.push(Prisma.sql`NOT EXISTS (
-  SELECT 1 FROM "Collection"
-  WHERE "contractAddress" = "Order"."nftContract" AND "isHidden" = true
-)`);
-    conditions.push(Prisma.sql`NOT EXISTS (
-  SELECT 1 FROM "Token"
-  WHERE "contractAddress" = "Order"."nftContract"
-    AND "tokenId" = "Order"."nftTokenId"
-    AND "isHidden" = true
-)`);
-    const whereClause = Prisma.join(conditions, " AND ");
-
-    const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<RawOrderRow[]>`
-        SELECT * FROM "Order"
-        WHERE ${whereClause}
-        ORDER BY "createdAt" DESC
-        LIMIT ${limit} OFFSET ${skip}
-      `,
-      prisma.$queryRaw<RawCountRow[]>`
-        SELECT COUNT(*) AS count FROM "Order" WHERE ${whereClause}
-      `,
-    ]);
-
-    const tokenMeta = await batchTokenMeta(data);
-    return c.json({
-      data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
-      meta: { page, limit, total: Number(rawTotal[0].count) },
-    });
-  }
+  const tokenMeta = await batchTokenMeta(data);
+  return c.json({
+    data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
+    meta: { page, limit, total: Number(rawTotal[0].count) },
+  });
 });
 
 // GET /v1/orders/counter-offers
