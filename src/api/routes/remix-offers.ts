@@ -404,6 +404,43 @@ remixOffers.post(
   }
 );
 
+/** POST /v1/remix-offers/:id/extend — requester extends expiry of a pending offer */
+remixOffers.post(
+  "/:id/extend",
+  xApiKeyAuth,
+  (c, next) => clerkAuth(c, next),
+  async (c) => {
+    const { id } = c.req.param();
+    const walletAddress = c.get("clerkWallet") as string;
+
+    const body = await c.req.json().catch(() => null);
+    const days = Number(body?.days);
+    if (!days || days < 1 || days > 30) {
+      return c.json({ error: "days must be between 1 and 30" }, 400);
+    }
+
+    const offer = await prisma.remixOffer.findUnique({ where: { id } });
+    if (!offer) return c.json({ error: "Offer not found" }, 404);
+    if (offer.requesterAddress !== walletAddress) {
+      return c.json({ error: "Only the requester can extend this offer" }, 403);
+    }
+    if (!["PENDING", "AUTO_PENDING"].includes(offer.status)) {
+      return c.json({ error: `Cannot extend offer with status ${offer.status}` }, 409);
+    }
+
+    const baseDate = offer.expiresAt > new Date() ? offer.expiresAt : new Date();
+    const newExpiresAt = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const updated = await prisma.remixOffer.update({
+      where: { id },
+      data: { expiresAt: newExpiresAt },
+    });
+
+    log.info({ id, walletAddress, newExpiresAt }, "Remix offer extended");
+    return c.json({ data: serializeOffer(updated, walletAddress) });
+  }
+);
+
 /** GET /v1/remix-offers — list offers for authenticated user */
 remixOffers.get(
   "/",
