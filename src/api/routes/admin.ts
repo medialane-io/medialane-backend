@@ -208,6 +208,15 @@ admin.delete("/keys/:keyId", async (c) => {
 admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   const { contract, tokenId } = c.req.param();
   const contractAddress = normalizeAddress(contract);
+
+  // Guard: only refresh tokens from registered collections to prevent
+  // arbitrary on-chain RPC calls for unregistered contracts.
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    select: { id: true },
+  });
+  if (!col) return c.json({ error: "Collection not registered" }, 404);
+
   try {
     await handleMetadataFetch({ chain: "STARKNET", contractAddress, tokenId });
     const token = await prisma.token.findUnique({
