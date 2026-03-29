@@ -4,6 +4,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   STARKNET_NETWORK: z.enum(["mainnet", "sepolia"]).default("mainnet"),
   ALCHEMY_RPC_URL: z.string().url(),
+  STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
   VOYAGER_API_KEY: z.string().default(""),
   MARKETPLACE_CONTRACT_MAINNET: z
     .string()
