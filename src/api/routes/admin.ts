@@ -207,10 +207,11 @@ admin.delete("/keys/:keyId", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   const { contract, tokenId } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
   try {
-    await handleMetadataFetch({ chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId });
+    await handleMetadataFetch({ chain: "STARKNET", contractAddress, tokenId });
     const token = await prisma.token.findUnique({
-      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId } },
+      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
     });
     return c.json({ data: { metadataStatus: token?.metadataStatus, tokenUri: token?.tokenUri, name: token?.name } });
   } catch (err) {
