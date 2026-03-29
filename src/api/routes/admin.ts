@@ -207,10 +207,20 @@ admin.delete("/keys/:keyId", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   const { contract, tokenId } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  // Guard: only refresh tokens from registered collections to prevent
+  // arbitrary on-chain RPC calls for unregistered contracts.
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    select: { id: true },
+  });
+  if (!col) return c.json({ error: "Collection not registered" }, 404);
+
   try {
-    await handleMetadataFetch({ chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId });
+    await handleMetadataFetch({ chain: "STARKNET", contractAddress, tokenId });
     const token = await prisma.token.findUnique({
-      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId } },
+      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
     });
     return c.json({ data: { metadataStatus: token?.metadataStatus, tokenUri: token?.tokenUri, name: token?.name } });
   } catch (err) {
@@ -284,7 +294,7 @@ admin.patch("/collections/:contract", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /admin/collections/:contract — permanently remove collection + all tokens/transfers/jobs
+// DELETE /admin/collections/:contract — soft-delete (sets isHidden + records deletion metadata)
 // ---------------------------------------------------------------------------
 admin.delete("/collections/:contract", async (c) => {
   const { contract } = c.req.param();
@@ -292,19 +302,20 @@ admin.delete("/collections/:contract", async (c) => {
 
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    select: { id: true, deletedAt: true },
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
+  if (col.deletedAt) return c.json({ error: "Collection already deleted" }, 409);
 
-  // Delete in dependency order: transfers → tokens → collection
-  const [transfers, tokens] = await prisma.$transaction([
-    prisma.transfer.deleteMany({ where: { contractAddress } }),
-    prisma.token.deleteMany({ where: { contractAddress } }),
-    prisma.collection.delete({ where: { chain_contractAddress: { chain: "STARKNET", contractAddress } } }),
-  ]);
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  await prisma.collection.update({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    data: { isHidden: true, deletedAt: new Date(), deletedBy: ip },
+  });
 
-  log.info({ contractAddress, transfers, tokens }, "Collection deleted via admin");
+  log.info({ contractAddress, ip }, "Collection soft-deleted via admin");
 
-  return c.json({ data: { contractAddress, deleted: { transfers, tokens } } });
+  return c.json({ data: { contractAddress, deletedAt: new Date().toISOString() } });
 });
 
 // ---------------------------------------------------------------------------

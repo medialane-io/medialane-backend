@@ -1,9 +1,21 @@
 import { Contract, shortString } from "starknet";
 import { type Chain } from "@prisma/client";
+import { z } from "zod";
 import { createProvider } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
+
+// Validated attribute shape — each entry must have trait_type (string) and
+// value (string | number | boolean). Unknown shapes are dropped to prevent
+// arbitrary data from landing in the DB.
+const attributeSchema = z.object({
+  trait_type: z.string(),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+  display_type: z.string().optional(),
+}).passthrough();
+
+const attributesArraySchema = z.array(attributeSchema);
 
 const log = createLogger("orchestrator:metadata");
 
@@ -94,7 +106,12 @@ export async function handleMetadataFetch(payload: {
           a.trait_type.toLowerCase() === name.toLowerCase()
       ) as any)?.value ?? null;
 
-    const _attrs = Array.isArray(metadata?.attributes) ? (metadata.attributes as unknown[]) : [];
+    const rawAttrs = Array.isArray(metadata?.attributes) ? metadata.attributes : [];
+    const attrsParsed = attributesArraySchema.safeParse(rawAttrs);
+    const _attrs = attrsParsed.success ? attrsParsed.data : [];
+    if (!attrsParsed.success) {
+      log.warn({ chain, contractAddress, tokenId, issues: attrsParsed.error.issues.length }, "Token attributes failed validation — dropping invalid entries");
+    }
 
     await prisma.token.updateMany({
       where: { chain, contractAddress, tokenId },
@@ -104,7 +121,7 @@ export async function handleMetadataFetch(payload: {
         name: metadata?.name ?? null,
         description: metadata?.description ?? null,
         image: metadata?.image ?? null,
-        attributes: metadata?.attributes ?? undefined,
+        attributes: _attrs.length > 0 ? (_attrs as any) : undefined,
         ipType:
           (metadata?.properties as any)?.ip_type ??
           (metadata as any)?.ip_type ??

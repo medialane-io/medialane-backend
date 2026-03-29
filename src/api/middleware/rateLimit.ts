@@ -81,30 +81,43 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
       const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
       const resetSec = Math.ceil(nextMonth.getTime() / 1000);
 
+      let updatedCount: number;
       if (isNewMonth) {
-        prisma.apiKey
-          .update({ where: { id: apiKey.id }, data: { monthlyRequestCount: 1, monthlyResetAt: now } })
-          .catch(() => {});
-      } else if (apiKey.monthlyRequestCount >= FREE_MONTHLY_LIMIT) {
-        c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
-        c.header("X-RateLimit-Remaining", "0");
-        c.header("X-RateLimit-Reset", String(resetSec));
-        c.header("Retry-After", String(resetSec - Math.floor(Date.now() / 1000)));
-        return c.json(
-          { error: "Monthly request limit reached. Upgrade to PREMIUM for unlimited access." },
-          429
-        );
+        // Reset counter for new month
+        const updated = await prisma.apiKey.update({
+          where: { id: apiKey.id },
+          data: { monthlyRequestCount: 1, monthlyResetAt: now },
+          select: { monthlyRequestCount: true },
+        });
+        updatedCount = updated.monthlyRequestCount;
       } else {
-        prisma.apiKey
-          .update({ where: { id: apiKey.id }, data: { monthlyRequestCount: { increment: 1 } } })
-          .catch(() => {});
+        // Atomic conditional increment: only increments if currently under the limit.
+        // updateMany with a WHERE clause acts as an optimistic lock — prevents race condition
+        // where two concurrent requests both read count=49 and both increment past 50.
+        const result = await prisma.apiKey.updateMany({
+          where: { id: apiKey.id, monthlyRequestCount: { lt: FREE_MONTHLY_LIMIT } },
+          data: { monthlyRequestCount: { increment: 1 } },
+        });
+        if (result.count === 0) {
+          // No rows updated — already at or over the limit
+          c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
+          c.header("X-RateLimit-Remaining", "0");
+          c.header("X-RateLimit-Reset", String(resetSec));
+          c.header("Retry-After", String(resetSec - Math.floor(Date.now() / 1000)));
+          return c.json(
+            { error: "Monthly request limit reached. Upgrade to PREMIUM for unlimited access." },
+            429
+          );
+        }
+        const fresh = await prisma.apiKey.findUnique({
+          where: { id: apiKey.id },
+          select: { monthlyRequestCount: true },
+        });
+        updatedCount = fresh?.monthlyRequestCount ?? FREE_MONTHLY_LIMIT;
       }
 
       c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
-      c.header(
-        "X-RateLimit-Remaining",
-        String(Math.max(0, FREE_MONTHLY_LIMIT - (isNewMonth ? 1 : apiKey.monthlyRequestCount + 1)))
-      );
+      c.header("X-RateLimit-Remaining", String(Math.max(0, FREE_MONTHLY_LIMIT - updatedCount)));
       c.header("X-RateLimit-Reset", String(resetSec));
     } else {
       // PREMIUM — per-minute in-memory limiting
