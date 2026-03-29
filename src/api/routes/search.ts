@@ -51,8 +51,8 @@ search.get("/", async (c) => {
       FROM "CreatorProfile"
       WHERE username IS NOT NULL
         AND (
-          username ILIKE ${'%' + q + '%'}
-          OR "displayName" ILIKE ${'%' + q + '%'}
+          username ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
+          OR "displayName" ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
         )
       LIMIT ${limit}
     `,
