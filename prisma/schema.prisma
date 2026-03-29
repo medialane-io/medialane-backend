@@ -196,6 +196,8 @@ model Collection {
   source          CollectionSource  @default(MEDIALANE_REGISTRY)
   claimedBy       String?
   profile         CollectionProfile?
+  deletedAt   DateTime?
+  deletedBy   String?       // admin identifier (IP of requester)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
