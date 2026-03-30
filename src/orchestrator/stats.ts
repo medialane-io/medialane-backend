@@ -67,18 +67,39 @@ export async function handleStatsUpdate(payload: {
     }
   }
 
-  // Calculate total volume from fulfilled orders
+  // Calculate total volume from fulfilled orders, grouped by currency token.
+  // Mirror the floorPrice approach: format as human-readable + symbol.
+  // If sales span multiple currencies, pick the one with the highest raw volume.
   const fulfilledOrders = await prisma.order.findMany({
     where: { chain, nftContract: contractAddress, status: "FULFILLED" },
     select: { priceRaw: true, considerationToken: true },
   });
 
-  let totalVolumeRaw = 0n;
+  const volumeByToken = new Map<string, bigint>();
   for (const o of fulfilledOrders) {
-    if (o.priceRaw) {
+    if (o.priceRaw && o.considerationToken) {
       try {
-        totalVolumeRaw += BigInt(o.priceRaw);
+        const prev = volumeByToken.get(o.considerationToken) ?? 0n;
+        volumeByToken.set(o.considerationToken, prev + BigInt(o.priceRaw));
       } catch {}
+    }
+  }
+
+  let totalVolume: string | null = null;
+  if (volumeByToken.size > 0) {
+    let maxVol = 0n;
+    let dominantTokenAddr: string | null = null;
+    for (const [tokenAddr, vol] of volumeByToken) {
+      if (vol > maxVol) {
+        maxVol = vol;
+        dominantTokenAddr = tokenAddr;
+      }
+    }
+    if (dominantTokenAddr) {
+      const token = getTokenByAddress(dominantTokenAddr);
+      if (token) {
+        totalVolume = `${formatAmount(maxVol.toString(), token.decimals)} ${token.symbol}`;
+      }
     }
   }
 
@@ -88,7 +109,7 @@ export async function handleStatsUpdate(payload: {
       holderCount,
       totalSupply,
       floorPrice,
-      totalVolume: totalVolumeRaw.toString(),
+      totalVolume,
     },
   });
 
