@@ -151,14 +151,24 @@ collections.post("/sync-tx", async (c) => {
     const receipt = await provider.getTransactionReceipt(txHash);
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
+    const registryAddress = normalizeAddress(COLLECTION_CONTRACT);
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>
-        e.from_address?.toLowerCase() === COLLECTION_CONTRACT.toLowerCase() &&
+        normalizeAddress(e.from_address) === registryAddress &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
     );
 
     if (collectionEvents.length === 0) {
+      log.warn(
+        {
+          txHash,
+          expectedRegistry: registryAddress,
+          expectedSelector: collectionCreatedKey,
+          eventCount: events.length,
+        },
+        "sync-tx: no matching CollectionCreated event"
+      );
       return c.json({ data: { synced: 0, message: "No CollectionCreated event found in this transaction" } });
     }
 
@@ -168,7 +178,7 @@ collections.post("/sync-tx", async (c) => {
       if (!data || data.length < 3) continue;
       const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
       const owner = normalizeAddress(data[2]);
-      const blockNumber = BigInt(event.block_number ?? 0);
+      const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
 
       const resolved = await resolveCollectionCreated({
         type: "CollectionCreated",

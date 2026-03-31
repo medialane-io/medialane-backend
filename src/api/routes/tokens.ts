@@ -1,13 +1,136 @@
 import { Hono } from "hono";
+import { num as starkNum, RpcProvider } from "starknet";
 import prisma from "../../db/client.js";
 import { worker } from "../../orchestrator/worker.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeOrder, serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { env } from "../../config/env.js";
+import { TRANSFER_SELECTOR, ZERO_ADDRESS } from "../../config/constants.js";
+import { u256ToBigInt } from "../../utils/bigint.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
+
+function parseMintTransfer(event: any): { contractAddress: string; tokenId: string; to: string } | null {
+  if (!event?.from_address || !Array.isArray(event?.keys) || !event.keys[0]) return null;
+  if (starkNum.toHex(event.keys[0]) !== starkNum.toHex(TRANSFER_SELECTOR)) return null;
+
+  const data = Array.isArray(event.data) ? event.data : [];
+  // Most Starknet ERC-721 Transfer events use keys:
+  // [selector, from, to, tokenId.low, tokenId.high]
+  if (event.keys.length >= 5) {
+    const from = normalizeAddress(event.keys[1]);
+    if (from !== ZERO_ADDRESS) return null;
+    const to = normalizeAddress(event.keys[2]);
+    const tokenId = u256ToBigInt(event.keys[3], event.keys[4]).toString();
+    return { contractAddress: normalizeAddress(event.from_address), tokenId, to };
+  }
+
+  // Fallback shape: data [from, to, tokenId.low, tokenId.high, ...]
+  if (data.length >= 4) {
+    const from = normalizeAddress(data[0]);
+    if (from !== ZERO_ADDRESS) return null;
+    const to = normalizeAddress(data[1]);
+    const tokenId = u256ToBigInt(data[2], data[3]).toString();
+    return { contractAddress: normalizeAddress(event.from_address), tokenId, to };
+  }
+  return null;
+}
+
+// POST /v1/tokens/sync-tx — index minted token Transfer events immediately from tx receipt
+tokens.post("/sync-tx", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const txHash = typeof body?.txHash === "string" ? body.txHash.trim() : "";
+  if (!txHash) return c.json({ error: "txHash required" }, 400);
+
+  try {
+    const provider = new RpcProvider({ nodeUrl: env.ALCHEMY_RPC_URL });
+    const receipt = await provider.getTransactionReceipt(txHash);
+    const events: any[] = (receipt as any).events ?? [];
+    const blockNumber = BigInt((receipt as any).block_number ?? 0);
+
+    const mints = events
+      .map((e) => parseMintTransfer(e))
+      .filter(
+        (x): x is { contractAddress: string; tokenId: string; to: string } =>
+          x !== null
+      );
+
+    if (mints.length === 0) {
+      return c.json({ data: { synced: 0, message: "No mint Transfer events found in this transaction" } });
+    }
+
+    let synced = 0;
+    for (let i = 0; i < mints.length; i++) {
+      const mint = mints[i];
+
+      await prisma.$transaction(async (tx) => {
+        await tx.token.upsert({
+          where: {
+            chain_contractAddress_tokenId: {
+              chain: "STARKNET",
+              contractAddress: mint.contractAddress,
+              tokenId: mint.tokenId,
+            },
+          },
+          create: {
+            chain: "STARKNET",
+            contractAddress: mint.contractAddress,
+            tokenId: mint.tokenId,
+            owner: mint.to,
+            metadataStatus: "PENDING",
+          },
+          update: { owner: mint.to },
+        });
+
+        await tx.collection.upsert({
+          where: { chain_contractAddress: { chain: "STARKNET", contractAddress: mint.contractAddress } },
+          create: {
+            chain: "STARKNET",
+            contractAddress: mint.contractAddress,
+            startBlock: blockNumber,
+            isKnown: false,
+            metadataStatus: "PENDING",
+          },
+          update: {},
+        });
+
+        try {
+          await tx.transfer.create({
+            data: {
+              chain: "STARKNET",
+              contractAddress: mint.contractAddress,
+              tokenId: mint.tokenId,
+              fromAddress: ZERO_ADDRESS,
+              toAddress: mint.to,
+              blockNumber,
+              txHash,
+              logIndex: i,
+            },
+          });
+        } catch (err: unknown) {
+          if ((err as { code?: string }).code !== "P2002") throw err;
+        }
+      });
+
+      worker.enqueue({
+        type: "METADATA_FETCH",
+        chain: "STARKNET",
+        contractAddress: mint.contractAddress,
+        tokenId: mint.tokenId,
+      });
+      worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress: mint.contractAddress });
+      synced++;
+    }
+
+    return c.json({ data: { synced } });
+  } catch (err) {
+    log.error({ err, txHash }, "tokens/sync-tx failed");
+    return c.json({ error: String(err) }, 500);
+  }
+});
 
 // GET /v1/tokens/batch — fetch multiple tokens by contract:tokenId pairs
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict

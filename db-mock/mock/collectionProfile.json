@@ -1,0 +1,19 @@
+[
+  {
+    "id": "colprof_1",
+    "chain": "STARKNET",
+    "contractAddress": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "displayName": "Medialane Genesis",
+    "description": "Official Medialane Genesis profile.",
+    "image": "https://example.com/collection-profile.png",
+    "bannerImage": "https://example.com/collection-banner.png",
+    "websiteUrl": "https://www.medialane.io",
+    "twitterUrl": "https://twitter.com/medialane",
+    "discordUrl": "https://discord.gg/example",
+    "telegramUrl": null,
+    "updatedBy": "admin_user",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

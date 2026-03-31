@@ -1,0 +1,35 @@
+[
+  {
+    "id": "order_1",
+    "chain": "STARKNET",
+    "orderHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "offerer": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "offerItemType": "ERC721",
+    "offerToken": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "offerIdentifier": "1",
+    "offerStartAmount": "1",
+    "offerEndAmount": "1",
+    "considerationItemType": "ERC20",
+    "considerationToken": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "considerationIdentifier": "0",
+    "considerationStartAmount": "1000000000000000000",
+    "considerationEndAmount": "1000000000000000000",
+    "considerationRecipient": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "startTime": 1704067200,
+    "endTime": 1706662800,
+    "status": "ACTIVE",
+    "fulfiller": null,
+    "createdBlockNumber": 100020,
+    "createdTxHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "fulfilledTxHash": null,
+    "cancelledTxHash": null,
+    "nftContract": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "nftTokenId": "1",
+    "priceRaw": "1000000000000000000",
+    "priceFormatted": "1.0",
+    "currencySymbol": "ETH",
+    "createdAt": "2025-01-01T00:10:00.000Z",
+    "updatedAt": "2025-01-01T00:10:00.000Z"
+  }
+]
+

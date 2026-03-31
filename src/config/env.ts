@@ -21,6 +21,11 @@ const envSchema = z.object({
     .default("https://medialane.xyz,https://mediolano.app,http://localhost:3000"),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(6000),
   INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(50),
+  /** Set to "false" to disable the Starknet mirror (saves Alchemy quota when only testing HTTP APIs). */
+  INDEXER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v !== "false" && v !== "0"),
   CHIPIPAY_API_KEY: z.string().default(""),
   CHIPIPAY_API_URL: z.string().default("https://api.chipi.io"),
   LOG_LEVEL: z

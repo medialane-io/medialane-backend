@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medialane
+      POSTGRES_PASSWORD: medialane
+      POSTGRES_DB: medialane_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - medialane_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medialane -d medialane_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  medialane_postgres_data:
+

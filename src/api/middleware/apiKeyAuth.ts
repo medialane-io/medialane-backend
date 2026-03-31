@@ -6,14 +6,27 @@ import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("middleware:apiKeyAuth");
 
+/** Tenant keys from the portal are always `ml_live_<hex>` — never Clerk JWTs (`eyJ...`). */
+function looksLikeTenantApiKey(s: string): boolean {
+  return s.startsWith("ml_live_");
+}
+
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  // Accept Authorization: Bearer <key>, x-api-key: <key>, or ?apiKey= (for EventSource)
+  // Prefer x-api-key so Authorization: Bearer <Clerk JWT> can coexist (user-bound routes).
+  // Bearer is only treated as a tenant key when it looks like ml_live_... (README-compatible).
+  const xKey = c.req.header("x-api-key")?.trim() ?? "";
   const authHeader = c.req.header("authorization");
+  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const qKey = c.req.query("apiKey")?.trim() ?? "";
+
   const raw =
-    authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim()
-    : c.req.header("x-api-key")?.trim()
-    ?? c.req.query("apiKey")?.trim()
-    ?? null;
+    xKey.length > 0
+      ? xKey
+      : looksLikeTenantApiKey(bearer)
+        ? bearer
+        : looksLikeTenantApiKey(qKey)
+          ? qKey
+          : null;
 
   if (!raw) {
     return c.json({ error: "Missing API key" }, 401);

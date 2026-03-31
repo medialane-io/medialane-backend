@@ -1,0 +1,18 @@
+[
+  {
+    "id": "creator_1",
+    "walletAddress": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "chain": "STARKNET",
+    "displayName": "Genesis Creator",
+    "bio": "Creates high-quality IP assets for Medialane.",
+    "avatarImage": "https://example.com/creator-avatar.png",
+    "bannerImage": "https://example.com/creator-banner.png",
+    "websiteUrl": "https://creator.example.com",
+    "twitterUrl": "https://twitter.com/creator",
+    "discordUrl": null,
+    "telegramUrl": null,
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

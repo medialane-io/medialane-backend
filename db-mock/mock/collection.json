@@ -1,0 +1,27 @@
+[
+  {
+    "id": "col_1",
+    "chain": "STARKNET",
+    "contractAddress": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "collectionId": "1",
+    "name": "Medialane Genesis",
+    "symbol": "MLGEN",
+    "description": "Genesis IP collection on Starknet.",
+    "image": "https://example.com/collection.png",
+    "baseUri": "ipfs://bafy.../metadata/",
+    "owner": "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "metadataStatus": "FETCHED",
+    "startBlock": 100000,
+    "isKnown": true,
+    "isHidden": false,
+    "floorPrice": "1000000000000000000",
+    "totalVolume": "5000000000000000000",
+    "holderCount": 10,
+    "totalSupply": 1000,
+    "source": "MEDIALANE_REGISTRY",
+    "claimedBy": "0x0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

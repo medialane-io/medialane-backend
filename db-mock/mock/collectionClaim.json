@@ -1,0 +1,18 @@
+[
+  {
+    "id": "claim_1",
+    "contractAddress": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "chain": "STARKNET",
+    "claimantAddress": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "claimantEmail": "creator@example.com",
+    "status": "AUTO_APPROVED",
+    "verificationMethod": "ONCHAIN",
+    "notes": "Auto-approved in dev.",
+    "adminNotes": null,
+    "reviewedBy": "admin_user",
+    "reviewedAt": "2025-01-01T00:30:00.000Z",
+    "createdAt": "2025-01-01T00:20:00.000Z",
+    "updatedAt": "2025-01-01T00:30:00.000Z"
+  }
+]
+

@@ -14,6 +14,7 @@ function isAllowedOrigin(origin: string): string | undefined {
 export const corsMiddleware = cors({
   origin: isAllowedOrigin,
   allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "x-api-key"],
+  // Omit allowHeaders so Hono echoes Access-Control-Request-Headers from the preflight.
+  // A fixed list breaks when browsers or tooling add extra headers (e.g. tracing).
   maxAge: 86400,
 });

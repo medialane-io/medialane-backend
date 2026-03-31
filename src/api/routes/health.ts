@@ -4,6 +4,19 @@ import { createProvider } from "../../utils/starknet.js";
 import { toErrorMessage } from "../../utils/error.js";
 
 const health = new Hono();
+const LATEST_BLOCK_TTL_MS = 15_000;
+let latestBlockCache: { value: number; expiresAt: number } | null = null;
+
+async function getLatestBlockCached(): Promise<number> {
+  const now = Date.now();
+  if (latestBlockCache && latestBlockCache.expiresAt > now) {
+    return latestBlockCache.value;
+  }
+  const provider = createProvider();
+  const value = await provider.getBlockNumber();
+  latestBlockCache = { value, expiresAt: now + LATEST_BLOCK_TTL_MS };
+  return value;
+}
 
 health.get("/", async (c) => {
   const checks: Record<string, unknown> = {
@@ -29,12 +42,10 @@ health.get("/", async (c) => {
       // Try to get chain tip — if Alchemy is rate-limited just omit it
       let latestBlock: number | undefined;
       try {
-        const provider = createProvider();
-        const block = await Promise.race([
-          provider.getBlockWithTxHashes("latest"),
+        latestBlock = await Promise.race([
+          getLatestBlockCached(),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
         ]);
-        latestBlock = (block as any).block_number as number;
       } catch {
         // non-fatal — report lastBlock only
       }

@@ -1,10 +1,12 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import type { Context, Next } from "hono";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { createLogger } from "../../utils/logger.js";
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY!,
 });
+const log = createLogger("middleware:clerkAuth");
 
 /**
  * Verifies the Clerk session JWT from Authorization: Bearer <token>.
@@ -26,13 +28,21 @@ export async function clerkAuth(c: Context, next: Next) {
     const payload = await verifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY!,
     });
+    c.set("clerkUserId", payload.sub);
     const user = await clerk.users.getUser(payload.sub);
-    const rawWallet = user.publicMetadata?.walletAddress as string | undefined;
+    // Backward compatibility: older onboarding stored `publicKey`; newer stores `walletAddress`.
+    const rawWallet =
+      (user.publicMetadata?.walletAddress as string | undefined) ??
+      (user.publicMetadata?.publicKey as string | undefined);
     if (!rawWallet) {
       return c.json({ error: "No wallet associated with this account" }, 403);
     }
     c.set("clerkWallet", normalizeAddress(rawWallet));
-  } catch {
+  } catch (err) {
+    log.warn(
+      { err },
+      "Clerk token verification failed (check CLERK_SECRET_KEY, token template, and token freshness)"
+    );
     return c.json({ error: "Invalid or expired session token" }, 401);
   }
   await next();

@@ -182,16 +182,61 @@ bunx prisma generate
 bun dev
 ```
 
+### Run Fully Local (with Docker Postgres + medialane-io)
+
+Recommended local pairing:
+- frontend: `http://localhost:3000`
+- backend: `http://localhost:3001`
+- postgres: `localhost:5432`
+
+1) Create backend env:
+```bash
+cp .env.example .env
+```
+
+2) Start local Postgres (idempotent: creates if missing, starts if existing):
+```bash
+npm run db:start
+```
+This prints the exact line to paste into `.env`:
+```bash
+DATABASE_URL="postgresql://medialane:medialane@localhost:5432/medialane_dev?schema=public"
+```
+
+3) Set the backend port and CORS allowlist in `.env`:
+```bash
+PORT=3001
+CORS_ORIGINS=http://localhost:3000
+```
+If frontend runs on a different port, add it too (comma-separated):
+```bash
+CORS_ORIGINS=http://localhost:3000,http://localhost:3002
+```
+
+4) Apply schema and optional seed:
+```bash
+bun run db:push
+bun run db:seed
+```
+
+5) Start backend:
+```bash
+bun dev
+```
+
 ### Required Environment Variables
 
 | Variable | Notes |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ALCHEMY_RPC_URL` | Starknet mainnet RPC |
-| `PINATA_JWT` | Pinata JWT for metadata uploads |
-| `PINATA_GATEWAY` | Pinata gateway hostname |
 | `API_SECRET_KEY` | Min 16 chars — admin routes auth |
-| `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://medialane.io,https://www.medialane.io`) |
+| `CORS_ORIGINS` | Comma-separated allowed origins (include your local frontend origin) |
+
+Optional/integration-only (not required for basic local API + DB):
+- `PINATA_JWT`, `PINATA_GATEWAY` (metadata upload routes)
+- `CLERK_SECRET_KEY` (Clerk-protected user flows)
+- `REDIS_URL` (shared/distributed rate limit storage)
 
 ### Commands
 
@@ -204,6 +249,26 @@ bun run db:push        # Push schema (no migration file)
 bun run db:studio      # Prisma Studio at localhost:5555
 bun run backfill       # Backfill historical on-chain data
 bun run reset-cursor   # Reset indexer cursor to start block
+```
+
+### Generate Local API Keys (Admin + Tenant)
+
+Generate admin secret for backend env (`API_SECRET_KEY`, minimum 16 chars):
+```bash
+openssl rand -hex 32
+```
+
+Then create a valid tenant API key (used as `x-api-key` on `/v1/*`) via admin route:
+```bash
+curl -X POST "http://localhost:3001/admin/tenants" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <your_API_SECRET_KEY>" \
+  -d '{"name":"Local Dev","email":"local-dev@example.com","plan":"FREE"}'
+```
+
+Use `data.apiKey.plaintext` from that response in frontend `.env.local` as:
+```bash
+NEXT_PUBLIC_MEDIALANE_API_KEY=<plaintext_from_admin_response>
 ```
 
 ---

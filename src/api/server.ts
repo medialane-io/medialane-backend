@@ -19,10 +19,12 @@ import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin.js";
 import claims from "./routes/claims.js";
+import users from "./routes/users.js";
 import profiles from "./routes/profiles.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 import reports from "./routes/reports.js";
+import remixOffers from "./routes/remixOffers.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -41,6 +43,9 @@ export function createApp(): Hono<AppEnv> {
   // Claims router — mounted BEFORE global apiKeyAuth because Path 1 handles its own auth
   // (Path 1 uses Authorization: Bearer <clerk-jwt> which apiKeyAuth would misinterpret as API key)
   app.route("/v1/collections/claim", claims);
+
+  // Clerk-only user wallet (SDK getMyWallet / upsertMyWallet) — no tenant API key
+  app.route("/v1/users", users);
 
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);
@@ -61,6 +66,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/stats", stats);
   app.route("/v1/events", events);
   app.route("/v1/reports", reports);
+  app.route("/v1/remix-offers", remixOffers);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));

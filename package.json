@@ -13,7 +13,9 @@
     "db:studio": "bunx prisma studio",
     "backfill": "bun run scripts/backfill.ts",
     "backfill:tokens": "bun run scripts/backfillTokens.ts",
-    "reset-cursor": "bun run scripts/resetCursor.ts"
+    "reset-cursor": "bun run scripts/resetCursor.ts",
+    "db:start": "docker compose -f db-mock/docker-compose.dev.yml up -d && node -e \"require('dotenv').config(); const fallback='postgresql://medialane:medialane@localhost:5432/medialane_dev?schema=public'; const url=process.env.DATABASE_URL || fallback; console.log('Postgres container is running (created if missing, started if existing).'); console.log('Use this in your .env:'); console.log('DATABASE_URL=\\\"' + url + '\\\"');\"",
+    "db:seed": "bunx prisma db push && node db-mock/seed.cjs"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.0",
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "dotenv": "^17.3.1",
     "prisma": "^5.22.0",
     "typescript": "^5.6.0"
   }

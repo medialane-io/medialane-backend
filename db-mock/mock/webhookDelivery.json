@@ -1,0 +1,15 @@
+[
+  {
+    "id": "whd_1",
+    "endpointId": "wh_1",
+    "eventType": "ORDER_CREATED",
+    "payload": { "orderId": "order_1" },
+    "statusCode": 200,
+    "responseBody": "OK",
+    "deliveredAt": "2025-01-01T00:20:00.000Z",
+    "attemptCount": 1,
+    "isTerminal": true,
+    "createdAt": "2025-01-01T00:20:00.000Z"
+  }
+]
+

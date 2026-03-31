@@ -1,0 +1,18 @@
+[
+  {
+    "id": "intent_1",
+    "chain": "STARKNET",
+    "type": "MINT",
+    "status": "PENDING",
+    "requester": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "typedData": { "domain": { "name": "Medialane" } },
+    "calls": [{ "to": "0x0000000000000000000000000000000000000000", "selector": "0x0", "calldata": [] }],
+    "signature": [],
+    "txHash": null,
+    "orderHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "expiresAt": "2025-01-02T00:00:00.000Z",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

@@ -31,11 +31,16 @@ async function main() {
     }
   );
 
-  // Start Mirror and Orchestrator in background (non-blocking)
-  startMirror().catch((err) => {
-    log.fatal({ err }, "Mirror crashed");
-    process.exit(1);
-  });
+  if (env.INDEXER_ENABLED) {
+    startMirror().catch((err) => {
+      log.fatal({ err }, "Mirror crashed");
+      process.exit(1);
+    });
+  } else {
+    log.warn(
+      "INDEXER_ENABLED=false — Starknet mirror is off (no background RPC polling). New on-chain data will not be indexed until you re-enable it or run a backfill."
+    );
+  }
 
   startOrchestrator().catch((err) => {
     log.fatal({ err }, "Orchestrator crashed");

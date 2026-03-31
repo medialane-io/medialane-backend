@@ -29,6 +29,8 @@ const creatorProfileSchema = z.object({
   twitterUrl: z.string().nullable().optional(),
   discordUrl: z.string().nullable().optional(),
   telegramUrl: z.string().nullable().optional(),
+  /** Chipi: PIN vs passkey preference for transaction encryption / unlock. */
+  preferredEncryption: z.enum(["PIN", "PASSKEY"]).nullable().optional(),
 });
 
 // ─── Collection Profile (public read, Clerk JWT or admin key for write) ──────
@@ -113,10 +115,29 @@ profiles.patch(
       return c.json({ error: "Not authorized to edit this profile" }, 403);
     }
 
+    const { preferredEncryption, ...rest } = data;
+    const encryptionFields: {
+      preferredEncryption?: "PIN" | "PASSKEY" | null;
+      preferredEncryptionUpdatedAt?: Date | null;
+    } = {};
+    if (preferredEncryption !== undefined) {
+      encryptionFields.preferredEncryption = preferredEncryption;
+      if (preferredEncryption === "PIN" || preferredEncryption === "PASSKEY") {
+        encryptionFields.preferredEncryptionUpdatedAt = new Date();
+      } else if (preferredEncryption === null) {
+        encryptionFields.preferredEncryptionUpdatedAt = null;
+      }
+    }
+
     const profile = await prisma.creatorProfile.upsert({
       where: { walletAddress: wallet },
-      create: { walletAddress: wallet, chain: "STARKNET", ...data },
-      update: { ...data },
+      create: {
+        walletAddress: wallet,
+        chain: "STARKNET",
+        ...rest,
+        ...encryptionFields,
+      },
+      update: { ...rest, ...encryptionFields },
     });
 
     return c.json(profile);

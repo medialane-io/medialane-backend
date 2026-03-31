@@ -1,0 +1,13 @@
+[
+  {
+    "id": "wh_1",
+    "tenantId": "tenant_1",
+    "url": "https://webhook.site/example",
+    "secret": "whsecret_dev",
+    "events": ["ORDER_CREATED", "TRANSFER"],
+    "status": "ACTIVE",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

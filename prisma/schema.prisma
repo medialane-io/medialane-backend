@@ -60,6 +60,12 @@ enum VerificationMethod {
   MANUAL
 }
 
+/// Chipi wallet: how the user prefers to encrypt / unlock for signed transactions.
+enum WalletEncryptionPreference {
+  PIN
+  PASSKEY
+}
+
 model IndexerCursor {
   chain             Chain    @id
   lastBlock         BigInt
@@ -206,6 +212,14 @@ model CollectionProfile {
   @@unique([chain, contractAddress])
 }
 
+/// Clerk user → Starknet wallet, for onboarding fallback (`GET/POST /v1/users/me`).
+model UserWallet {
+  clerkUserId   String   @id
+  walletAddress String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model CreatorProfile {
   id             String   @id @default(cuid())
   walletAddress  String   @unique
@@ -218,6 +232,9 @@ model CreatorProfile {
   twitterUrl     String?
   discordUrl     String?
   telegramUrl    String?
+  /// Preferred Chipi encryption path for transaction signing (null = not chosen yet).
+  preferredEncryption         WalletEncryptionPreference?
+  preferredEncryptionUpdatedAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }

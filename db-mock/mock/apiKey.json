@@ -1,0 +1,16 @@
+[
+  {
+    "id": "apikey_1",
+    "tenantId": "tenant_1",
+    "prefix": "dev",
+    "keyHash": "hash_dev_example",
+    "label": "Dev API key",
+    "status": "ACTIVE",
+    "lastUsedAt": null,
+    "monthlyRequestCount": 0,
+    "monthlyResetAt": "2025-01-01T00:00:00.000Z",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

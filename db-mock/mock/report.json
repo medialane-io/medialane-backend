@@ -1,0 +1,21 @@
+[
+  {
+    "id": "rep_1",
+    "chain": "STARKNET",
+    "targetType": "TOKEN",
+    "targetKey": "TOKEN:0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef:1",
+    "targetContract": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "targetTokenId": "1",
+    "targetAddress": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "reporterUserId": "clerk_user_1",
+    "reviewedBy": null,
+    "categories": ["SCAM_FRAUD"],
+    "description": "Looks suspicious in dev.",
+    "status": "PENDING",
+    "adminNotes": null,
+    "reviewedAt": null,
+    "createdAt": "2025-01-01T01:00:00.000Z",
+    "updatedAt": "2025-01-01T01:00:00.000Z"
+  }
+]
+

@@ -13,6 +13,7 @@ import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
+import { isStarknetRpcQuotaError } from "./rpcQuota.js";
 
 const log = createLogger("mirror");
 export const CHAIN = "STARKNET" as const;
@@ -21,9 +22,30 @@ export const CHAIN = "STARKNET" as const;
 const CATCHUP_THRESHOLD = 1000;
 // Abort a hung tick after this many ms to prevent the loop from freezing.
 const TICK_TIMEOUT_MS = 60_000;
+// Even when "catching up", wait a little between ticks so we don't burst hundreds of RPCs/sec.
+const CATCHUP_MIN_SLEEP_MS = 500;
+// After Alchemy 429 / monthly cap, back off (ms) — doubles until cap.
+const RPC_BACKOFF_INITIAL_MS = 30_000;
+const RPC_BACKOFF_MAX_MS = 300_000;
+const TRANSFER_POLL_CONCURRENCY = 8;
+
+async function pollTransfersBatched(
+  contracts: string[],
+  fromBlock: number,
+  toBlock: number
+): Promise<Awaited<ReturnType<typeof pollTransferEvents>>[]> {
+  const out: Awaited<ReturnType<typeof pollTransferEvents>>[] = [];
+  for (let i = 0; i < contracts.length; i += TRANSFER_POLL_CONCURRENCY) {
+    const batch = contracts.slice(i, i + TRANSFER_POLL_CONCURRENCY);
+    const events = await Promise.all(batch.map((addr) => pollTransferEvents(addr, fromBlock, toBlock)));
+    out.push(...events);
+  }
+  return out;
+}
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
+  let rpcQuotaBackoffMs = 0;
   while (true) {
     const tickId = randomUUID().slice(0, 8);
     let lagBlocks = 0;
@@ -34,12 +56,34 @@ export async function startMirror(): Promise<void> {
           setTimeout(() => reject(new Error(`tick timed out after ${TICK_TIMEOUT_MS}ms`)), TICK_TIMEOUT_MS)
         ),
       ]);
+      rpcQuotaBackoffMs = 0;
     } catch (err) {
+      if (isStarknetRpcQuotaError(err)) {
+        rpcQuotaBackoffMs = Math.min(
+          rpcQuotaBackoffMs === 0 ? RPC_BACKOFF_INITIAL_MS : rpcQuotaBackoffMs * 2,
+          RPC_BACKOFF_MAX_MS
+        );
+        log.warn(
+          {
+            tickId,
+            retryAfterSec: Math.round(rpcQuotaBackoffMs / 1000),
+            hint: "Upgrade Alchemy billing, use a dedicated RPC URL for the indexer, or raise INDEXER_POLL_INTERVAL_MS",
+          },
+          "Mirror: Starknet RPC quota exceeded — backing off (reduces log spam and wasted calls)"
+        );
+        await sleep(rpcQuotaBackoffMs);
+        continue;
+      }
       log.error({ err, tickId }, "Mirror tick error");
+      await sleep(env.INDEXER_POLL_INTERVAL_MS);
+      continue;
     }
-    // Skip sleep when catching up so we process batches back-to-back.
+    // When far behind, use a short gap between batches (was 0 — too easy to burn RPC quota).
+    // When caught up, wait the full poll interval before asking for the chain tip again.
     if (lagBlocks <= CATCHUP_THRESHOLD) {
       await sleep(env.INDEXER_POLL_INTERVAL_MS);
+    } else {
+      await sleep(CATCHUP_MIN_SLEEP_MS);
     }
   }
 }
@@ -76,7 +120,7 @@ async function tick(tickId: string): Promise<number> {
   ]);
 
   const rawTransferEvents = nftContracts.length > 0
-    ? (await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, fromBlock, toBlock)))).flat()
+    ? (await pollTransfersBatched(nftContracts, fromBlock, toBlock)).flat()
     : [];
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];

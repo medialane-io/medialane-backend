@@ -1,0 +1,12 @@
+[
+  {
+    "id": "tenant_1",
+    "name": "Medialane Dev Tenant",
+    "email": "dev-tenant@example.com",
+    "plan": "FREE",
+    "status": "ACTIVE",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z"
+  }
+]
+

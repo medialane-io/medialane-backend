@@ -1,0 +1,15 @@
+[
+  {
+    "id": "tx_1",
+    "chain": "STARKNET",
+    "contractAddress": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "tokenId": "1",
+    "fromAddress": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "toAddress": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "blockNumber": 100010,
+    "txHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "logIndex": 0,
+    "createdAt": "2025-01-01T00:05:00.000Z"
+  }
+]
+

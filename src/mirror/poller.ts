@@ -132,8 +132,12 @@ export async function pollCollectionCreatedEvents(
   return allEvents;
 }
 
+/**
+ * Current chain tip block number.
+ * Uses `starknet_blockNumber` (lightweight) instead of `getBlockWithTxHashes("latest")`
+ * to reduce Alchemy CU / request weight on every indexer tick.
+ */
 export async function getLatestBlock(): Promise<number> {
   const provider = createProvider();
-  const block = await provider.getBlockWithTxHashes("latest");
-  return (block as any).block_number as number;
+  return provider.getBlockNumber();
 }

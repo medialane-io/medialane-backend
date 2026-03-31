@@ -1,0 +1,11 @@
+[
+  {
+    "id": "challenge_1",
+    "contractAddress": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "walletAddress": "0x0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "challenge": "dev_challenge_1",
+    "expiresAt": "2025-01-02T00:00:00.000Z",
+    "createdAt": "2025-01-01T00:21:00.000Z"
+  }
+]
+

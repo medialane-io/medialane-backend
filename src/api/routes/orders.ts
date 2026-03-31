@@ -2,12 +2,20 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
-import type { OrderStatus } from "@prisma/client";
 import { serializeOrder, batchTokenMeta } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 
 const orders = new Hono();
+
+/** Avoid PG `22P02` when `priceRaw` is empty or non-numeric (bad indexer data). */
+const priceAsNumeric = Prisma.sql`(CASE
+  WHEN "priceRaw" IS NOT NULL
+    AND btrim("priceRaw") <> ''
+    AND btrim("priceRaw") ~ '^[0-9]+$'
+  THEN btrim("priceRaw")::numeric
+  ELSE NULL
+END)`;
 
 const listQuerySchema = z.object({
   status: z.enum(["ACTIVE", "FULFILLED", "CANCELLED", "EXPIRED"]).optional(),
@@ -57,12 +65,12 @@ orders.get("/", async (c) => {
   if (sort === "price_asc" || sort === "price_desc") {
     const dir = Prisma.raw(sort === "price_asc" ? "ASC" : "DESC");
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (status) conditions.push(Prisma.sql`status::text = ${status}`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
-    if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
-    if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
+    if (minPrice) conditions.push(Prisma.sql`${priceAsNumeric} >= ${minPrice}::numeric`);
+    if (maxPrice) conditions.push(Prisma.sql`${priceAsNumeric} <= ${maxPrice}::numeric`);
     if (hiddenContracts.length > 0) {
       conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
       conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
@@ -73,7 +81,7 @@ orders.get("/", async (c) => {
       prisma.$queryRaw<RawOrderRow[]>`
         SELECT * FROM "Order"
         WHERE ${whereClause}
-        ORDER BY "priceRaw"::numeric ${dir} NULLS LAST
+        ORDER BY ${priceAsNumeric} ${dir} NULLS LAST
         LIMIT ${limit} OFFSET ${skip}
       `,
       prisma.$queryRaw<RawCountRow[]>`
@@ -92,12 +100,12 @@ orders.get("/", async (c) => {
   // Price range filters require raw SQL even here since priceRaw is a text column
   if ((minPrice || maxPrice) && sort === "recent") {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (status) conditions.push(Prisma.sql`status::text = ${status}`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
-    if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
-    if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
+    if (minPrice) conditions.push(Prisma.sql`${priceAsNumeric} >= ${minPrice}::numeric`);
+    if (maxPrice) conditions.push(Prisma.sql`${priceAsNumeric} <= ${maxPrice}::numeric`);
     if (hiddenContracts.length > 0) {
       conditions.push(Prisma.sql`"nftContract" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)`);
       conditions.push(Prisma.sql`NOT ("nftContract", "nftTokenId") IN (SELECT "contractAddress", "tokenId" FROM "Token" WHERE "isHidden" = true)`);
@@ -125,7 +133,7 @@ orders.get("/", async (c) => {
   // preventing pagination drift and total overcounting when hidden tokens exist.
   {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
-    if (status) conditions.push(Prisma.sql`status = ${status}`);
+    if (status) conditions.push(Prisma.sql`status::text = ${status}`);
     if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
     if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
     if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
