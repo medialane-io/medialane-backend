@@ -18,6 +18,9 @@ const collectionProfileSchema = z.object({
   twitterUrl: z.string().nullable().optional(),
   discordUrl: z.string().nullable().optional(),
   telegramUrl: z.string().nullable().optional(),
+  gatedContentTitle: z.string().max(100).nullable().optional(),
+  gatedContentUrl: z.string().nullable().optional(),
+  gatedContentType: z.enum(["VIDEO", "STREAM", "AUDIO", "DOCUMENT", "LINK"]).nullable().optional(),
 });
 
 const creatorProfileSchema = z.object({
@@ -44,6 +47,12 @@ profiles.get("/collections/:contract/profile", async (c) => {
 
   const profile = await prisma.collectionProfile.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    select: {
+      id: true, contractAddress: true, chain: true,
+      displayName: true, description: true, image: true, bannerImage: true,
+      websiteUrl: true, twitterUrl: true, discordUrl: true, telegramUrl: true,
+      hasGatedContent: true, updatedBy: true, createdAt: true, updatedAt: true,
+    },
   });
   return c.json(profile);
 });
@@ -82,13 +91,74 @@ profiles.patch(
 
     const updatedBy = isAdmin ? "admin" : (c.get("clerkWallet") as string);
 
+    const hasGatedContent = data.gatedContentUrl != null
+      ? data.gatedContentUrl.length > 0
+      : undefined;
+
     const profile = await prisma.collectionProfile.upsert({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
-      create: { contractAddress: contract, chain: "STARKNET", ...data, updatedBy },
-      update: { ...data, updatedBy },
+      create: {
+        contractAddress: contract,
+        chain: "STARKNET",
+        ...data,
+        hasGatedContent: !!(data.gatedContentUrl),
+        updatedBy,
+      },
+      update: {
+        ...data,
+        ...(hasGatedContent !== undefined ? { hasGatedContent } : {}),
+        updatedBy,
+      },
+      select: {
+        id: true, contractAddress: true, chain: true,
+        displayName: true, description: true, image: true, bannerImage: true,
+        websiteUrl: true, twitterUrl: true, discordUrl: true, telegramUrl: true,
+        hasGatedContent: true, updatedBy: true, createdAt: true, updatedAt: true,
+      },
     });
 
     return c.json(profile);
+  }
+);
+
+// ─── Gated Content (holder-only) ─────────────────────────────────────────────
+
+profiles.get(
+  "/collections/:contract/gated-content",
+  async (c, next) => clerkAuth(c, next),
+  async (c) => {
+    const contract = normalizeAddress(c.req.param("contract"));
+    const walletAddress = c.get("clerkWallet") as string;
+
+    // Check if this wallet owns at least one token in the collection
+    const ownedToken = await prisma.token.findFirst({
+      where: { chain: "STARKNET", contractAddress: contract, owner: walletAddress },
+      select: { id: true },
+    });
+
+    if (!ownedToken) {
+      return c.json({ error: "Not a holder of this collection" }, 403);
+    }
+
+    const profile = await prisma.collectionProfile.findUnique({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+      select: {
+        hasGatedContent: true,
+        gatedContentTitle: true,
+        gatedContentUrl: true,
+        gatedContentType: true,
+      },
+    });
+
+    if (!profile?.hasGatedContent || !profile.gatedContentUrl) {
+      return c.json({ error: "No gated content available for this collection" }, 404);
+    }
+
+    return c.json({
+      title: profile.gatedContentTitle,
+      url: profile.gatedContentUrl,
+      type: profile.gatedContentType,
+    });
   }
 );
 
