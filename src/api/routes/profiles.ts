@@ -51,7 +51,7 @@ profiles.get("/collections/:contract/profile", async (c) => {
       id: true, contractAddress: true, chain: true,
       displayName: true, description: true, image: true, bannerImage: true,
       websiteUrl: true, twitterUrl: true, discordUrl: true, telegramUrl: true,
-      hasGatedContent: true, updatedBy: true, createdAt: true, updatedAt: true,
+      hasGatedContent: true, gatedContentTitle: true, updatedBy: true, createdAt: true, updatedAt: true,
     },
   });
   return c.json(profile);
@@ -113,7 +113,7 @@ profiles.patch(
         id: true, contractAddress: true, chain: true,
         displayName: true, description: true, image: true, bannerImage: true,
         websiteUrl: true, twitterUrl: true, discordUrl: true, telegramUrl: true,
-        hasGatedContent: true, updatedBy: true, createdAt: true, updatedAt: true,
+        hasGatedContent: true, gatedContentTitle: true, updatedBy: true, createdAt: true, updatedAt: true,
       },
     });
 
