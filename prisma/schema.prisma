@@ -218,10 +218,14 @@ model CollectionProfile {
   websiteUrl       String?
   twitterUrl       String?
   discordUrl       String?
-  telegramUrl      String?
-  updatedBy        String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  telegramUrl          String?
+  gatedContentTitle    String?
+  gatedContentUrl      String?
+  gatedContentType     String?
+  hasGatedContent      Boolean  @default(false)
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@unique([chain, contractAddress])
 }
