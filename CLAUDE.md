@@ -132,6 +132,7 @@ Response headers on every `/v1/*` response:
 | POST | `/v1/metadata/upload` | JSON body → Pinata → `{ cid, url: "ipfs://..." }` |
 | POST | `/v1/metadata/upload-file` | Multipart `file` field → Pinata → `{ cid, url }` |
 | GET | `/v1/metadata/resolve` | `?uri=` — resolves ipfs://, data:, https:// |
+| GET | `/v1/collections/:contract/gated-content` | Clerk JWT + tenant API key required. Checks token ownership; returns `{ title, url, type }` to verified holders only; 403 for non-holders. `gatedContentUrl` is **never** exposed in public profile GET. |
 | GET | `/v1/portal/me` | `{ id, name, email, plan, status }` |
 | GET | `/v1/portal/keys` | List keys (prefix only, no plaintext) |
 | POST | `/v1/portal/keys` | `{ label? }` — max 5 active; returns plaintext ONCE |
@@ -178,6 +179,14 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Token-Gated Content (added 2026-03-31)
+
+`CollectionProfile` Prisma model has 4 new fields: `gatedContentTitle String?`, `gatedContentUrl String?`, `gatedContentType String?`, `hasGatedContent Boolean @default(false)`.
+
+- `GET /v1/collections/:contract/profile` — public; returns `hasGatedContent` + `gatedContentTitle` only. **Never returns `gatedContentUrl`.**
+- `PATCH /v1/collections/:contract/profile` — accepts `gatedContentTitle`, `gatedContentUrl`, `gatedContentType` (enum values: `VIDEO | STREAM | AUDIO | DOCUMENT | LINK`).
+- `GET /v1/collections/:contract/gated-content` — requires Clerk JWT + tenant API key; verifies caller holds a token from this collection on-chain; returns `{ title, url, type }` to holders; 403 for non-holders.
 
 ### CollectionCreated event indexing (added 2026-03-08)
 The mirror now polls the collection registry for `CollectionCreated` events on every tick (alongside marketplace and Transfer events). When detected:
