@@ -18,6 +18,8 @@ export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
 export const COMMENTS_CONTRACT = env.COMMENTS_CONTRACT_ADDRESS;
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
+export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS;
+export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 
 // Token map (address → metadata)
 export const SUPPORTED_TOKENS = [

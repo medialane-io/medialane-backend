@@ -26,6 +26,7 @@ import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 import reports from "./routes/reports.js";
 import remixOffers from "./routes/remix-offers.js";
+import pop from "./routes/pop.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -67,6 +68,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/stats", stats);
   app.route("/v1/events", events);
   app.route("/v1/reports", reports);
+  app.route("/v1/pop", pop);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));

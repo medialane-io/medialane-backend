@@ -27,6 +27,7 @@ collections.get("/", async (c) => {
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const isKnown   = c.req.query("isKnown");
   const owner     = c.req.query("owner");
+  const source    = c.req.query("source");
   const hideEmpty = c.req.query("hideEmpty") === "true";
   const sortRaw = c.req.query("sort") ?? "recent";
   const sort: CollectionSort = (COLLECTION_SORT_VALUES as readonly string[]).includes(sortRaw)
@@ -41,6 +42,7 @@ collections.get("/", async (c) => {
     if (isKnown === "true")  conditions.push(Prisma.sql`"isKnown" = true`);
     if (isKnown === "false") conditions.push(Prisma.sql`"isKnown" = false`);
     if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
+    if (source)    conditions.push(Prisma.sql`source = ${source}::"CollectionSource"`);
     if (hideEmpty) conditions.push(Prisma.sql`"totalSupply" > 0`);
     const whereClause = Prisma.join(conditions, " AND ");
 
@@ -71,6 +73,7 @@ collections.get("/", async (c) => {
   if (isKnown === "true")  where.isKnown = true;
   if (isKnown === "false") where.isKnown = false;
   if (owner)     where.owner = normalizeAddress(owner);
+  if (source)    where.source = source;
   if (hideEmpty) where.totalSupply = { gt: 0 };
 
   const orderBy =

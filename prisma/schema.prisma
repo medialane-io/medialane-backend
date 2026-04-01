@@ -21,6 +21,7 @@ enum CollectionSource {
   IP_TICKET
   IP_CLUB
   GAME
+  POP_PROTOCOL
 }
 
 enum ReportTargetType {
@@ -469,6 +470,18 @@ model Report {
   @@index([status])
   @@index([targetType, targetKey])
   @@index([createdAt])
+}
+
+model PopAllowlist {
+  id                String   @id @default(cuid())
+  chain             Chain    @default(STARKNET)
+  collectionAddress String
+  walletAddress     String
+  allowed           Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+
+  @@unique([chain, collectionAddress, walletAddress])
+  @@index([chain, collectionAddress])
 }
 
 model HiddenCreator {

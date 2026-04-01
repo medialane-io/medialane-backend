@@ -1053,5 +1053,83 @@ admin.patch("/remix-offers/:id", async (c) => {
   return c.json({ data: { id: updated.id, creatorAddress: updated.creatorAddress } });
 });
 
+// ---------------------------------------------------------------------------
+// POST /admin/pop/allowlist — bulk-add wallets to a POP collection allowlist
+// Body: { collectionAddress: string, addresses: string[] }
+// Upserts allowed=true for each address. Use DELETE endpoint or on-chain remove_from_allowlist
+// to revoke individual entries.
+// ---------------------------------------------------------------------------
+admin.post("/pop/allowlist", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { collectionAddress, addresses } = body as { collectionAddress?: string; addresses?: unknown };
+
+  if (!collectionAddress || !Array.isArray(addresses) || addresses.length === 0) {
+    return c.json({ error: "collectionAddress and addresses[] are required" }, 400);
+  }
+
+  const MAX_BATCH = 10_000;
+  if (addresses.length > MAX_BATCH) {
+    return c.json({ error: `addresses[] exceeds maximum batch size of ${MAX_BATCH}` }, 400);
+  }
+
+  const normalizedCollection = normalizeAddress(collectionAddress);
+
+  let inserted = 0;
+  const CHUNK = 500;
+  for (let i = 0; i < addresses.length; i += CHUNK) {
+    const chunk = (addresses as string[]).slice(i, i + CHUNK);
+    const result = await prisma.popAllowlist.createMany({
+      data: chunk.map((addr) => ({
+        chain: "STARKNET" as const,
+        collectionAddress: normalizedCollection,
+        walletAddress: normalizeAddress(addr),
+        allowed: true,
+      })),
+      skipDuplicates: true,
+    });
+    inserted += result.count;
+  }
+
+  // Re-enable any previously disabled entries
+  await prisma.popAllowlist.updateMany({
+    where: {
+      chain: "STARKNET",
+      collectionAddress: normalizedCollection,
+      walletAddress: { in: (addresses as string[]).map((a) => normalizeAddress(a)) },
+      allowed: false,
+    },
+    data: { allowed: true },
+  });
+
+  log.info({ collectionAddress: normalizedCollection, total: addresses.length, inserted }, "POP allowlist updated");
+  return c.json({ data: { collectionAddress: normalizedCollection, total: addresses.length, inserted } });
+});
+
+// DELETE /admin/pop/allowlist — remove wallets from a POP collection allowlist
+// Body: { collectionAddress: string, addresses: string[] }
+admin.delete("/pop/allowlist", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { collectionAddress, addresses } = body as { collectionAddress?: string; addresses?: unknown };
+
+  if (!collectionAddress || !Array.isArray(addresses) || addresses.length === 0) {
+    return c.json({ error: "collectionAddress and addresses[] are required" }, 400);
+  }
+
+  const normalizedCollection = normalizeAddress(collectionAddress);
+  const normalizedAddresses = (addresses as string[]).map((a) => normalizeAddress(a));
+
+  const result = await prisma.popAllowlist.updateMany({
+    where: {
+      chain: "STARKNET",
+      collectionAddress: normalizedCollection,
+      walletAddress: { in: normalizedAddresses },
+    },
+    data: { allowed: false },
+  });
+
+  log.info({ collectionAddress: normalizedCollection, removed: result.count }, "POP allowlist entries disabled");
+  return c.json({ data: { collectionAddress: normalizedCollection, removed: result.count } });
+});
+
 export default admin;
 

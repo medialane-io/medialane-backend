@@ -9,6 +9,8 @@ import {
   COLLECTION_CREATED_SELECTOR,
   COMMENTS_CONTRACT,
   COMMENT_ADDED_SELECTOR,
+  POP_FACTORY_CONTRACT,
+  POP_ALLOWLIST_UPDATED_SELECTOR,
 } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -154,6 +156,72 @@ export async function pollCommentEvents(
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
       keys: [[num.toHex(COMMENT_ADDED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
+
+  return allEvents;
+}
+
+/**
+ * Fetch CollectionCreated events from the POP Protocol factory contract.
+ * Returns an empty array when POP_FACTORY_ADDRESS is not configured.
+ */
+export async function pollPopFactoryEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!POP_FACTORY_CONTRACT) return [];
+
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: POP_FACTORY_CONTRACT,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
+
+  return allEvents;
+}
+
+/**
+ * Fetch AllowlistUpdated events from a POP Protocol collection contract.
+ */
+export async function pollPopAllowlistEvents(
+  collectionAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: collectionAddress,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
       chunk_size: 1000,
       continuation_token: continuationToken,
     });
