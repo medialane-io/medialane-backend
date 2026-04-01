@@ -16,6 +16,8 @@ const envSchema = z.object({
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_FACTORY_ADDRESS: z.string().default(""),
   POP_START_BLOCK: z.coerce.number().default(0),
+  DROP_FACTORY_ADDRESS: z.string().default(""),
+  DROP_START_BLOCK: z.coerce.number().default(0),
   INDEXER_START_BLOCK: z.coerce.number().default(6204232),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),

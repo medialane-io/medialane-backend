@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
@@ -9,11 +9,12 @@ import { handleTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
+import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT } from "../config/constants.js";
+import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT } from "../config/constants.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
@@ -43,6 +44,10 @@ let _lastTransferBlock: number | null = null;
 // Same slow-poll pattern as Transfer events.
 let _lastPopAllowlistPollTime = 0;
 let _lastPopAllowlistBlock: number | null = null;
+
+// Tracks the last block up to which Drop allowlist events were fetched.
+let _lastDropAllowlistPollTime = 0;
+let _lastDropAllowlistBlock: number | null = null;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -93,12 +98,13 @@ async function tick(tickId: string): Promise<number> {
   });
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
-  // Poll marketplace events, CollectionCreated events, CommentAdded events, and POP factory events in parallel.
-  const [rawMarketplaceEvents, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents] = await Promise.all([
+  // Poll marketplace events, CollectionCreated events, CommentAdded events, POP factory events, and Drop factory events in parallel.
+  const [rawMarketplaceEvents, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
     pollCommentEvents(fromBlock, toBlock),
     pollPopFactoryEvents(fromBlock, toBlock),
+    pollDropFactoryEvents(fromBlock, toBlock),
   ]);
 
   // Poll Transfer events on a separate 2-minute schedule.
@@ -139,6 +145,25 @@ async function tick(tickId: string): Promise<number> {
     _lastPopAllowlistPollTime = now;
   }
 
+  // Poll Drop allowlist events on the same slow schedule.
+  let rawDropAllowlistEvents: RawStarknetEvent[] = [];
+  if (DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
+    const dropCollections = await prisma.collection.findMany({
+      where: { chain: CHAIN, source: "COLLECTION_DROP", startBlock: { lte: BigInt(toBlock) } },
+      select: { contractAddress: true },
+    });
+    if (dropCollections.length > 0) {
+      const allowlistFromBlock = _lastDropAllowlistBlock != null ? _lastDropAllowlistBlock + 1 : fromBlock;
+      if (allowlistFromBlock <= toBlock) {
+        rawDropAllowlistEvents = (
+          await Promise.all(dropCollections.map((c) => pollDropAllowlistEvents(c.contractAddress, allowlistFromBlock, toBlock)))
+        ).flat();
+      }
+    }
+    _lastDropAllowlistBlock = toBlock;
+    _lastDropAllowlistPollTime = now;
+  }
+
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(
     {
@@ -148,6 +173,8 @@ async function tick(tickId: string): Promise<number> {
       comments: rawCommentEvents.length,
       popFactory: rawPopFactoryEvents.length,
       popAllowlist: rawPopAllowlistEvents.length,
+      dropFactory: rawDropFactoryEvents.length,
+      dropAllowlist: rawDropAllowlistEvents.length,
       nftContractsPolled: nftContracts.length,
     },
     "Fetched events"
@@ -254,6 +281,19 @@ async function tick(tickId: string): Promise<number> {
     await handlePopAllowlistUpdated(event);
   }
 
+  // Process Drop factory DropCreated events (DB write only, collection_address is in data[0])
+  for (const event of rawDropFactoryEvents) {
+    await handleDropCreated(event);
+    if (event.data?.[0]) {
+      affectedContracts.add(normalizeAddress(event.data[0]));
+    }
+  }
+
+  // Process Drop AllowlistUpdated events (DB writes only, no RPC calls)
+  for (const event of rawDropAllowlistEvents) {
+    await handleDropAllowlistUpdated(event);
+  }
+
   // Also collect nftContracts for fulfilled/cancelled orders (already in DB)
   if (fulfilledOrCancelledHashes.length > 0) {
     const orderRows = await prisma.order.findMany({
@@ -312,6 +352,8 @@ async function tick(tickId: string): Promise<number> {
       collectionCreatedEvents: collectionCreatedEvents.length,
       popFactoryEvents: rawPopFactoryEvents.length,
       popAllowlistEvents: rawPopAllowlistEvents.length,
+      dropFactoryEvents: rawDropFactoryEvents.length,
+      dropAllowlistEvents: rawDropAllowlistEvents.length,
       parsed: parsedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: allAffectedContracts.size,

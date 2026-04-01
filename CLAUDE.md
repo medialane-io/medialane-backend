@@ -120,6 +120,9 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/activities` | `?type=transfer\|sale\|listing\|offer`, `page`, `limit` |
 | GET | `/v1/activities/:address` | `page`, `limit` |
 | GET | `/v1/search` | `?q=` (min 2 chars), `limit` (max 50). Returns `{ data: { tokens, collections }, query }` |
+| GET | `/v1/pop/eligibility/:collection/:wallet` | POP claim eligibility. Returns `{ isEligible, hasClaimed, tokenId }` |
+| GET | `/v1/pop/eligibility/:collection` | Batch eligibility. `?wallets=0x1,0x2` (max 100) |
+| GET | `/v1/drop/mint-status/:collection/:wallet` | Drop mint status. Returns `{ mintedByWallet, totalMinted }` |
 | POST | `/v1/intents/listing` | Rate limited 20/min per IP |
 | POST | `/v1/intents/offer` | Rate limited 20/min per IP |
 | POST | `/v1/intents/fulfill` | Rate limited 20/min per IP |
@@ -162,6 +165,8 @@ Response headers on every `/v1/*` response:
 | GET | `/admin/comments` | List comments. `?hidden=true\|false`, `?author=address`, `?contract=address`, `page`, `limit` |
 | PATCH | `/admin/comments/:id/hide` | Set `isHidden = true` on a comment |
 | PATCH | `/admin/comments/:id/show` | Set `isHidden = false` on a comment |
+| POST | `/admin/pop/allowlist` | Bulk add wallets to `PopAllowlist`. Body: `{ collectionAddress, addresses[] }`. Works for both POP and COLLECTION_DROP collections. |
+| DELETE | `/admin/pop/allowlist` | Bulk remove wallets (sets `allowed=false`). Body: `{ collectionAddress, addresses[] }` |
 
 ---
 
@@ -324,7 +329,13 @@ Required:
 | `PINATA_GATEWAY` | Pinata gateway hostname |
 | `API_SECRET_KEY` | Min 16 chars, admin auth |
 
-Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK`, `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_CONTRACT_MAINNET`, `COLLECTION_CONTRACT_MAINNET`
+Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK`, `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_CONTRACT_MAINNET`, `COLLECTION_CONTRACT_MAINNET`, `POP_FACTORY_ADDRESS`, `POP_START_BLOCK`, `DROP_FACTORY_ADDRESS`, `DROP_START_BLOCK`
+
+**Collection Drop Railway env vars (add to Railway):**
+```
+DROP_FACTORY_ADDRESS=0x03587f42e29daee1b193f6cf83bf8627908ed6632d0d83fcb26225c50547d800
+DROP_START_BLOCK=8341335
+```
 
 Local values: use `.env.local` — never put secrets in this file.
 

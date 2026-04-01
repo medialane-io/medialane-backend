@@ -22,6 +22,7 @@ enum CollectionSource {
   IP_CLUB
   GAME
   POP_PROTOCOL
+  COLLECTION_DROP
 }
 
 enum ReportTargetType {

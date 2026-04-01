@@ -11,6 +11,8 @@ import {
   COMMENT_ADDED_SELECTOR,
   POP_FACTORY_CONTRACT,
   POP_ALLOWLIST_UPDATED_SELECTOR,
+  DROP_FACTORY_CONTRACT,
+  DROP_CREATED_SELECTOR,
 } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -208,6 +210,73 @@ export async function pollPopFactoryEvents(
  * Fetch AllowlistUpdated events from a POP Protocol collection contract.
  */
 export async function pollPopAllowlistEvents(
+  collectionAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: collectionAddress,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
+
+  return allEvents;
+}
+
+/**
+ * Fetch DropCreated events from the Collection Drop factory contract.
+ * Returns an empty array when DROP_FACTORY_ADDRESS is not configured.
+ */
+export async function pollDropFactoryEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!DROP_FACTORY_CONTRACT) return [];
+
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: DROP_FACTORY_CONTRACT,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(DROP_CREATED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
+
+  return allEvents;
+}
+
+/**
+ * Fetch AllowlistUpdated events from a Collection Drop collection contract.
+ * Uses the same selector as POP Protocol AllowlistUpdated.
+ */
+export async function pollDropAllowlistEvents(
   collectionAddress: string,
   fromBlock: number,
   toBlock: number
