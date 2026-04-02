@@ -67,6 +67,8 @@ x-api-key: ml_live_...
 Authorization: Bearer ml_live_...
 ```
 
+**`x-api-key` takes priority over `Authorization: Bearer`**. Some routes (e.g. `PATCH /v1/creators/:wallet/profile`) require both a tenant key (`apiKeyAuth`) and a Clerk JWT (`clerkAuth`). The SDK sends both simultaneously: `x-api-key: ml_live_...` + `Authorization: Bearer <clerkToken>`. Reading `Authorization` first would cause the Clerk JWT to be treated as the API key and fail. Do not change this priority.
+
 Lookup: `hashApiKey(raw)` → DB lookup on `ApiKey.keyHash`. Rejected if key `status !== "ACTIVE"` or tenant `status !== "ACTIVE"` (SUSPENDED tenants → 401 even with valid key). `lastUsedAt` updated fire-and-forget (non-blocking).
 
 PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error: "Upgrade required", requiredPlan: "PREMIUM" }` for FREE tenants.
@@ -114,6 +116,7 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/tokens/owned/:address` | `page`, `limit` |
 | GET | `/v1/tokens/:contract/:tokenId` | `?wait=true` blocks 3s for JIT metadata |
 | GET | `/v1/tokens/:contract/:tokenId/history` | Mixed transfers + orders, sorted by timestamp |
+| GET | `/v1/tokens/:contract/:tokenId/comments` | On-chain comments for token. `page`, `limit`. Excludes `isHidden=true` comments. Returns `{ data: ApiComment[], meta }` |
 | GET | `/v1/activities` | `?type=transfer\|sale\|listing\|offer`, `page`, `limit` |
 | GET | `/v1/activities/:address` | `page`, `limit` |
 | GET | `/v1/search` | `?q=` (min 2 chars), `limit` (max 50). Returns `{ data: { tokens, collections }, query }` |
@@ -129,6 +132,7 @@ Response headers on every `/v1/*` response:
 | POST | `/v1/metadata/upload` | JSON body → Pinata → `{ cid, url: "ipfs://..." }` |
 | POST | `/v1/metadata/upload-file` | Multipart `file` field → Pinata → `{ cid, url }` |
 | GET | `/v1/metadata/resolve` | `?uri=` — resolves ipfs://, data:, https:// |
+| GET | `/v1/collections/:contract/gated-content` | Clerk JWT + tenant API key required. Checks token ownership; returns `{ title, url, type }` to verified holders only; 403 for non-holders. `gatedContentUrl` is **never** exposed in public profile GET. |
 | GET | `/v1/portal/me` | `{ id, name, email, plan, status }` |
 | GET | `/v1/portal/keys` | List keys (prefix only, no plaintext) |
 | POST | `/v1/portal/keys` | `{ label? }` — max 5 active; returns plaintext ONCE |
@@ -155,6 +159,9 @@ Response headers on every `/v1/*` response:
 | POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all PENDING/FAILED/unnamed/ownerless collections |
 | POST | `/admin/collections/backfill-registry` | Scan ALL `CollectionCreated` events on-chain + upsert every missing collection. Returns `{ inserted, skipped }` |
 | POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection (uses upsert, can create from scratch) |
+| GET | `/admin/comments` | List comments. `?hidden=true\|false`, `?author=address`, `?contract=address`, `page`, `limit` |
+| PATCH | `/admin/comments/:id/hide` | Set `isHidden = true` on a comment |
+| PATCH | `/admin/comments/:id/show` | Set `isHidden = false` on a comment |
 
 ---
 
@@ -172,6 +179,14 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Token-Gated Content (added 2026-03-31)
+
+`CollectionProfile` Prisma model has 4 new fields: `gatedContentTitle String?`, `gatedContentUrl String?`, `gatedContentType String?`, `hasGatedContent Boolean @default(false)`.
+
+- `GET /v1/collections/:contract/profile` — public; returns `hasGatedContent` + `gatedContentTitle` only. **Never returns `gatedContentUrl`.**
+- `PATCH /v1/collections/:contract/profile` — accepts `gatedContentTitle`, `gatedContentUrl`, `gatedContentType` (enum values: `VIDEO | STREAM | AUDIO | DOCUMENT | LINK`).
+- `GET /v1/collections/:contract/gated-content` — requires Clerk JWT + tenant API key; verifies caller holds a token from this collection on-chain; returns `{ title, url, type }` to holders; 403 for non-holders.
 
 ### CollectionCreated event indexing (added 2026-03-08)
 The mirror now polls the collection registry for `CollectionCreated` events on every tick (alongside marketplace and Transfer events). When detected:
@@ -197,6 +212,21 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 ### Price sorting
 `priceRaw` is a String DB column. Uses `$queryRaw` with `::numeric NULLS LAST`. Do not change to ORM sort.
 
+### $queryRaw with PostgreSQL enum columns (CRITICAL — fixed 2026-03-16)
+Prisma `$queryRaw` tagged templates send interpolated values as typed `text` parameters. PostgreSQL **cannot implicitly cast `text` to a named enum type** — this causes:
+```
+ERROR: operator does not exist: "OrderStatus" = text  (code 42883)
+```
+Always append the explicit cast after the interpolated param:
+```ts
+// ❌ wrong — causes 500
+conditions.push(Prisma.sql`status = ${status}`);
+
+// ✅ correct
+conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
+```
+Apply this pattern to **every** `$queryRaw` that compares against an enum column. All three occurrences in `src/api/routes/orders.ts` use the cast.
+
 ### Intents
 - TTL: 24 hours. `PENDING → SIGNED` (on signature submit) or `PENDING → EXPIRED` (on GET read after TTL)
 - `PATCH /:id/signature` → `buildPopulatedCalls()` injects signature into stored calldata, returns updated intent
@@ -205,6 +235,31 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 - **CREATE_COLLECTION**: `owner` stored as `requester` only — caller of the tx becomes the on-chain owner (contract uses `get_caller_address()`).
 - Collection contract: `COLLECTION_CONTRACT` constant (`0x05e73b7...`) — can be overridden per-request via `collectionContract` field
 - `cairo.uint256(collectionId)` used for u256 encoding; `encodeByteArray()` used for Cairo ByteArray felts
+
+### On-chain NFT comments (added 2026-03-22)
+
+Comments are indexed from `CommentAdded` events emitted by the NFTComments contract (`0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232`). Separate from the marketplace poller — `pollCommentEvents` in `src/mirror/commentPoller.ts` runs in parallel.
+
+**Token existence filter**: `handleCommentAdded` in `src/mirror/handlers/commentAdded.ts` checks if the token exists in the DB before indexing. Comments on unindexed tokens are silently skipped (avoids orphan rows and spam from non-Medialane NFTs).
+
+**`Comment` model**: `id`, `chain`, `contractAddress`, `tokenId`, `author`, `content`, `txHash`, `logIndex`, `blockNumber`, `blockTimestamp`, `isHidden`. Idempotency: `@@unique([txHash, logIndex])`.
+
+**`NFTComments_CONTRACT` env var**: must be set in Railway. Value: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232`.
+
+**COMMENT report type**: `ReportTargetType` enum extended with `COMMENT`. `targetKey` format = `COMMENT::<commentId>` (double-colon to avoid collision). After 3 unique reports, `isHidden = true` is set automatically in `src/api/routes/reports.ts`. **Split on `"::"` not `":"` when parsing COMMENT targetKeys.**
+
+### Prisma enum addition pitfall (discovered 2026-03-22)
+
+`prisma migrate dev` fails for enum additions when the shadow DB blocks on `CREATE INDEX CONCURRENTLY`. Workaround:
+1. Write the migration SQL manually (e.g. `ALTER TYPE "ReportTargetType" ADD VALUE 'COMMENT';`)
+2. Save to `prisma/migrations/<timestamp>_<name>/migration.sql`
+3. Run `prisma migrate resolve --applied <migration-name>` locally (marks it applied without running it)
+4. Commit — Railway's `prisma migrate deploy` will apply on next deploy
+
+If a migration gets stuck as "failed" in Railway but was actually applied: `prisma migrate resolve --applied <name>` fixes it without data loss.
+
+### Floor price storage (fixed 2026-03-20)
+`STATS_UPDATE` stores `floorPrice` as `"1.500000 USDC"` (human-readable + symbol). If `considerationToken` is null or unknown to `getTokenByAddress()`, `floorPrice` is set to `null` — raw wei is **never** stored. Previous behaviour stored raw wei (e.g. `"1000000000000000000"`) which the frontend rendered as `"1,000,000,000,000,000,000"`. Fix is in `src/orchestrator/stats.ts`.
 
 ### Metadata
 - `?wait=true` on GET /tokens → JIT resolution, blocks up to 3s via `Promise.race`
@@ -235,7 +290,7 @@ Prisma v5 + PostgreSQL.
 
 > **CRITICAL**: When adding a field to `schema.prisma`, you MUST also run `db:migrate` to generate a migration SQL file. Editing the schema alone does NOT update the production DB. Railway runs `prisma migrate deploy` on startup — if no migration file exists, the new column is absent in prod and any Prisma call that touches it will throw a runtime error (e.g. "column does not exist"). This caused a P0 incident on 2026-03-12 where `reaperAttempts`, `attemptCount`, and `isTerminal` were added to the schema without a migration, breaking all `job.create` calls and stalling the entire indexer/orchestrator.
 
-Key tables: `Tenant`, `ApiKey`, `Order`, `Token`, `Collection`, `Transfer`, `Job`, `IndexerCursor`, `MetadataCache`, `UsageLog`, `WebhookEndpoint`, `TransactionIntent`, `AuditLog`
+Key tables: `Tenant`, `ApiKey`, `Order`, `Token`, `Collection`, `Transfer`, `Comment`, `Job`, `IndexerCursor`, `MetadataCache`, `UsageLog`, `WebhookEndpoint`, `TransactionIntent`, `AuditLog`, `Report`
 
 psql on this machine: `/opt/homebrew/Cellar/postgresql@16/16.13/bin/psql`
 
@@ -271,9 +326,7 @@ Required:
 
 Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK`, `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_CONTRACT_MAINNET`, `COLLECTION_CONTRACT_MAINNET`
 
-Local values (this machine — do not commit):
-- `API_SECRET_KEY`: `060f0dd0c6707a93914b9f4ca6321d3c9ab68c359ad5f20c2d66f49cf0300549`
-- Internal PREMIUM key: `ml_live_f530ed43e0be63ead84aa6492268d9e95145bf35c407f5eed418d1f67a7284b2`
+Local values: use `.env.local` — never put secrets in this file.
 
 ---
 
@@ -282,14 +335,14 @@ Local values (this machine — do not commit):
 All 5 tokens confirmed from source:
 
 | Symbol | Address | Decimals |
-|---|---|---|
+|--------|---------|----------|
 | USDC (native) | `0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb` | 6 |
-| USDC.e (bridged) | `0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8` | 6 |
 | USDT | `0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8` | 6 |
 | ETH | `0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7` | 18 |
 | STRK | `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` | 18 |
+| WBTC | `0x03fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac` | 8 |
 
-Note: SDK `constants.ts` only lists 4 tokens (missing native USDC). The backend is the source of truth.
+Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in `src/api/utils/serialize.ts` as a permanent legacy read entry for existing DB orders denominated in USDC.e.
 
 ---
 
@@ -297,6 +350,7 @@ Note: SDK `constants.ts` only lists 4 tokens (missing native USDC). The backend 
 
 - Marketplace: `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f`
 - Collection (ERC-721): `0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03`
+- NFTComments: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` (class hash: `0x1edbebcd184c3ea65c19f59f2cbc11ef8b3a2883b4fe97db1caf0b29c6ea0dd` after 2026-03-22 upgrade)
 - Indexer start block: `6204232`
 - SNIP-12 domain: `{ name: "Medialane", version: "1", revision: "1" }`
 - Event selectors computed via `hash.getSelectorFromName()` at startup

@@ -1,19 +1,20 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollTransferEvents, pollCollectionCreatedEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
+import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
-import { isStarknetRpcQuotaError } from "./rpcQuota.js";
+import type { RawStarknetEvent } from "../types/starknet.js";
 
 const log = createLogger("mirror");
 export const CHAIN = "STARKNET" as const;
@@ -22,6 +23,18 @@ export const CHAIN = "STARKNET" as const;
 const CATCHUP_THRESHOLD = 1000;
 // Abort a hung tick after this many ms to prevent the loop from freezing.
 const TICK_TIMEOUT_MS = 60_000;
+// How often to poll Transfer events across all known NFT collections.
+// Transfer events are polled on a separate (slower) schedule to avoid making one
+// starknet_getEvents RPC call per collection per block — with 50 collections that
+// was generating ~100M compute units/week at steady state.
+// Tunable via TRANSFER_POLL_INTERVAL_MS env var (default 120s).
+// Evaluated lazily so it picks up the parsed env value.
+const transferPollIntervalMs = () => env.TRANSFER_POLL_INTERVAL_MS;
+
+// Tracks the last block up to which Transfer events were fetched, and when.
+// Kept in memory — a restart re-polls from the indexer cursor (safe, idempotent).
+let _lastTransferPollTime = 0;
+let _lastTransferBlock: number | null = null;
 // Even when "catching up", wait a little between ticks so we don't burst hundreds of RPCs/sec.
 const CATCHUP_MIN_SLEEP_MS = 500;
 // After Alchemy 429 / monthly cap, back off (ms) — doubles until cap.
@@ -78,8 +91,8 @@ export async function startMirror(): Promise<void> {
       await sleep(env.INDEXER_POLL_INTERVAL_MS);
       continue;
     }
-    // When far behind, use a short gap between batches (was 0 — too easy to burn RPC quota).
-    // When caught up, wait the full poll interval before asking for the chain tip again.
+    // Always sleep at least 500ms even in catchup mode to avoid saturating the RPC
+    // endpoint during historical backfills. When caught up, sleep the full interval.
     if (lagBlocks <= CATCHUP_THRESHOLD) {
       await sleep(env.INDEXER_POLL_INTERVAL_MS);
     } else {
@@ -112,11 +125,30 @@ async function tick(tickId: string): Promise<number> {
   });
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
-  // Poll marketplace events and CollectionCreated events, then Transfer events from
-  // every known NFT collection contract in parallel.
-  const [rawMarketplaceEvents, rawCollectionCreatedEvents] = await Promise.all([
+  // Poll marketplace events, CollectionCreated events, and CommentAdded events in parallel.
+  const [rawMarketplaceEvents, rawCollectionCreatedEvents, rawCommentEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
+    pollCommentEvents(fromBlock, toBlock),
+  ]);
+
+  // Poll Transfer events on a separate 2-minute schedule.
+  // Previously this made one starknet_getEvents call per collection per block tick
+  // (50 collections × every new block = ~100M compute units/week at steady state).
+  // Now we batch: one call per collection every 2 minutes, covering the accumulated
+  // block range, which is 1 call vs ~20 calls for the same block window.
+  let rawTransferEvents: RawStarknetEvent[] = [];
+  const now = Date.now();
+  if (nftContracts.length > 0 && now - _lastTransferPollTime >= transferPollIntervalMs()) {
+    const transferFromBlock = _lastTransferBlock != null ? _lastTransferBlock + 1 : fromBlock;
+    if (transferFromBlock <= toBlock) {
+      rawTransferEvents = (
+        await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, transferFromBlock, toBlock)))
+      ).flat();
+    }
+    _lastTransferBlock = toBlock;
+    _lastTransferPollTime = now;
+  }
   ]);
 
   const rawTransferEvents = nftContracts.length > 0
@@ -129,6 +161,7 @@ async function tick(tickId: string): Promise<number> {
       marketplace: rawMarketplaceEvents.length,
       transfers: rawTransferEvents.length,
       collectionCreated: rawCollectionCreatedEvents.length,
+      comments: rawCommentEvents.length,
       nftContractsPolled: nftContracts.length,
     },
     "Fetched events"
@@ -209,6 +242,17 @@ async function tick(tickId: string): Promise<number> {
 
     affectedContracts.add(resolved.contractAddress);
     tlog.info({ collectionId: event.collectionId, contractAddress: resolved.contractAddress }, "New collection indexed");
+  }
+
+  // Process CommentAdded events outside the main transaction (no cursor dependency, no downstream jobs)
+  if (rawCommentEvents.length > 0) {
+    const txCounters: Record<string, number> = {};
+    for (const event of rawCommentEvents) {
+      const txHash = event.transaction_hash ?? "";
+      const logIndex = txCounters[txHash] ?? 0;
+      txCounters[txHash] = logIndex + 1;
+      await handleCommentAdded(event, txHash, logIndex);
+    }
   }
 
   // Also collect nftContracts for fulfilled/cancelled orders (already in DB)

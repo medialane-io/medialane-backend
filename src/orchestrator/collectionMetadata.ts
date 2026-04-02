@@ -94,9 +94,11 @@ export async function handleCollectionMetadataFetch(payload: {
   const chain = payload.chain as Chain;
 
   // Guard: skip only if already fetched AND owner is populated
+  // Fetch all fields we'll need later in one round-trip (avoids a second query
+  // for image/owner that was previously done separately as `existingFull`).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true, owner: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true },
   });
 
   if (existing?.metadataStatus === "FETCHED" && existing?.owner !== null) {
@@ -126,11 +128,6 @@ export async function handleCollectionMetadataFetch(payload: {
       if (raw) onChainOwner = normalizeAddress(raw.toString());
     } catch { /* contract may not expose owner() */ }
 
-    const existingFull = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain, contractAddress } },
-      select: { image: true, owner: true },
-    });
-
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
@@ -139,8 +136,8 @@ export async function handleCollectionMetadataFetch(payload: {
         symbol: existing?.symbol ?? (symbol || null),
         baseUri: baseUri || null,
         description: description ?? undefined,
-        image: existingFull?.image ?? image ?? undefined,
-        owner: existingFull?.owner ?? intentOwner ?? onChainOwner ?? undefined,
+        image: existing?.image ?? image ?? undefined,
+        owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
         metadataStatus: "FETCHED",
       },
     });

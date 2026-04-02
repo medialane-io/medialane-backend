@@ -1,9 +1,21 @@
 import { Contract, shortString } from "starknet";
 import { type Chain } from "@prisma/client";
+import { z } from "zod";
 import { createProvider } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
+
+// Validated attribute shape — each entry must have trait_type (string) and
+// value (string | number | boolean). Unknown shapes are dropped to prevent
+// arbitrary data from landing in the DB.
+const attributeSchema = z.object({
+  trait_type: z.string(),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+  display_type: z.string().optional(),
+}).passthrough();
+
+const attributesArraySchema = z.array(attributeSchema);
 
 const log = createLogger("orchestrator:metadata");
 
@@ -53,6 +65,10 @@ const ERC721_METADATA_ABI_FELT_ARRAY = [
   },
 ];
 
+// Cache which ABI variant worked for a given contract address so subsequent
+// token_uri calls skip the failing variant entirely.
+const contractAbiCache = new Map<string, typeof ERC721_METADATA_ABI_BYTEARRAY>();
+
 export async function handleMetadataFetch(payload: {
   chain: string;
   contractAddress: string;
@@ -82,6 +98,21 @@ export async function handleMetadataFetch(payload: {
     // Fetch and parse metadata
     const metadata = await resolveMetadata(tokenUri);
 
+    // Helper: scan OpenSea-style attributes array for a trait value
+    const _findAttr = (attrs: unknown[], name: string): string | null =>
+      ((attrs ?? []).find(
+        (a: any) =>
+          typeof a?.trait_type === "string" &&
+          a.trait_type.toLowerCase() === name.toLowerCase()
+      ) as any)?.value ?? null;
+
+    const rawAttrs = Array.isArray(metadata?.attributes) ? metadata.attributes : [];
+    const attrsParsed = attributesArraySchema.safeParse(rawAttrs);
+    const _attrs = attrsParsed.success ? attrsParsed.data : [];
+    if (!attrsParsed.success) {
+      log.warn({ chain, contractAddress, tokenId, issues: attrsParsed.error.issues.length }, "Token attributes failed validation — dropping invalid entries");
+    }
+
     await prisma.token.updateMany({
       where: { chain, contractAddress, tokenId },
       data: {
@@ -90,12 +121,15 @@ export async function handleMetadataFetch(payload: {
         name: metadata?.name ?? null,
         description: metadata?.description ?? null,
         image: metadata?.image ?? null,
-        attributes: metadata?.attributes ?? undefined,
-        ipType: (metadata?.properties as any)?.ip_type ?? (metadata as any)?.ip_type ?? null,
+        attributes: _attrs.length > 0 ? (_attrs as any) : undefined,
+        ipType:
+          (metadata?.properties as any)?.ip_type ??
+          (metadata as any)?.ip_type ??
+          _findAttr(_attrs, "ip type"),
         licenseType:
           (metadata?.properties as any)?.license_type ??
           (metadata as any)?.license_type ??
-          null,
+          _findAttr(_attrs, "license"),
         commercialUse:
           (metadata?.properties as any)?.commercial_use ??
           (metadata as any)?.commercial_use ??
@@ -127,15 +161,24 @@ async function fetchTokenUri(
   const high = tokenIdBig >> 128n;
   const u256 = { low: low.toString(), high: high.toString() };
 
-  // Try ByteArray ABI first (modern OZ contracts), then felt252 array fallback
-  for (const abi of [ERC721_METADATA_ABI_BYTEARRAY, ERC721_METADATA_ABI_FELT_ARRAY]) {
+  // If we already know which ABI works for this contract, try it first.
+  // Otherwise iterate both and cache the winner.
+  const knownAbi = contractAbiCache.get(contractAddress);
+  const abisToTry = knownAbi
+    ? [knownAbi]
+    : [ERC721_METADATA_ABI_BYTEARRAY, ERC721_METADATA_ABI_FELT_ARRAY];
+
+  for (const abi of abisToTry) {
     const contract = new Contract(abi as any, contractAddress, provider);
     for (const fn of ["token_uri", "tokenURI"]) {
       try {
         const result = await (contract as any)[fn](u256);
         if (result != null) {
           const uri = decodeTokenUri(result);
-          if (uri) return uri;
+          if (uri) {
+            contractAbiCache.set(contractAddress, abi);
+            return uri;
+          }
         }
       } catch {
         // Try next variant

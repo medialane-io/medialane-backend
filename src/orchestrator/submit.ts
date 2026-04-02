@@ -39,7 +39,7 @@ export function buildPopulatedCalls(
   const sig = signature.map(toFelt);
   const sigCalldata = [sig.length.toString(), ...sig];
 
-  if (intentType === "CREATE_LISTING" || intentType === "MAKE_OFFER") {
+  if (intentType === "CREATE_LISTING" || intentType === "MAKE_OFFER" || intentType === "COUNTER_OFFER") {
     // register_order(order: OrderParameters, signature: Span<felt252>)
     const o = message.offer as Message;
     const cns = message.consideration as Message;

@@ -31,7 +31,9 @@ Polls the `Job` table every 2s with optimistic locking, exponential backoff, and
 | Job | What it does |
 |---|---|
 | `METADATA_FETCH` | Resolves `token_uri` on-chain, fetches JSON from IPFS (Pinata → Cloudflare → ipfs.io fallback), stores on `Token` |
-| `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection` |
+| `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection`. Floor price is stored as `"1.5 USDC"` (human-readable + symbol). If the consideration token is unknown, floor price is set to `null` — raw wei is never stored. |
+| `COLLECTION_METADATA_FETCH` | Fetches collection name/symbol/baseUri on-chain; recovers image/description/owner from `CREATE_COLLECTION` intent typedData; uses upsert — can create new collection records from scratch |
+| `METADATA_PIN` | Not yet implemented (Pinata free plan doesn't support `pin_by_cid`) |
 
 ### REST API (Hono)
 Multi-tenant API with API key auth. All `/v1/*` routes require a valid `x-api-key` or `Authorization: Bearer` header.
@@ -50,9 +52,11 @@ GET  /v1/orders/user/:address            All orders by user
 
 ### Tokens
 ```
-GET  /v1/tokens/owned/:address            Tokens owned by address
-GET  /v1/tokens/:contract/:tokenId        Token + metadata (?wait=true for JIT fetch)
-GET  /v1/tokens/:contract/:tokenId/history Transfer + order history
+GET  /v1/tokens/owned/:address                    Tokens owned by address
+GET  /v1/tokens/:contract/:tokenId                Token + metadata (?wait=true for JIT fetch)
+GET  /v1/tokens/:contract/:tokenId/history        Transfer + order history
+GET  /v1/tokens/:contract/:tokenId/comments       On-chain comments for token (page, limit; excludes hidden)
+GET  /v1/tokens/:contract/:tokenId/remixes        Public remixes of token (page, limit)
 ```
 
 ### Collections
@@ -71,9 +75,34 @@ GET  /v1/activities                       Global activity feed (type, page, limi
 GET  /v1/activities/:address              Activity by user
 ```
 
+### Remix Offers
+```
+POST /v1/remix-offers                     Submit a custom license offer (Clerk JWT required)
+POST /v1/remix-offers/auto                Auto-approve offer for open-license assets (Clerk JWT required)
+POST /v1/remix-offers/self/confirm        Record completed self-remix (owner only, Clerk JWT required)
+GET  /v1/remix-offers                     List offers for authenticated user (?role=creator|requester, ?status, page, limit)
+GET  /v1/remix-offers/:id                 Single offer
+POST /v1/remix-offers/:id/approve         Creator approves offer (sets approvedCollection, Clerk JWT required)
+POST /v1/remix-offers/:id/reject          Creator rejects offer (Clerk JWT required)
+POST /v1/remix-offers/:id/confirm         Mark offer completed after mint (Clerk JWT required)
+GET  /v1/tokens/:contract/:tokenId/remixes  Public remixes for a token (page, limit)
+```
+
+All remix-offer mutation endpoints require both a valid `x-api-key` header and `Authorization: Bearer <clerk-jwt>`. The Clerk JWT is used to derive the caller's Starknet wallet address. Price/currency fields are only visible in responses to the creator or requester — not to third parties.
+
+**RemixOffer statuses**: `PENDING` (awaiting creator), `AUTO_PENDING` (open-license, auto-approved), `APPROVED` (creator approved), `COMPLETED` (remix minted + listed), `REJECTED`, `EXPIRED`, `SELF_MINTED` (owner self-remix recorded).
+
 ### Search
 ```
-GET  /v1/search?q=...                     Search tokens + collections (min 2 chars, max 50 results)
+GET  /v1/search?q=...                     Search tokens + collections + creators (min 2 chars, max 50 results)
+```
+
+### Creator Profiles
+```
+GET  /v1/creators                         List creators (search, page, limit)
+GET  /v1/creators/by-username/:username   Resolve username slug → creator profile
+GET  /v1/creators/:address                Creator profile by wallet address
+PATCH /v1/creators/:address/profile       Update profile (Clerk JWT required)
 ```
 
 ### Intents (Transaction orchestration)
@@ -112,10 +141,22 @@ DELETE /v1/portal/webhooks/:id            Delete webhook (PREMIUM)
 
 ### Admin
 ```
-POST   /admin/tenants                     Create tenant + initial API key
-GET    /admin/tenants                     List all tenants
-PATCH  /admin/tenants/:id                 Update plan or status
-POST   /admin/tokens/:contract/:tokenId/refresh  Force metadata re-fetch
+POST   /admin/tenants                               Create tenant + initial API key
+GET    /admin/tenants                               List all tenants
+PATCH  /admin/tenants/:id                           Update plan or status
+POST   /admin/tenants/:id/keys                      Create additional API key for tenant
+DELETE /admin/keys/:keyId                           Revoke any key
+GET    /admin/usage                                 Usage stats (?tenantId, ?days up to 90)
+POST   /admin/tokens/:contract/:tokenId/refresh     Force metadata re-fetch (bypasses queue)
+POST   /admin/collections                           Register collection by address
+PATCH  /admin/collections/:contract                 Update isKnown, owner, or metadata
+POST   /admin/collections/backfill-metadata         Enqueue COLLECTION_METADATA_FETCH for all pending/failed collections
+POST   /admin/collections/backfill-registry         Scan all CollectionCreated events on-chain and upsert missing collections
+POST   /admin/collections/:contract/refresh         Force COLLECTION_METADATA_FETCH for one collection
+POST   /admin/collections/:contract/stats-refresh   Force STATS_UPDATE for one collection
+GET    /admin/comments                              List comments (?hidden=true|false, ?author, ?contract, page, limit)
+PATCH  /admin/comments/:id/hide                     Set isHidden = true
+PATCH  /admin/comments/:id/show                     Set isHidden = false
 ```
 
 ---
@@ -150,10 +191,12 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 | Symbol | Type | Address | Decimals |
 |---|---|---|---|
 | USDC | Circle-native (canonical) | `0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb` | 6 |
-| USDC.e | Bridged (Starkgate) | `0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8` | 6 |
 | USDT | Tether | `0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8` | 6 |
 | ETH | Ether | `0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7` | 18 |
-| STRK | Starknet native | `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d` | 18 |
+| STRK | Starknet native | `0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c988d` | 18 |
+| WBTC | Wrapped Bitcoin | `0x03fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac` | 8 |
+
+> USDC.e (bridged Starkgate) was removed from the active token list. Its address is retained in `serialize.ts` as a legacy read entry for existing orders denominated in USDC.e.
 
 ---
 
@@ -161,8 +204,9 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 
 | Contract | Address |
 |---|---|
-| Marketplace | `0x059deafbbafbf7051c315cf75a94b03c5547892bc0c6dfa36d7ac7290d4cc33a` |
+| Marketplace | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
 | Collection Registry (ERC-721) | `0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03` |
+| NFTComments | `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` |
 | Indexer start block | `6204232` |
 
 ---

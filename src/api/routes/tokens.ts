@@ -219,6 +219,88 @@ tokens.get("/owned/:address", async (c) => {
   });
 });
 
+// GET /v1/tokens/:contract/:tokenId/comments
+// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
+tokens.get("/:contract/:tokenId/comments", async (c) => {
+  const contract = normalizeAddress(c.req.param("contract"));
+  const tokenId = c.req.param("tokenId");
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const skip = (page - 1) * limit;
+
+  const [comments, total] = await Promise.all([
+    prisma.comment.findMany({
+      where: { chain: "starknet", contractAddress: contract, tokenId, isHidden: false },
+      orderBy: { blockTimestamp: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        chain: true,
+        contractAddress: true,
+        tokenId: true,
+        author: true,
+        content: true,
+        txHash: true,
+        blockNumber: true,
+        blockTimestamp: true,
+      },
+    }),
+    prisma.comment.count({
+      where: { chain: "starknet", contractAddress: contract, tokenId, isHidden: false },
+    }),
+  ]);
+
+  const data = comments.map((row) => ({
+    ...row,
+    blockNumber: row.blockNumber.toString(),
+    blockTimestamp: row.blockTimestamp.toString(),
+    postedAt: new Date(Number(row.blockTimestamp) * 1000).toISOString(),
+  }));
+
+  return c.json({ data, meta: { page, limit, total } });
+});
+
+// GET /v1/tokens/:contract/:tokenId/remixes — public list of minted remixes
+// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
+tokens.get("/:contract/:tokenId/remixes", async (c) => {
+  const contract = normalizeAddress(c.req.param("contract"));
+  const tokenId = c.req.param("tokenId");
+  const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
+  const limit = Math.min(50, Math.max(1, parseInt(c.req.query("limit") ?? "20", 10)));
+
+  const [remixes, total] = await Promise.all([
+    prisma.remixOffer.findMany({
+      where: {
+        originalContract: contract,
+        originalTokenId: tokenId,
+        status: { in: ["APPROVED", "COMPLETED", "SELF_MINTED"] },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+      select: {
+        id: true,
+        remixContract: true,
+        remixTokenId: true,
+        licenseType: true,
+        commercial: true,
+        derivatives: true,
+        createdAt: true,
+      },
+    }),
+    prisma.remixOffer.count({
+      where: {
+        originalContract: contract,
+        originalTokenId: tokenId,
+        status: { in: ["APPROVED", "COMPLETED", "SELF_MINTED"] },
+      },
+    }),
+  ]);
+
+  return c.json({ data: remixes, meta: { page, limit, total } });
+});
+
 // GET /v1/tokens/:contract/:tokenId
 tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
@@ -293,17 +375,33 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
     }),
   ]);
 
+  // Suppress transfer rows that are part of a fulfilled sale (same txHash)
+  const saleTxHashes = new Set(
+    orders
+      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
+      .map((o) => o.createdTxHash as string)
+  );
+
   const activities = [
-    ...transfers.map((t) => ({
-      type: "transfer",
-      from: t.fromAddress,
-      to: t.toAddress,
-      blockNumber: t.blockNumber.toString(),
-      txHash: t.txHash,
-      timestamp: t.createdAt,
-    })),
+    ...transfers
+      .filter((t) => !saleTxHashes.has(t.txHash))
+      .map((t) => ({
+        type: t.fromAddress === ZERO_ADDRESS ? "mint" : "transfer",
+        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
+        to: t.toAddress,
+        blockNumber: t.blockNumber.toString(),
+        txHash: t.txHash,
+        timestamp: t.createdAt,
+      })),
     ...orders.map((o) => ({
-      type: o.status === "FULFILLED" ? "sale" : o.status === "ACTIVE" ? "listing" : "cancelled",
+      type:
+        o.status === "FULFILLED"
+          ? "sale"
+          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
+          ? "offer"
+          : o.status === "ACTIVE"
+          ? "listing"
+          : "cancelled",
       orderHash: o.orderHash,
       price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
       offerer: o.offerer,

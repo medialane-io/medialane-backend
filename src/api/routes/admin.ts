@@ -8,14 +8,34 @@ import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMeta
 import { handleStatsUpdate } from "../../orchestrator/stats.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
+import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../utils/mailer.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
+import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
+import { handleTransfer } from "../../mirror/handlers/transfer.js";
+import { parseEvents } from "../../mirror/parser.js";
+
+import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
 
-// All admin routes require the admin secret
+// Simple IP-based rate limiter for admin routes (20 req/min per IP)
+const adminRateLimitStore = new InMemoryRateLimitStore();
+const ADMIN_RATE_LIMIT = 20;
+const ADMIN_WINDOW_MS = 60_000;
+
+// All admin routes require the admin secret + IP-based rate limit
 admin.use("*", authMiddleware);
+admin.use("*", async (c, next) => {
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  const { count, resetAt } = await adminRateLimitStore.increment(`admin:${ip}`, ADMIN_WINDOW_MS);
+  if (count > ADMIN_RATE_LIMIT) {
+    c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
+    return c.json({ error: "Too many requests" }, 429);
+  }
+  await next();
+});
 
 // ---------------------------------------------------------------------------
 // POST /admin/tenants — create tenant + initial API key
@@ -187,10 +207,20 @@ admin.delete("/keys/:keyId", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   const { contract, tokenId } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  // Guard: only refresh tokens from registered collections to prevent
+  // arbitrary on-chain RPC calls for unregistered contracts.
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    select: { id: true },
+  });
+  if (!col) return c.json({ error: "Collection not registered" }, 404);
+
   try {
-    await handleMetadataFetch({ chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId });
+    await handleMetadataFetch({ chain: "STARKNET", contractAddress, tokenId });
     const token = await prisma.token.findUnique({
-      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: contract.toLowerCase(), tokenId } },
+      where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
     });
     return c.json({ data: { metadataStatus: token?.metadataStatus, tokenUri: token?.tokenUri, name: token?.name } });
   } catch (err) {
@@ -239,6 +269,7 @@ admin.patch("/collections/:contract", async (c) => {
     description:  z.string().optional(),
     image:        z.string().optional(),
     isKnown:      z.boolean().optional(),
+    isHidden:     z.boolean().optional(),
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
   });
@@ -260,6 +291,31 @@ admin.patch("/collections/:contract", async (c) => {
   });
 
   return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, isKnown: updated.isKnown } });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /admin/collections/:contract — soft-delete (sets isHidden + records deletion metadata)
+// ---------------------------------------------------------------------------
+admin.delete("/collections/:contract", async (c) => {
+  const { contract } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    select: { id: true, deletedAt: true },
+  });
+  if (!col) return c.json({ error: "Collection not found" }, 404);
+  if (col.deletedAt) return c.json({ error: "Collection already deleted" }, 409);
+
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  await prisma.collection.update({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    data: { isHidden: true, deletedAt: new Date(), deletedBy: ip },
+  });
+
+  log.info({ contractAddress, ip }, "Collection soft-deleted via admin");
+
+  return c.json({ data: { contractAddress, deletedAt: new Date().toISOString() } });
 });
 
 // ---------------------------------------------------------------------------
@@ -296,6 +352,86 @@ admin.post("/collections/:contract/stats-refresh", async (c) => {
   } catch (err) {
     return c.json({ error: String(err) }, 500);
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/collections/:contract/backfill-transfers — scan historical Transfer events
+// ---------------------------------------------------------------------------
+// Fetches all ERC-721 Transfer events for the contract between fromBlock and toBlock,
+// upserts Token + Transfer rows, and enqueues METADATA_FETCH for every new token.
+// Use this when a collection was registered after its mints already happened.
+admin.post("/collections/:contract/backfill-transfers", async (c) => {
+  const { contract } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  const body = await c.req.json().catch(() => ({}));
+  const schema = z.object({
+    fromBlock: z.number().int().min(0).default(0),
+    toBlock:   z.number().int().min(0).optional(),
+  });
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+
+  const latestBlock = await getLatestBlock();
+  const fromBlock   = parsed.data.fromBlock;
+  const toBlock     = parsed.data.toBlock ?? latestBlock;
+
+  if (fromBlock > toBlock) {
+    return c.json({ error: `fromBlock (${fromBlock}) must be ≤ toBlock (${toBlock})` }, 400);
+  }
+
+  log.info({ contractAddress, fromBlock, toBlock }, "Starting Transfer backfill");
+
+  const rawEvents = await pollTransferEvents(contractAddress, fromBlock, toBlock);
+  const parsedEvents = parseEvents(rawEvents);
+  const transferEvents = parsedEvents.filter((e) => e.type === "Transfer");
+
+  let inserted = 0;
+  let skipped  = 0;
+
+  for (const event of transferEvents) {
+    if (event.type !== "Transfer") continue;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await handleTransfer(event, tx, "STARKNET");
+      });
+      inserted++;
+    } catch (err: unknown) {
+      // P2002 = unique constraint — already processed
+      if ((err as { code?: string }).code === "P2002") {
+        skipped++;
+      } else {
+        log.warn({ err, tokenId: event.tokenId }, "Transfer backfill row error — skipping");
+        skipped++;
+      }
+    }
+  }
+
+  // Enqueue metadata fetch for all PENDING tokens in this collection
+  const pendingTokens = await prisma.token.findMany({
+    where: { chain: "STARKNET", contractAddress, metadataStatus: "PENDING" },
+    select: { tokenId: true },
+  });
+  for (const t of pendingTokens) {
+    worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId: t.tokenId });
+  }
+
+  // Trigger stats update
+  worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
+
+  log.info({ contractAddress, inserted, skipped, metadataJobs: pendingTokens.length }, "Transfer backfill complete");
+
+  return c.json({
+    data: {
+      contractAddress,
+      fromBlock,
+      toBlock,
+      rawEvents: rawEvents.length,
+      inserted,
+      skipped,
+      metadataJobsEnqueued: pendingTokens.length,
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -481,6 +617,75 @@ admin.patch("/claims/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /admin/username-claims — list username claims with optional status filter
+// ---------------------------------------------------------------------------
+admin.get("/username-claims", async (c) => {
+  const status = c.req.query("status");
+  const page = parseInt(c.req.query("page") ?? "1");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+  const where = status ? { status: status as any } : {};
+
+  const [claims, total] = await Promise.all([
+    prisma.usernameClaim.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.usernameClaim.count({ where }),
+  ]);
+
+  return c.json({ claims, total, page, limit });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/username-claims/:id — approve or reject a username claim
+// On approve: sets username on CreatorProfile and rejects any other pending
+// claims for the same wallet or the same username.
+// ---------------------------------------------------------------------------
+admin.patch("/username-claims/:id", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { status, adminNotes } = body;
+
+  if (!["APPROVED", "REJECTED"].includes(status)) {
+    return c.json({ error: "status must be APPROVED or REJECTED" }, 400);
+  }
+
+  const claim = await prisma.usernameClaim.findUnique({ where: { id } });
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.status !== "PENDING") return c.json({ error: "Claim is no longer pending" }, 409);
+
+  const updated = await prisma.usernameClaim.update({
+    where: { id },
+    data: { status, adminNotes: adminNotes ?? null, reviewedAt: new Date() },
+  });
+
+  if (status === "APPROVED") {
+    // Write the approved username onto the creator's profile (upsert in case
+    // they haven't created a profile record yet)
+    await prisma.creatorProfile.upsert({
+      where: { walletAddress: claim.walletAddress },
+      create: { walletAddress: claim.walletAddress, chain: "STARKNET", username: claim.username },
+      update: { username: claim.username },
+    });
+
+    // Reject any other pending claims from this wallet or for this username
+    await prisma.usernameClaim.updateMany({
+      where: {
+        id: { not: id },
+        status: "PENDING",
+        OR: [{ walletAddress: claim.walletAddress }, { username: claim.username }],
+      },
+      data: { status: "REJECTED", adminNotes: "Superseded by approved claim", reviewedAt: new Date() },
+    });
+
+    if (claim.notifyEmail) {
+      sendUsernameClaimApproved(claim.notifyEmail, claim.username).catch(() => {});
+    }
+  } else if (status === "REJECTED" && claim.notifyEmail) {
+    sendUsernameClaimRejected(claim.notifyEmail, claim.username, adminNotes ?? null).catch(() => {});
+  }
+
+  return c.json({ claim: updated });
+});
+
+// ---------------------------------------------------------------------------
 // GET /admin/collections — list collections with optional filters
 // ---------------------------------------------------------------------------
 admin.get("/collections", async (c) => {
@@ -542,7 +747,13 @@ admin.get("/reports", async (c) => {
   const skip = (pageNum - 1) * limitNum;
 
   const where: Record<string, unknown> = {};
-  if (status) where.status = status;
+  if (status) {
+    const statuses = status
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    where.status = statuses.length === 1 ? statuses[0] : ({ in: statuses } as any);
+  }
   if (targetType) where.targetType = targetType;
 
   const [rawReports, total] = await Promise.all([
@@ -732,6 +943,114 @@ admin.patch("/reports/:id", async (c) => {
 
   const updated = await prisma.report.findUnique({ where: { id } });
   return c.json({ data: updated });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/creators/:oldAddress/fix-wallet — correct a wrong wallet address
+// Updates walletAddress on CreatorProfile, UsernameClaim, and User records.
+// ---------------------------------------------------------------------------
+admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
+  const oldRaw = c.req.param("oldAddress");
+  const body = await c.req.json();
+  const newRaw = body.newAddress as string | undefined;
+  if (!newRaw) return c.json({ error: "newAddress required" }, 400);
+
+  const oldAddr = normalizeAddress(oldRaw);
+  const newAddr = normalizeAddress(newRaw);
+
+  const [profileUpdate, claimUpdate] = await Promise.all([
+    prisma.creatorProfile.updateMany({
+      where: { walletAddress: oldAddr },
+      data: { walletAddress: newAddr },
+    }),
+    prisma.usernameClaim.updateMany({
+      where: { walletAddress: oldAddr },
+      data: { walletAddress: newAddr },
+    }),
+  ]);
+
+  log.info({ oldAddr, newAddr, profileUpdate, claimUpdate }, "Creator wallet address corrected");
+  return c.json({ data: { oldAddr, newAddr, profileUpdate, claimUpdate } });
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/comments — list comments (newest first, optional filters)
+// Query params: ?hidden=true|false, ?author=0x..., ?contract=0x..., ?page=1, ?limit=50
+// ---------------------------------------------------------------------------
+admin.get("/comments", async (c) => {
+  const hidden = c.req.query("hidden");
+  const author = c.req.query("author");
+  const contract = c.req.query("contract");
+  const page = Math.max(1, Number(c.req.query("page") ?? "1"));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? "50")));
+
+  const where: Record<string, unknown> = {};
+  if (hidden === "true") where.isHidden = true;
+  if (hidden === "false") where.isHidden = false;
+  if (author) where.author = normalizeAddress(author);
+  if (contract) where.contractAddress = normalizeAddress(contract);
+
+  const [comments, total] = await Promise.all([
+    prisma.comment.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.comment.count({ where }),
+  ]);
+
+  return c.json({ data: comments, meta: { page, limit, total } });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/comments/:id/hide
+// ---------------------------------------------------------------------------
+admin.patch("/comments/:id/hide", async (c) => {
+  const { id } = c.req.param();
+  const comment = await prisma.comment.findUnique({ where: { id } });
+  if (!comment) return c.json({ error: "Comment not found" }, 404);
+
+  const updated = await prisma.comment.update({
+    where: { id },
+    data: { isHidden: true },
+  });
+  log.info({ id }, "Comment hidden by admin");
+  return c.json({ data: updated });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/comments/:id/show
+// ---------------------------------------------------------------------------
+admin.patch("/comments/:id/show", async (c) => {
+  const { id } = c.req.param();
+  const comment = await prisma.comment.findUnique({ where: { id } });
+  if (!comment) return c.json({ error: "Comment not found" }, 404);
+
+  const updated = await prisma.comment.update({
+    where: { id },
+    data: { isHidden: false },
+  });
+  log.info({ id }, "Comment restored by admin");
+  return c.json({ data: updated });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/remix-offers/:id — override creatorAddress when token transfer caused stale state
+// ---------------------------------------------------------------------------
+admin.patch("/remix-offers/:id", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json().catch(() => ({}));
+  if (!body.creatorAddress) {
+    return c.json({ error: "creatorAddress is required" }, 400);
+  }
+
+  const updated = await prisma.remixOffer.update({
+    where: { id },
+    data: { creatorAddress: normalizeAddress(body.creatorAddress) },
+  });
+
+  return c.json({ data: { id: updated.id, creatorAddress: updated.creatorAddress } });
 });
 
 export default admin;

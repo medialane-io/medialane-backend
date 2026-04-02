@@ -27,6 +27,7 @@ enum ReportTargetType {
   COLLECTION
   TOKEN
   CREATOR
+  COMMENT
 }
 
 enum ReportCategory {
@@ -50,6 +51,12 @@ enum ReportStatus {
 enum ClaimStatus {
   PENDING
   AUTO_APPROVED
+  APPROVED
+  REJECTED
+}
+
+enum UsernameClaimStatus {
+  PENDING
   APPROVED
   REJECTED
 }
@@ -78,6 +85,7 @@ enum OrderStatus {
   FULFILLED
   CANCELLED
   EXPIRED
+  COUNTER_OFFERED
 }
 
 model Order {
@@ -115,6 +123,8 @@ model Order {
   priceRaw                 String?
   priceFormatted           String?
   currencySymbol           String?
+  parentOrderHash          String?
+  counterOfferMessage      String?
   createdAt                DateTime    @default(now())
   updatedAt                DateTime    @updatedAt
 
@@ -122,6 +132,10 @@ model Order {
   @@index([chain, offerer])
   @@index([chain, status])
   @@index([chain, nftContract, nftTokenId])
+  @@index([chain, parentOrderHash])
+  @@index([chain, status, nftContract])
+  @@index([considerationToken])
+  @@index([createdAt])
 }
 
 enum MetadataStatus {
@@ -159,6 +173,8 @@ model Token {
   @@index([chain, owner])
   @@index([chain, contractAddress])
   @@index([chain, metadataStatus])
+  @@index([chain, ipType])
+  @@index([chain, isHidden])
 }
 
 // GIN index for full-text search: idx_collection_fts on to_tsvector('english', name||contractAddress)
@@ -186,10 +202,14 @@ model Collection {
   source          CollectionSource  @default(MEDIALANE_REGISTRY)
   claimedBy       String?
   profile         CollectionProfile?
+  deletedAt   DateTime?
+  deletedBy   String?       // admin identifier (IP of requester)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@unique([chain, contractAddress])
+  @@index([owner])
+  @@index([chain, isHidden])
 }
 
 model CollectionProfile {
@@ -204,10 +224,14 @@ model CollectionProfile {
   websiteUrl       String?
   twitterUrl       String?
   discordUrl       String?
-  telegramUrl      String?
-  updatedBy        String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  telegramUrl          String?
+  gatedContentTitle    String?
+  gatedContentUrl      String?
+  gatedContentType     String?
+  hasGatedContent      Boolean  @default(false)
+  updatedBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@unique([chain, contractAddress])
 }
@@ -232,11 +256,28 @@ model CreatorProfile {
   twitterUrl     String?
   discordUrl     String?
   telegramUrl    String?
+  username       String?  @unique  // approved slug — set by admin on claim approval
   /// Preferred Chipi encryption path for transaction signing (null = not chosen yet).
   preferredEncryption         WalletEncryptionPreference?
   preferredEncryptionUpdatedAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+model UsernameClaim {
+  id            String              @id @default(cuid())
+  username      String
+  walletAddress String
+  status        UsernameClaimStatus @default(PENDING)
+  adminNotes    String?
+  notifyEmail   String?
+  reviewedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([walletAddress])
+  @@index([status])
+  @@index([username])
 }
 
 model CollectionClaim {
@@ -323,6 +364,7 @@ enum IntentType {
   CANCEL_ORDER
   MINT
   CREATE_COLLECTION
+  COUNTER_OFFER
 }
 
 enum IntentStatus {
@@ -343,14 +385,17 @@ model TransactionIntent {
   typedData Json
   calls     Json
   signature String[]
-  txHash    String?
-  orderHash String?
-  expiresAt DateTime
+  txHash               String?
+  orderHash            String?
+  parentOrderHash      String?
+  counterOfferMessage  String?
+  expiresAt            DateTime
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   @@index([chain, requester])
   @@index([chain, status])
+  @@index([expiresAt, status])
 }
 
 model Tenant {
@@ -449,4 +494,79 @@ model HiddenCreator {
   hiddenAt DateTime @default(now())
 
   @@id([chain, address])
+}
+
+
+model User {
+  id            String   @id @default(cuid())
+  clerkUserId   String   @unique
+  walletAddress String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([clerkUserId])
+}
+
+model Comment {
+  id              String   @id @default(cuid())
+  chain           String   @default("starknet")
+  contractAddress String
+  tokenId         String
+  author          String
+  content         String
+  isHidden        Boolean  @default(false)
+  txHash          String?
+  blockNumber     BigInt
+  blockTimestamp  BigInt
+  logIndex        Int
+  createdAt       DateTime @default(now())
+
+  @@unique([txHash, logIndex])
+  @@index([chain, contractAddress, tokenId])
+  @@index([author])
+}
+
+enum RemixOfferStatus {
+  PENDING
+  AUTO_PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  EXPIRED
+  SELF_MINTED
+}
+
+model RemixOffer {
+  id        String           @id @default(cuid())
+  status    RemixOfferStatus @default(PENDING)
+
+  originalContract  String
+  originalTokenId   String
+  creatorAddress    String
+
+  requesterAddress  String?
+  message           String?
+
+  proposedPrice     String
+  proposedCurrency  String
+
+  licenseType    String
+  commercial     Boolean  @default(false)
+  derivatives    Boolean  @default(true)
+  royaltyPct     Int?
+
+  approvedCollection  String?
+  remixContract       String?
+  remixTokenId        String?
+  orderHash           String?
+
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orderHash])
+  @@index([originalContract, originalTokenId])
+  @@index([creatorAddress])
+  @@index([requesterAddress])
+  @@index([status, expiresAt])
 }

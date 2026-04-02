@@ -19,12 +19,13 @@ import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin.js";
 import claims from "./routes/claims.js";
+import usernameClaims from "./routes/username-claims.js";
 import users from "./routes/users.js";
 import profiles from "./routes/profiles.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 import reports from "./routes/reports.js";
-import remixOffers from "./routes/remixOffers.js";
+import remixOffers from "./routes/remix-offers.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -40,12 +41,12 @@ export function createApp(): Hono<AppEnv> {
   // Admin routes — internal auth (API_SECRET_KEY) handled inside admin.ts
   app.route("/admin", admin);
 
-  // Claims router — mounted BEFORE global apiKeyAuth because Path 1 handles its own auth
-  // (Path 1 uses Authorization: Bearer <clerk-jwt> which apiKeyAuth would misinterpret as API key)
+  // Claims routers — mounted BEFORE global apiKeyAuth; both handle their own Clerk JWT auth
   app.route("/v1/collections/claim", claims);
-
-  // Clerk-only user wallet (SDK getMyWallet / upsertMyWallet) — no tenant API key
+  app.route("/v1/username-claims", usernameClaims);
   app.route("/v1/users", users);
+  // Remix offers — Clerk JWT auth + x-api-key (mounted before global apiKeyAuth)
+  app.route("/v1/remix-offers", remixOffers);
 
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);

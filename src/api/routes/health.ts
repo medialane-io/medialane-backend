@@ -4,6 +4,11 @@ import { createProvider } from "../../utils/starknet.js";
 import { toErrorMessage } from "../../utils/error.js";
 
 const health = new Hono();
+
+// Cache the chain tip so Railway health checks (every ~30s) don't each burn an RPC call.
+let _cachedLatestBlock: number | undefined;
+let _latestBlockFetchedAt = 0;
+const LATEST_BLOCK_CACHE_MS = 60_000; // refresh at most once per minute
 const LATEST_BLOCK_TTL_MS = 15_000;
 let latestBlockCache: { value: number; expiresAt: number } | null = null;
 
@@ -39,6 +44,21 @@ health.get("/", async (c) => {
       where: { chain: "STARKNET" },
     });
     if (cursor) {
+      // Refresh the cached chain tip at most once per minute to avoid an RPC call
+      // on every Railway health check.
+      const now = Date.now();
+      if (now - _latestBlockFetchedAt > LATEST_BLOCK_CACHE_MS) {
+        try {
+          const provider = createProvider();
+          const block = await Promise.race([
+            provider.getBlockWithTxHashes("latest"),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+          ]);
+          _cachedLatestBlock = (block as any).block_number as number;
+          _latestBlockFetchedAt = now;
+        } catch {
+          // non-fatal — keep stale cached value if any
+        }
       // Try to get chain tip — if Alchemy is rate-limited just omit it
       let latestBlock: number | undefined;
       try {
@@ -51,7 +71,9 @@ health.get("/", async (c) => {
       }
       checks.indexer = {
         lastBlock: cursor.lastBlock.toString(),
-        ...(latestBlock != null ? { latestBlock, lagBlocks: latestBlock - Number(cursor.lastBlock) } : {}),
+        ...(_cachedLatestBlock != null
+          ? { latestBlock: _cachedLatestBlock, lagBlocks: _cachedLatestBlock - Number(cursor.lastBlock) }
+          : {}),
       };
     } else {
       checks.indexer = "not started";

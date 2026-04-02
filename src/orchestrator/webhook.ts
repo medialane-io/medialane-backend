@@ -26,7 +26,11 @@ export async function processDelivery(deliveryId: string): Promise<void> {
   });
 
   if (delivery.endpoint.status === "DISABLED") {
-    log.info({ deliveryId, endpointId: delivery.endpoint.id }, "Endpoint disabled — skipping");
+    log.info({ deliveryId, endpointId: delivery.endpoint.id }, "Endpoint disabled — marking terminal");
+    await prisma.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: { isTerminal: true },
+    });
     return;
   }
 

@@ -73,18 +73,60 @@ export function parseEvent(
       } satisfies ParsedOrderCancelled;
     }
 
-    if (selector === SEL_TRANSFER && keys.length >= 5) {
-      // ERC-721 Transfer: keys = [selector, from, to, tokenId.low, tokenId.high]
-      return {
-        type: "Transfer",
-        contractAddress,
-        from: normalizeAddress(keys[1]),
-        to: normalizeAddress(keys[2]),
-        tokenId: u256ToBigInt(keys[3], keys[4]).toString(),
-        blockNumber,
-        txHash,
-        logIndex,
-      } satisfies ParsedTransfer;
+    if (selector === SEL_TRANSFER) {
+      // Cairo 1 ERC-721: keys = [selector, from, to, tokenId.low, tokenId.high]
+      if (keys.length >= 5) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(keys[1]),
+          to: normalizeAddress(keys[2]),
+          tokenId: u256ToBigInt(keys[3], keys[4]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
+      // Cairo 0 ERC-721: keys = [selector, from, to, tokenId] (tokenId as felt252)
+      if (keys.length === 4) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(keys[1]),
+          to: normalizeAddress(keys[2]),
+          tokenId: BigInt(keys[3]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
+      // Cairo 0 ERC-721: keys = [selector, from, to], tokenId as u256 in data
+      if (keys.length === 3 && event.data.length >= 2) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(keys[1]),
+          to: normalizeAddress(keys[2]),
+          tokenId: u256ToBigInt(event.data[0], event.data[1]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
+      // Cairo 0 ERC-721 (old format): only selector in keys, all fields in data
+      // data = [from, to, tokenId.low, tokenId.high]
+      if (keys.length === 1 && event.data.length >= 4) {
+        return {
+          type: "Transfer",
+          contractAddress,
+          from: normalizeAddress(event.data[0]),
+          to: normalizeAddress(event.data[1]),
+          tokenId: u256ToBigInt(event.data[2], event.data[3]).toString(),
+          blockNumber,
+          txHash,
+          logIndex,
+        } satisfies ParsedTransfer;
+      }
     }
 
     if (selector === SEL_COLLECTION_CREATED) {
@@ -110,9 +152,15 @@ export function parseEvent(
 }
 
 export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
+  // Assign logIndex per-transaction (0 = first event from that tx, 1 = second, etc.)
+  // so that the unique constraint [chain, txHash, logIndex] stays stable across
+  // re-processing — regardless of where each event falls in the overall batch array.
+  const txCounters = new Map<string, number>();
   const results: ParsedEvent[] = [];
-  for (let i = 0; i < events.length; i++) {
-    const parsed = parseEvent(events[i], i);
+  for (const event of events) {
+    const n = txCounters.get(event.transaction_hash) ?? 0;
+    txCounters.set(event.transaction_hash, n + 1);
+    const parsed = parseEvent(event, n);
     if (parsed) results.push(parsed);
   }
   return results;
