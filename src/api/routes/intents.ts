@@ -15,9 +15,10 @@ import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
 import { verifyMarketplaceTx } from "../../utils/txVerifier.js";
+import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:intents");
-const intents = new Hono();
+const intents = new Hono<AppEnv>();
 
 const listingSchema = z.object({
   offerer: z.string(),
@@ -77,6 +78,7 @@ intents.post("/listing", async (c) => {
       data: {
         type: "CREATE_LISTING",
         requester: normalizeAddress(parsed.data.offerer),
+        tenantId: c.get("tenant")?.id ?? null,
         typedData: typedData as any,
         calls: calls as any,
         expiresAt,
@@ -106,6 +108,7 @@ intents.post("/offer", async (c) => {
       data: {
         type: "MAKE_OFFER",
         requester: normalizeAddress(parsed.data.offerer),
+        tenantId: c.get("tenant")?.id ?? null,
         typedData: typedData as any,
         calls: calls as any,
         expiresAt,
@@ -186,6 +189,7 @@ intents.post("/counter-offer", async (c) => {
         data: {
           type: "COUNTER_OFFER",
           requester: normalizedSeller,
+          tenantId: c.get("tenant")?.id ?? null,
           typedData: typedData as any,
           calls: calls as any,
           expiresAt,
@@ -228,6 +232,7 @@ intents.post("/fulfill", async (c) => {
       data: {
         type: "FULFILL_ORDER",
         requester: normalizeAddress(parsed.data.fulfiller),
+        tenantId: c.get("tenant")?.id ?? null,
         typedData: typedData as any,
         calls: calls as any,
         orderHash: parsed.data.orderHash,
@@ -258,6 +263,7 @@ intents.post("/cancel", async (c) => {
       data: {
         type: "CANCEL_ORDER",
         requester: normalizeAddress(parsed.data.offerer),
+        tenantId: c.get("tenant")?.id ?? null,
         typedData: typedData as any,
         calls: calls as any,
         orderHash: parsed.data.orderHash,
@@ -289,6 +295,7 @@ intents.post("/mint", async (c) => {
       data: {
         type: "MINT",
         requester: normalizeAddress(parsed.data.owner),
+        tenantId: c.get("tenant")?.id ?? null,
         typedData: {},
         calls: calls as any,
         status: "SIGNED",
@@ -325,6 +332,7 @@ intents.post("/create-collection", async (c) => {
       data: {
         type: "CREATE_COLLECTION",
         requester: normalizeAddress(parsed.data.owner),
+        tenantId: c.get("tenant")?.id ?? null,
         typedData: {
           name: parsed.data.name,
           description: parsed.data.description ?? null,
@@ -372,6 +380,7 @@ intents.post("/checkout", async (c) => {
         data: {
           type: "FULFILL_ORDER",
           requester: normalizeAddress(fulfiller),
+          tenantId: c.get("tenant")?.id ?? null,
           typedData: typedData as any,
           calls: calls as any,
           orderHash,
@@ -426,6 +435,13 @@ intents.patch("/:id/signature", async (c) => {
 
   const intent = await prisma.transactionIntent.findUnique({ where: { id } });
   if (!intent) return c.json({ error: "Intent not found" }, 404);
+
+  // Ownership check — tenantId is set on all new intents; null means a pre-migration intent
+  const callerTenantId = c.get("tenant")?.id;
+  if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    return c.json({ error: "Intent not found" }, 404);
+  }
+
   if (intent.type === "MINT" || intent.type === "CREATE_COLLECTION") {
     return c.json({ error: "Intent type does not require a signature" }, 400);
   }
@@ -517,6 +533,12 @@ intents.patch("/:id/confirm", async (c) => {
   const { txHash } = parsed.data;
   const intent = await prisma.transactionIntent.findUnique({ where: { id } });
   if (!intent) return c.json({ error: "Intent not found" }, 404);
+
+  // Ownership check — tenantId is set on all new intents; null means a pre-migration intent
+  const callerTenantId = c.get("tenant")?.id;
+  if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    return c.json({ error: "Intent not found" }, 404);
+  }
 
   if (!MARKETPLACE_INTENT_TYPES.has(intent.type)) {
     return c.json({ error: "Intent type does not require tx confirmation" }, 400);

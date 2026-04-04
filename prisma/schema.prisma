@@ -367,6 +367,7 @@ model TransactionIntent {
   type      IntentType
   status    IntentStatus @default(PENDING)
   requester String
+  tenantId  String?       // set at creation; used to scope PATCH endpoints to the creating tenant
   typedData Json
   calls     Json
   signature String[]
