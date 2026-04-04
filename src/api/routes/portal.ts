@@ -6,21 +6,10 @@ import { requirePlan } from "../middleware/tierGate.js";
 import prisma from "../../db/client.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { createLogger } from "../../utils/logger.js";
+import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
-
-// SSRF guard: block private/internal hostnames and non-https schemes on webhook URLs.
-const PRIVATE_HOST_RE =
-  /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|\[::1\]|\[::ffff:127\.|fc00:|fe80:)/i;
-
-function isPrivateOrInsecureUrl(raw: string): boolean {
-  let parsed: URL;
-  try { parsed = new URL(raw); } catch { return true; }
-  // Only allow https:// for webhook delivery targets
-  if (parsed.protocol !== "https:") return true;
-  return PRIVATE_HOST_RE.test(parsed.hostname);
-}
 
 // ---------------------------------------------------------------------------
 // GET /v1/portal/me

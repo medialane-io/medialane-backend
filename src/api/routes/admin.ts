@@ -25,12 +25,16 @@ const adminRateLimitStore = new InMemoryRateLimitStore();
 const ADMIN_RATE_LIMIT = 20;
 const ADMIN_WINDOW_MS = 60_000;
 
+function getClientIp(c: { req: { header: (name: string) => string | undefined } }): string {
+  const forwarded = c.req.header("x-forwarded-for") ?? "";
+  const entries = forwarded.split(",").map((s) => s.trim()).filter(Boolean);
+  return entries[entries.length - 1] ?? c.req.header("x-real-ip") ?? "unknown";
+}
+
 // All admin routes require the admin secret + IP-based rate limit
 admin.use("*", authMiddleware);
 admin.use("*", async (c, next) => {
-  const forwarded = c.req.header("x-forwarded-for") ?? "";
-  const entries = forwarded.split(",").map((s) => s.trim()).filter(Boolean);
-  const ip = entries[entries.length - 1] ?? c.req.header("x-real-ip") ?? "unknown";
+  const ip = getClientIp(c);
   const { count, resetAt } = await adminRateLimitStore.increment(`admin:${ip}`, ADMIN_WINDOW_MS);
   if (count > ADMIN_RATE_LIMIT) {
     c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
@@ -309,9 +313,7 @@ admin.delete("/collections/:contract", async (c) => {
   if (!col) return c.json({ error: "Collection not found" }, 404);
   if (col.deletedAt) return c.json({ error: "Collection already deleted" }, 409);
 
-  const forwarded = c.req.header("x-forwarded-for") ?? "";
-  const entries = forwarded.split(",").map((s) => s.trim()).filter(Boolean);
-  const ip = entries[entries.length - 1] ?? c.req.header("x-real-ip") ?? "unknown";
+  const ip = getClientIp(c);
   await prisma.collection.update({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
     data: { isHidden: true, deletedAt: new Date(), deletedBy: ip },

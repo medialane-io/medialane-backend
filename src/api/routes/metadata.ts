@@ -4,6 +4,7 @@ import { env } from "../../config/env.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
+import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 
 const log = createLogger("routes:metadata");
 const metadata = new Hono();
@@ -101,23 +102,10 @@ metadata.get("/resolve", async (c) => {
   const uri = c.req.query("uri");
   if (!uri) return c.json({ error: "uri query param required" }, 400);
 
-  // SSRF guard — only allow ipfs://, data:, and https:// URIs.
-  // Block file://, gopher://, http://, and private/internal IP ranges.
+  // SSRF guard — only allow ipfs://, data:, and https:// URIs pointing at public hosts.
   if (!uri.startsWith("ipfs://") && !uri.startsWith("data:")) {
-    let parsed: URL;
-    try { parsed = new URL(uri); } catch {
-      return c.json({ error: "Invalid URI" }, 400);
-    }
-    if (parsed.protocol !== "https:") {
-      return c.json({ error: "Only ipfs://, data:, and https:// URIs are supported" }, 400);
-    }
-    // Strip surrounding brackets from IPv6 literals before matching (e.g. [::1] → ::1)
-    const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
-    // Block private/internal IP ranges, loopback, link-local, 0.0.0.0, and IPv4-mapped IPv6
-    const PRIVATE_HOST_RE =
-      /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|::ffff:127\.|fc00:|fe80:)/i;
-    if (PRIVATE_HOST_RE.test(hostname)) {
-      return c.json({ error: "Internal addresses are not allowed" }, 400);
+    if (isPrivateOrInsecureUrl(uri)) {
+      return c.json({ error: "Only ipfs://, data:, and https:// URIs to public hosts are supported" }, 400);
     }
   }
 
