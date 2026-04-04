@@ -13,6 +13,17 @@ const log = createLogger("routes:remix-offers");
 
 const remixOffers = new Hono<AppEnv>();
 
+// Sliding-window rate limiter: max 20 offer creations per 60s per wallet
+const _offerRateMap = new Map<string, number[]>();
+function checkOfferRateLimit(wallet: string, max = 20, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const timestamps = (_offerRateMap.get(wallet) ?? []).filter(t => now - t < windowMs);
+  if (timestamps.length >= max) return false;
+  timestamps.push(now);
+  _offerRateMap.set(wallet, timestamps);
+  return true;
+}
+
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const createOfferSchema = z.object({
@@ -129,6 +140,10 @@ remixOffers.post(
     const body = c.req.valid("json");
     const requesterAddress = c.get("clerkWallet") as string;
 
+    if (!checkOfferRateLimit(requesterAddress)) {
+      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
+    }
+
     const originalContract = normalizeAddress(body.originalContract);
     const originalTokenId = body.originalTokenId;
 
@@ -192,6 +207,10 @@ remixOffers.post(
   async (c) => {
     const body = c.req.valid("json");
     const requesterAddress = c.get("clerkWallet") as string;
+
+    if (!checkOfferRateLimit(requesterAddress)) {
+      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
+    }
 
     const originalContract = normalizeAddress(body.originalContract);
     const originalTokenId = body.originalTokenId;

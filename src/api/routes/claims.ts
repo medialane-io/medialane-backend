@@ -254,6 +254,12 @@ claims.post(
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
+    // Dedup by email+contract — prevents spamming an email address with repeated requests
+    const emailDup = await prisma.collectionClaim.findFirst({
+      where: { contractAddress: normContract, claimantEmail: email, status: "PENDING" },
+    });
+    if (emailDup) return c.json({ claim: emailDup });
+
     // Dedup for wallet-identified requests
     if (normWallet) {
       const existing = await prisma.collectionClaim.findFirst({
