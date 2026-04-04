@@ -10,6 +10,18 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
 
+// SSRF guard: block private/internal hostnames and non-https schemes on webhook URLs.
+const PRIVATE_HOST_RE =
+  /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|\[::1\]|\[::ffff:127\.|fc00:|fe80:)/i;
+
+function isPrivateOrInsecureUrl(raw: string): boolean {
+  let parsed: URL;
+  try { parsed = new URL(raw); } catch { return true; }
+  // Only allow https:// for webhook delivery targets
+  if (parsed.protocol !== "https:") return true;
+  return PRIVATE_HOST_RE.test(parsed.hostname);
+}
+
 // ---------------------------------------------------------------------------
 // GET /v1/portal/me
 // ---------------------------------------------------------------------------
@@ -141,6 +153,11 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
   }
 
   const { url, events } = parsed.data;
+
+  // SSRF guard: reject private/internal URLs and non-https targets
+  if (isPrivateOrInsecureUrl(url)) {
+    return c.json({ error: "Webhook URL must be a public https:// address" }, 400);
+  }
 
   // Generate a random signing secret (shown ONCE, stored in DB for HMAC)
   const secret = `whsec_${randomBytes(32).toString("hex")}`;
