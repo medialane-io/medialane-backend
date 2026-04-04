@@ -5,7 +5,8 @@ import prisma from "../../db/client.js";
 import { normalizeAddress, createProvider } from "../../utils/starknet.js";
 import { clerkAuth } from "../middleware/clerkAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
-import { hashApiKey } from "../../utils/apiKey.js";
+import { hashApiKey, hashApiKeyPlain } from "../../utils/apiKey.js";
+import { env } from "../../config/env.js";
 import { Contract, Account } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
@@ -31,17 +32,17 @@ function checkRateLimit(tenantId: string, max = 10, windowMs = 60_000): boolean 
 async function xApiKeyAuth(c: any, next: any) {
   const raw = c.req.header("x-api-key");
   if (!raw) return c.json({ error: "Missing API key" }, 401);
-  const keyHash = hashApiKey(raw);
-  const apiKey = await prisma.apiKey.findUnique({
-    where: { keyHash },
-    select: {
-      id: true,
-      status: true,
-      monthlyRequestCount: true,
-      monthlyResetAt: true,
-      tenant: { select: { id: true, name: true, email: true, plan: true, status: true } },
-    },
-  });
+  const KEY_SELECT = {
+    id: true,
+    status: true,
+    monthlyRequestCount: true,
+    monthlyResetAt: true,
+    tenant: { select: { id: true, name: true, email: true, plan: true, status: true } },
+  };
+  let apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(raw) }, select: KEY_SELECT });
+  if (!apiKey && env.HMAC_KEY) {
+    apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKeyPlain(raw) }, select: KEY_SELECT });
+  }
   if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
