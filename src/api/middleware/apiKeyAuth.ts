@@ -1,10 +1,21 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { hashApiKey } from "../../utils/apiKey.js";
+import { hashApiKey, hashApiKeyPlain } from "../../utils/apiKey.js";
+import { env } from "../../config/env.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("middleware:apiKeyAuth");
+
+const KEY_SELECT = {
+  id: true,
+  status: true,
+  monthlyRequestCount: true,
+  monthlyResetAt: true,
+  tenant: {
+    select: { id: true, name: true, email: true, plan: true, status: true },
+  },
+} as const;
 
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Prefer x-api-key header; fall back to Authorization: Bearer <key>
@@ -21,20 +32,20 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json({ error: "Missing API key" }, 401);
   }
 
-  const keyHash = hashApiKey(raw);
-
-  const apiKey = await prisma.apiKey.findUnique({
-    where: { keyHash },
-    select: {
-      id: true,
-      status: true,
-      monthlyRequestCount: true,
-      monthlyResetAt: true,
-      tenant: {
-        select: { id: true, name: true, email: true, plan: true, status: true },
-      },
-    },
+  // Primary lookup: HMAC-SHA256 hash (or plain SHA-256 when HMAC_KEY is unset)
+  let apiKey = await prisma.apiKey.findUnique({
+    where: { keyHash: hashApiKey(raw) },
+    select: KEY_SELECT,
   });
+
+  // Backward-compatible fallback: if HMAC_KEY is set and primary lookup missed,
+  // try plain SHA-256 to support keys that were hashed before HMAC was introduced.
+  if (!apiKey && env.HMAC_KEY) {
+    apiKey = await prisma.apiKey.findUnique({
+      where: { keyHash: hashApiKeyPlain(raw) },
+      select: KEY_SELECT,
+    });
+  }
 
   if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);

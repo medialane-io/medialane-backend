@@ -23,6 +23,9 @@ const envSchema = z.object({
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
   API_SECRET_KEY: z.string().min(16),
+  // When set, new API keys are hashed with HMAC-SHA256(key, HMAC_KEY) instead of
+  // plain SHA-256. Existing keys stored as plain SHA-256 continue to work (dual-lookup).
+  HMAC_KEY: z.string().default(""),
   CORS_ORIGINS: z
     .string()
     .default("https://medialane.io,https://www.medialane.io,https://dapp.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),

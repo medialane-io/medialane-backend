@@ -50,6 +50,21 @@ metadata.post("/upload", async (c) => {
   }
 });
 
+const ALLOWED_MIME_TYPES = new Set([
+  // Images
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
+  // Video
+  "video/mp4", "video/webm", "video/ogg",
+  // Audio
+  "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
+  // Documents
+  "application/pdf",
+  // Generic binary (e.g. 3D models) — name-checked below
+  "application/octet-stream",
+]);
+
+const ALLOWED_EXTENSIONS = /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogv|ogg|mp3|wav|flac|pdf|glb|gltf)$/i;
+
 // POST /v1/metadata/upload-file — Upload media file
 metadata.post("/upload-file", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? 0);
@@ -65,6 +80,14 @@ metadata.post("/upload-file", async (c) => {
     if (file.size > MAX_FILE_BYTES) {
       return c.json({ error: "File too large (max 10 MB)" }, 413);
     }
+
+    // MIME type allowlist — reject executables, HTML, scripts, etc.
+    const mimeBase = file.type.split(";")[0].trim().toLowerCase();
+    const nameOk = ALLOWED_EXTENSIONS.test(file.name);
+    if (!ALLOWED_MIME_TYPES.has(mimeBase) && !nameOk) {
+      return c.json({ error: "File type not allowed" }, 415);
+    }
+
     const result = await pinata.upload.public.file(file);
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
   } catch (err: unknown) {
@@ -88,9 +111,12 @@ metadata.get("/resolve", async (c) => {
     if (parsed.protocol !== "https:") {
       return c.json({ error: "Only ipfs://, data:, and https:// URIs are supported" }, 400);
     }
-    // Block private/internal IP ranges and loopback
-    const privateRange = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc00:|fe80:)/i;
-    if (privateRange.test(parsed.hostname)) {
+    // Strip surrounding brackets from IPv6 literals before matching (e.g. [::1] → ::1)
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+    // Block private/internal IP ranges, loopback, link-local, 0.0.0.0, and IPv4-mapped IPv6
+    const PRIVATE_HOST_RE =
+      /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|::ffff:127\.|fc00:|fe80:)/i;
+    if (PRIVATE_HOST_RE.test(hostname)) {
       return c.json({ error: "Internal addresses are not allowed" }, 400);
     }
   }
