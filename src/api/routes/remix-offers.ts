@@ -4,7 +4,6 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { clerkAuth } from "../middleware/clerkAuth.js";
-import { hashApiKey } from "../../utils/apiKey.js";
 import type { AppEnv } from "../../types/hono.js";
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -13,29 +12,6 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("routes:remix-offers");
 
 const remixOffers = new Hono<AppEnv>();
-
-// ─── Auth helpers ────────────────────────────────────────────────────────────
-
-/** Validates x-api-key header (separate from global apiKeyAuth which reads Authorization). */
-async function xApiKeyAuth(c: any, next: any) {
-  const raw = c.req.header("x-api-key");
-  if (!raw) return c.json({ error: "Missing API key" }, 401);
-  const keyHash = hashApiKey(raw);
-  const apiKey = await prisma.apiKey.findUnique({
-    where: { keyHash },
-    select: {
-      id: true,
-      status: true,
-      tenant: { select: { id: true, plan: true, status: true } },
-    },
-  });
-  if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
-    return c.json({ error: "Invalid or revoked API key" }, 401);
-  }
-  c.set("apiKey", apiKey);
-  c.set("tenant", apiKey.tenant);
-  await next();
-}
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -146,7 +122,7 @@ function serializeOffer(offer: any, callerWallet?: string) {
 /** POST /v1/remix-offers — submit a custom license offer */
 remixOffers.post(
   "/",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   zValidator("json", createOfferSchema),
   async (c) => {
@@ -210,7 +186,7 @@ remixOffers.post(
 /** POST /v1/remix-offers/auto — instant offer for open-license assets */
 remixOffers.post(
   "/auto",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   zValidator("json", autoOfferSchema),
   async (c) => {
@@ -295,7 +271,7 @@ remixOffers.post(
 /** POST /v1/remix-offers/self/confirm — record completed owner self-remix */
 remixOffers.post(
   "/self/confirm",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   zValidator("json", selfConfirmSchema),
   async (c) => {
@@ -343,7 +319,7 @@ remixOffers.post(
 /** POST /v1/remix-offers/:id/confirm — record completed mint + listing (Paths 2 & 3) */
 remixOffers.post(
   "/:id/confirm",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   zValidator("json", confirmSchema),
   async (c) => {
@@ -379,7 +355,7 @@ remixOffers.post(
 /** POST /v1/remix-offers/:id/reject */
 remixOffers.post(
   "/:id/reject",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   async (c) => {
     const { id } = c.req.param();
@@ -407,7 +383,7 @@ remixOffers.post(
 /** POST /v1/remix-offers/:id/extend — requester extends expiry of a pending offer */
 remixOffers.post(
   "/:id/extend",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   async (c) => {
     const { id } = c.req.param();
@@ -444,7 +420,7 @@ remixOffers.post(
 /** GET /v1/remix-offers — list offers for authenticated user */
 remixOffers.get(
   "/",
-  xApiKeyAuth,
+
   (c, next) => clerkAuth(c, next),
   zValidator("query", listSchema),
   async (c) => {
@@ -474,7 +450,7 @@ remixOffers.get(
 );
 
 /** GET /v1/remix-offers/:id — single offer, public */
-remixOffers.get("/:id", xApiKeyAuth, async (c) => {
+remixOffers.get("/:id", async (c) => {
   const { id } = c.req.param();
   // Try to resolve caller if Clerk token is present (for participant check)
   let callerWallet: string | undefined;
