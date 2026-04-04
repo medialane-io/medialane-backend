@@ -13,16 +13,10 @@ const log = createLogger("routes:remix-offers");
 
 const remixOffers = new Hono<AppEnv>();
 
-// Sliding-window rate limiter: max 20 offer creations per 60s per wallet
-const _offerRateMap = new Map<string, number[]>();
-function checkOfferRateLimit(wallet: string, max = 20, windowMs = 60_000): boolean {
-  const now = Date.now();
-  const timestamps = (_offerRateMap.get(wallet) ?? []).filter(t => now - t < windowMs);
-  if (timestamps.length >= max) return false;
-  timestamps.push(now);
-  _offerRateMap.set(wallet, timestamps);
-  return true;
-}
+import { createSlidingWindow } from "../../utils/slidingWindow.js";
+
+// 20 offer creations per 60s per wallet
+const checkOfferRateLimit = createSlidingWindow(20, 60_000);
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 

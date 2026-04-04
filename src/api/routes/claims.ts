@@ -15,16 +15,10 @@ import { worker } from "../../orchestrator/worker.js";
 // Use AppEnv generic so c.set/c.get are typed correctly for all AppVariables keys
 const claims = new Hono<AppEnv>();
 
-// Simple in-memory sliding-window rate limiter: 10 requests per 60s per tenant ID.
-const _rateMap = new Map<string, number[]>();
-function checkRateLimit(tenantId: string, max = 10, windowMs = 60_000): boolean {
-  const now = Date.now();
-  const timestamps = (_rateMap.get(tenantId) ?? []).filter(t => now - t < windowMs);
-  if (timestamps.length >= max) return false;
-  timestamps.push(now);
-  _rateMap.set(tenantId, timestamps);
-  return true;
-}
+import { createSlidingWindow } from "../../utils/slidingWindow.js";
+
+// 10 requests per 60s per tenant ID
+const checkRateLimit = createSlidingWindow(10, 60_000);
 
 // Helper: reads API key from x-api-key header ONLY (not Authorization).
 // Used on Path 1 where Authorization carries the Clerk JWT.
