@@ -151,15 +151,7 @@ intents.post("/counter-offer", async (c) => {
     return c.json({ error: "Original order not found or not active" }, 400);
   }
 
-  // 2. Validate no active counter already exists for this bid
-  const existingCounter = await prisma.order.findFirst({
-    where: { chain: "STARKNET", parentOrderHash: originalOrderHash, status: "ACTIVE" },
-  });
-  if (existingCounter) {
-    return c.json({ error: "A counter-offer already exists for this order" }, 400);
-  }
-
-  // 3. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
+  // 2. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
   if (normalizedSeller !== normalizeAddress(originalOrder.considerationRecipient)) {
     return c.json({ error: "sellerAddress does not match order recipient" }, 400);
   }
@@ -177,9 +169,20 @@ intents.post("/counter-offer", async (c) => {
 
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
-    // Atomic: create intent + mark original order COUNTER_OFFERED
-    const [intent] = await prisma.$transaction([
-      prisma.transactionIntent.create({
+    // Atomic: re-check for existing counter INSIDE the transaction to close the TOCTOU
+    // window. Two concurrent requests both passing the outer check could previously
+    // both succeed and create duplicate counter-offer intents for the same bid.
+    const intent = await prisma.$transaction(async (tx) => {
+      const existingCounter = await tx.order.findFirst({
+        where: { chain: "STARKNET", parentOrderHash: originalOrderHash, status: "ACTIVE" },
+      });
+      if (existingCounter) {
+        throw Object.assign(new Error("A counter-offer already exists for this order"), {
+          code: "COUNTER_ALREADY_EXISTS",
+        });
+      }
+
+      const created = await tx.transactionIntent.create({
         data: {
           type: "COUNTER_OFFER",
           requester: normalizedSeller,
@@ -189,15 +192,21 @@ intents.post("/counter-offer", async (c) => {
           parentOrderHash: originalOrderHash,
           counterOfferMessage: message ?? null,
         },
-      }),
-      prisma.order.update({
+      });
+
+      await tx.order.update({
         where: { chain_orderHash: { chain: "STARKNET", orderHash: originalOrderHash } },
         data: { status: "COUNTER_OFFERED" },
-      }),
-    ]);
+      });
+
+      return created;
+    });
 
     return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
   } catch (err: unknown) {
+    if ((err as any)?.code === "COUNTER_ALREADY_EXISTS") {
+      return c.json({ error: "A counter-offer already exists for this order" }, 400);
+    }
     log.error({ err }, "Failed to build counter-offer intent");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
