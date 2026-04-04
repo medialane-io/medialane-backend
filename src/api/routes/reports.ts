@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { clerkJwtOnly } from "../middleware/clerkAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -53,6 +54,9 @@ function validateTargetKey(
 
 const reports = new Hono<AppEnv>();
 
+// reporterUserId is derived server-side from the verified Clerk JWT sub claim.
+// It is NOT accepted from the request body — body-supplied values were trivially
+// forgeable, allowing any API key holder to auto-hide comments with 3 fake IDs.
 const submitReportSchema = z.object({
   targetType: z.enum(["COLLECTION", "TOKEN", "CREATOR", "COMMENT"]),
   targetKey: z.string().min(1),
@@ -60,7 +64,6 @@ const submitReportSchema = z.object({
   targetTokenId: z.string().optional(),
   targetAddress: z.string().optional(),
   targetId: z.string().optional(),
-  reporterUserId: z.string().min(1),
   categories: z
     .array(
       z.enum([
@@ -77,83 +80,89 @@ const submitReportSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
-// POST /v1/reports
-reports.post("/", zValidator("json", submitReportSchema), async (c) => {
-  const body = c.req.valid("json");
+// POST /v1/reports — requires tenant API key (global middleware) + Clerk JWT (local)
+reports.post(
+  "/",
+  async (c, next) => clerkJwtOnly(c, next),
+  zValidator("json", submitReportSchema),
+  async (c) => {
+    const body = c.req.valid("json");
+    // Derive reporter identity from the verified Clerk JWT — never from request body
+    const reporterUserId = c.get("clerkUserId") as string;
 
-  // Normalize addresses (defence-in-depth — proxy normalizes before computing targetKey)
-  const targetContract = body.targetContract
-    ? normalizeAddress(body.targetContract)
-    : undefined;
-  const targetAddress = body.targetAddress
-    ? normalizeAddress(body.targetAddress)
-    : undefined;
+    const targetContract = body.targetContract
+      ? normalizeAddress(body.targetContract)
+      : undefined;
+    const targetAddress = body.targetAddress
+      ? normalizeAddress(body.targetAddress)
+      : undefined;
 
-  const keyError = validateTargetKey(body.targetType, body.targetKey, {
-    targetContract,
-    targetTokenId: body.targetTokenId,
-    targetAddress,
-  });
-  if (keyError) {
-    return c.json({ error: keyError }, 400);
-  }
-
-  // Per-user rate limit: max 5 reports per hour (DB-backed)
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const recentCount = await prisma.report.count({
-    where: {
-      reporterUserId: body.reporterUserId,
-      createdAt: { gte: oneHourAgo },
-    },
-  });
-  if (recentCount >= 5) {
-    return c.json({ error: "Rate limit exceeded" }, 429);
-  }
-
-  // Deduplication: one report per user per target (@@unique enforced at DB level too)
-  const existing = await prisma.report.findUnique({
-    where: {
-      targetKey_reporterUserId: {
-        targetKey: body.targetKey,
-        reporterUserId: body.reporterUserId,
-      },
-    },
-  });
-  if (existing) {
-    return c.json({ error: "Already reported" }, 409);
-  }
-
-  const report = await prisma.report.create({
-    data: {
-      targetType: body.targetType,
-      targetKey: body.targetKey,
+    const keyError = validateTargetKey(body.targetType, body.targetKey, {
       targetContract,
       targetTokenId: body.targetTokenId,
       targetAddress,
-      reporterUserId: body.reporterUserId,
-      categories: body.categories,
-      description: body.description,
-    },
-  });
+    });
+    if (keyError) {
+      return c.json({ error: keyError }, 400);
+    }
 
-  // Auto-hide comment after 3 unique reports
-  if (body.targetType === "COMMENT") {
-    const commentId = body.targetKey.split("::")[1];
-    if (commentId) {
-      const reportCount = await prisma.report.count({
-        where: { targetKey: body.targetKey },
-      });
-      if (reportCount >= 3) {
-        await prisma.comment.update({
-          where: { id: commentId },
-          data: { isHidden: true },
+    // Per-user rate limit: max 5 reports per hour (keyed on verified Clerk userId)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recentCount = await prisma.report.count({
+      where: {
+        reporterUserId,
+        createdAt: { gte: oneHourAgo },
+      },
+    });
+    if (recentCount >= 5) {
+      return c.json({ error: "Rate limit exceeded" }, 429);
+    }
+
+    // Deduplication: one report per user per target (@@unique enforced at DB level too)
+    const existing = await prisma.report.findUnique({
+      where: {
+        targetKey_reporterUserId: {
+          targetKey: body.targetKey,
+          reporterUserId,
+        },
+      },
+    });
+    if (existing) {
+      return c.json({ error: "Already reported" }, 409);
+    }
+
+    const report = await prisma.report.create({
+      data: {
+        targetType: body.targetType,
+        targetKey: body.targetKey,
+        targetContract,
+        targetTokenId: body.targetTokenId,
+        targetAddress,
+        reporterUserId,
+        categories: body.categories,
+        description: body.description,
+      },
+    });
+
+    // Auto-hide comment after 3 unique reports
+    if (body.targetType === "COMMENT") {
+      const commentId = body.targetKey.split("::")[1];
+      if (commentId) {
+        const reportCount = await prisma.report.count({
+          where: { targetKey: body.targetKey },
         });
-        log.info({ commentId, reportCount }, "Comment auto-hidden after report threshold");
+        if (reportCount >= 3) {
+          await prisma.comment.update({
+            where: { id: commentId },
+            data: { isHidden: true },
+          });
+          log.info({ commentId, reportCount }, "Comment auto-hidden after report threshold");
+        }
       }
     }
-  }
 
-  return c.json({ data: report }, 201);
-});
+    return c.json({ data: report }, 201);
+  }
+);
 
 export default reports;
