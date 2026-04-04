@@ -69,3 +69,18 @@ export async function clerkAuth(c: Context, next: Next) {
   // ── No credentials ─────────────────────────────────────────────────────────
   return c.json({ error: "Missing Clerk session token" }, 401);
 }
+
+/**
+ * Strict variant: only accepts a Clerk JWT in Authorization: Bearer.
+ * Rejects the x-wallet-address fallback path entirely.
+ *
+ * Use on endpoints that grant access to privileged resources (gated content,
+ * etc.) where accepting an unverified wallet header would allow impersonation.
+ */
+export async function clerkJwtOnly(c: Context, next: Next) {
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "Clerk session token required" }, 401);
+  }
+  return clerkAuth(c, next);
+}

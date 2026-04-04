@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkAuth } from "../middleware/clerkAuth.js";
+import { clerkAuth, clerkJwtOnly } from "../middleware/clerkAuth.js";
 import { env } from "../../config/env.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -125,7 +125,7 @@ profiles.patch(
 
 profiles.get(
   "/collections/:contract/gated-content",
-  async (c, next) => clerkAuth(c, next),
+  async (c, next) => clerkJwtOnly(c, next),
   async (c) => {
     const contract = normalizeAddress(c.req.param("contract"));
     const walletAddress = c.get("clerkWallet") as string;
