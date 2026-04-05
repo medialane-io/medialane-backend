@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
@@ -70,9 +71,13 @@ profiles.get("/collections/:contract/profile", async (c) => {
 profiles.patch(
   "/collections/:contract/profile",
   async (c, next) => {
-    // Admin key path: check x-api-key against API_SECRET_KEY
-    const key = c.req.header("x-api-key");
-    if (key && key === env.API_SECRET_KEY) {
+    // Admin key path: timing-safe comparison against API_SECRET_KEY
+    const key = c.req.header("x-api-key") ?? "";
+    const secretBuf = Buffer.from(env.API_SECRET_KEY);
+    const keyBuf = Buffer.from(key);
+    const isAdminKey =
+      keyBuf.length === secretBuf.length && timingSafeEqual(keyBuf, secretBuf);
+    if (isAdminKey) {
       c.set("isAdmin", true);
       return next();
     }
