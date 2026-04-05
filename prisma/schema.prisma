@@ -494,6 +494,22 @@ model HiddenCreator {
   @@id([chain, address])
 }
 
+model DropClaimConditions {
+  id                Int      @id @default(autoincrement())
+  chain             Chain    @default(STARKNET)
+  collectionAddress String
+  maxSupply         String                   // u256 as decimal string
+  price             String   @default("0")   // wei; "0" = free mint
+  paymentToken      String   @default("0x0") // ERC-20 address or 0x0 for free
+  startTime         BigInt
+  endTime           BigInt
+  maxPerWallet      String   @default("1")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([chain, collectionAddress])
+}
+
 
 model User {
   id            String   @id @default(cuid())
