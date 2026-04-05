@@ -12,6 +12,7 @@ import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/c
 import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
+import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:collections");
 
@@ -215,7 +216,7 @@ collections.post("/sync-tx", async (c) => {
     return c.json({ data: { synced } });
   } catch (err) {
     log.error({ err, txHash }, "sync-tx failed");
-    return c.json({ error: String(err) }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 

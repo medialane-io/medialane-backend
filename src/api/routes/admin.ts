@@ -16,6 +16,7 @@ import { handleTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
 
 import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
+import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -230,7 +231,7 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
     });
     return c.json({ data: { metadataStatus: token?.metadataStatus, tokenUri: token?.tokenUri, name: token?.name } });
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
@@ -339,7 +340,7 @@ admin.post("/collections/:contract/refresh", async (c) => {
     });
     return c.json({ data: { metadataStatus: col?.metadataStatus, name: col?.name, symbol: col?.symbol } });
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
@@ -356,7 +357,7 @@ admin.post("/collections/:contract/stats-refresh", async (c) => {
     });
     return c.json({ data: { totalSupply: col?.totalSupply, holderCount: col?.holderCount, image: col?.image, description: col?.description } });
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
 
