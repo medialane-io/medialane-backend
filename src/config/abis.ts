@@ -1,5 +1,5 @@
 // Full ABI sourced from deployed contract on Starknet mainnet
-// Contract: 0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f
+// Contract: 0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16
 export const IPMarketplaceABI = [
   {
     type: "impl",
