@@ -27,9 +27,9 @@ const ADMIN_RATE_LIMIT = 20;
 const ADMIN_WINDOW_MS = 60_000;
 
 function getClientIp(c: { req: { header: (name: string) => string | undefined } }): string {
-  const forwarded = c.req.header("x-forwarded-for") ?? "";
-  const entries = forwarded.split(",").map((s) => s.trim()).filter(Boolean);
-  return entries[entries.length - 1] ?? c.req.header("x-real-ip") ?? "unknown";
+  // x-real-ip is set by Railway's edge and cannot be spoofed by the client.
+  // x-forwarded-for is user-controlled and must not be used for rate limiting.
+  return c.req.header("x-real-ip")?.trim() ?? "unknown";
 }
 
 // All admin routes require the admin secret + IP-based rate limit
