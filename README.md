@@ -204,10 +204,11 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 
 | Contract | Address |
 |---|---|
-| Marketplace | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
+| Marketplace v2 (current, audited) | `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` |
+| Marketplace v1 (legacy — fulfilled orders preserved) | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
 | Collection Registry (ERC-721) | `0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03` |
 | NFTComments | `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` |
-| Indexer start block | `6204232` |
+| Indexer start block (v2) | `8482853` |
 
 ---
 

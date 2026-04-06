@@ -121,6 +121,7 @@ model Order {
   currencySymbol           String?
   parentOrderHash          String?
   counterOfferMessage      String?
+  marketplaceContract      String?
   createdAt                DateTime    @default(now())
   updatedAt                DateTime    @updatedAt
 
@@ -132,6 +133,7 @@ model Order {
   @@index([chain, status, nftContract])
   @@index([considerationToken])
   @@index([createdAt])
+  @@index([marketplaceContract])
 }
 
 enum MetadataStatus {

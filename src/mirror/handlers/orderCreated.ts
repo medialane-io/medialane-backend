@@ -86,6 +86,7 @@ export async function handleOrderCreated(
       priceRaw,
       priceFormatted,
       currencySymbol,
+      marketplaceContract: normalizeAddress(MARKETPLACE_CONTRACT),
     },
     update: {
       offerer: details.offerer,
