@@ -251,7 +251,7 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
     }),
   ]);
 
-  const data = comments.map((row) => ({
+  const data = comments.map((row: (typeof comments)[number]) => ({
     ...row,
     blockNumber: row.blockNumber.toString(),
     blockTimestamp: row.blockTimestamp.toString(),

@@ -15,6 +15,12 @@ const envSchema = z.object({
   COMMENTS_CONTRACT_ADDRESS: z.string().default(""),
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   INDEXER_START_BLOCK: z.coerce.number().default(6204232),
+  /** When false, mirror/indexer RPC polling is disabled (API + orchestrator still run). */
+  INDEXER_ENABLED: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((s) => s !== "false" && s !== "0"),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),

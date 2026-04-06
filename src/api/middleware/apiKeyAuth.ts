@@ -8,7 +8,7 @@ const log = createLogger("middleware:apiKeyAuth");
 
 /** Tenant keys from the portal are always `ml_live_<hex>` — never Clerk JWTs (`eyJ...`). */
 function looksLikeTenantApiKey(s: string): boolean {
-  return s.startsWith("ml_live_");
+  return s.startsWith("ml_live_") || s.startsWith("ml_test_");
 }
 
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -20,10 +20,15 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   const qKey = c.req.query("apiKey")?.trim() ?? "";
 
+  const xKey = c.req.header("x-api-key")?.trim() ?? "";
   const raw =
-    c.req.header("x-api-key")?.trim()
-    ?? (authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null)
-    ?? null;
+    xKey.length > 0
+      ? xKey
+      : looksLikeTenantApiKey(bearer)
+        ? bearer
+        : looksLikeTenantApiKey(qKey)
+          ? qKey
+          : null;
 
   if (!raw) {
     return c.json({ error: "Missing API key" }, 401);
@@ -33,15 +38,7 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   const apiKey = await prisma.apiKey.findUnique({
     where: { keyHash },
-    select: {
-      id: true,
-      status: true,
-      monthlyRequestCount: true,
-      monthlyResetAt: true,
-      tenant: {
-        select: { id: true, name: true, email: true, plan: true, status: true },
-      },
-    },
+    include: { tenant: true },
   });
 
   if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {

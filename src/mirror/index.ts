@@ -14,6 +14,7 @@ import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
+import { isStarknetRpcQuotaError } from "./rpcQuota.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 const log = createLogger("mirror");
@@ -142,18 +143,11 @@ async function tick(tickId: string): Promise<number> {
   if (nftContracts.length > 0 && now - _lastTransferPollTime >= transferPollIntervalMs()) {
     const transferFromBlock = _lastTransferBlock != null ? _lastTransferBlock + 1 : fromBlock;
     if (transferFromBlock <= toBlock) {
-      rawTransferEvents = (
-        await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, transferFromBlock, toBlock)))
-      ).flat();
+      rawTransferEvents = (await pollTransfersBatched(nftContracts, transferFromBlock, toBlock)).flat();
     }
     _lastTransferBlock = toBlock;
     _lastTransferPollTime = now;
   }
-  ]);
-
-  const rawTransferEvents = nftContracts.length > 0
-    ? (await pollTransfersBatched(nftContracts, fromBlock, toBlock)).flat()
-    : [];
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(

@@ -134,47 +134,13 @@ export async function pollCollectionCreatedEvents(
   return allEvents;
 }
 
-/**
- * Fetch CommentAdded events from the NFTComments contract.
- * Returns an empty array when COMMENTS_CONTRACT is not configured.
- */
-export async function pollCommentEvents(
-  fromBlock: number,
-  toBlock: number
-): Promise<RawStarknetEvent[]> {
-  if (!COMMENTS_CONTRACT) return [];
 
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: COMMENTS_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(COMMENT_ADDED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
-}
 
 /**
-<<<<<<< HEAD
  * Current chain tip block number.
  * Uses `starknet_blockNumber` (lightweight) instead of `getBlockWithTxHashes("latest")`
  * to reduce Alchemy CU / request weight on every indexer tick.
- */
-=======
+
  * Fetch CommentAdded events from the NFTComments contract.
  * Returns an empty array when COMMENTS_CONTRACT is not configured.
  */
@@ -208,7 +174,7 @@ export async function pollCommentEvents(
   return allEvents;
 }
 
->>>>>>> main
+
 export async function getLatestBlock(): Promise<number> {
   const provider = createProvider();
   return provider.getBlockNumber();
