@@ -94,6 +94,31 @@ export interface ParsedTransfer {
   logIndex: number;
 }
 
+export interface ParsedTransferSingle {
+  type: "TransferSingle";
+  contractAddress: string;
+  operator: string;
+  from: string;
+  to: string;
+  tokenId: string;
+  amount: string; // decimal string
+  blockNumber: bigint;
+  txHash: string;
+  logIndex: number;
+}
+
+export interface ParsedTransferBatch {
+  type: "TransferBatch";
+  contractAddress: string;
+  operator: string;
+  from: string;
+  to: string;
+  transfers: Array<{ tokenId: string; amount: string }>;
+  blockNumber: bigint;
+  txHash: string;
+  logIndex: number; // base logIndex — individual Transfer rows use logIndex * 10000 + itemIndex
+}
+
 export interface ParsedCollectionCreated {
   type: "CollectionCreated";
   collectionId: string; // decimal string
@@ -108,6 +133,8 @@ export type ParsedEvent =
   | ParsedOrderFulfilled
   | ParsedOrderCancelled
   | ParsedTransfer
+  | ParsedTransferSingle
+  | ParsedTransferBatch
   | ParsedCollectionCreated;
 
 // --- Order details from RPC ---

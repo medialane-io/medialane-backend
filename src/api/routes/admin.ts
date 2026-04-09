@@ -244,17 +244,26 @@ admin.post("/collections", async (c) => {
     contractAddress: z.string().min(1),
     chain: z.string().optional().default("STARKNET"),
     startBlock: z.number().optional().default(0),
+    standard: z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
   });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
-  const { contractAddress: rawAddr, chain, startBlock } = parsed.data;
+  const { contractAddress: rawAddr, chain, startBlock, standard } = parsed.data;
   const contractAddress = normalizeAddress(rawAddr);
 
   const col = await prisma.collection.upsert({
     where: { chain_contractAddress: { chain: chain as any, contractAddress } },
-    create: { chain: chain as any, contractAddress, metadataStatus: "PENDING", startBlock: BigInt(startBlock) },
-    update: {},
+    create: {
+      chain: chain as any,
+      contractAddress,
+      metadataStatus: "PENDING",
+      startBlock: BigInt(startBlock),
+      ...(standard ? { standard: standard as any } : {}),
+    },
+    update: {
+      ...(standard ? { standard: standard as any } : {}),
+    },
   });
 
   worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: chain as any, contractAddress });

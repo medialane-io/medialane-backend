@@ -5,7 +5,7 @@ import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
-import { handleTransfer } from "./handlers/transfer.js";
+import { handleTransfer, handleTransferSingle, handleTransferBatch } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
@@ -210,6 +210,14 @@ async function tick(tickId: string): Promise<number> {
             break;
           case "Transfer":
             await handleTransfer(event, tx, CHAIN);
+            affectedContracts.add(event.contractAddress);
+            break;
+          case "TransferSingle":
+            await handleTransferSingle(event, tx, CHAIN);
+            affectedContracts.add(event.contractAddress);
+            break;
+          case "TransferBatch":
+            await handleTransferBatch(event, tx, CHAIN);
             affectedContracts.add(event.contractAddress);
             break;
           // CollectionCreated handled after tx (requires on-chain call)

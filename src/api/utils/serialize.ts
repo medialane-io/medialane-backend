@@ -32,13 +32,17 @@ export async function batchTokenMeta(
   );
 }
 
-export function serializeToken(token: any, activeOrders: any[]) {
+export function serializeToken(
+  token: any,
+  activeOrders: any[],
+  balances?: Array<{ owner: string; amount: string }>
+) {
   return {
     id: token.id,
     chain: token.chain,
     contractAddress: token.contractAddress,
     tokenId: token.tokenId,
-    owner: token.owner,
+    owner: token.owner ?? null,
     tokenUri: token.tokenUri,
     metadataStatus: token.metadataStatus,
     metadata: {
@@ -51,6 +55,7 @@ export function serializeToken(token: any, activeOrders: any[]) {
       commercialUse: token.commercialUse,
       author: token.author,
     },
+    balances: balances ?? null,
     activeOrders: activeOrders.map((o) => serializeOrder(o)),
     createdAt: token.createdAt,
     updatedAt: token.updatedAt,

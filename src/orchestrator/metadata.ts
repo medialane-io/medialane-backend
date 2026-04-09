@@ -65,9 +65,49 @@ const ERC721_METADATA_ABI_FELT_ARRAY = [
   },
 ];
 
-// Cache which ABI variant worked for a given contract address so subsequent
-// token_uri calls skip the failing variant entirely.
-const contractAbiCache = new Map<string, typeof ERC721_METADATA_ABI_BYTEARRAY>();
+// ERC-1155 metadata ABI — ByteArray variant
+const ERC1155_METADATA_ABI_BYTEARRAY = [
+  {
+    type: "struct",
+    name: "core::byte_array::ByteArray",
+    members: [
+      { name: "data", type: "core::array::Array::<core::felt252>" },
+      { name: "pending_word", type: "core::felt252" },
+      { name: "pending_word_len", type: "core::integer::u32" },
+    ],
+  },
+  {
+    type: "function",
+    name: "uri",
+    inputs: [{ name: "token_id", type: "core::integer::u256" }],
+    outputs: [{ type: "core::byte_array::ByteArray" }],
+    state_mutability: "view",
+  },
+];
+
+// ERC-1155 metadata ABI — Array<felt252> fallback
+const ERC1155_METADATA_ABI_FELT_ARRAY = [
+  {
+    type: "function",
+    name: "uri",
+    inputs: [{ name: "token_id", type: "core::integer::u256" }],
+    outputs: [{ type: "core::array::Array::<core::felt252>" }],
+    state_mutability: "view",
+  },
+];
+
+// ABI variants tried in order: ERC-721 ByteArray → ERC-721 felt array → ERC-1155 ByteArray → ERC-1155 felt array
+// Each entry pairs an ABI with the function names it exposes.
+const ABI_VARIANTS: Array<{ abi: any[]; fns: string[] }> = [
+  { abi: ERC721_METADATA_ABI_BYTEARRAY,   fns: ["token_uri", "tokenURI"] },
+  { abi: ERC721_METADATA_ABI_FELT_ARRAY,  fns: ["token_uri", "tokenURI"] },
+  { abi: ERC1155_METADATA_ABI_BYTEARRAY,  fns: ["uri"] },
+  { abi: ERC1155_METADATA_ABI_FELT_ARRAY, fns: ["uri"] },
+];
+
+// Cache the winning { abi, fn } pair per contract to skip failing variants on repeat calls.
+type AbiCacheEntry = { abi: any[]; fn: string };
+const contractAbiCache = new Map<string, AbiCacheEntry>();
 
 export async function handleMetadataFetch(payload: {
   chain: string;
@@ -161,22 +201,36 @@ async function fetchTokenUri(
   const high = tokenIdBig >> 128n;
   const u256 = { low: low.toString(), high: high.toString() };
 
-  // If we already know which ABI works for this contract, try it first.
-  // Otherwise iterate both and cache the winner.
-  const knownAbi = contractAbiCache.get(contractAddress);
-  const abisToTry = knownAbi
-    ? [knownAbi]
-    : [ERC721_METADATA_ABI_BYTEARRAY, ERC721_METADATA_ABI_FELT_ARRAY];
+  // If we already know which ABI + function works for this contract, use it directly.
+  const cached = contractAbiCache.get(contractAddress);
+  if (cached) {
+    try {
+      const contract = new Contract(cached.abi as any, contractAddress, provider);
+      const result = await (contract as any)[cached.fn](u256);
+      if (result != null) {
+        let uri = decodeTokenUri(result);
+        if (uri) {
+          if (cached.fn === "uri") uri = resolveErc1155Uri(uri, tokenId);
+          return uri;
+        }
+      }
+    } catch {
+      // Cache miss — fall through to full probe below
+      contractAbiCache.delete(contractAddress);
+    }
+  }
 
-  for (const abi of abisToTry) {
+  // Probe all variants in order: ERC-721 ByteArray, ERC-721 felt array, ERC-1155 ByteArray, ERC-1155 felt array
+  for (const { abi, fns } of ABI_VARIANTS) {
     const contract = new Contract(abi as any, contractAddress, provider);
-    for (const fn of ["token_uri", "tokenURI"]) {
+    for (const fn of fns) {
       try {
         const result = await (contract as any)[fn](u256);
         if (result != null) {
-          const uri = decodeTokenUri(result);
+          let uri = decodeTokenUri(result);
           if (uri) {
-            contractAbiCache.set(contractAddress, abi);
+            contractAbiCache.set(contractAddress, { abi, fn });
+            if (fn === "uri") uri = resolveErc1155Uri(uri, tokenId);
             return uri;
           }
         }
@@ -187,6 +241,17 @@ async function fetchTokenUri(
   }
 
   return null;
+}
+
+/**
+ * EIP-1155 {id} substitution: replace `{id}` in the URI template with the
+ * lowercase hex-encoded token ID, zero-padded to 64 characters.
+ * If the URI contains no `{id}`, it is returned unchanged.
+ */
+function resolveErc1155Uri(template: string, tokenId: string): string {
+  if (!template.includes("{id}")) return template;
+  const hex = BigInt(tokenId).toString(16).padStart(64, "0");
+  return template.replace("{id}", hex);
 }
 
 function decodeTokenUri(raw: unknown): string | null {

@@ -25,6 +25,12 @@ enum CollectionSource {
   COLLECTION_DROP
 }
 
+enum TokenStandard {
+  ERC721
+  ERC1155
+  UNKNOWN
+}
+
 enum ReportTargetType {
   COLLECTION
   TOKEN
@@ -150,7 +156,6 @@ model Token {
   chain           Chain          @default(STARKNET)
   contractAddress String
   tokenId         String
-  owner           String
   tokenUri        String?
   metadataStatus  MetadataStatus @default(PENDING)
   isHidden         Boolean          @default(false)
@@ -168,7 +173,6 @@ model Token {
   updatedAt       DateTime       @updatedAt
 
   @@unique([chain, contractAddress, tokenId])
-  @@index([chain, owner])
   @@index([chain, contractAddress])
   @@index([chain, metadataStatus])
   @@index([chain, ipType])
@@ -197,6 +201,7 @@ model Collection {
   holderCount     Int            @default(0)
   totalSupply     Int            @default(0)
   tokens          Token[]
+  standard        TokenStandard     @default(UNKNOWN)
   source          CollectionSource  @default(MEDIALANE_REGISTRY)
   claimedBy       String?
   profile         CollectionProfile?
@@ -305,6 +310,7 @@ model Transfer {
   tokenId         String
   fromAddress     String
   toAddress       String
+  amount          String   @default("1") // always "1" for ERC-721; quantity for ERC-1155
   blockNumber     BigInt
   txHash          String
   logIndex        Int
@@ -315,6 +321,21 @@ model Transfer {
   @@index([chain, contractAddress, tokenId])
   @@index([chain, toAddress])
   @@index([chain, fromAddress])
+}
+
+model TokenBalance {
+  id              String   @id @default(cuid())
+  chain           Chain    @default(STARKNET)
+  contractAddress String
+  tokenId         String
+  owner           String
+  amount          String   // decimal string; "1" for ERC-721, "N" for ERC-1155; "0" = former holder
+  updatedAt       DateTime @updatedAt
+
+  @@unique([chain, contractAddress, tokenId, owner])
+  @@index([chain, owner])
+  @@index([chain, contractAddress])
+  @@index([chain, contractAddress, tokenId])
 }
 
 enum TenantPlan {

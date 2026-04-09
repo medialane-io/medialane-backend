@@ -15,6 +15,9 @@ export const ORDER_FULFILLED_SELECTOR =
 export const ORDER_CANCELLED_SELECTOR =
   hash.getSelectorFromName("OrderCancelled");
 export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
+// ERC-1155 transfer event selectors
+export const TRANSFER_SINGLE_SELECTOR = hash.getSelectorFromName("TransferSingle");
+export const TRANSFER_BATCH_SELECTOR = hash.getSelectorFromName("TransferBatch");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
 export const COMMENTS_CONTRACT = env.COMMENTS_CONTRACT_ADDRESS;
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");

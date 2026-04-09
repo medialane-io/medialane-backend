@@ -6,6 +6,8 @@ import {
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
   TRANSFER_SELECTOR,
+  TRANSFER_SINGLE_SELECTOR,
+  TRANSFER_BATCH_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
   COMMENTS_CONTRACT,
   COMMENT_ADDED_SELECTOR,
@@ -73,7 +75,9 @@ export async function pollEvents(
 }
 
 /**
- * Fetch ERC-721 Transfer events for a specific collection contract.
+ * Fetch NFT transfer events for a specific collection contract.
+ * Polls ERC-721 Transfer, ERC-1155 TransferSingle, and TransferBatch
+ * in a single RPC call per page — no extra call volume vs before.
  */
 export async function pollTransferEvents(
   contractAddress: string,
@@ -91,7 +95,11 @@ export async function pollTransferEvents(
       address: contractAddress,
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
-      keys: [[num.toHex(TRANSFER_SELECTOR)]],
+      keys: [[
+        num.toHex(TRANSFER_SELECTOR),
+        num.toHex(TRANSFER_SINGLE_SELECTOR),
+        num.toHex(TRANSFER_BATCH_SELECTOR),
+      ]],
       chunk_size: 1000,
       continuation_token: continuationToken,
     });

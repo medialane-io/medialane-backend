@@ -16,8 +16,8 @@ drop.get("/mint-status/:collection/:wallet", async (c) => {
   const wallet = normalizeAddress(c.req.param("wallet"));
 
   const [mintedByWallet, totalMinted] = await Promise.all([
-    prisma.token.count({
-      where: { chain: "STARKNET", contractAddress: collection, owner: wallet },
+    prisma.tokenBalance.count({
+      where: { chain: "STARKNET", contractAddress: collection, owner: wallet, amount: { not: "0" } },
     }),
     prisma.token.count({
       where: { chain: "STARKNET", contractAddress: collection },

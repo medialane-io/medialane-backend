@@ -68,7 +68,6 @@ export interface RawSearchTokenRow {
   tokenId: string;
   name: string | null;
   image: string | null;
-  owner: string;
   metadataStatus: MetadataStatus;
   rank: number;
 }

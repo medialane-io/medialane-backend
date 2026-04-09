@@ -302,6 +302,7 @@ function serializeCollection(c: any) {
     owner: c.owner ?? null,
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
+    standard: c.standard ?? "UNKNOWN",
     isKnown: c.isKnown,
     isHidden: c.isHidden,
     source: c.source,

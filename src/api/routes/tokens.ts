@@ -134,16 +134,26 @@ tokens.get("/owned/:address", async (c) => {
   const { address } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
+  const owner = normalizeAddress(address);
 
-  const [data, total] = await Promise.all([
-    prisma.token.findMany({
-      where: { chain: "STARKNET", owner: normalizeAddress(address), isHidden: false },
+  // Query via TokenBalance (works for ERC-721 and ERC-1155 — amount > 0 = current holder)
+  const [balanceRows, total] = await Promise.all([
+    prisma.tokenBalance.findMany({
+      where: { chain: "STARKNET", owner, amount: { not: "0" } },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
+      select: { contractAddress: true, tokenId: true, amount: true },
     }),
-    prisma.token.count({ where: { chain: "STARKNET", owner: normalizeAddress(address), isHidden: false } }),
+    prisma.tokenBalance.count({ where: { chain: "STARKNET", owner, amount: { not: "0" } } }),
   ]);
+
+  const pairs = balanceRows.map((b) => ({ contractAddress: b.contractAddress, tokenId: b.tokenId }));
+  const data = pairs.length > 0
+    ? await prisma.token.findMany({
+        where: { chain: "STARKNET", isHidden: false, OR: pairs },
+      })
+    : [];
 
   // Batch-load active orders for all returned tokens in a single query
   const activeOrdersAll = data.length > 0
@@ -300,12 +310,20 @@ tokens.get("/:contract/:tokenId", async (c) => {
   }
 
   // Load active orders separately (relation removed for multichain schema)
-  const activeOrders = await prisma.order.findMany({
-    where: { chain: "STARKNET", nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
-    take: 5,
-  });
+  const [activeOrders, balances] = await Promise.all([
+    prisma.order.findMany({
+      where: { chain: "STARKNET", nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
+      take: 5,
+    }),
+    prisma.tokenBalance.findMany({
+      where: { chain: "STARKNET", contractAddress, tokenId, amount: { not: "0" } },
+      select: { owner: true, amount: true },
+      orderBy: { amount: "desc" },
+      take: 50,
+    }),
+  ]);
 
-  return c.json({ data: serializeToken(token, activeOrders) });
+  return c.json({ data: serializeToken(token, activeOrders, balances) });
 });
 
 // GET /v1/tokens/:contract/:tokenId/history

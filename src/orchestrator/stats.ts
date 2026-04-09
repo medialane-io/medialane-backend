@@ -13,12 +13,14 @@ export async function handleStatsUpdate(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
-  // Count unique holders — raw SQL avoids loading all token rows into JS
+  // Count unique holders via TokenBalance (works for both ERC-721 and ERC-1155).
+  // Filters amount > 0 so former holders who transferred out are excluded.
   const [{ count: holderCountBig }] = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(DISTINCT owner)::bigint AS count
-    FROM "Token"
+    FROM "TokenBalance"
     WHERE chain = ${chain}::"Chain"
       AND "contractAddress" = ${contractAddress}
+      AND amount::numeric > 0
   `;
   const holderCount = Number(holderCountBig);
 

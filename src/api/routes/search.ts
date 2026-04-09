@@ -15,7 +15,7 @@ search.get("/", async (c) => {
 
   const [tokenRows, collectionRows, creatorRows] = await Promise.all([
     prisma.$queryRaw<RawSearchTokenRow[]>`
-      SELECT "contractAddress", "tokenId", name, image, owner, "metadataStatus",
+      SELECT "contractAddress", "tokenId", name, image, "metadataStatus",
              ts_rank(
                to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId"),
                plainto_tsquery('english', ${q})

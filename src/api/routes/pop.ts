@@ -27,8 +27,8 @@ pop.get("/eligibility/:collection/:wallet", async (c) => {
       },
       select: { allowed: true },
     }),
-    prisma.token.findFirst({
-      where: { chain: "STARKNET", contractAddress: collection, owner: wallet },
+    prisma.tokenBalance.findFirst({
+      where: { chain: "STARKNET", contractAddress: collection, owner: wallet, amount: { not: "0" } },
       select: { tokenId: true },
     }),
   ]);
@@ -72,8 +72,8 @@ pop.get("/eligibility/:collection", async (c) => {
       },
       select: { walletAddress: true, allowed: true },
     }),
-    prisma.token.findMany({
-      where: { chain: "STARKNET", contractAddress: collection, owner: { in: wallets } },
+    prisma.tokenBalance.findMany({
+      where: { chain: "STARKNET", contractAddress: collection, owner: { in: wallets }, amount: { not: "0" } },
       select: { owner: true, tokenId: true },
     }),
   ]);

@@ -133,7 +133,6 @@ export async function handleOrderCreated(
         chain,
         contractAddress: nftContract,
         tokenId: nftTokenId,
-        owner: details.offerer,
         metadataStatus: "PENDING",
       },
       update: {},

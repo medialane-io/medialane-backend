@@ -141,14 +141,18 @@ remixOffers.post(
     const originalContract = normalizeAddress(body.originalContract);
     const originalTokenId = body.originalTokenId;
 
-    // Look up token to get creator address
-    const token = await prisma.token.findFirst({
+    // Look up current holder via TokenBalance
+    const tokenExists = await prisma.token.findFirst({
       where: { contractAddress: originalContract, tokenId: originalTokenId },
+      select: { id: true },
+    });
+    if (!tokenExists) return c.json({ error: "Token not found or not yet indexed" }, 404);
+
+    const holderBalance = await prisma.tokenBalance.findFirst({
+      where: { contractAddress: originalContract, tokenId: originalTokenId, amount: { not: "0" } },
       select: { owner: true },
     });
-    if (!token) return c.json({ error: "Token not found or not yet indexed" }, 404);
-
-    const creatorAddress = normalizeAddress(token.owner ?? "");
+    const creatorAddress = holderBalance ? normalizeAddress(holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
 
     // Owner cannot offer on their own token
@@ -209,10 +213,16 @@ remixOffers.post(
     const originalContract = normalizeAddress(body.originalContract);
     const originalTokenId = body.originalTokenId;
 
-    const token = await prisma.token.findFirst({
-      where: { contractAddress: originalContract, tokenId: originalTokenId },
-      select: { owner: true, attributes: true },
-    });
+    const [token, holderBalance] = await Promise.all([
+      prisma.token.findFirst({
+        where: { contractAddress: originalContract, tokenId: originalTokenId },
+        select: { attributes: true },
+      }),
+      prisma.tokenBalance.findFirst({
+        where: { contractAddress: originalContract, tokenId: originalTokenId, amount: { not: "0" } },
+        select: { owner: true },
+      }),
+    ]);
     if (!token) return c.json({ error: "Token not found or not yet indexed" }, 422);
 
     // Parse license and price from token attributes
@@ -233,7 +243,7 @@ remixOffers.post(
       return c.json({ error: `Invalid License Price format: "${priceAttr.value}". Expected "<amount> <SYMBOL>" e.g. "0.5 STRK"` }, 422);
     }
 
-    const creatorAddress = normalizeAddress(token.owner ?? "");
+    const creatorAddress = holderBalance ? normalizeAddress(holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
     if (requesterAddress === creatorAddress) {
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
@@ -295,14 +305,17 @@ remixOffers.post(
     const originalTokenId = body.originalTokenId;
 
     // Verify caller owns the original token
-    const token = await prisma.token.findFirst({
-      where: { contractAddress: originalContract, tokenId: originalTokenId },
-      select: { owner: true },
+    const holderBalance = await prisma.tokenBalance.findFirst({
+      where: { contractAddress: originalContract, tokenId: originalTokenId, owner: walletAddress, amount: { not: "0" } },
+      select: { id: true },
     });
-    if (!token) return c.json({ error: "Token not found" }, 404);
-
-    const ownerAddress = normalizeAddress(token.owner ?? "");
-    if (ownerAddress !== walletAddress) {
+    if (!holderBalance) {
+      // Distinguish between token not indexed and not owned
+      const tokenExists = await prisma.token.findFirst({
+        where: { contractAddress: originalContract, tokenId: originalTokenId },
+        select: { id: true },
+      });
+      if (!tokenExists) return c.json({ error: "Token not found" }, 404);
       return c.json({ error: "You do not own this token" }, 403);
     }
 

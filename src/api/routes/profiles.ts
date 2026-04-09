@@ -145,9 +145,9 @@ profiles.get(
     const contract = normalizeAddress(c.req.param("contract"));
     const walletAddress = c.get("clerkWallet") as string;
 
-    // Check if this wallet owns at least one token in the collection
-    const ownedToken = await prisma.token.findFirst({
-      where: { chain: "STARKNET", contractAddress: contract, owner: walletAddress },
+    // Check if this wallet holds at least one token in the collection (ERC-721 or ERC-1155)
+    const ownedToken = await prisma.tokenBalance.findFirst({
+      where: { chain: "STARKNET", contractAddress: contract, owner: walletAddress, amount: { not: "0" } },
       select: { id: true },
     });
 

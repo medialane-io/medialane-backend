@@ -1,5 +1,5 @@
 import { Contract, shortString } from "starknet";
-import { type Chain, type Prisma } from "@prisma/client";
+import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
@@ -17,6 +17,27 @@ const BYTEARRAY_STRUCT = {
     { name: "pending_word_len", type: "core::integer::u32" },
   ],
 };
+
+// ERC-165 interface IDs (as felt252 hex)
+const INTERFACE_ID_ERC721  = "0x80ac58cd";
+const INTERFACE_ID_ERC1155 = "0xd9b67a26";
+
+const SUPPORTS_INTERFACE_ABI = [
+  {
+    type: "function",
+    name: "supports_interface",
+    inputs: [{ name: "interface_id", type: "core::felt252" }],
+    outputs: [{ type: "core::bool" }],
+    state_mutability: "view",
+  },
+  {
+    type: "function",
+    name: "supportsInterface",
+    inputs: [{ name: "interfaceId", type: "core::felt252" }],
+    outputs: [{ type: "core::bool" }],
+    state_mutability: "view",
+  },
+];
 
 const OWNER_ABI = [
   {
@@ -128,6 +149,8 @@ export async function handleCollectionMetadataFetch(payload: {
       if (raw) onChainOwner = normalizeAddress(raw.toString());
     } catch { /* contract may not expose owner() */ }
 
+    const standard = await detectTokenStandard(contractAddress);
+
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
@@ -138,6 +161,7 @@ export async function handleCollectionMetadataFetch(payload: {
         description: description ?? undefined,
         image: existing?.image ?? image ?? undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
+        standard,
         metadataStatus: "FETCHED",
       },
     });
@@ -159,6 +183,30 @@ export async function handleCollectionMetadataFetch(payload: {
     });
     throw err;
   }
+}
+
+/**
+ * Detect whether a contract is ERC-721 or ERC-1155 via ERC-165 supportsInterface().
+ * Falls back to UNKNOWN if the contract doesn't expose the function.
+ */
+async function detectTokenStandard(contractAddress: string): Promise<TokenStandard> {
+  const provider = createProvider();
+  const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+
+  for (const fn of ["supports_interface", "supportsInterface"]) {
+    try {
+      const is1155 = await (contract as any)[fn](INTERFACE_ID_ERC1155);
+      if (is1155 === true || is1155 === 1n || String(is1155) === "1") return "ERC1155";
+      const is721 = await (contract as any)[fn](INTERFACE_ID_ERC721);
+      if (is721 === true || is721 === 1n || String(is721) === "1") return "ERC721";
+      // Contract responded but supports neither — stop trying
+      return "UNKNOWN";
+    } catch {
+      // Try the other function name variant
+    }
+  }
+
+  return "UNKNOWN";
 }
 
 async function fetchCollectionOnChainInfo(
