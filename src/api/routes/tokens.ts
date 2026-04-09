@@ -361,6 +361,7 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
         type: t.fromAddress === ZERO_ADDRESS ? "mint" : "transfer",
         from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
         to: t.toAddress,
+        amount: t.amount,
         blockNumber: t.blockNumber.toString(),
         txHash: t.txHash,
         timestamp: t.createdAt,
