@@ -124,7 +124,7 @@ export async function handleMetadataFetch(payload: {
   });
 
   try {
-    const tokenUri = await fetchTokenUri(contractAddress, tokenId);
+    const tokenUri = await fetchTokenUri(contractAddress, tokenId, chain);
 
     if (!tokenUri) {
       log.warn({ chain, contractAddress, tokenId }, "No tokenURI found");
@@ -191,7 +191,8 @@ export async function handleMetadataFetch(payload: {
 
 async function fetchTokenUri(
   contractAddress: string,
-  tokenId: string
+  tokenId: string,
+  chain: Chain
 ): Promise<string | null> {
   const provider = createProvider();
 
@@ -200,6 +201,22 @@ async function fetchTokenUri(
   const low = tokenIdBig & ((1n << 128n) - 1n);
   const high = tokenIdBig >> 128n;
   const u256 = { low: low.toString(), high: high.toString() };
+
+  // Seed the in-memory ABI cache from Collection.standard when cold (e.g. after a deploy).
+  // For known ERC-1155 contracts this skips the two failing ERC-721 probe calls that would
+  // otherwise precede the successful ERC-1155 ByteArray probe.
+  if (!contractAbiCache.has(contractAddress)) {
+    const col = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain, contractAddress } },
+      select: { standard: true },
+    });
+    if (col?.standard === "ERC1155") {
+      contractAbiCache.set(contractAddress, { abi: ERC1155_METADATA_ABI_BYTEARRAY, fn: "uri" });
+    } else if (col?.standard === "ERC721") {
+      contractAbiCache.set(contractAddress, { abi: ERC721_METADATA_ABI_BYTEARRAY, fn: "token_uri" });
+    }
+    // UNKNOWN / null: fall through to full probe below
+  }
 
   // If we already know which ABI + function works for this contract, use it directly.
   const cached = contractAbiCache.get(contractAddress);

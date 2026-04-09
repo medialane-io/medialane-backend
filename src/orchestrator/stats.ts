@@ -13,6 +13,12 @@ export async function handleStatsUpdate(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
+  // Single upfront read — reused for both totalSupply branching and image/description backfill.
+  const collection = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { standard: true, image: true, description: true },
+  });
+
   // Count unique holders via TokenBalance (works for both ERC-721 and ERC-1155).
   // Filters amount > 0 so former holders who transferred out are excluded.
   const [{ count: holderCountBig }] = await prisma.$queryRaw<[{ count: bigint }]>`
@@ -23,15 +29,6 @@ export async function handleStatsUpdate(payload: {
       AND amount::numeric > 0
   `;
   const holderCount = Number(holderCountBig);
-
-  // Count total supply.
-  // ERC-721: count distinct Token rows (one per unique token ID).
-  // ERC-1155: sum all TokenBalance amounts — a single token ID can be held by many wallets,
-  //           so counting rows would give 348 for Lil Duckies instead of the real 8,745.
-  const collection = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain, contractAddress } },
-    select: { standard: true },
-  });
   let totalSupply: number;
   if (collection?.standard === "ERC1155") {
     const [{ total }] = await prisma.$queryRaw<[{ total: bigint }]>`
@@ -134,12 +131,8 @@ export async function handleStatsUpdate(payload: {
 
   // Backfill image/description from first fetched token if not yet set.
   // name/symbol come from the COLLECTION_METADATA_FETCH job (on-chain view calls).
-  const existing = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain, contractAddress } },
-    select: { image: true, description: true },
-  });
-
-  if (!existing?.image || !existing?.description) {
+  // `collection` was already fetched above — no second DB round-trip needed.
+  if (!collection?.image || !collection?.description) {
     const firstToken = await prisma.token.findFirst({
       where: { chain, contractAddress, metadataStatus: "FETCHED" },
       orderBy: { tokenId: "asc" },
@@ -150,8 +143,8 @@ export async function handleStatsUpdate(payload: {
       await prisma.collection.update({
         where: { chain_contractAddress: { chain, contractAddress } },
         data: {
-          image: existing?.image ?? firstToken.image,
-          description: existing?.description ?? firstToken.description,
+          image: collection?.image ?? firstToken.image,
+          description: collection?.description ?? firstToken.description,
         },
       });
     }
