@@ -1,5 +1,6 @@
 import { type Chain, type Prisma } from "@prisma/client";
 import type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch } from "../../types/marketplace.js";
+export type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch };
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -158,4 +159,18 @@ export async function handleTransferBatch(
   }
 
   log.debug({ chain, contractAddress, from, to, count: transfers.length }, "ERC-1155 TransferBatch processed");
+}
+
+// ---------------------------------------------------------------------------
+// Unified dispatcher — routes Transfer / TransferSingle / TransferBatch
+// ---------------------------------------------------------------------------
+
+export async function dispatchTransfer(
+  event: ParsedTransfer | ParsedTransferSingle | ParsedTransferBatch,
+  tx: Prisma.TransactionClient,
+  chain: Chain
+): Promise<void> {
+  if (event.type === "Transfer") return handleTransfer(event, tx, chain);
+  if (event.type === "TransferSingle") return handleTransferSingle(event, tx, chain);
+  if (event.type === "TransferBatch") return handleTransferBatch(event, tx, chain);
 }

@@ -24,10 +24,27 @@ export async function handleStatsUpdate(payload: {
   `;
   const holderCount = Number(holderCountBig);
 
-  // Count total supply
-  const totalSupply = await prisma.token.count({
-    where: { chain, contractAddress },
+  // Count total supply.
+  // ERC-721: count distinct Token rows (one per unique token ID).
+  // ERC-1155: sum all TokenBalance amounts — a single token ID can be held by many wallets,
+  //           so counting rows would give 348 for Lil Duckies instead of the real 8,745.
+  const collection = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { standard: true },
   });
+  let totalSupply: number;
+  if (collection?.standard === "ERC1155") {
+    const [{ total }] = await prisma.$queryRaw<[{ total: bigint }]>`
+      SELECT COALESCE(SUM(amount::numeric), 0)::bigint AS total
+      FROM "TokenBalance"
+      WHERE chain = ${chain}::"Chain"
+        AND "contractAddress" = ${contractAddress}
+        AND amount::numeric > 0
+    `;
+    totalSupply = Number(total);
+  } else {
+    totalSupply = await prisma.token.count({ where: { chain, contractAddress } });
+  }
 
   // Calculate floor price from active listing orders only.
   // Bids (offerItemType = "ERC20") are excluded — their considerationToken is the NFT address,

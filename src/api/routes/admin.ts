@@ -12,7 +12,7 @@ import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../util
 import { normalizeAddress } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
-import { handleTransfer, handleTransferSingle, handleTransferBatch } from "../../mirror/handlers/transfer.js";
+import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
 
 import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
@@ -410,9 +410,7 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
   for (const event of transferEvents) {
     try {
       await prisma.$transaction(async (tx) => {
-        if (event.type === "Transfer") await handleTransfer(event, tx, "STARKNET");
-        else if (event.type === "TransferSingle") await handleTransferSingle(event, tx, "STARKNET");
-        else if (event.type === "TransferBatch") await handleTransferBatch(event, tx, "STARKNET");
+        await dispatchTransfer(event, tx, "STARKNET");
       });
       inserted++;
     } catch (err: unknown) {
