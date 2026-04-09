@@ -12,7 +12,7 @@ import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../util
 import { normalizeAddress } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
-import { handleTransfer } from "../../mirror/handlers/transfer.js";
+import { handleTransfer, handleTransferSingle, handleTransferBatch } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
 
 import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
@@ -373,8 +373,8 @@ admin.post("/collections/:contract/stats-refresh", async (c) => {
 // ---------------------------------------------------------------------------
 // POST /admin/collections/:contract/backfill-transfers — scan historical Transfer events
 // ---------------------------------------------------------------------------
-// Fetches all ERC-721 Transfer events for the contract between fromBlock and toBlock,
-// upserts Token + Transfer rows, and enqueues METADATA_FETCH for every new token.
+// Fetches Transfer, TransferSingle, and TransferBatch events for the contract.
+// Works for both ERC-721 and ERC-1155 collections.
 // Use this when a collection was registered after its mints already happened.
 admin.post("/collections/:contract/backfill-transfers", async (c) => {
   const { contract } = c.req.param();
@@ -400,16 +400,19 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
 
   const rawEvents = await pollTransferEvents(contractAddress, fromBlock, toBlock);
   const parsedEvents = parseEvents(rawEvents);
-  const transferEvents = parsedEvents.filter((e) => e.type === "Transfer");
+  const transferEvents = parsedEvents.filter(
+    (e) => e.type === "Transfer" || e.type === "TransferSingle" || e.type === "TransferBatch"
+  );
 
   let inserted = 0;
   let skipped  = 0;
 
   for (const event of transferEvents) {
-    if (event.type !== "Transfer") continue;
     try {
       await prisma.$transaction(async (tx) => {
-        await handleTransfer(event, tx, "STARKNET");
+        if (event.type === "Transfer") await handleTransfer(event, tx, "STARKNET");
+        else if (event.type === "TransferSingle") await handleTransferSingle(event, tx, "STARKNET");
+        else if (event.type === "TransferBatch") await handleTransferBatch(event, tx, "STARKNET");
       });
       inserted++;
     } catch (err: unknown) {
@@ -417,7 +420,7 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
       if ((err as { code?: string }).code === "P2002") {
         skipped++;
       } else {
-        log.warn({ err, tokenId: event.tokenId }, "Transfer backfill row error — skipping");
+        log.warn({ err, eventType: event.type }, "Transfer backfill row error — skipping");
         skipped++;
       }
     }
