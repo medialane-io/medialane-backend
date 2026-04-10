@@ -480,7 +480,7 @@ admin.post("/collections/backfill-metadata", async (c) => {
 // ---------------------------------------------------------------------------
 import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
 import { RpcProvider, num as starkNum } from "starknet";
-import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR, COLLECTION_START_BLOCK } from "../../config/constants.js";
 import { env } from "../../config/env.js";
 
 admin.post("/collections/backfill-registry", async (c) => {
@@ -494,7 +494,7 @@ admin.post("/collections/backfill-registry", async (c) => {
   do {
     const result = await provider.getEvents({
       address: COLLECTION_CONTRACT,
-      from_block: { block_number: 8660000 },
+      from_block: { block_number: COLLECTION_START_BLOCK },
       to_block: { block_number: latestBlock.block_number },
       keys: [[starkNum.toHex(COLLECTION_CREATED_SELECTOR)]],
       chunk_size: 100,

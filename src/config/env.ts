@@ -19,6 +19,7 @@ const envSchema = z.object({
   DROP_FACTORY_ADDRESS: z.string().default(""),
   DROP_START_BLOCK: z.coerce.number().default(0),
   INDEXER_START_BLOCK: z.coerce.number().default(6204232),
+  COLLECTION_START_BLOCK: z.coerce.number().default(8660000),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
