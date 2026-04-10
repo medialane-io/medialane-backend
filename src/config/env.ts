@@ -11,7 +11,7 @@ const envSchema = z.object({
     .default("0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16"),
   COLLECTION_CONTRACT_MAINNET: z
     .string()
-    .default("0x05e73b7be06d82beeb390a0e0d655f2c9e7cf519658e04f05d9c690ccc41da03"),
+    .default("0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b"),
   COMMENTS_CONTRACT_ADDRESS: z.string().default(""),
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_FACTORY_ADDRESS: z.string().default(""),

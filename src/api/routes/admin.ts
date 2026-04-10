@@ -494,7 +494,7 @@ admin.post("/collections/backfill-registry", async (c) => {
   do {
     const result = await provider.getEvents({
       address: COLLECTION_CONTRACT,
-      from_block: { block_number: 6204232 },
+      from_block: { block_number: 8660000 },
       to_block: { block_number: latestBlock.block_number },
       keys: [[starkNum.toHex(COLLECTION_CREATED_SELECTOR)]],
       chunk_size: 100,
