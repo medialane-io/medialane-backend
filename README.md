@@ -238,6 +238,18 @@ bun dev
 | `API_SECRET_KEY` | Min 16 chars — admin routes auth |
 | `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://medialane.io,https://www.medialane.io`) |
 
+Optional env vars (all have sensible defaults):
+
+| Variable | Default | Notes |
+|---|---|---|
+| `INDEXER_START_BLOCK` | `6204232` | Block to start scanning marketplace events from |
+| `COLLECTION_START_BLOCK` | `8660000` | Block to start scanning `CollectionCreated` events from. Update to first block of the current collection registry contract when upgrading. |
+| `INDEXER_POLL_INTERVAL_MS` | `6000` | Mirror poll cadence |
+| `INDEXER_BLOCK_BATCH_SIZE` | `500` | Blocks per indexer tick |
+| `STARKNET_NETWORK` | `mainnet` | `mainnet` or `sepolia` |
+| `MARKETPLACE_CONTRACT_MAINNET` | current audited address | Override for custom deployments |
+| `COLLECTION_CONTRACT_MAINNET` | current audited address | Override for custom deployments |
+
 ### Commands
 
 ```bash
