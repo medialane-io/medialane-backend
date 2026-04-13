@@ -160,36 +160,43 @@ remixOffers.post(
       return c.json({ error: "Use the self-remix endpoint for your own tokens" }, 400);
     }
 
-    // Dedup: no active offer from same requester for same token
-    const existing = await prisma.remixOffer.findFirst({
-      where: {
-        originalContract,
-        originalTokenId,
-        requesterAddress,
-        status: { in: ["PENDING", "AUTO_PENDING", "APPROVED"] },
-      },
-    });
-    if (existing) return c.json({ error: "Active offer already exists" }, 409);
-
     const expiresAt = new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000);
 
-    const offer = await prisma.remixOffer.create({
-      data: {
-        status: "PENDING",
-        originalContract,
-        originalTokenId,
-        creatorAddress,
-        requesterAddress,
-        message: body.message,
-        proposedPrice: body.proposedPrice,
-        proposedCurrency: normalizeAddress(body.proposedCurrency),
-        licenseType: body.licenseType,
-        commercial: body.commercial,
-        derivatives: body.derivatives,
-        royaltyPct: body.royaltyPct,
-        expiresAt,
-      },
-    });
+    // Dedup + create inside a transaction to prevent race-condition duplicates (F-04)
+    let offer;
+    try {
+      offer = await prisma.$transaction(async (tx) => {
+        const existing = await tx.remixOffer.findFirst({
+          where: {
+            originalContract,
+            originalTokenId,
+            requesterAddress,
+            status: { in: ["PENDING", "AUTO_PENDING", "APPROVED"] },
+          },
+        });
+        if (existing) throw Object.assign(new Error("Active offer already exists"), { code: "DUPLICATE" });
+        return tx.remixOffer.create({
+          data: {
+            status: "PENDING",
+            originalContract,
+            originalTokenId,
+            creatorAddress,
+            requesterAddress,
+            message: body.message,
+            proposedPrice: body.proposedPrice,
+            proposedCurrency: normalizeAddress(body.proposedCurrency),
+            licenseType: body.licenseType,
+            commercial: body.commercial,
+            derivatives: body.derivatives,
+            royaltyPct: body.royaltyPct,
+            expiresAt,
+          },
+        });
+      });
+    } catch (err: any) {
+      if (err.code === "DUPLICATE") return c.json({ error: "Active offer already exists" }, 409);
+      throw err;
+    }
 
     log.info({ id: offer.id, requesterAddress, creatorAddress }, "Remix offer created");
     return c.json({ data: serializeOffer(offer, requesterAddress) }, 201);
@@ -249,16 +256,6 @@ remixOffers.post(
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
     }
 
-    const existing = await prisma.remixOffer.findFirst({
-      where: {
-        originalContract,
-        originalTokenId,
-        requesterAddress,
-        status: { in: ["PENDING", "AUTO_PENDING", "APPROVED"] },
-      },
-    });
-    if (existing) return c.json({ error: "Active offer already exists" }, 409);
-
     // Terms from token attributes
     const commercialAttr = attrs.find((a) => a.trait_type === "Commercial Use");
     const derivativesAttr = attrs.find((a) => a.trait_type === "Derivatives");
@@ -269,22 +266,39 @@ remixOffers.post(
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days default
 
-    const offer = await prisma.remixOffer.create({
-      data: {
-        status: "AUTO_PENDING",
-        originalContract,
-        originalTokenId,
-        creatorAddress,
-        requesterAddress,
-        proposedPrice: parsed.price,
-        proposedCurrency: parsed.currencyAddress,
-        licenseType: licenseAttr.value,
-        commercial: commercialAttr?.value?.toLowerCase() === "yes",
-        derivatives: derivativesAttr?.value?.toLowerCase() !== "no",
-        royaltyPct: isNaN(royaltyPct!) ? undefined : royaltyPct,
-        expiresAt,
-      },
-    });
+    let offer;
+    try {
+      offer = await prisma.$transaction(async (tx) => {
+        const existing = await tx.remixOffer.findFirst({
+          where: {
+            originalContract,
+            originalTokenId,
+            requesterAddress,
+            status: { in: ["PENDING", "AUTO_PENDING", "APPROVED"] },
+          },
+        });
+        if (existing) throw Object.assign(new Error("Active offer already exists"), { code: "DUPLICATE" });
+        return tx.remixOffer.create({
+          data: {
+            status: "AUTO_PENDING",
+            originalContract,
+            originalTokenId,
+            creatorAddress,
+            requesterAddress,
+            proposedPrice: parsed.price,
+            proposedCurrency: parsed.currencyAddress,
+            licenseType: licenseAttr.value,
+            commercial: commercialAttr?.value?.toLowerCase() === "yes",
+            derivatives: derivativesAttr?.value?.toLowerCase() !== "no",
+            royaltyPct: isNaN(royaltyPct!) ? undefined : royaltyPct,
+            expiresAt,
+          },
+        });
+      });
+    } catch (err: any) {
+      if (err.code === "DUPLICATE") return c.json({ error: "Active offer already exists" }, 409);
+      throw err;
+    }
 
     log.info({ id: offer.id, requesterAddress, creatorAddress }, "Auto remix offer created");
     return c.json({ data: serializeOffer(offer, requesterAddress) }, 201);
