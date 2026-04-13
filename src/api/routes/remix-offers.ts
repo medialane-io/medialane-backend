@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkAuth } from "../middleware/clerkAuth.js";
+import { clerkAuth, clerkJwtOnly } from "../middleware/clerkAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -360,7 +360,7 @@ remixOffers.post(
 remixOffers.post(
   "/:id/confirm",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => clerkJwtOnly(c, next),
   zValidator("json", confirmSchema),
   async (c) => {
     const { id } = c.req.param();
@@ -396,7 +396,7 @@ remixOffers.post(
 remixOffers.post(
   "/:id/reject",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => clerkJwtOnly(c, next),
   async (c) => {
     const { id } = c.req.param();
     const walletAddress = c.get("clerkWallet") as string;
