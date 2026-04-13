@@ -53,13 +53,13 @@ const mintSchema = z.object({
 });
 
 const createCollectionSchema = z.object({
-  owner: z.string(),
+  owner: starknetAddress,
   name: z.string().min(1),
   symbol: z.string().min(1),
   baseUri: z.string().default(""),
   description: z.string().optional(),
   image: z.string().optional(),
-  collectionContract: z.string().optional(),
+  collectionContract: starknetAddress.optional(),
 });
 
 const TTL_HOURS = 24;

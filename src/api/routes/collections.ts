@@ -22,6 +22,12 @@ const collections = new Hono();
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
+// Valid source enum values — mirrors the CollectionSource Prisma enum
+const VALID_COLLECTION_SOURCES = new Set([
+  "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
+  "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP",
+]);
+
 // GET /v1/collections
 collections.get("/", async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
@@ -37,11 +43,7 @@ collections.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  const VALID_SOURCES = new Set([
-    "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
-    "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP",
-  ]);
-  if (source && !VALID_SOURCES.has(source)) {
+  if (source && !VALID_COLLECTION_SOURCES.has(source)) {
     return c.json({ error: "Invalid source value" }, 400);
   }
 

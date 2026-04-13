@@ -66,6 +66,67 @@ const listSchema = z.object({
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+type TokenAttr = { trait_type: string; value: string };
+
+type OpenLicenseTerms = {
+  licenseType: string;
+  price: string;
+  currencyAddress: string;
+  commercial: boolean;
+  derivatives: boolean;
+  royaltyPct: number | undefined;
+};
+
+type OpenLicenseResult =
+  | { ok: true; terms: OpenLicenseTerms }
+  | { ok: false; error: string; status: 422 };
+
+const OPEN_LICENSES = ["CC0", "CC BY", "CC BY-SA", "CC BY-NC"] as const;
+
+/**
+ * Resolve remix license terms from a token's IPFS attributes.
+ * Returns either the parsed terms or a structured error ready to forward as a response.
+ */
+function resolveOpenLicenseTerms(attrs: TokenAttr[]): OpenLicenseResult {
+  const licenseAttr = attrs.find((a) => a.trait_type === "License");
+  if (!licenseAttr || !(OPEN_LICENSES as readonly string[]).includes(licenseAttr.value)) {
+    return { ok: false, error: "Token does not have an open license", status: 422 };
+  }
+
+  const priceAttr = attrs.find((a) => a.trait_type === "License Price");
+  if (!priceAttr) {
+    return { ok: false, error: "Token has no License Price attribute", status: 422 };
+  }
+
+  const parsed = parseLicensePrice(priceAttr.value);
+  if (!parsed) {
+    return {
+      ok: false,
+      error: `Invalid License Price format: "${priceAttr.value}". Expected "<amount> <SYMBOL>" e.g. "0.5 STRK"`,
+      status: 422,
+    };
+  }
+
+  const commercialAttr = attrs.find((a) => a.trait_type === "Commercial Use");
+  const derivativesAttr = attrs.find((a) => a.trait_type === "Derivatives");
+  const royaltyAttr = attrs.find((a) => a.trait_type === "Royalty");
+  const royaltyPct = royaltyAttr
+    ? parseInt(royaltyAttr.value.replace("%", ""), 10) || undefined
+    : undefined;
+
+  return {
+    ok: true,
+    terms: {
+      licenseType: licenseAttr.value,
+      price: parsed.price,
+      currencyAddress: parsed.currencyAddress,
+      commercial: commercialAttr?.value?.toLowerCase() === "yes",
+      derivatives: derivativesAttr?.value?.toLowerCase() !== "no",
+      royaltyPct: isNaN(royaltyPct!) ? undefined : royaltyPct,
+    },
+  };
+}
+
 /** Parse "License Price" attribute format: "<amount> <SYMBOL>" → { price, currencyAddress } */
 function parseLicensePrice(value: string): { price: string; currencyAddress: string } | null {
   const parts = value.trim().split(/\s+/);
@@ -232,37 +293,18 @@ remixOffers.post(
     ]);
     if (!token) return c.json({ error: "Token not found or not yet indexed" }, 422);
 
-    // Parse license and price from token attributes
-    const attrs = token.attributes as Array<{ trait_type: string; value: string }> | undefined;
+    const attrs = token.attributes as TokenAttr[] | undefined;
     if (!attrs) return c.json({ error: "Token has no metadata attributes" }, 422);
 
-    const OPEN_LICENSES = ["CC0", "CC BY", "CC BY-SA", "CC BY-NC"];
-    const licenseAttr = attrs.find((a) => a.trait_type === "License");
-    if (!licenseAttr || !OPEN_LICENSES.includes(licenseAttr.value)) {
-      return c.json({ error: "Token does not have an open license" }, 422);
-    }
-
-    const priceAttr = attrs.find((a) => a.trait_type === "License Price");
-    if (!priceAttr) return c.json({ error: "Token has no License Price attribute" }, 422);
-
-    const parsed = parseLicensePrice(priceAttr.value);
-    if (!parsed) {
-      return c.json({ error: `Invalid License Price format: "${priceAttr.value}". Expected "<amount> <SYMBOL>" e.g. "0.5 STRK"` }, 422);
-    }
+    const licenseResult = resolveOpenLicenseTerms(attrs);
+    if (!licenseResult.ok) return c.json({ error: licenseResult.error }, licenseResult.status);
+    const { terms } = licenseResult;
 
     const creatorAddress = holderBalance ? normalizeAddress(holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
     if (requesterAddress === creatorAddress) {
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
     }
-
-    // Terms from token attributes
-    const commercialAttr = attrs.find((a) => a.trait_type === "Commercial Use");
-    const derivativesAttr = attrs.find((a) => a.trait_type === "Derivatives");
-    const royaltyAttr = attrs.find((a) => a.trait_type === "Royalty");
-    const royaltyPct = royaltyAttr
-      ? parseInt(royaltyAttr.value.replace("%", ""), 10) || undefined
-      : undefined;
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days default
 
@@ -285,12 +327,12 @@ remixOffers.post(
             originalTokenId,
             creatorAddress,
             requesterAddress,
-            proposedPrice: parsed.price,
-            proposedCurrency: parsed.currencyAddress,
-            licenseType: licenseAttr.value,
-            commercial: commercialAttr?.value?.toLowerCase() === "yes",
-            derivatives: derivativesAttr?.value?.toLowerCase() !== "no",
-            royaltyPct: isNaN(royaltyPct!) ? undefined : royaltyPct,
+            proposedPrice: terms.price,
+            proposedCurrency: terms.currencyAddress,
+            licenseType: terms.licenseType,
+            commercial: terms.commercial,
+            derivatives: terms.derivatives,
+            royaltyPct: terms.royaltyPct,
             expiresAt,
           },
         });

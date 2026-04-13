@@ -62,7 +62,7 @@ portal.post("/keys", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  const { plaintext, prefix, keyHash } = generateApiKey();
+  let plaintext: string;
   let key;
   try {
     key = await prisma.$transaction(async (tx) => {
@@ -72,11 +72,13 @@ portal.post("/keys", async (c) => {
       if (keyCount >= 5) {
         throw Object.assign(new Error("Max 5 active API keys per tenant"), { code: "KEY_LIMIT" });
       }
+      const generated = generateApiKey();
+      plaintext = generated.plaintext;
       return tx.apiKey.create({
         data: {
           tenantId: tenant.id,
-          prefix,
-          keyHash,
+          prefix: generated.prefix,
+          keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
         },
       });
@@ -87,7 +89,7 @@ portal.post("/keys", async (c) => {
   }
 
   log.info({ keyId: key.id, tenantId: tenant.id }, "Self-service API key created");
-  return c.json({ data: { id: key.id, prefix, label: key.label, plaintext } }, 201);
+  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: plaintext! } }, 201);
 });
 
 // ---------------------------------------------------------------------------
