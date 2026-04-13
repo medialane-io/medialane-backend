@@ -123,6 +123,8 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/pop/eligibility/:collection/:wallet` | POP claim eligibility. Returns `{ isEligible, hasClaimed, tokenId }` |
 | GET | `/v1/pop/eligibility/:collection` | Batch eligibility. `?wallets=0x1,0x2` (max 100) |
 | GET | `/v1/drop/mint-status/:collection/:wallet` | Drop mint status. Returns `{ mintedByWallet, totalMinted }` |
+| POST | `/v1/drop/conditions` | **Clerk JWT required** (not just API key). Body: `{ collectionAddress, maxSupply, price, paymentToken, startTime, endTime, maxPerWallet }`. Ownership check: caller must match `collection.owner` or `collection.claimedBy`. |
+| GET | `/v1/drop/:contract/info` | Collection metadata merged with claim conditions. Public. |
 | POST | `/v1/intents/listing` | Rate limited 20/min per IP |
 | POST | `/v1/intents/offer` | Rate limited 20/min per IP |
 | POST | `/v1/intents/fulfill` | Rate limited 20/min per IP |
