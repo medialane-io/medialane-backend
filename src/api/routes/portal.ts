@@ -62,22 +62,29 @@ portal.post("/keys", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  const keyCount = await prisma.apiKey.count({
-    where: { tenantId: tenant.id, status: "ACTIVE" },
-  });
-  if (keyCount >= 5) {
-    return c.json({ error: "Max 5 active API keys per tenant" }, 409);
-  }
-
   const { plaintext, prefix, keyHash } = generateApiKey();
-  const key = await prisma.apiKey.create({
-    data: {
-      tenantId: tenant.id,
-      prefix,
-      keyHash,
-      label: parsed.data.label ?? undefined,
-    },
-  });
+  let key;
+  try {
+    key = await prisma.$transaction(async (tx) => {
+      const keyCount = await tx.apiKey.count({
+        where: { tenantId: tenant.id, status: "ACTIVE" },
+      });
+      if (keyCount >= 5) {
+        throw Object.assign(new Error("Max 5 active API keys per tenant"), { code: "KEY_LIMIT" });
+      }
+      return tx.apiKey.create({
+        data: {
+          tenantId: tenant.id,
+          prefix,
+          keyHash,
+          label: parsed.data.label ?? undefined,
+        },
+      });
+    });
+  } catch (err: any) {
+    if (err.code === "KEY_LIMIT") return c.json({ error: "Max 5 active API keys per tenant" }, 409);
+    throw err;
+  }
 
   log.info({ keyId: key.id, tenantId: tenant.id }, "Self-service API key created");
   return c.json({ data: { id: key.id, prefix, label: key.label, plaintext } }, 201);

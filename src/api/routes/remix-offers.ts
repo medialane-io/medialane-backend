@@ -24,7 +24,7 @@ const createOfferSchema = z.object({
   originalContract: z.string().min(1),
   originalTokenId: z.string().min(1),
   proposedPrice: z.string().min(1),
-  proposedCurrency: z.string().min(1),
+  proposedCurrency: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid currency address").optional(),
   licenseType: z.string().min(1).max(100),
   commercial: z.boolean().default(false),
   derivatives: z.boolean().default(true),
@@ -428,6 +428,10 @@ remixOffers.post(
   async (c) => {
     const { id } = c.req.param();
     const walletAddress = c.get("clerkWallet") as string;
+
+    if (!checkOfferRateLimit(walletAddress)) {
+      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
+    }
 
     const body = await c.req.json().catch(() => null);
     const days = Number(body?.days);

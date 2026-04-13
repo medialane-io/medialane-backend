@@ -86,6 +86,12 @@ export async function handleCommentAdded(
       return;
     }
 
+    const MAX_COMMENT_BYTES = 4096;
+    if (Buffer.byteLength(content, "utf8") > MAX_COMMENT_BYTES) {
+      log.warn({ txHash, logIndex }, "Comment exceeds size limit — skipping");
+      return;
+    }
+
     // Sanitize: strip null bytes and non-printable control characters
     const sanitized = content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").trim();
     if (!sanitized) return;

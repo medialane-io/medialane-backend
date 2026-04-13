@@ -20,9 +20,11 @@ import type { AppEnv } from "../../types/hono.js";
 const log = createLogger("routes:intents");
 const intents = new Hono<AppEnv>();
 
+const starknetAddress = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address");
+
 const listingSchema = z.object({
-  offerer: z.string(),
-  nftContract: z.string(),
+  offerer: starknetAddress,
+  nftContract: starknetAddress,
   tokenId: z.string(),
   currency: z.string(),
   price: z.string(),
@@ -33,21 +35,21 @@ const listingSchema = z.object({
 const offerSchema = listingSchema;
 
 const fulfillSchema = z.object({
-  fulfiller: z.string(),
+  fulfiller: starknetAddress,
   orderHash: z.string(),
 });
 
 const cancelSchema = z.object({
-  offerer: z.string(),
+  offerer: starknetAddress,
   orderHash: z.string(),
 });
 
 const mintSchema = z.object({
-  owner: z.string(),
+  owner: starknetAddress,
   collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string"),
-  recipient: z.string(),
+  recipient: starknetAddress,
   tokenUri: z.string().min(1),
-  collectionContract: z.string().optional(),
+  collectionContract: starknetAddress.optional(),
 });
 
 const createCollectionSchema = z.object({
@@ -412,6 +414,12 @@ intents.get("/:id", async (c) => {
   const intent = await prisma.transactionIntent.findUnique({ where: { id } });
   if (!intent) return c.json({ error: "Intent not found" }, 404);
 
+  // Tenant isolation: only the tenant that created the intent can read it
+  const callerTenantId = c.get("tenant")?.id;
+  if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    return c.json({ error: "Intent not found" }, 404);
+  }
+
   // Check expiry — updateMany with conditional to avoid race between concurrent requests
   if (intent.expiresAt < new Date() && intent.status === "PENDING") {
     const { count } = await prisma.transactionIntent.updateMany({
@@ -467,7 +475,7 @@ intents.patch("/:id/signature", async (c) => {
 });
 
 const confirmSchema = z.object({
-  txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid transaction hash"),
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{63,64}$/, "Invalid transaction hash"),
 });
 
 // Intent types that go through the marketplace contract and need event verification

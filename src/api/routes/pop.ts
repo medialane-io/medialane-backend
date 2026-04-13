@@ -52,12 +52,11 @@ pop.get("/eligibility/:collection", async (c) => {
     return c.json({ error: "wallets query param is required" }, 400);
   }
 
-  const wallets = walletsParam
-    .split(",")
-    .map((w) => w.trim())
-    .filter(Boolean)
-    .slice(0, 100)
-    .map(normalizeAddress);
+  const rawWallets = walletsParam.split(",").map((w) => w.trim()).filter(Boolean);
+  if (rawWallets.length > 100) {
+    return c.json({ error: "Max 100 wallets per batch request" }, 400);
+  }
+  const wallets = rawWallets.map(normalizeAddress);
 
   if (wallets.length === 0) {
     return c.json({ error: "No valid wallet addresses provided" }, 400);

@@ -37,6 +37,14 @@ collections.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
+  const VALID_SOURCES = new Set([
+    "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
+    "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP",
+  ]);
+  if (source && !VALID_SOURCES.has(source)) {
+    return c.json({ error: "Invalid source value" }, 400);
+  }
+
   // floor and volume are String? columns — need ::numeric cast via raw SQL
   if (sort === "floor" || sort === "volume") {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`, Prisma.sql`"isHidden" = false`];

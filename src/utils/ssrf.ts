@@ -6,7 +6,7 @@
  */
 
 const PRIVATE_HOST_RE =
-  /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|::ffff:127\.|fc00:|fe80:)/i;
+  /^(localhost|127\.|0\.0\.0\.0|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|::ffff:127\.|fc00:|fd[0-9a-f]{2}:|fe80:)/i;
 
 /**
  * Returns true when `raw` should be rejected as an SSRF target.
