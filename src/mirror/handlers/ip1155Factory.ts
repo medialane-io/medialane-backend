@@ -46,9 +46,10 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
  *   keys[1] = collection_address (ContractAddress)
  *   keys[2] = owner             (ContractAddress)
  *
- * Event data layout (ByteArray fields):
- *   data[0..n] = name  (ByteArray: data_len, ...chunks, pending_word, pending_word_len)
- *   data[n..m] = symbol (ByteArray)
+ * Event data layout (ByteArray fields, v2 factory):
+ *   data[0..n] = name     (ByteArray: data_len, ...chunks, pending_word, pending_word_len)
+ *   data[n..m] = symbol   (ByteArray)
+ *   data[m..p] = base_uri (ByteArray)
  */
 export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
@@ -71,8 +72,9 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
     const startBlock = BigInt(event.block_number ?? 0);
 
     const dataFelts = (event.data ?? []).map((d) => num.toHex(d));
-    const { value: name, nextOffset } = decodeByteArray(dataFelts, 0);
-    const { value: symbol } = decodeByteArray(dataFelts, nextOffset);
+    const { value: name, nextOffset: afterName } = decodeByteArray(dataFelts, 0);
+    const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(dataFelts, afterName);
+    const { value: baseUri } = decodeByteArray(dataFelts, afterSymbol);
 
     await prisma.collection.upsert({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: collectionAddress } },
@@ -81,6 +83,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
         contractAddress: collectionAddress,
         name: name || null,
         symbol: symbol || null,
+        baseUri: baseUri || null,
         owner,
         startBlock,
         source: "ERC1155_FACTORY",
@@ -91,6 +94,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
       update: {
         name: name || undefined,
         symbol: symbol || undefined,
+        baseUri: baseUri || undefined,
         owner,
         standard: "ERC1155",
         isKnown: true,
@@ -103,7 +107,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
       contractAddress: collectionAddress,
     });
 
-    log.info({ collectionAddress, owner, name, symbol, txHash }, "ERC-1155 collection deployed and indexed");
+    log.info({ collectionAddress, owner, name, symbol, baseUri, txHash }, "ERC-1155 collection deployed and indexed");
   } catch (err) {
     log.error({ err, txHash }, "handleIP1155CollectionDeployed failed");
   }
