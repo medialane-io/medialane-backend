@@ -119,11 +119,25 @@ export async function handleCollectionMetadataFetch(payload: {
   // for image/owner that was previously done separately as `existingFull`).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true },
   });
 
   if (existing?.metadataStatus === "FETCHED" && existing?.owner !== null) {
     log.debug({ chain, contractAddress }, "Collection metadata already fetched, skipping");
+    return;
+  }
+
+  // ERC1155_FACTORY collections store name/symbol from the CollectionDeployed event.
+  // These contracts have no name()/symbol()/base_uri() view functions and the
+  // standard detector uses EVM interface IDs that don't match Starknet OZ SRC5 IDs.
+  // Skip all RPC calls — just mark as FETCHED and preserve what was already stored.
+  if (existing?.source === "ERC1155_FACTORY") {
+    await prisma.collection.update({
+      where: { chain_contractAddress: { chain, contractAddress } },
+      data: { standard: "ERC1155", metadataStatus: "FETCHED" },
+    });
+    log.debug({ chain, contractAddress }, "ERC1155_FACTORY collection metadata marked FETCHED (no RPC calls needed)");
+    worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
     return;
   }
 
