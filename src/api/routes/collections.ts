@@ -25,7 +25,7 @@ type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 // Valid source enum values — mirrors the CollectionSource Prisma enum
 const VALID_COLLECTION_SOURCES = new Set([
   "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
-  "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP",
+  "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP", "ERC1155_FACTORY",
 ]);
 
 // GET /v1/collections
@@ -283,6 +283,9 @@ collections.post("/", authMiddleware, async (c) => {
       symbol: body.symbol ?? null,
       description: body.description ?? null,
       image: body.image ?? null,
+      baseUri: body.baseUri ?? null,
+      owner: body.owner ? normalizeAddress(body.owner) : null,
+      standard: body.standard ?? "UNKNOWN",
       startBlock,
       isKnown: true,
     },
@@ -291,6 +294,9 @@ collections.post("/", authMiddleware, async (c) => {
       symbol: body.symbol ?? undefined,
       description: body.description ?? undefined,
       image: body.image ?? undefined,
+      baseUri: body.baseUri ?? undefined,
+      owner: body.owner ? normalizeAddress(body.owner) : undefined,
+      standard: body.standard ?? undefined,
       isKnown: true,
     },
   });
