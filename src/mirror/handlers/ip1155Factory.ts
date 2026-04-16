@@ -55,6 +55,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
       },
       update: {
         owner,
+        standard: "ERC1155",
         isKnown: true,
       },
     });
