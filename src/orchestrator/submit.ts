@@ -40,28 +40,54 @@ export function buildPopulatedCalls(
   const sigCalldata = [sig.length.toString(), ...sig];
 
   if (intentType === "CREATE_LISTING" || intentType === "MAKE_OFFER" || intentType === "COUNTER_OFFER") {
-    // register_order(order: OrderParameters, signature: Span<felt252>)
-    const o = message.offer as Message;
-    const cns = message.consideration as Message;
-    last.calldata = [
-      toFelt(message.offerer),
-      toFelt(o.item_type),
-      toFelt(o.token),
-      toFelt(o.identifier_or_criteria),
-      toFelt(o.start_amount),
-      toFelt(o.end_amount),
-      toFelt(cns.item_type),
-      toFelt(cns.token),
-      toFelt(cns.identifier_or_criteria),
-      toFelt(cns.start_amount),
-      toFelt(cns.end_amount),
-      toFelt(cns.recipient),
-      toFelt(message.start_time),
-      toFelt(message.end_time),
-      toFelt(message.salt),
-      toFelt(message.nonce),
-      ...sigCalldata,
-    ];
+    // ERC-1155 flat OrderParameters: message has nft_contract instead of nested offer/consideration
+    if ("nft_contract" in message) {
+      // register_order(order: OrderParameters1155, signature: Span<felt252>)
+      // Flat struct: offerer, nft_contract, token_id (u256), amount (u256),
+      //              payment_token, price_per_unit (u256), start_time, end_time, salt, nonce
+      const tokenId = message.token_id as { low: string; high: string };
+      const amount = message.amount as { low: string; high: string };
+      const pricePerUnit = message.price_per_unit as { low: string; high: string };
+      last.calldata = [
+        toFelt(message.offerer),
+        toFelt(message.nft_contract),
+        toFelt(tokenId.low),
+        toFelt(tokenId.high),
+        toFelt(amount.low),
+        toFelt(amount.high),
+        toFelt(message.payment_token),
+        toFelt(pricePerUnit.low),
+        toFelt(pricePerUnit.high),
+        toFelt(message.start_time),
+        toFelt(message.end_time),
+        toFelt(message.salt),
+        toFelt(message.nonce),
+        ...sigCalldata,
+      ];
+    } else {
+      // ERC-721 nested OrderParameters: register_order(order: OrderParameters, signature: Span<felt252>)
+      const o = message.offer as Message;
+      const cns = message.consideration as Message;
+      last.calldata = [
+        toFelt(message.offerer),
+        toFelt(o.item_type),
+        toFelt(o.token),
+        toFelt(o.identifier_or_criteria),
+        toFelt(o.start_amount),
+        toFelt(o.end_amount),
+        toFelt(cns.item_type),
+        toFelt(cns.token),
+        toFelt(cns.identifier_or_criteria),
+        toFelt(cns.start_amount),
+        toFelt(cns.end_amount),
+        toFelt(cns.recipient),
+        toFelt(message.start_time),
+        toFelt(message.end_time),
+        toFelt(message.salt),
+        toFelt(message.nonce),
+        ...sigCalldata,
+      ];
+    }
   } else if (intentType === "FULFILL_ORDER") {
     // fulfill_order(fulfillment: OrderFulfillment, signature: Span<felt252>)
     last.calldata = [

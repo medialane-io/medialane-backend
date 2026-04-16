@@ -1,8 +1,9 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
+import { handleOrderCreated1155 } from "./handlers/orderCreated1155.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
@@ -14,7 +15,8 @@ import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT } from "../config/constants.js";
+import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR } from "../config/constants.js";
+import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
@@ -98,9 +100,10 @@ async function tick(tickId: string): Promise<number> {
   });
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
-  // Poll marketplace events, CollectionCreated events, CommentAdded events, POP factory events, and Drop factory events in parallel.
-  const [rawMarketplaceEvents, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents] = await Promise.all([
+  // Poll marketplace events, ERC-1155 marketplace events, CollectionCreated events, etc. in parallel.
+  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
+    pollEvents1155(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
     pollCommentEvents(fromBlock, toBlock),
     pollPopFactoryEvents(fromBlock, toBlock),
@@ -168,6 +171,7 @@ async function tick(tickId: string): Promise<number> {
   tlog.debug(
     {
       marketplace: rawMarketplaceEvents.length,
+      marketplace1155: raw1155Events.length,
       transfers: rawTransferEvents.length,
       collectionCreated: rawCollectionCreatedEvents.length,
       comments: rawCommentEvents.length,
@@ -193,6 +197,7 @@ async function tick(tickId: string): Promise<number> {
   // All writes + cursor advance in one atomic transaction (no async I/O inside)
   await prisma.$transaction(
     async (tx) => {
+      // ── ERC-721 marketplace events ───────────────────────────────────────
       for (const event of parsedEvents) {
         switch (event.type) {
           case "OrderCreated": {
@@ -217,6 +222,41 @@ async function tick(tickId: string): Promise<number> {
           // CollectionCreated handled after tx (requires on-chain call)
         }
       }
+
+      // ── ERC-1155 marketplace events ──────────────────────────────────────
+      // Raw events are processed directly — ERC-1155 OrderCreated carries all
+      // data in the event itself (no RPC get_order_details call needed).
+      const SEL_CREATED   = num.toHex(ORDER_CREATED_SELECTOR);
+      const SEL_FULFILLED = num.toHex(ORDER_FULFILLED_SELECTOR);
+      const SEL_CANCELLED = num.toHex(ORDER_CANCELLED_SELECTOR);
+      for (const rawEvent of raw1155Events) {
+        const selector = num.toHex(rawEvent.keys[0]);
+        if (selector === SEL_CREATED) {
+          const nftContract = await handleOrderCreated1155(rawEvent, tx, CHAIN);
+          if (nftContract) orderNftContracts.add(nftContract);
+        } else if (selector === SEL_FULFILLED || selector === SEL_CANCELLED) {
+          // Fulfilled/Cancelled only need orderHash → re-use existing ERC-721 handlers
+          const orderHash = num.toHex(rawEvent.keys[1]);
+          const offerer   = normalizeAddress(rawEvent.keys[2]);
+          const fulfiller = selector === SEL_FULFILLED ? normalizeAddress(rawEvent.keys[3]) : undefined;
+          const blockNumber = BigInt(rawEvent.block_number);
+          const txHash = rawEvent.transaction_hash ?? "";
+          if (selector === SEL_FULFILLED) {
+            await handleOrderFulfilled(
+              { type: "OrderFulfilled", orderHash, offerer, fulfiller: fulfiller!, blockNumber, txHash, logIndex: 0 },
+              tx, CHAIN
+            );
+            fulfilledOrCancelledHashes.push(orderHash);
+          } else {
+            await handleOrderCancelled(
+              { type: "OrderCancelled", orderHash, offerer, blockNumber, txHash, logIndex: 0 },
+              tx, CHAIN
+            );
+            fulfilledOrCancelledHashes.push(orderHash);
+          }
+        }
+      }
+
       // Cursor advances atomically with the event writes
       await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
     },

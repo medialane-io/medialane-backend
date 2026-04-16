@@ -30,6 +30,8 @@ const listingSchema = z.object({
   price: z.string(),
   endTime: z.number(),
   salt: z.string().optional(),
+  /** ERC-1155 only: number of units to list. Omit for ERC-721. */
+  amount: z.string().optional(),
 });
 
 const offerSchema = listingSchema;

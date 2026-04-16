@@ -1,6 +1,7 @@
 import { createProvider } from "../utils/starknet.js";
 import {
   MARKETPLACE_CONTRACT,
+  MARKETPLACE_1155_CONTRACT,
   COLLECTION_CONTRACT,
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
@@ -69,6 +70,49 @@ export async function pollEvents(
     if (page % 10 === 0) {
       log.debug({ page, total: allEvents.length }, "Paginating events...");
     }
+  } while (continuationToken && page < MAX_PAGES);
+
+  return allEvents;
+}
+
+/**
+ * Fetch OrderCreated / OrderFulfilled / OrderCancelled events from the
+ * Medialane1155 (ERC-1155 marketplace) contract. Same event selectors as the
+ * ERC-721 marketplace; polled separately so handlers can tell contracts apart.
+ */
+export async function pollEvents1155(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!MARKETPLACE_1155_CONTRACT) return [];
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+  let page = 0;
+  const MAX_PAGES = 100;
+
+  do {
+    const response = await provider.getEvents({
+      address: MARKETPLACE_1155_CONTRACT,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [
+        [
+          num.toHex(ORDER_CREATED_SELECTOR),
+          num.toHex(ORDER_FULFILLED_SELECTOR),
+          num.toHex(ORDER_CANCELLED_SELECTOR),
+        ],
+      ],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+    page++;
   } while (continuationToken && page < MAX_PAGES);
 
   return allEvents;

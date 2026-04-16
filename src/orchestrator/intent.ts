@@ -2,8 +2,8 @@
 import type { TypedData } from "starknet";
 import { Contract, num, cairo } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
-import { IPMarketplaceABI } from "../config/abis.js";
-import { MARKETPLACE_CONTRACT, COLLECTION_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
+import { IPMarketplaceABI, Medialane1155ABI } from "../config/abis.js";
+import { MARKETPLACE_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
@@ -74,6 +74,58 @@ const CANCELLATION_TYPES = {
 
 const DOMAIN = { name: "Medialane", version: "1", revision: "1" };
 
+// ─── ERC-1155 Medialane1155 SNIP-12 types ──────────────────────────────────
+// Flat OrderParameters — no nested OfferItem / ConsiderationItem structs.
+// Must exactly match the Cairo StructHash in Medialane1155 types.cairo.
+const SNIP12_TYPES_1155 = {
+  StarknetDomain: [
+    { name: "name", type: "shortstring" },
+    { name: "version", type: "shortstring" },
+    { name: "chainId", type: "shortstring" },
+    { name: "revision", type: "shortstring" },
+  ],
+  u256: [
+    { name: "low", type: "felt" },
+    { name: "high", type: "felt" },
+  ],
+  OrderParameters: [
+    { name: "offerer", type: "ContractAddress" },
+    { name: "nft_contract", type: "ContractAddress" },
+    { name: "token_id", type: "u256" },
+    { name: "amount", type: "u256" },
+    { name: "payment_token", type: "ContractAddress" },
+    { name: "price_per_unit", type: "u256" },
+    { name: "start_time", type: "felt" },
+    { name: "end_time", type: "felt" },
+    { name: "salt", type: "felt" },
+    { name: "nonce", type: "felt" },
+  ],
+};
+
+const FULFILLMENT_TYPES_1155 = {
+  StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
+  OrderFulfillment: FULFILLMENT_TYPES.OrderFulfillment,
+};
+
+const CANCELLATION_TYPES_1155 = {
+  StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
+  OrderCancellation: CANCELLATION_TYPES.OrderCancellation,
+};
+
+const DOMAIN_1155 = { name: "Medialane1155", version: "1", revision: "1" };
+
+function toU256Felt(value: string | number | bigint): { low: string; high: string } {
+  const u = cairo.uint256(value);
+  return { low: toHex(u.low), high: toHex(u.high) };
+}
+
+async function fetchNonce1155(address: string): Promise<string> {
+  const provider = createProvider();
+  const contract = new Contract(Medialane1155ABI as any, MARKETPLACE_1155_CONTRACT, provider);
+  const nonce = await contract.nonces(normalizeAddress(address));
+  return nonce.toString();
+}
+
 function toHex(value: string | number | bigint): string {
   if (typeof value === "string") {
     if (value.startsWith("0x")) return value;
@@ -115,10 +167,54 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
   const token = getTokenByAddress(body.currency);
   if (!token) throw new Error(`Unsupported currency: ${body.currency}`);
   const priceWei = parseAmount(body.price, token.decimals);
-
-  const nonce = await fetchNonce(body.offerer);
-  const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
+  const salt = body.salt ?? generateSalt();
+
+  // ── ERC-1155 path ─────────────────────────────────────────────────────────
+  if (body.amount != null) {
+    const nonce = await fetchNonce1155(body.offerer);
+    const amount = BigInt(body.amount);
+    if (amount < 1n) throw new Error("amount must be at least 1");
+
+    const orderParams = {
+      offerer: toHex(body.offerer),
+      nft_contract: toHex(body.nftContract),
+      token_id: toU256Felt(body.tokenId),
+      amount: toU256Felt(amount),
+      payment_token: toHex(body.currency),
+      price_per_unit: toU256Felt(priceWei),
+      start_time: toHex(Math.floor(Date.now() / 1000) + 30),
+      end_time: toHex(body.endTime),
+      salt: toHex(salt),
+      nonce: toHex(nonce),
+    };
+
+    const typedData: TypedData = {
+      types: SNIP12_TYPES_1155,
+      primaryType: "OrderParameters",
+      domain: { ...DOMAIN_1155, chainId },
+      message: orderParams,
+    };
+
+    // set_approval_for_all(marketplace_1155, true) + register_order(flat_order, signature)
+    const calls = [
+      {
+        contractAddress: body.nftContract,
+        entrypoint: "set_approval_for_all",
+        calldata: [MARKETPLACE_1155_CONTRACT, "0x1"],
+      },
+      {
+        contractAddress: MARKETPLACE_1155_CONTRACT,
+        entrypoint: "register_order",
+        calldata: [], // populated after signature
+      },
+    ];
+
+    return { typedData, calls, orderParams };
+  }
+
+  // ── ERC-721 path ──────────────────────────────────────────────────────────
+  const nonce = await fetchNonce(body.offerer);
 
   const orderParams = {
     offerer: toHex(body.offerer),
@@ -161,7 +257,7 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
     {
       contractAddress: MARKETPLACE_CONTRACT,
       entrypoint: "register_order",
-      calldata: [], // populated client-side after signature
+      calldata: [], // populated after signature
     },
   ];
 
@@ -226,8 +322,19 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
 }
 
 export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
-  const nonce = await fetchNonce(body.fulfiller);
   const chainId = getChainId();
+
+  // Fetch order to determine ERC-721 vs ERC-1155 contract routing
+  const order = await prisma.order.findUnique({
+    where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
+  });
+
+  const is1155 = order?.offerItemType === "ERC1155";
+  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
+
+  const nonce = is1155
+    ? await fetchNonce1155(body.fulfiller)
+    : await fetchNonce(body.fulfiller);
 
   const fulfillment = {
     order_hash: toHex(body.orderHash),
@@ -236,30 +343,26 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   };
 
   const typedData: TypedData = {
-    types: FULFILLMENT_TYPES,
+    types: is1155 ? FULFILLMENT_TYPES_1155 : FULFILLMENT_TYPES,
     primaryType: "OrderFulfillment",
-    domain: { ...DOMAIN, chainId },
+    domain: { ...(is1155 ? DOMAIN_1155 : DOMAIN), chainId },
     message: fulfillment,
   };
 
-  // Fetch order to know what ERC20 to approve
-  const order = await prisma.order.findUnique({
-    where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
-  });
-
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
+  // Approve the payment token to the correct marketplace contract
   if (order?.considerationToken && order?.considerationStartAmount) {
     const amountUint256 = cairo.uint256(order.considerationStartAmount);
     calls.push({
       contractAddress: order.considerationToken,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, amountUint256.low.toString(), amountUint256.high.toString()],
+      calldata: [marketplaceContract, amountUint256.low.toString(), amountUint256.high.toString()],
     });
   }
 
   calls.push({
-    contractAddress: MARKETPLACE_CONTRACT,
+    contractAddress: marketplaceContract,
     entrypoint: "fulfill_order",
     calldata: [],
   });
@@ -268,8 +371,19 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 }
 
 export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
-  const nonce = await fetchNonce(body.offerer);
   const chainId = getChainId();
+
+  // Fetch order to determine ERC-721 vs ERC-1155 contract routing
+  const order = await prisma.order.findUnique({
+    where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
+  });
+
+  const is1155 = order?.offerItemType === "ERC1155";
+  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
+
+  const nonce = is1155
+    ? await fetchNonce1155(body.offerer)
+    : await fetchNonce(body.offerer);
 
   const cancelation = {
     order_hash: toHex(body.orderHash),
@@ -278,15 +392,15 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   };
 
   const typedData: TypedData = {
-    types: CANCELLATION_TYPES,
+    types: is1155 ? CANCELLATION_TYPES_1155 : CANCELLATION_TYPES,
     primaryType: "OrderCancellation",
-    domain: { ...DOMAIN, chainId },
+    domain: { ...(is1155 ? DOMAIN_1155 : DOMAIN), chainId },
     message: cancelation,
   };
 
   const calls = [
     {
-      contractAddress: MARKETPLACE_CONTRACT,
+      contractAddress: marketplaceContract,
       entrypoint: "cancel_order",
       calldata: [] as string[],
     },

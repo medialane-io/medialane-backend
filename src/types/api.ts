@@ -32,6 +32,8 @@ export interface CreateListingIntentBody {
   price: string;
   endTime: number;
   salt?: string;
+  /** Number of units to list. When present the intent uses the Medialane1155 contract (ERC-1155). */
+  amount?: string;
 }
 
 export interface MakeOfferIntentBody {

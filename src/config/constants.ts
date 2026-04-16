@@ -3,6 +3,7 @@ import { env } from "./env.js";
 
 // Contract addresses
 export const MARKETPLACE_CONTRACT = env.MARKETPLACE_CONTRACT_MAINNET;
+export const MARKETPLACE_1155_CONTRACT = env.MARKETPLACE_1155_CONTRACT_MAINNET;
 export const COLLECTION_CONTRACT = env.COLLECTION_CONTRACT_MAINNET;
 
 // Indexer starting block

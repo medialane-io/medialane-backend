@@ -596,3 +596,15 @@ export const IPMarketplaceABI = [
     ],
   },
 ] as const;
+
+// Minimal ABI for Medialane1155 — only the functions needed by the intent builder.
+// Contract: 0x042005e9b85536072bfa260b95aa6aaef07f48e622031657384d2375195d7123
+export const Medialane1155ABI = [
+  {
+    type: "function",
+    name: "nonces",
+    inputs: [{ name: "account", type: "core::starknet::contract_address::ContractAddress" }],
+    outputs: [{ type: "core::felt252" }],
+    state_mutability: "view",
+  },
+] as const;
