@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "./handlers/orderCreated1155.js";
@@ -11,11 +11,12 @@ import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
 import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
+import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR } from "../config/constants.js";
+import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ERC1155_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -101,13 +102,14 @@ async function tick(tickId: string): Promise<number> {
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
   // Poll marketplace events, ERC-1155 marketplace events, CollectionCreated events, etc. in parallel.
-  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents] = await Promise.all([
+  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollEvents1155(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
     pollCommentEvents(fromBlock, toBlock),
     pollPopFactoryEvents(fromBlock, toBlock),
     pollDropFactoryEvents(fromBlock, toBlock),
+    pollERC1155FactoryEvents(fromBlock, toBlock),
   ]);
 
   // Poll Transfer events on a separate 2-minute schedule.
@@ -179,6 +181,7 @@ async function tick(tickId: string): Promise<number> {
       popAllowlist: rawPopAllowlistEvents.length,
       dropFactory: rawDropFactoryEvents.length,
       dropAllowlist: rawDropAllowlistEvents.length,
+      erc1155Factory: rawERC1155FactoryEvents.length,
       nftContractsPolled: nftContracts.length,
     },
     "Fetched events"
@@ -336,6 +339,14 @@ async function tick(tickId: string): Promise<number> {
     await handleDropAllowlistUpdated(event);
   }
 
+  // Process ERC-1155 factory CollectionDeployed events (DB write + metadata job)
+  for (const event of rawERC1155FactoryEvents) {
+    await handleIP1155CollectionDeployed(event);
+    if (event.keys?.[1]) {
+      affectedContracts.add(normalizeAddress(event.keys[1]));
+    }
+  }
+
   // Also collect nftContracts for fulfilled/cancelled orders (already in DB)
   if (fulfilledOrCancelledHashes.length > 0) {
     const orderRows = await prisma.order.findMany({
@@ -396,6 +407,7 @@ async function tick(tickId: string): Promise<number> {
       popAllowlistEvents: rawPopAllowlistEvents.length,
       dropFactoryEvents: rawDropFactoryEvents.length,
       dropAllowlistEvents: rawDropAllowlistEvents.length,
+      erc1155FactoryEvents: rawERC1155FactoryEvents.length,
       parsed: parsedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: allAffectedContracts.size,

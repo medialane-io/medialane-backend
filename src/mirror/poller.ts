@@ -16,6 +16,8 @@ import {
   POP_ALLOWLIST_UPDATED_SELECTOR,
   DROP_FACTORY_CONTRACT,
   DROP_CREATED_SELECTOR,
+  ERC1155_FACTORY_CONTRACT,
+  COLLECTION_DEPLOYED_SELECTOR,
 } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -343,6 +345,40 @@ export async function pollDropAllowlistEvents(
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
       keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
+      chunk_size: 1000,
+      continuation_token: continuationToken,
+    });
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+  } while (continuationToken);
+
+  return allEvents;
+}
+
+/**
+ * Fetch CollectionDeployed events from the IP-Programmable-ERC1155-Collections factory.
+ * Returns an empty array when ERC1155_FACTORY_CONTRACT is not configured.
+ */
+export async function pollERC1155FactoryEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!ERC1155_FACTORY_CONTRACT) return [];
+
+  const provider = createProvider();
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+
+  do {
+    const response = await provider.getEvents({
+      address: ERC1155_FACTORY_CONTRACT,
+      from_block: { block_number: fromBlock },
+      to_block: { block_number: toBlock },
+      keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
       chunk_size: 1000,
       continuation_token: continuationToken,
     });

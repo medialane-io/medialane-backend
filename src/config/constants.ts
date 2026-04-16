@@ -28,6 +28,8 @@ export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS;
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 export const DROP_FACTORY_CONTRACT = env.DROP_FACTORY_ADDRESS;
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
+export const ERC1155_FACTORY_CONTRACT = env.ERC1155_FACTORY_ADDRESS;
+export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 
 // Token map (address → metadata)
 export const SUPPORTED_TOKENS = [

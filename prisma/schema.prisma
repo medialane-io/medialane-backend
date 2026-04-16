@@ -23,6 +23,7 @@ enum CollectionSource {
   GAME
   POP_PROTOCOL
   COLLECTION_DROP
+  ERC1155_FACTORY
 }
 
 enum TokenStandard {

@@ -21,6 +21,10 @@ const envSchema = z.object({
   POP_START_BLOCK: z.coerce.number().default(0),
   DROP_FACTORY_ADDRESS: z.string().default(""),
   DROP_START_BLOCK: z.coerce.number().default(0),
+  ERC1155_FACTORY_ADDRESS: z
+    .string()
+    .default("0x0459a9a3c04be5d884a038744f977dff019897264d4a281f9e0f87af417b3bec"),
+  ERC1155_FACTORY_START_BLOCK: z.coerce.number().default(0),
   INDEXER_START_BLOCK: z.coerce.number().default(6204232),
   COLLECTION_START_BLOCK: z.coerce.number().default(8660000),
   PINATA_JWT: z.string().default(""),
