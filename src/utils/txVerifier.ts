@@ -1,6 +1,6 @@
 import { env } from "../config/env.js";
 import { normalizeAddress } from "./starknet.js";
-import { MARKETPLACE_CONTRACT } from "../config/constants.js";
+import { MARKETPLACE_CONTRACT, MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("txVerifier");
@@ -15,12 +15,23 @@ export type VerifyResult =
   | { status: "FAILED"; failReason: string };
 
 /**
- * Verify that a Starknet transaction emitted at least one event from the
- * marketplace contract. Catches ChipiPay silent failures where the outer
- * multicall reports SUCCEEDED but the inner marketplace call panics.
+ * Verify that a Starknet transaction emitted at least one event from a
+ * marketplace contract. Accepts an optional extra contract address so that
+ * ERC-1155 marketplace operations (MARKETPLACE_1155_CONTRACT) are verified
+ * correctly in addition to the default ERC-721 marketplace.
+ *
+ * Catches ChipiPay silent failures where the outer multicall reports SUCCEEDED
+ * but the inner marketplace call panics.
  */
-export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult> {
-  const normalizedMarketplace = normalizeAddress(MARKETPLACE_CONTRACT);
+export async function verifyMarketplaceTx(
+  txHash: string,
+  extraContractAddress?: string
+): Promise<VerifyResult> {
+  const validContracts = new Set([
+    normalizeAddress(MARKETPLACE_CONTRACT),
+    normalizeAddress(MARKETPLACE_1155_CONTRACT),
+    ...(extraContractAddress ? [normalizeAddress(extraContractAddress)] : []),
+  ]);
 
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     if (RETRY_DELAYS_MS[attempt] > 0) {
@@ -64,10 +75,10 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
 
       const events = (receipt.events as Array<{ from_address?: string }>) ?? [];
 
-      // Events present — check for marketplace event
+      // Events present — check for marketplace event (ERC-721 or ERC-1155 contract)
       if (events.length > 0) {
         const hasMarketplaceEvent = events.some(
-          (e) => normalizeAddress(e.from_address ?? "") === normalizedMarketplace
+          (e) => validContracts.has(normalizeAddress(e.from_address ?? ""))
         );
 
         if (hasMarketplaceEvent) {
