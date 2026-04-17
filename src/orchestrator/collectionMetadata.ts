@@ -4,6 +4,7 @@ import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
+import { ipfsToHttp } from "../utils/ipfs.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
@@ -119,7 +120,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // for image/owner that was previously done separately as `existingFull`).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, baseUri: true, description: true },
   });
 
   if (existing?.metadataStatus === "FETCHED" && existing?.owner !== null) {
@@ -127,16 +128,44 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  // ERC1155_FACTORY collections store name/symbol from the CollectionDeployed event.
-  // These contracts have no name()/symbol()/base_uri() view functions and the
-  // standard detector uses EVM interface IDs that don't match Starknet OZ SRC5 IDs.
-  // Skip all RPC calls — just mark as FETCHED and preserve what was already stored.
+  // ERC1155_FACTORY collections: name, symbol, and base_uri are decoded directly from
+  // the CollectionDeployed event by the indexer and written at index time — they are
+  // the on-chain source of truth. Although v2 contracts expose name()/symbol()/base_uri()
+  // view functions, we skip the RPC fetch here to avoid overwriting event-sourced data
+  // and because detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet
+  // OZ SRC5 interface IDs (would always return UNKNOWN). standard=ERC1155 is set directly.
   if (existing?.source === "ERC1155_FACTORY") {
+    // Resolve image + description from the base_uri JSON if not already set.
+    // base_uri points to an IPFS collection metadata JSON (OpenSea format):
+    // { name, description, image, external_link }
+    let resolvedImage: string | null = existing.image ?? null;
+    let resolvedDescription: string | null = existing.description ?? null;
+    if (existing?.baseUri && (!resolvedImage || !resolvedDescription)) {
+      try {
+        const metaUrl = ipfsToHttp(existing.baseUri);
+        const res = await fetch(metaUrl, { signal: AbortSignal.timeout(10_000) });
+        if (res.ok) {
+          const meta = await res.json() as Record<string, unknown>;
+          if (!resolvedImage && typeof meta.image === "string" && meta.image) {
+            resolvedImage = meta.image;
+          }
+          if (!resolvedDescription && typeof meta.description === "string" && meta.description) {
+            resolvedDescription = meta.description;
+          }
+        }
+      } catch { /* non-fatal — image/description remain null */ }
+    }
+
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
-      data: { standard: "ERC1155", metadataStatus: "FETCHED" },
+      data: {
+        standard: "ERC1155",
+        metadataStatus: "FETCHED",
+        image: resolvedImage ?? undefined,
+        description: resolvedDescription ?? undefined,
+      },
     });
-    log.debug({ chain, contractAddress }, "ERC1155_FACTORY collection metadata marked FETCHED (no RPC calls needed)");
+    log.debug({ chain, contractAddress, resolvedImage }, "ERC1155_FACTORY collection metadata marked FETCHED");
     worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
     return;
   }
