@@ -43,21 +43,16 @@ export function buildPopulatedCalls(
     // ERC-1155 flat OrderParameters: message has nft_contract instead of nested offer/consideration
     if ("nft_contract" in message) {
       // register_order(order: OrderParameters1155, signature: Span<felt252>)
-      // Flat struct: offerer, nft_contract, token_id (u256), amount (u256),
-      //              payment_token, price_per_unit (u256), start_time, end_time, salt, nonce
-      const tokenId = message.token_id as { low: string; high: string };
-      const amount = message.amount as { low: string; high: string };
-      const pricePerUnit = message.price_per_unit as { low: string; high: string };
+      // Cairo struct fields token_id, amount, price_per_unit are felt252 — one felt each.
+      // (NOT u256: serializing as [low, high] would shift all subsequent fields and cause
+      // the INVALID_AMOUNT assert to fire because Cairo reads token_id.high as amount.)
       last.calldata = [
         toFelt(message.offerer),
         toFelt(message.nft_contract),
-        toFelt(tokenId.low),
-        toFelt(tokenId.high),
-        toFelt(amount.low),
-        toFelt(amount.high),
+        toFelt(message.token_id),
+        toFelt(message.amount),
         toFelt(message.payment_token),
-        toFelt(pricePerUnit.low),
-        toFelt(pricePerUnit.high),
+        toFelt(message.price_per_unit),
         toFelt(message.start_time),
         toFelt(message.end_time),
         toFelt(message.salt),
