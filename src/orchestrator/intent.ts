@@ -163,57 +163,62 @@ function parseAmount(humanAmount: string, decimals: number): bigint {
   return integer * BigInt(10 ** decimals) + BigInt(fraction);
 }
 
-export async function buildCreateListingIntent(body: CreateListingIntentBody) {
+/** Build a CREATE_LISTING intent for an ERC-1155 token. */
+async function buildCreateListing1155Intent(body: CreateListingIntentBody & { amount: string }) {
   const token = getTokenByAddress(body.currency);
   if (!token) throw new Error(`Unsupported currency: ${body.currency}`);
   const priceWei = parseAmount(body.price, token.decimals);
   const chainId = getChainId();
   const salt = body.salt ?? generateSalt();
 
-  // ── ERC-1155 path ─────────────────────────────────────────────────────────
-  if (body.amount != null) {
-    const nonce = await fetchNonce1155(body.offerer);
-    const amount = BigInt(body.amount);
-    if (amount < 1n) throw new Error("amount must be at least 1");
+  const amount = BigInt(body.amount);
+  if (amount < 1n) throw new Error("amount must be at least 1");
+  const nonce = await fetchNonce1155(body.offerer);
 
-    const orderParams = {
-      offerer: toHex(body.offerer),
-      nft_contract: toHex(body.nftContract),
-      token_id: toU256Felt(body.tokenId),
-      amount: toU256Felt(amount),
-      payment_token: toHex(body.currency),
-      price_per_unit: toU256Felt(priceWei),
-      start_time: toHex(Math.floor(Date.now() / 1000) + 30),
-      end_time: toHex(body.endTime),
-      salt: toHex(salt),
-      nonce: toHex(nonce),
-    };
+  const orderParams = {
+    offerer: toHex(body.offerer),
+    nft_contract: toHex(body.nftContract),
+    token_id: toU256Felt(body.tokenId),
+    amount: toU256Felt(amount),
+    payment_token: toHex(body.currency),
+    price_per_unit: toU256Felt(priceWei),
+    start_time: toHex(Math.floor(Date.now() / 1000) + 30),
+    end_time: toHex(body.endTime),
+    salt: toHex(salt),
+    nonce: toHex(nonce),
+  };
 
-    const typedData: TypedData = {
-      types: SNIP12_TYPES_1155,
-      primaryType: "OrderParameters",
-      domain: { ...DOMAIN_1155, chainId },
-      message: orderParams,
-    };
+  const typedData: TypedData = {
+    types: SNIP12_TYPES_1155,
+    primaryType: "OrderParameters",
+    domain: { ...DOMAIN_1155, chainId },
+    message: orderParams,
+  };
 
-    // set_approval_for_all(marketplace_1155, true) + register_order(flat_order, signature)
-    const calls = [
-      {
-        contractAddress: body.nftContract,
-        entrypoint: "set_approval_for_all",
-        calldata: [MARKETPLACE_1155_CONTRACT, "0x1"],
-      },
-      {
-        contractAddress: MARKETPLACE_1155_CONTRACT,
-        entrypoint: "register_order",
-        calldata: [], // populated after signature
-      },
-    ];
+  // set_approval_for_all(marketplace_1155, true) + register_order(flat_order, signature)
+  const calls = [
+    {
+      contractAddress: body.nftContract,
+      entrypoint: "set_approval_for_all",
+      calldata: [MARKETPLACE_1155_CONTRACT, "0x1"],
+    },
+    {
+      contractAddress: MARKETPLACE_1155_CONTRACT,
+      entrypoint: "register_order",
+      calldata: [], // populated after signature
+    },
+  ];
 
-    return { typedData, calls, orderParams };
-  }
+  return { typedData, calls, orderParams };
+}
 
-  // ── ERC-721 path ──────────────────────────────────────────────────────────
+/** Build a CREATE_LISTING intent for an ERC-721 token. */
+async function buildCreateListing721Intent(body: CreateListingIntentBody) {
+  const token = getTokenByAddress(body.currency);
+  if (!token) throw new Error(`Unsupported currency: ${body.currency}`);
+  const priceWei = parseAmount(body.price, token.decimals);
+  const chainId = getChainId();
+  const salt = body.salt ?? generateSalt();
   const nonce = await fetchNonce(body.offerer);
 
   const orderParams = {
@@ -262,6 +267,14 @@ export async function buildCreateListingIntent(body: CreateListingIntentBody) {
   ];
 
   return { typedData, calls, orderParams };
+}
+
+/** Dispatch to the correct listing intent builder based on token standard.
+ *  Presence of `amount` indicates ERC-1155; absence means ERC-721. */
+export async function buildCreateListingIntent(body: CreateListingIntentBody) {
+  return body.amount != null
+    ? buildCreateListing1155Intent({ ...body, amount: body.amount })
+    : buildCreateListing721Intent(body);
 }
 
 export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {

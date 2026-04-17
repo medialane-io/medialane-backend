@@ -10,28 +10,24 @@ const log = createLogger("txVerifier");
 // A short sequence is sufficient; the frontend handles user-facing timeout.
 const RETRY_DELAYS_MS = [0, 3000, 5000, 7000, 10_000];
 
+// Built once at module load — both marketplace contracts are static constants.
+// An event from either address counts as a confirmed marketplace operation.
+const VALID_MARKETPLACE_CONTRACTS = new Set([
+  normalizeAddress(MARKETPLACE_CONTRACT),
+  normalizeAddress(MARKETPLACE_1155_CONTRACT),
+]);
+
 export type VerifyResult =
   | { status: "CONFIRMED" }
   | { status: "FAILED"; failReason: string };
 
 /**
  * Verify that a Starknet transaction emitted at least one event from a
- * marketplace contract. Accepts an optional extra contract address so that
- * ERC-1155 marketplace operations (MARKETPLACE_1155_CONTRACT) are verified
- * correctly in addition to the default ERC-721 marketplace.
- *
- * Catches ChipiPay silent failures where the outer multicall reports SUCCEEDED
- * but the inner marketplace call panics.
+ * marketplace contract (ERC-721 or ERC-1155). Catches ChipiPay silent
+ * failures where the outer multicall reports SUCCEEDED but the inner
+ * marketplace call panics.
  */
-export async function verifyMarketplaceTx(
-  txHash: string,
-  extraContractAddress?: string
-): Promise<VerifyResult> {
-  const validContracts = new Set([
-    normalizeAddress(MARKETPLACE_CONTRACT),
-    normalizeAddress(MARKETPLACE_1155_CONTRACT),
-    ...(extraContractAddress ? [normalizeAddress(extraContractAddress)] : []),
-  ]);
+export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult> {
 
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     if (RETRY_DELAYS_MS[attempt] > 0) {
@@ -78,7 +74,7 @@ export async function verifyMarketplaceTx(
       // Events present — check for marketplace event (ERC-721 or ERC-1155 contract)
       if (events.length > 0) {
         const hasMarketplaceEvent = events.some(
-          (e) => validContracts.has(normalizeAddress(e.from_address ?? ""))
+          (e) => VALID_MARKETPLACE_CONTRACTS.has(normalizeAddress(e.from_address ?? ""))
         );
 
         if (hasMarketplaceEvent) {
