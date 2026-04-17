@@ -123,7 +123,14 @@ export async function handleCollectionMetadataFetch(payload: {
     select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, baseUri: true, description: true },
   });
 
-  if (existing?.metadataStatus === "FETCHED" && existing?.owner !== null) {
+  // Skip if already fully resolved. For ERC1155_FACTORY collections, also re-run
+  // if image is still null (base_uri JSON fetch may not have happened on the first pass).
+  const alreadyComplete =
+    existing?.metadataStatus === "FETCHED" &&
+    existing?.owner !== null &&
+    (existing?.source !== "ERC1155_FACTORY" || existing?.image !== null);
+
+  if (alreadyComplete) {
     log.debug({ chain, contractAddress }, "Collection metadata already fetched, skipping");
     return;
   }
