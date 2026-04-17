@@ -265,6 +265,21 @@ Comments are indexed from `CommentAdded` events emitted by the NFTComments contr
 
 If a migration gets stuck as "failed" in Railway but was actually applied: `prisma migrate resolve --applied <name>` fixes it without data loss.
 
+### ERC-1155 SNIP-12 types: felt252, NOT u256 (fixed 2026-04-17)
+
+The Medialane1155 Cairo contract hashes `OrderParameters` fields `token_id`, `amount`, and `price_per_unit` as **felt252**, not u256. The SNIP-12 type definitions in `src/orchestrator/intent.ts` (`SNIP12_TYPES_1155`) and the calldata serialization in `src/orchestrator/submit.ts` must use single felt values for these three fields.
+
+**Why this matters:** If they are declared as `u256` (two-felt struct), the Poseidon hash computed by the backend differs from the hash computed by the Cairo contract → signature verification fails → `register_order` panics inside ChipiPay's multicall. ChipiPay's account catches the inner panic so the outer tx reports `SUCCEEDED`, but no marketplace event is emitted — `txVerifier` correctly flags it as FAILED.
+
+**Do not revert to u256:** The `SNIP12_TYPES_1155.u256` sub-type and `toU256Felt()` helper were removed in commit `953b286`. If you see `u256` re-appear in `SNIP12_TYPES_1155`, that is a regression.
+
+The calldata layout for `register_order` (Medialane1155) is:
+```
+offerer, nft_contract, token_id, amount, payment_token, price_per_unit,
+start_time, end_time, salt, nonce, sig_len, sig[0], sig[1]
+```
+13 fields before signature — NOT 16 (which would be the broken u256-expanded layout).
+
 ### Floor price storage (fixed 2026-03-20)
 `STATS_UPDATE` stores `floorPrice` as `"1.500000 USDC"` (human-readable + symbol). If `considerationToken` is null or unknown to `getTokenByAddress()`, `floorPrice` is set to `null` — raw wei is **never** stored. Previous behaviour stored raw wei (e.g. `"1000000000000000000"`) which the frontend rendered as `"1,000,000,000,000,000,000"`. Fix is in `src/orchestrator/stats.ts`.
 
@@ -361,12 +376,14 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 ## Key Contracts (mainnet)
 
-- Marketplace (v2, current): `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` (deployed block 8482853)
-- Marketplace (v1, legacy — fulfilled orders preserved): `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f`
+- Marketplace ERC-721 (v2, current): `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` (deployed block 8482853)
+- Marketplace ERC-721 (v1, legacy — fulfilled orders preserved): `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f`
+- **Marketplace ERC-1155 (Medialane1155)**: `0x042005e9b85536072bfa260b95aa6aaef07f48e622031657384d2375195d7123`
 - Collection (ERC-721): `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b`
 - NFTComments: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` (class hash: `0x1edbebcd184c3ea65c19f59f2cbc11ef8b3a2883b4fe97db1caf0b29c6ea0dd` after 2026-03-22 upgrade)
 - Indexer start block: `6204232`
-- SNIP-12 domain: `{ name: "Medialane", version: "1", revision: "1" }`
+- SNIP-12 domain ERC-721: `{ name: "Medialane", version: "1", revision: "1" }`
+- SNIP-12 domain ERC-1155: `{ name: "Medialane1155", version: "1", revision: "1" }`
 - Event selectors computed via `hash.getSelectorFromName()` at startup
 
 ---
