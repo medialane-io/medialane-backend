@@ -5,6 +5,7 @@ import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
 import { ipfsToHttp } from "../utils/ipfs.js";
+import { IPFS_GATEWAYS } from "../config/constants.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
@@ -148,19 +149,26 @@ export async function handleCollectionMetadataFetch(payload: {
     let resolvedImage: string | null = existing.image ?? null;
     let resolvedDescription: string | null = existing.description ?? null;
     if (existing?.baseUri && (!resolvedImage || !resolvedDescription)) {
-      try {
-        const metaUrl = ipfsToHttp(existing.baseUri);
-        const res = await fetch(metaUrl, { signal: AbortSignal.timeout(10_000) });
-        if (res.ok) {
-          const meta = await res.json() as Record<string, unknown>;
-          if (!resolvedImage && typeof meta.image === "string" && meta.image) {
-            resolvedImage = meta.image;
-          }
-          if (!resolvedDescription && typeof meta.description === "string" && meta.description) {
-            resolvedDescription = meta.description;
-          }
+      // Try each IPFS gateway in order — the private Pinata gateway can block
+      // server-side requests, so fall through to public gateways as needed.
+      const cid = existing.baseUri.startsWith("ipfs://") ? existing.baseUri.slice(7) : null;
+      if (cid) {
+        for (let i = 0; i < IPFS_GATEWAYS.length; i++) {
+          try {
+            const metaUrl = `${IPFS_GATEWAYS[i]}/${cid}`;
+            const res = await fetch(metaUrl, { signal: AbortSignal.timeout(10_000) });
+            if (!res.ok) continue;
+            const meta = await res.json() as Record<string, unknown>;
+            if (!resolvedImage && typeof meta.image === "string" && meta.image) {
+              resolvedImage = meta.image;
+            }
+            if (!resolvedDescription && typeof meta.description === "string" && meta.description) {
+              resolvedDescription = meta.description;
+            }
+            break; // success — stop trying gateways
+          } catch { /* try next gateway */ }
         }
-      } catch { /* non-fatal — image/description remain null */ }
+      }
     }
 
     await prisma.collection.update({
