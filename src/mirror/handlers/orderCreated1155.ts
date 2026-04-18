@@ -94,7 +94,7 @@ export async function handleOrderCreated1155(
   // Auto-create collection + token records if they don't exist yet
   await tx.collection.upsert({
     where: { chain_contractAddress: { chain, contractAddress: nftContract } },
-    create: { chain, contractAddress: nftContract, startBlock: blockNumber, isKnown: false },
+    create: { chain, contractAddress: nftContract, startBlock: blockNumber },
     update: {},
   });
 

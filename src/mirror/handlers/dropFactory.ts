@@ -54,7 +54,6 @@ export async function handleDropCreated(event: RawStarknetEvent): Promise<void> 
         owner: organizer,
         startBlock,
         source: "COLLECTION_DROP",
-        isKnown: true,
         metadataStatus: "PENDING",
       },
       update: {

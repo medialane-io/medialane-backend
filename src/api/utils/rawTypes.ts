@@ -48,7 +48,7 @@ export interface RawCollectionRow {
   owner: string | null;
   metadataStatus: MetadataStatus;
   startBlock: bigint;
-  isKnown: boolean;
+  isFeatured: boolean;
   floorPrice: string | null;
   totalVolume: string | null;
   holderCount: number;

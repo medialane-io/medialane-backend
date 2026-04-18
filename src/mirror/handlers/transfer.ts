@@ -66,7 +66,7 @@ async function upsertTokenAndCollection(
   });
   await tx.collection.upsert({
     where: { chain_contractAddress: { chain, contractAddress } },
-    create: { chain, contractAddress, startBlock: blockNumber, isKnown: false, metadataStatus: "PENDING" },
+    create: { chain, contractAddress, startBlock: blockNumber, metadataStatus: "PENDING" },
     update: {},
   });
 }

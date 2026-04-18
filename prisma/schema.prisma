@@ -195,7 +195,7 @@ model Collection {
   owner           String?
   metadataStatus  MetadataStatus @default(PENDING)
   startBlock      BigInt
-  isKnown         Boolean        @default(false)
+  isFeatured      Boolean        @default(false)
   isHidden         Boolean          @default(false)
   floorPrice      String?
   totalVolume     String?

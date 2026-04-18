@@ -88,7 +88,6 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
         startBlock,
         source: "ERC1155_FACTORY",
         standard: "ERC1155",
-        isKnown: true,
         metadataStatus: "PENDING",
       },
       update: {
@@ -97,7 +96,6 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
         baseUri: baseUri || undefined,
         owner,
         standard: "ERC1155",
-        isKnown: true,
       },
     });
 

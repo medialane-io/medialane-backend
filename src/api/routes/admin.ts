@@ -274,7 +274,7 @@ admin.post("/collections", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /admin/collections/:contract — update collection fields (name, description, image, isKnown)
+// PATCH /admin/collections/:contract — update collection fields (name, description, image, isFeatured)
 // ---------------------------------------------------------------------------
 admin.patch("/collections/:contract", async (c) => {
   const { contract } = c.req.param();
@@ -284,7 +284,7 @@ admin.patch("/collections/:contract", async (c) => {
     symbol:       z.string().optional(),
     description:  z.string().optional(),
     image:        z.string().optional(),
-    isKnown:      z.boolean().optional(),
+    isFeatured:   z.boolean().optional(),
     isHidden:     z.boolean().optional(),
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
@@ -306,7 +306,7 @@ admin.patch("/collections/:contract", async (c) => {
     data: updateData,
   });
 
-  return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, isKnown: updated.isKnown } });
+  return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, isFeatured: updated.isFeatured } });
 });
 
 // ---------------------------------------------------------------------------
@@ -710,13 +710,13 @@ admin.get("/collections", async (c) => {
   const limit = parseInt(c.req.query("limit") ?? "20");
   const source = c.req.query("source");
   const metadataStatus = c.req.query("metadataStatus");
-  const isKnownParam = c.req.query("isKnown");
+  const isFeaturedParam = c.req.query("isFeatured");
   const search = c.req.query("search");
 
   const where: Record<string, unknown> = {};
   if (source) where.source = source;
   if (metadataStatus) where.metadataStatus = metadataStatus;
-  if (isKnownParam !== undefined && isKnownParam !== "") where.isKnown = isKnownParam === "true";
+  if (isFeaturedParam !== undefined && isFeaturedParam !== "") where.isFeatured = isFeaturedParam === "true";
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },

@@ -32,7 +32,7 @@ const VALID_COLLECTION_SOURCES = new Set([
 collections.get("/", async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
-  const isKnown   = c.req.query("isKnown");
+  const isFeatured   = c.req.query("isFeatured");
   const owner     = c.req.query("owner");
   const source    = c.req.query("source");
   const hideEmpty = c.req.query("hideEmpty") === "true";
@@ -50,8 +50,8 @@ collections.get("/", async (c) => {
   // floor and volume are String? columns — need ::numeric cast via raw SQL
   if (sort === "floor" || sort === "volume") {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`, Prisma.sql`"isHidden" = false`];
-    if (isKnown === "true")  conditions.push(Prisma.sql`"isKnown" = true`);
-    if (isKnown === "false") conditions.push(Prisma.sql`"isKnown" = false`);
+    if (isFeatured === "true")  conditions.push(Prisma.sql`"isFeatured" = true`);
+    if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
     if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
     if (source)    conditions.push(Prisma.sql`source = ${source}::"CollectionSource"`);
     if (hideEmpty) conditions.push(Prisma.sql`"totalSupply" > 0`);
@@ -81,8 +81,8 @@ collections.get("/", async (c) => {
 
   // ORM path for recent / supply / name
   const where: any = { chain: "STARKNET", isHidden: false };
-  if (isKnown === "true")  where.isKnown = true;
-  if (isKnown === "false") where.isKnown = false;
+  if (isFeatured === "true")  where.isFeatured = true;
+  if (isFeatured === "false") where.isFeatured = false;
   if (owner)     where.owner = normalizeAddress(owner);
   if (source)    where.source = source;
   if (hideEmpty) where.totalSupply = { gt: 0 };
@@ -287,7 +287,6 @@ collections.post("/", authMiddleware, async (c) => {
       owner: body.owner ? normalizeAddress(body.owner) : null,
       standard: body.standard ?? "UNKNOWN",
       startBlock,
-      isKnown: true,
     },
     update: {
       name: body.name ?? undefined,
@@ -297,7 +296,6 @@ collections.post("/", authMiddleware, async (c) => {
       baseUri: body.baseUri ?? undefined,
       owner: body.owner ? normalizeAddress(body.owner) : undefined,
       standard: body.standard ?? undefined,
-      isKnown: true,
     },
   });
 
@@ -319,7 +317,7 @@ function serializeCollection(c: any) {
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
     standard: c.standard ?? "UNKNOWN",
-    isKnown: c.isKnown,
+    isFeatured: c.isFeatured,
     isHidden: c.isHidden,
     source: c.source,
     claimedBy: c.claimedBy ?? null,

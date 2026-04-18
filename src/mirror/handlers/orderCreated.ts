@@ -122,7 +122,6 @@ export async function handleOrderCreated(
         chain,
         contractAddress: nftContract,
         startBlock: event.blockNumber,
-        isKnown: false,
       },
       update: {},
     });
