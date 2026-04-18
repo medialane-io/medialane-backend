@@ -514,6 +514,20 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
           data: { status: "FULFILLED" },
         }),
       ]);
+    } else if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
+      // Atomic: confirm intent + mark order CANCELLED so the UI updates immediately
+      // (mirrors the FULFILL_ORDER fast-path — prevents orders staying ACTIVE if the
+      // indexer lags or misses the OrderCancelled event)
+      await prisma.$transaction([
+        prisma.transactionIntent.update({
+          where: { id: intentId },
+          data: { status: "CONFIRMED" },
+        }),
+        prisma.order.update({
+          where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
+          data: { status: "CANCELLED" },
+        }),
+      ]);
     } else {
       await prisma.transactionIntent.update({
         where: { id: intentId },

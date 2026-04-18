@@ -754,6 +754,26 @@ admin.post("/orders/:orderHash/resync", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/orders/:orderHash/cancel — force-cancel an order that the indexer missed
+// ---------------------------------------------------------------------------
+admin.post("/orders/:orderHash/cancel", async (c) => {
+  const orderHash = c.req.param("orderHash");
+  const order = await prisma.order.findFirst({ where: { orderHash } });
+  if (!order) return c.json({ error: "Order not found" }, 404);
+
+  if (order.status === "CANCELLED") {
+    return c.json({ status: "CANCELLED", note: "Already cancelled" });
+  }
+
+  await prisma.order.update({
+    where: { chain_orderHash: { chain: order.chain, orderHash } },
+    data: { status: "CANCELLED" },
+  });
+
+  return c.json({ status: "CANCELLED", orderHash });
+});
+
+// ---------------------------------------------------------------------------
 // GET /admin/reports — list reports, paginated, enriched with target name + image
 // ---------------------------------------------------------------------------
 admin.get("/reports", async (c) => {
