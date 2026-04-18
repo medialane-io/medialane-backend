@@ -1,3 +1,4 @@
+import { hash } from "starknet";
 import { env } from "../config/env.js";
 import { normalizeAddress } from "./starknet.js";
 import { MARKETPLACE_CONTRACT, MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
@@ -105,4 +106,49 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
     failReason:
       "Transaction verification timed out. Check your wallet for the transaction status.",
   };
+}
+
+// ERC-721 OrderDetails flat layout: [offerer, offer×5, consideration×6, start_time, end_time, order_status, ...]
+// ERC-1155 OrderDetails flat layout: [offerer, nft_contract, token_id, amount, payment_token, price_per_unit, start_time, end_time, order_status, ...]
+const ORDER_STATUS_INDEX = { erc721: 14, erc1155: 8 };
+const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
+
+/**
+ * Call get_order_details on-chain and return true if the order's status is Cancelled.
+ * Used to detect orders that are already cancelled on-chain but still ACTIVE in the DB.
+ * Returns false on any error (safe fallback — don't make incorrect updates).
+ */
+export async function checkOnChainOrderCancelled(orderHash: string, is1155: boolean): Promise<boolean> {
+  const contractAddress = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
+  const statusIndex = is1155 ? ORDER_STATUS_INDEX.erc1155 : ORDER_STATUS_INDEX.erc721;
+
+  try {
+    const res = await fetch(env.ALCHEMY_RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "starknet_call",
+        params: {
+          request: {
+            contract_address: contractAddress,
+            entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
+            calldata: [orderHash],
+          },
+          block_id: "latest",
+        },
+        id: 1,
+      }),
+    });
+
+    const json = await res.json() as { result?: string[]; error?: unknown };
+    if (!json.result || json.result.length <= statusIndex) return false;
+
+    // Cairo OrderStatus enum: 0=None, 1=Created, 2=Filled, 3=Cancelled
+    const statusVal = Number(BigInt(json.result[statusIndex]));
+    return statusVal === 3; // Cancelled
+  } catch (err) {
+    log.warn({ err, orderHash }, "checkOnChainOrderCancelled: RPC call failed");
+    return false;
+  }
 }

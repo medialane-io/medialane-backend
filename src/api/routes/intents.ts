@@ -14,7 +14,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
-import { verifyMarketplaceTx } from "../../utils/txVerifier.js";
+import { verifyMarketplaceTx, checkOnChainOrderCancelled } from "../../utils/txVerifier.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:intents");
@@ -490,13 +490,15 @@ const MARKETPLACE_INTENT_TYPES = new Set([
 ]);
 
 /** Background: verify tx receipt and settle intent to CONFIRMED or FAILED.
- *  For FULFILL_ORDER intents, also marks the order FULFILLED so the API
- *  reflects the correct state before the indexer catches up (~6s delay). */
+ *  For FULFILL_ORDER and CANCEL_ORDER intents, also syncs the order status in DB
+ *  so the UI reflects the correct state before the indexer catches up (~6s delay).
+ *  On cancel failure, checks on-chain status: if the order is already Cancelled
+ *  on-chain (stale DB), syncs DB to CANCELLED so the listing disappears immediately. */
 async function verifyAndSettle(intentId: string, txHash: string): Promise<void> {
   const [intent, verifyResult] = await Promise.all([
     prisma.transactionIntent.findUnique({
       where: { id: intentId },
-      select: { type: true, orderHash: true },
+      select: { type: true, orderHash: true, requester: true },
     }),
     verifyMarketplaceTx(txHash),
   ]);
@@ -522,6 +524,18 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
           data: { status: orderStatus },
         }),
       ]);
+    } else if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
+      // Atomic: confirm intent + mark order CANCELLED immediately (don't wait for indexer)
+      await prisma.$transaction([
+        prisma.transactionIntent.update({
+          where: { id: intentId },
+          data: { status: "CONFIRMED" },
+        }),
+        prisma.order.update({
+          where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
+          data: { status: "CANCELLED" },
+        }),
+      ]);
     } else {
       await prisma.transactionIntent.update({
         where: { id: intentId },
@@ -535,6 +549,28 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
       data: { status: "FAILED" },
     });
     log.warn({ intentId, txHash, reason: verifyResult.failReason }, "Intent FAILED");
+
+    // On cancel failure: the inner cancel_order call panicked — most likely because
+    // the order was already cancelled on-chain (DB is stale). Check on-chain and sync.
+    if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
+      const order = await prisma.order.findUnique({
+        where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
+        select: { offerItemType: true },
+      });
+      const is1155 = order?.offerItemType === "ERC1155";
+      const alreadyCancelled = await checkOnChainOrderCancelled(intent.orderHash, is1155);
+      if (alreadyCancelled) {
+        await prisma.order.updateMany({
+          where: {
+            chain: "STARKNET",
+            orderHash: intent.orderHash,
+            status: "ACTIVE",
+          },
+          data: { status: "CANCELLED" },
+        });
+        log.info({ intentId, orderHash: intent.orderHash }, "Stale order synced to CANCELLED after failed cancel tx");
+      }
+    }
   }
 }
 
