@@ -210,7 +210,34 @@ profiles.get("/creators", async (c) => {
     }),
   ]);
 
-  return c.json({ creators, total, page, limit });
+  // For creators without avatarImage and bannerImage, populate collectionImage
+  // from their first (most recent) collection — single batch query, no N+1.
+  const needsImage = creators.filter((c) => !c.avatarImage && !c.bannerImage);
+  const collectionImageMap = new Map<string, string>();
+
+  if (needsImage.length > 0) {
+    const wallets = needsImage.map((c) => c.walletAddress);
+    // DISTINCT ON owner gives us the most-recent collection image per owner in one query.
+    const rows = await prisma.$queryRaw<{ owner: string; image: string }[]>`
+      SELECT DISTINCT ON (owner) owner, image
+      FROM "Collection"
+      WHERE owner = ANY(${wallets}::text[])
+        AND image IS NOT NULL
+      ORDER BY owner, "createdAt" DESC
+    `;
+    for (const row of rows) {
+      collectionImageMap.set(row.owner, row.image);
+    }
+  }
+
+  const enriched = creators.map((c) => ({
+    ...c,
+    collectionImage: (!c.avatarImage && !c.bannerImage)
+      ? (collectionImageMap.get(c.walletAddress) ?? null)
+      : null,
+  }));
+
+  return c.json({ creators: enriched, total, page, limit });
 });
 
 // ─── Creator by Username (public read) ───────────────────────────────────────
