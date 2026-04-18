@@ -501,9 +501,17 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
     verifyMarketplaceTx(txHash),
   ]);
 
+  // Map intent types to the order status they should settle to.
+  // Both branches do an atomic (intent + order) update so the UI reflects
+  // the correct state before the indexer catches up.
+  const ORDER_SETTLE_STATUS = {
+    FULFILL_ORDER: "FULFILLED",
+    CANCEL_ORDER: "CANCELLED",
+  } as const;
+
   if (verifyResult.status === "CONFIRMED") {
-    if (intent?.type === "FULFILL_ORDER" && intent.orderHash) {
-      // Atomic: confirm intent + mark order FULFILLED so the UI updates immediately
+    const orderStatus = intent?.type ? ORDER_SETTLE_STATUS[intent.type as keyof typeof ORDER_SETTLE_STATUS] : undefined;
+    if (orderStatus && intent?.orderHash) {
       await prisma.$transaction([
         prisma.transactionIntent.update({
           where: { id: intentId },
@@ -511,21 +519,7 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
         }),
         prisma.order.update({
           where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
-          data: { status: "FULFILLED" },
-        }),
-      ]);
-    } else if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
-      // Atomic: confirm intent + mark order CANCELLED so the UI updates immediately
-      // (mirrors the FULFILL_ORDER fast-path — prevents orders staying ACTIVE if the
-      // indexer lags or misses the OrderCancelled event)
-      await prisma.$transaction([
-        prisma.transactionIntent.update({
-          where: { id: intentId },
-          data: { status: "CONFIRMED" },
-        }),
-        prisma.order.update({
-          where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
-          data: { status: "CANCELLED" },
+          data: { status: orderStatus },
         }),
       ]);
     } else {

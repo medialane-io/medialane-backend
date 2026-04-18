@@ -232,8 +232,14 @@ async function tick(tickId: string): Promise<number> {
       const SEL_CREATED   = num.toHex(ORDER_CREATED_SELECTOR);
       const SEL_FULFILLED = num.toHex(ORDER_FULFILLED_SELECTOR);
       const SEL_CANCELLED = num.toHex(ORDER_CANCELLED_SELECTOR);
+      // Per-tx log counter for 1155 events — matches the ERC-721 parser's txCounters
+      // so logIndex values stay consistent if handlers ever use them for idempotency.
+      const txCounters1155 = new Map<string, number>();
       for (const rawEvent of raw1155Events) {
         const selector = num.toHex(rawEvent.keys[0]);
+        const evTxHash = rawEvent.transaction_hash ?? "";
+        const logIndex = txCounters1155.get(evTxHash) ?? 0;
+        txCounters1155.set(evTxHash, logIndex + 1);
         if (selector === SEL_CREATED) {
           const nftContract = await handleOrderCreated1155(rawEvent, tx, CHAIN);
           if (nftContract) orderNftContracts.add(nftContract);
@@ -241,18 +247,17 @@ async function tick(tickId: string): Promise<number> {
           // Fulfilled/Cancelled only need orderHash → re-use existing ERC-721 handlers
           const orderHash = num.toHex(rawEvent.keys[1]);
           const offerer   = normalizeAddress(rawEvent.keys[2]);
-          const fulfiller = selector === SEL_FULFILLED ? normalizeAddress(rawEvent.keys[3]) : undefined;
           const blockNumber = BigInt(rawEvent.block_number);
-          const txHash = rawEvent.transaction_hash ?? "";
           if (selector === SEL_FULFILLED) {
+            const fulfiller = normalizeAddress(rawEvent.keys[3]);
             await handleOrderFulfilled(
-              { type: "OrderFulfilled", orderHash, offerer, fulfiller: fulfiller!, blockNumber, txHash, logIndex: 0 },
+              { type: "OrderFulfilled", orderHash, offerer, fulfiller, blockNumber, txHash: evTxHash, logIndex },
               tx, CHAIN
             );
             fulfilledOrCancelledHashes.push(orderHash);
           } else {
             await handleOrderCancelled(
-              { type: "OrderCancelled", orderHash, offerer, blockNumber, txHash, logIndex: 0 },
+              { type: "OrderCancelled", orderHash, offerer, blockNumber, txHash: evTxHash, logIndex },
               tx, CHAIN
             );
             fulfilledOrCancelledHashes.push(orderHash);

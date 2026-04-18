@@ -11,6 +11,7 @@ import { createLogger } from "../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../utils/mailer.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
+import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.js";
 import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
@@ -735,6 +736,7 @@ admin.get("/collections", async (c) => {
 
 // ---------------------------------------------------------------------------
 // POST /admin/orders/:orderHash/resync — re-fetch order details from chain and fix price
+// Routes to the correct handler based on token standard (ERC-721 vs ERC-1155).
 // ---------------------------------------------------------------------------
 admin.post("/orders/:orderHash/resync", async (c) => {
   const orderHash = c.req.param("orderHash");
@@ -742,11 +744,34 @@ admin.post("/orders/:orderHash/resync", async (c) => {
   if (!order) return c.json({ error: "Order not found" }, 404);
 
   await prisma.$transaction(async (tx) => {
-    await handleOrderCreated(
-      { type: "OrderCreated", orderHash, offerer: order.offerer, blockNumber: order.createdBlockNumber, txHash: order.createdTxHash ?? "", logIndex: 0 },
-      tx,
-      order.chain
-    );
+    if (order.offerItemType === "ERC1155") {
+      // Reconstruct a minimal RawStarknetEvent from stored order data
+      // so we can re-run the 1155 handler without an RPC call.
+      await handleOrderCreated1155(
+        {
+          keys: ["0x0", order.orderHash, order.offerer],
+          data: [
+            order.nftContract ?? "",
+            order.nftTokenId ?? "0",
+            order.offerStartAmount ?? "0",
+            order.priceRaw ?? "0",
+            order.considerationToken ?? "",
+          ],
+          block_number: Number(order.createdBlockNumber),
+          transaction_hash: order.createdTxHash ?? "",
+          from_address: "",
+          block_hash: "",
+        },
+        tx,
+        order.chain
+      );
+    } else {
+      await handleOrderCreated(
+        { type: "OrderCreated", orderHash, offerer: order.offerer, blockNumber: order.createdBlockNumber, txHash: order.createdTxHash ?? "", logIndex: 0 },
+        tx,
+        order.chain
+      );
+    }
   });
 
   const updated = await prisma.order.findFirst({ where: { orderHash } });
