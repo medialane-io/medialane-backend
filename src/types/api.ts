@@ -59,11 +59,15 @@ export interface CounterOfferIntentBody {
 export interface FulfillOrderIntentBody {
   fulfiller: string;
   orderHash: string;
+  /** Caller hint — "ERC1155" forces 1155 routing even if the order isn't in the DB yet */
+  tokenStandard?: string;
 }
 
 export interface CancelOrderIntentBody {
   offerer: string;
   orderHash: string;
+  /** Caller hint — "ERC1155" forces 1155 routing even if the order isn't in the DB yet */
+  tokenStandard?: string;
 }
 
 export interface MintIntentBody {

@@ -334,12 +334,16 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
 export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   const chainId = getChainId();
 
-  // Fetch order to determine ERC-721 vs ERC-1155 contract routing
+  // Fetch order to determine ERC-721 vs ERC-1155 contract routing.
+  // tokenStandard hint from the caller takes precedence — used when the order
+  // is not yet in the DB (e.g. listing was created before the indexer caught up).
   const order = await prisma.order.findUnique({
     where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
   });
 
-  const is1155 = order?.offerItemType === "ERC1155";
+  const is1155 =
+    body.tokenStandard === "ERC1155" ||
+    order?.offerItemType === "ERC1155";
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
 
   const nonce = is1155
@@ -383,12 +387,15 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   const chainId = getChainId();
 
-  // Fetch order to determine ERC-721 vs ERC-1155 contract routing
+  // Fetch order to determine ERC-721 vs ERC-1155 contract routing.
+  // tokenStandard hint takes precedence over DB lookup (same as fulfillment).
   const order = await prisma.order.findUnique({
     where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
   });
 
-  const is1155 = order?.offerItemType === "ERC1155";
+  const is1155 =
+    body.tokenStandard === "ERC1155" ||
+    order?.offerItemType === "ERC1155";
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
 
   const nonce = is1155

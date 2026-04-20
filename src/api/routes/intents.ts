@@ -39,11 +39,13 @@ const offerSchema = listingSchema;
 const fulfillSchema = z.object({
   fulfiller: starknetAddress,
   orderHash: z.string(),
+  tokenStandard: z.string().optional(),
 });
 
 const cancelSchema = z.object({
   offerer: starknetAddress,
   orderHash: z.string(),
+  tokenStandard: z.string().optional(),
 });
 
 const mintSchema = z.object({
