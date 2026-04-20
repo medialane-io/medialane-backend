@@ -54,6 +54,7 @@ tokens.get("/", async (c) => {
       orderBy: sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" },
       skip,
       take: limit,
+      include: { collection: { select: { standard: true } } },
     }),
     prisma.token.count({ where }),
   ]);
@@ -124,6 +125,7 @@ tokens.get("/batch", async (c) => {
         tokenId: p.tokenId,
       })),
     },
+    include: { collection: { select: { standard: true } } },
   });
 
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
@@ -152,6 +154,7 @@ tokens.get("/owned/:address", async (c) => {
   const data = pairs.length > 0
     ? await prisma.token.findMany({
         where: { chain: "STARKNET", isHidden: false, OR: pairs },
+        include: { collection: { select: { standard: true } } },
       })
     : [];
 
@@ -274,6 +277,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
 
   let token = await prisma.token.findUnique({
     where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
+    include: { collection: { select: { standard: true } } },
   });
 
   if (!token) {
@@ -301,6 +305,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
         });
         token = await prisma.token.findUnique({
           where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
+          include: { collection: { select: { standard: true } } },
         }) ?? token;
       }
     } else {

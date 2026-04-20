@@ -148,6 +148,7 @@ collections.get("/:contract/tokens", async (c) => {
       orderBy: { tokenId: "asc" },
       skip: (page - 1) * limit,
       take: limit,
+      include: { collection: { select: { standard: true } } },
     }),
     prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
   ]);
