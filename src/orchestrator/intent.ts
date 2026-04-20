@@ -365,9 +365,14 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
-  // Approve the payment token to the correct marketplace contract
+  // Approve the payment token to the correct marketplace contract.
+  // For ERC-1155 orders the buyer pays price_per_unit × amount (not just price_per_unit),
+  // so multiply considerationStartAmount by offerStartAmount to get the true total.
   if (order?.considerationToken && order?.considerationStartAmount) {
-    const amountUint256 = cairo.uint256(order.considerationStartAmount);
+    const pricePerUnit = BigInt(order.considerationStartAmount);
+    const quantity = BigInt(order.offerStartAmount ?? "1");
+    const totalPrice = (pricePerUnit * quantity).toString();
+    const amountUint256 = cairo.uint256(totalPrice);
     calls.push({
       contractAddress: order.considerationToken,
       entrypoint: "approve",
