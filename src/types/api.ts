@@ -61,6 +61,8 @@ export interface FulfillOrderIntentBody {
   orderHash: string;
   /** Caller hint — "ERC1155" forces 1155 routing even if the order isn't in the DB yet */
   tokenStandard?: string;
+  /** ERC-1155 only: number of units to purchase (1 ≤ quantity ≤ remaining_amount). Defaults to 1. */
+  quantity?: string;
 }
 
 export interface CancelOrderIntentBody {

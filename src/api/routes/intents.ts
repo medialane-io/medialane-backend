@@ -40,6 +40,7 @@ const fulfillSchema = z.object({
   fulfiller: starknetAddress,
   orderHash: z.string(),
   tokenStandard: z.string().optional(),
+  quantity: z.string().optional(),
 });
 
 const cancelSchema = z.object({

@@ -80,6 +80,7 @@ export async function handleOrderCreated1155(
       priceFormatted,
       currencySymbol,
       marketplaceContract: normalizeAddress(MARKETPLACE_1155_CONTRACT),
+      remainingAmount: amount,
     },
     update: {
       offerer,

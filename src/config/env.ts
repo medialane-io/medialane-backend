@@ -11,7 +11,7 @@ const envSchema = z.object({
     .default("0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16"),
   MARKETPLACE_1155_CONTRACT_MAINNET: z
     .string()
-    .default("0x042005e9b85536072bfa260b95aa6aaef07f48e622031657384d2375195d7123"),
+    .default("0x03aab04e806542cd88bfd0c5bb2a37334fd742d477a2e0f97af09aa4a36137ca"),
   COLLECTION_CONTRACT_MAINNET: z
     .string()
     .default("0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b"),

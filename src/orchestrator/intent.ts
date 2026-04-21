@@ -104,7 +104,12 @@ const SNIP12_TYPES_1155 = {
 
 const FULFILLMENT_TYPES_1155 = {
   StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
-  OrderFulfillment: FULFILLMENT_TYPES.OrderFulfillment,
+  OrderFulfillment: [
+    { name: "order_hash", type: "felt" },
+    { name: "fulfiller", type: "ContractAddress" },
+    { name: "quantity", type: "felt" },
+    { name: "nonce", type: "felt" },
+  ],
 };
 
 const CANCELLATION_TYPES_1155 = {
@@ -350,11 +355,21 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
     ? await fetchNonce1155(body.fulfiller)
     : await fetchNonce(body.fulfiller);
 
-  const fulfillment = {
-    order_hash: toHex(body.orderHash),
-    fulfiller: toHex(body.fulfiller),
-    nonce: toHex(nonce),
-  };
+  // For ERC-1155: quantity is buyer's chosen units; defaults to 1.
+  const quantity1155 = is1155 ? BigInt(body.quantity ?? "1") : 1n;
+
+  const fulfillment = is1155
+    ? {
+        order_hash: toHex(body.orderHash),
+        fulfiller: toHex(body.fulfiller),
+        quantity: toHex(quantity1155),
+        nonce: toHex(nonce),
+      }
+    : {
+        order_hash: toHex(body.orderHash),
+        fulfiller: toHex(body.fulfiller),
+        nonce: toHex(nonce),
+      };
 
   const typedData: TypedData = {
     types: is1155 ? FULFILLMENT_TYPES_1155 : FULFILLMENT_TYPES,
@@ -366,12 +381,10 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
   // Approve the payment token to the correct marketplace contract.
-  // For ERC-1155 orders the buyer pays price_per_unit × amount (not just price_per_unit),
-  // so multiply considerationStartAmount by offerStartAmount to get the true total.
+  // For ERC-1155: buyer pays price_per_unit × buyer's chosen quantity.
   if (order?.considerationToken && order?.considerationStartAmount) {
     const pricePerUnit = BigInt(order.considerationStartAmount);
-    const quantity = BigInt(order.offerStartAmount ?? "1");
-    const totalPrice = (pricePerUnit * quantity).toString();
+    const totalPrice = (pricePerUnit * quantity1155).toString();
     const amountUint256 = cairo.uint256(totalPrice);
     calls.push({
       contractAddress: order.considerationToken,

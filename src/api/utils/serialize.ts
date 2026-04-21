@@ -105,6 +105,7 @@ export function serializeOrder(
       cancelled: o.cancelledTxHash,
     },
     createdBlockNumber: o.createdBlockNumber.toString(),
+    remainingAmount: o.remainingAmount ?? null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
     token: tokenData !== undefined

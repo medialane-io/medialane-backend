@@ -5,6 +5,7 @@ import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "./handlers/orderCreated1155.js";
 import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
+import { handleOrderFulfilled1155 } from "./handlers/orderFulfilled1155.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
@@ -249,11 +250,7 @@ async function tick(tickId: string): Promise<number> {
           const offerer   = normalizeAddress(rawEvent.keys[2]);
           const blockNumber = BigInt(rawEvent.block_number);
           if (selector === SEL_FULFILLED) {
-            const fulfiller = normalizeAddress(rawEvent.keys[3]);
-            await handleOrderFulfilled(
-              { type: "OrderFulfilled", orderHash, offerer, fulfiller, blockNumber, txHash: evTxHash, logIndex },
-              tx, CHAIN
-            );
+            await handleOrderFulfilled1155(rawEvent, tx, CHAIN);
             fulfilledOrCancelledHashes.push(orderHash);
           } else {
             await handleOrderCancelled(

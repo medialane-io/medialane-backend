@@ -84,13 +84,24 @@ export function buildPopulatedCalls(
       ];
     }
   } else if (intentType === "FULFILL_ORDER") {
-    // fulfill_order(fulfillment: OrderFulfillment, signature: Span<felt252>)
-    last.calldata = [
-      toFelt(message.order_hash),
-      toFelt(message.fulfiller),
-      toFelt(message.nonce),
-      ...sigCalldata,
-    ];
+    // ERC-1155 OrderFulfillment has quantity between fulfiller and nonce
+    if ("quantity" in message) {
+      last.calldata = [
+        toFelt(message.order_hash),
+        toFelt(message.fulfiller),
+        toFelt(message.quantity),
+        toFelt(message.nonce),
+        ...sigCalldata,
+      ];
+    } else {
+      // ERC-721: no quantity field
+      last.calldata = [
+        toFelt(message.order_hash),
+        toFelt(message.fulfiller),
+        toFelt(message.nonce),
+        ...sigCalldata,
+      ];
+    }
   } else if (intentType === "CANCEL_ORDER") {
     // cancel_order(cancellation: OrderCancellation, signature: Span<felt252>)
     last.calldata = [
