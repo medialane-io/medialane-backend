@@ -89,6 +89,7 @@ export async function handleOrderCreated1155(
       priceRaw: pricePerUnit,
       priceFormatted,
       currencySymbol,
+      marketplaceContract: normalizeAddress(MARKETPLACE_1155_CONTRACT),
     },
   });
 
