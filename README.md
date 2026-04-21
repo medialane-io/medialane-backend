@@ -19,11 +19,13 @@ Starknet RPC ──► Mirror (Indexer) ──► PostgreSQL ◄── Orchestra
 ```
 
 ### Mirror (Indexer)
-Polls the marketplace contract every 6 seconds in batches of 500 blocks. Each tick:
-1. Fetches `OrderCreated`, `OrderFulfilled`, `OrderCancelled`, and ERC-721 `Transfer` events
+Polls the ERC-721 and ERC-1155 marketplace contracts every 6 seconds in batches of 500 blocks. Each tick:
+1. Fetches `OrderCreated`, `OrderFulfilled`, `OrderCancelled` (both contracts) and ERC-721 `Transfer` events
 2. Parses felt data (including Cairo ByteArray token URIs)
 3. Writes to PostgreSQL atomically and advances the cursor
 4. Enqueues `METADATA_FETCH` and `STATS_UPDATE` jobs
+
+**ERC-1155 partial fills**: `Order.remainingAmount` tracks how many units remain after each fill. Orders stay `ACTIVE` until `remainingAmount == 0`, at which point they transition to `FULFILLED`. The `handleOrderFulfilled1155` handler reads `remaining_amount` from the `OrderFulfilled` event data.
 
 ### Orchestrator (Job Queue)
 Polls the `Job` table every 2s with optimistic locking, exponential backoff, and a max of 3 attempts.
@@ -204,8 +206,9 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 
 | Contract | Address |
 |---|---|
-| Marketplace v2 (current, audited) | `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` |
-| Marketplace v1 (legacy — fulfilled orders preserved) | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
+| Marketplace ERC-721 v2 (current) | `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` |
+| Marketplace ERC-721 v1 (legacy — orders preserved) | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
+| Marketplace ERC-1155 v2 (partial fills) | `0x03aab04e806542cd88bfd0c5bb2a37334fd742d477a2e0f97af09aa4a36137ca` |
 | Collection Registry (ERC-721) | `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b` |
 | NFTComments | `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` |
 | Indexer start block (v2) | `8482853` |
