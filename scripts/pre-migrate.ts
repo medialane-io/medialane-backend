@@ -44,8 +44,8 @@ async function main() {
   `;
   await markApplied("20260312000000_add_fts_indexes");
 
-  // ── 2. Add missing Job/WebhookDelivery columns from migration 00001 ───────
-  await prisma.$executeRaw`ALTER TABLE "Job" ADD COLUMN IF NOT EXISTS "reaperAttempts" INTEGER NOT NULL DEFAULT 0`;
+  // ── 2. Add missing WebhookDelivery columns from migration 00001 ────────────
+  // Note: "Job" table was dropped in 20260314000000_lean_indexer — no longer referenced here.
   await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0`;
   await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "isTerminal" BOOLEAN NOT NULL DEFAULT false`;
   await markApplied("20260312000001_add_job_reaper_and_delivery_tracking");
@@ -89,12 +89,7 @@ async function main() {
     WHERE "owner" IS NOT NULL AND length(substring("owner" FROM 3)) < 64
   `;
 
-  // ── 7. Mark permanently-failing METADATA_PIN jobs as DONE so the reaper
-  //    stops re-queuing them (Pinata free plan doesn't support pin_by_cid) ───
-  await prisma.$executeRaw`
-    UPDATE "Job" SET status = 'DONE'
-    WHERE type = 'METADATA_PIN' AND status IN ('FAILED', 'PENDING')
-  `;
+  // ── 7. (removed) Job table was dropped in 20260314000000_lean_indexer
 
   console.log("[pre-migrate] Done.");
 }
