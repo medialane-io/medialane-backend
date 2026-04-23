@@ -1,4 +1,4 @@
-import { Contract, shortString } from "starknet";
+import { Contract, shortString, RpcProvider } from "starknet";
 import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
@@ -8,17 +8,6 @@ import { ipfsToHttp } from "../utils/ipfs.js";
 import { IPFS_GATEWAYS } from "../config/constants.js";
 
 const log = createLogger("orchestrator:collection-metadata");
-
-// ByteArray ABI for modern OZ contracts (ERC-721 name/symbol/base_uri)
-const BYTEARRAY_STRUCT = {
-  type: "struct",
-  name: "core::byte_array::ByteArray",
-  members: [
-    { name: "data", type: "core::array::Array::<core::felt252>" },
-    { name: "pending_word", type: "core::felt252" },
-    { name: "pending_word_len", type: "core::integer::u32" },
-  ],
-};
 
 // ERC-165 interface IDs (as felt252 hex)
 const INTERFACE_ID_ERC721  = "0x80ac58cd";
@@ -47,31 +36,6 @@ const OWNER_ABI = [
     name: "owner",
     inputs: [],
     outputs: [{ type: "core::starknet::contract_address::ContractAddress" }],
-    state_mutability: "view",
-  },
-];
-
-const ERC721_INFO_ABI_BYTEARRAY = [
-  BYTEARRAY_STRUCT,
-  {
-    type: "function",
-    name: "name",
-    inputs: [],
-    outputs: [{ type: "core::byte_array::ByteArray" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "symbol",
-    inputs: [],
-    outputs: [{ type: "core::byte_array::ByteArray" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "base_uri",
-    inputs: [],
-    outputs: [{ type: "core::byte_array::ByteArray" }],
     state_mutability: "view",
   },
 ];
@@ -272,26 +236,37 @@ async function fetchCollectionOnChainInfo(
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
   const provider = createProvider();
 
-  // Try ByteArray ABI first, then felt252 fallback
-  for (const abi of [ERC721_INFO_ABI_BYTEARRAY, ERC721_INFO_ABI_FELT]) {
-    const contract = new Contract(abi as any, contractAddress, provider);
-    try {
-      const [nameRaw, symbolRaw, baseUriRaw] = await Promise.all([
-        callView(contract, "name"),
-        callView(contract, "symbol"),
-        callView(contract, "base_uri"),
-      ]);
-
-      const name = decodeField(nameRaw);
-      const symbol = decodeField(symbolRaw);
-      const baseUri = decodeField(baseUriRaw);
-
-      if (name || symbol) {
-        return { name, symbol, baseUri };
-      }
-    } catch {
-      // Try next ABI variant
+  // Try ByteArray variant first using raw calls (UTF-8 safe — starknet.js ABI
+  // decoding of ByteArray is ASCII-only and corrupts non-Latin characters).
+  try {
+    const [name, symbol, baseUri] = await Promise.all([
+      callViewByteArrayUtf8(provider, contractAddress, "name"),
+      callViewByteArrayUtf8(provider, contractAddress, "symbol"),
+      callViewByteArrayUtf8(provider, contractAddress, "base_uri"),
+    ]);
+    if (name || symbol) {
+      return { name: name ?? "", symbol: symbol ?? "", baseUri: baseUri ?? "" };
     }
+  } catch {
+    // Fall through to felt252 ABI
+  }
+
+  // Felt252 fallback for older contracts
+  const contract = new Contract(ERC721_INFO_ABI_FELT as any, contractAddress, provider);
+  try {
+    const [nameRaw, symbolRaw, baseUriRaw] = await Promise.all([
+      callView(contract, "name"),
+      callView(contract, "symbol"),
+      callView(contract, "base_uri"),
+    ]);
+    const name = decodeField(nameRaw);
+    const symbol = decodeField(symbolRaw);
+    const baseUri = decodeField(baseUriRaw);
+    if (name || symbol) {
+      return { name, symbol, baseUri };
+    }
+  } catch {
+    // ignore
   }
 
   return { name: "", symbol: "", baseUri: "" };
@@ -308,11 +283,9 @@ async function callView(contract: Contract, fn: string): Promise<unknown> {
 function decodeField(raw: unknown): string {
   if (raw == null) return "";
   if (typeof raw === "string") {
-    // Already decoded (ByteArray returns string directly)
     return raw;
   }
   if (typeof raw === "bigint") {
-    // felt252 — decode as short string
     try {
       return shortString.decodeShortString(raw.toString());
     } catch {
@@ -320,6 +293,45 @@ function decodeField(raw: unknown): string {
     }
   }
   return "";
+}
+
+/**
+ * Decode a Cairo ByteArray as UTF-8 using raw provider.callContract().
+ * Bypasses starknet.js ABI decoding which is ASCII-only and corrupts
+ * multi-byte characters (non-Latin scripts, emoji, etc.).
+ */
+async function callViewByteArrayUtf8(
+  provider: RpcProvider,
+  contractAddress: string,
+  fn: string
+): Promise<string | null> {
+  try {
+    const res = await provider.callContract({
+      contractAddress,
+      entrypoint: fn,
+      calldata: [],
+    });
+    const felts: string[] = res as unknown as string[];
+    if (!felts || felts.length < 3) return null;
+    const dataLen = Number(BigInt(felts[0]));
+    if (felts.length < 1 + dataLen + 2) return null;
+    const pendingWord = BigInt(felts[1 + dataLen]);
+    const pendingWordLen = Number(BigInt(felts[2 + dataLen]));
+    const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
+    let offset = 0;
+    for (let i = 0; i < dataLen; i++) {
+      const value = BigInt(felts[1 + i]);
+      for (let j = 0; j < 31; j++) {
+        bytes[offset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
+      }
+    }
+    for (let j = 0; j < pendingWordLen; j++) {
+      bytes[offset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
+    }
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    return null;
+  }
 }
 
 /**
