@@ -480,7 +480,7 @@ intents.patch("/:id/signature", async (c) => {
 });
 
 const confirmSchema = z.object({
-  txHash: z.string().regex(/^0x[0-9a-fA-F]{63,64}$/, "Invalid transaction hash"),
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid transaction hash"),
 });
 
 // Intent types that go through the marketplace contract and need event verification
