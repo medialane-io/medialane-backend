@@ -7,21 +7,21 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function markApplied(name: string) {
-  await prisma.$executeRawUnsafe(`
+  await prisma.$executeRaw`
     UPDATE "_prisma_migrations"
     SET finished_at = NOW(), logs = NULL, applied_steps_count = 1
-    WHERE migration_name = '${name}'
+    WHERE migration_name = ${name}
       AND finished_at IS NULL
       AND rolled_back_at IS NULL
-  `);
-  await prisma.$executeRawUnsafe(`
+  `;
+  await prisma.$executeRaw`
     INSERT INTO "_prisma_migrations"
       (id, checksum, finished_at, migration_name, logs, started_at, applied_steps_count)
-    SELECT gen_random_uuid()::text, 'pre-migrate-synthetic', NOW(), '${name}', NULL, NOW(), 1
+    SELECT gen_random_uuid()::text, 'pre-migrate-synthetic', NOW(), ${name}, NULL, NOW(), 1
     WHERE NOT EXISTS (
-      SELECT 1 FROM "_prisma_migrations" WHERE migration_name = '${name}'
+      SELECT 1 FROM "_prisma_migrations" WHERE migration_name = ${name}
     )
-  `);
+  `;
   console.log(`[pre-migrate] ${name} marked as applied.`);
 }
 
