@@ -245,13 +245,13 @@ Apply this pattern to **every** `$queryRaw` that compares against an enum column
 
 ### On-chain NFT comments (added 2026-03-22)
 
-Comments are indexed from `CommentAdded` events emitted by the NFTComments contract (`0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232`). Separate from the marketplace poller — `pollCommentEvents` in `src/mirror/commentPoller.ts` runs in parallel.
+Comments are indexed from `CommentAdded` events emitted by the NFTComments contract (`0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799`). Separate from the marketplace poller — `pollCommentEvents` in `src/mirror/commentPoller.ts` runs in parallel.
 
 **Token existence filter**: `handleCommentAdded` in `src/mirror/handlers/commentAdded.ts` checks if the token exists in the DB before indexing. Comments on unindexed tokens are silently skipped (avoids orphan rows and spam from non-Medialane NFTs).
 
 **`Comment` model**: `id`, `chain`, `contractAddress`, `tokenId`, `author`, `content`, `txHash`, `logIndex`, `blockNumber`, `blockTimestamp`, `isHidden`. Idempotency: `@@unique([txHash, logIndex])`.
 
-**`NFTComments_CONTRACT` env var**: must be set in Railway. Value: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232`.
+**`NFTComments_CONTRACT` env var**: must be set in Railway. Value: `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799`.
 
 **COMMENT report type**: `ReportTargetType` enum extended with `COMMENT`. `targetKey` format = `COMMENT::<commentId>` (double-colon to avoid collision). After 3 unique reports, `isHidden = true` is set automatically in `src/api/routes/reports.ts`. **Split on `"::"` not `":"` when parsing COMMENT targetKeys.**
 
@@ -376,12 +376,11 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 ## Key Contracts (mainnet)
 
-- Marketplace ERC-721 (v2, current): `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` (deployed block 8482853)
-- Marketplace ERC-721 (v1, legacy — fulfilled orders preserved): `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f`
-- **Marketplace ERC-1155 (Medialane1155)**: `0x042005e9b85536072bfa260b95aa6aaef07f48e622031657384d2375195d7123`
+- Marketplace ERC-721 (current): `0x004387e58d469f19332dd5d20846b10339ddc49ef208025ec7d5bef294a8daf3`
+- **Marketplace ERC-1155 (Medialane1155, current)**: `0x035836932ba1d219e00b8e42cd9a433fb2b211a08edcaa8bae40232f335f777d`
 - Collection (ERC-721): `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b`
-- NFTComments: `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` (class hash: `0x1edbebcd184c3ea65c19f59f2cbc11ef8b3a2883b4fe97db1caf0b29c6ea0dd` after 2026-03-22 upgrade)
-- Indexer start block: `6204232`
+- NFTComments: `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799`
+- Indexer start block: `9130000`
 - SNIP-12 domain ERC-721: `{ name: "Medialane", version: "1", revision: "1" }`
 - SNIP-12 domain ERC-1155: `{ name: "Medialane1155", version: "1", revision: "1" }`
 - Event selectors computed via `hash.getSelectorFromName()` at startup
