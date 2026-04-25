@@ -206,12 +206,11 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 
 | Contract | Address |
 |---|---|
-| Marketplace ERC-721 v2 (current) | `0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16` |
-| Marketplace ERC-721 v1 (legacy — orders preserved) | `0x04299b51289aa700de4ce19cc77bcea8430bfd1aef04193efab09d60a3a7ee0f` |
-| Marketplace ERC-1155 v2 (partial fills) | `0x03aab04e806542cd88bfd0c5bb2a37334fd742d477a2e0f97af09aa4a36137ca` |
+| Marketplace ERC-721 | `0x004387e58d469f19332dd5d20846b10339ddc49ef208025ec7d5bef294a8daf3` |
+| Marketplace ERC-1155 | `0x035836932ba1d219e00b8e42cd9a433fb2b211a08edcaa8bae40232f335f777d` |
 | Collection Registry (ERC-721) | `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b` |
-| NFTComments | `0x070edbfa68a870e8a69736db58906391dcd8fcf848ac80a72ac1bf9192d8e232` |
-| Indexer start block (v2) | `8482853` |
+| NFTComments | `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799` |
+| Indexer start block | `9130000` |
 
 ---
 
@@ -245,7 +244,7 @@ Optional env vars (all have sensible defaults):
 
 | Variable | Default | Notes |
 |---|---|---|
-| `INDEXER_START_BLOCK` | `6204232` | Block to start scanning marketplace events from |
+| `INDEXER_START_BLOCK` | `9130000` | Block to start scanning marketplace events from |
 | `COLLECTION_START_BLOCK` | `8660000` | Block to start scanning `CollectionCreated` events from. Update to first block of the current collection registry contract when upgrading. |
 | `INDEXER_POLL_INTERVAL_MS` | `6000` | Mirror poll cadence |
 | `INDEXER_BLOCK_BATCH_SIZE` | `500` | Blocks per indexer tick |

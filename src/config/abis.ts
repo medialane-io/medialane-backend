@@ -1,5 +1,5 @@
 // Full ABI sourced from deployed contract on Starknet mainnet
-// Contract: 0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16
+// Contract: 0x004387e58d469f19332dd5d20846b10339ddc49ef208025ec7d5bef294a8daf3
 export const IPMarketplaceABI = [
   {
     type: "impl",
@@ -598,7 +598,7 @@ export const IPMarketplaceABI = [
 ] as const;
 
 // Minimal ABI for Medialane1155 — only the functions needed by the intent builder.
-// Contract: 0x03aab04e806542cd88bfd0c5bb2a37334fd742d477a2e0f97af09aa4a36137ca
+// Contract: 0x035836932ba1d219e00b8e42cd9a433fb2b211a08edcaa8bae40232f335f777d
 export const Medialane1155ABI = [
   {
     type: "function",

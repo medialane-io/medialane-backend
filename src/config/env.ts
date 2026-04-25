@@ -8,14 +8,14 @@ const envSchema = z.object({
   VOYAGER_API_KEY: z.string().default(""),
   MARKETPLACE_CONTRACT_MAINNET: z
     .string()
-    .default("0x0234f4e8838801ebf01d7f4166d42aed9a55bc67c1301162decf9e2040e05f16"),
+    .default("0x004387e58d469f19332dd5d20846b10339ddc49ef208025ec7d5bef294a8daf3"),
   MARKETPLACE_1155_CONTRACT_MAINNET: z
     .string()
-    .default("0x03aab04e806542cd88bfd0c5bb2a37334fd742d477a2e0f97af09aa4a36137ca"),
+    .default("0x035836932ba1d219e00b8e42cd9a433fb2b211a08edcaa8bae40232f335f777d"),
   COLLECTION_CONTRACT_MAINNET: z
     .string()
     .default("0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b"),
-  COMMENTS_CONTRACT_ADDRESS: z.string().default(""),
+  COMMENTS_CONTRACT_ADDRESS: z.string().default("0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799"),
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_FACTORY_ADDRESS: z.string().default(""),
   POP_START_BLOCK: z.coerce.number().default(0),
