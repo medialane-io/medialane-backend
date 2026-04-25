@@ -25,7 +25,7 @@ const envSchema = z.object({
     .string()
     .default("0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6"),
   ERC1155_FACTORY_START_BLOCK: z.coerce.number().default(0),
-  INDEXER_START_BLOCK: z.coerce.number().default(6204232),
+  INDEXER_START_BLOCK: z.coerce.number().default(9130000),
   COLLECTION_START_BLOCK: z.coerce.number().default(8660000),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
