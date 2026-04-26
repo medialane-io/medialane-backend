@@ -106,7 +106,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // view functions, we skip the RPC fetch here to avoid overwriting event-sourced data
   // and because detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet
   // OZ SRC5 interface IDs (would always return UNKNOWN). standard=ERC1155 is set directly.
-  if (existing?.source === "ERC1155_FACTORY") {
+  if (existing?.source === "ERC1155_FACTORY" || existing?.standard === "ERC1155") {
     // Resolve image + description from the base_uri JSON if not already set.
     // base_uri points to an IPFS collection metadata JSON (OpenSea format):
     // { name, description, image, external_link }
@@ -138,6 +138,7 @@ export async function handleCollectionMetadataFetch(payload: {
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
+        source: "ERC1155_FACTORY",
         standard: "ERC1155",
         metadataStatus: "FETCHED",
         image: resolvedImage ?? undefined,

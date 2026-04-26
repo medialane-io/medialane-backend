@@ -95,6 +95,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
         symbol: symbol || undefined,
         baseUri: baseUri || undefined,
         owner,
+        source: "ERC1155_FACTORY",
         standard: "ERC1155",
       },
     });

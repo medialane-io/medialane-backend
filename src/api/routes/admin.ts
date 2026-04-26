@@ -289,6 +289,8 @@ admin.patch("/collections/:contract", async (c) => {
     isHidden:     z.boolean().optional(),
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
+    source:       z.enum(["MEDIALANE_REGISTRY", "ERC1155_FACTORY", "POP_PROTOCOL", "COLLECTION_DROP", "EXTERNAL"]).optional(),
+    standard:     z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
   });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
