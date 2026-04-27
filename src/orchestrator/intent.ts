@@ -3,7 +3,7 @@ import type { TypedData } from "starknet";
 import { Contract, num, cairo } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
 import { IPMarketplaceABI, Medialane1155ABI } from "../config/abis.js";
-import { MARKETPLACE_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
+import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
@@ -140,7 +140,7 @@ function toHex(value: string | number | bigint): string {
 
 async function fetchNonce(address: string): Promise<string> {
   const provider = createProvider();
-  const contract = new Contract(IPMarketplaceABI as any, MARKETPLACE_CONTRACT, provider);
+  const contract = new Contract(IPMarketplaceABI as any, MARKETPLACE_721_CONTRACT, provider);
   const nonce = await contract.nonces(normalizeAddress(address));
   return nonce.toString();
 }
@@ -152,7 +152,7 @@ function generateSalt(): string {
 }
 
 function resolveCollectionContract(override?: string): string {
-  return override ? normalizeAddress(override) : COLLECTION_CONTRACT;
+  return override ? normalizeAddress(override) : COLLECTION_721_CONTRACT;
 }
 
 /** Convert a human-readable amount (e.g. "1.5") to raw token units as BigInt. */
@@ -259,10 +259,10 @@ async function buildCreateListing721Intent(body: CreateListingIntentBody) {
     {
       contractAddress: body.nftContract,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
+      calldata: [MARKETPLACE_721_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
     },
     {
-      contractAddress: MARKETPLACE_CONTRACT,
+      contractAddress: MARKETPLACE_721_CONTRACT,
       entrypoint: "register_order",
       calldata: [], // populated after signature
     },
@@ -324,10 +324,10 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
     {
       contractAddress: body.currency,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, priceUint256.low.toString(), priceUint256.high.toString()],
+      calldata: [MARKETPLACE_721_CONTRACT, priceUint256.low.toString(), priceUint256.high.toString()],
     },
     {
-      contractAddress: MARKETPLACE_CONTRACT,
+      contractAddress: MARKETPLACE_721_CONTRACT,
       entrypoint: "register_order",
       calldata: [],
     },
@@ -349,7 +349,7 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   const is1155 =
     body.tokenStandard === "ERC1155" ||
     order?.offerItemType === "ERC1155";
-  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
+  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
 
   const nonce = is1155
     ? await fetchNonce1155(body.fulfiller)
@@ -414,7 +414,7 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
   const is1155 =
     body.tokenStandard === "ERC1155" ||
     order?.offerItemType === "ERC1155";
-  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_CONTRACT;
+  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
 
   const nonce = is1155
     ? await fetchNonce1155(body.offerer)
@@ -597,10 +597,10 @@ export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
     {
       contractAddress: body.nftContract,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
+      calldata: [MARKETPLACE_721_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
     },
     {
-      contractAddress: MARKETPLACE_CONTRACT,
+      contractAddress: MARKETPLACE_721_CONTRACT,
       entrypoint: "register_order",
       calldata: [],
     },

@@ -206,9 +206,10 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 
 | Contract | Address |
 |---|---|
-| Marketplace ERC-721 | `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6` |
-| Marketplace ERC-1155 | `0x04a0a65bd13e1ec9a2ce92c36115578486331e941b395f97d49fe488baac8309` |
-| Collection Registry (ERC-721) | `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b` |
+| Marketplace Protocol (ERC-721) | `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6` |
+| Marketplace Protocol (ERC-1155) | `0x04a0a65bd13e1ec9a2ce92c36115578486331e941b395f97d49fe488baac8309` |
+| Collection Protocol (ERC-721 registry) | `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b` |
+| Collection Protocol (ERC-1155 factory) | `0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6` |
 | NFTComments | `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799` |
 | Indexer start block | `9196722` |
 
@@ -242,6 +243,11 @@ bun dev
 
 Optional env vars (all have sensible defaults):
 
+Legacy env aliases still work during the transition:
+`MARKETPLACE_CONTRACT_MAINNET` -> `MARKETPLACE_721_CONTRACT_MAINNET`,
+`COLLECTION_CONTRACT_MAINNET` -> `COLLECTION_721_CONTRACT_MAINNET`,
+`ERC1155_FACTORY_ADDRESS` -> `COLLECTION_1155_CONTRACT_MAINNET`.
+
 | Variable | Default | Notes |
 |---|---|---|
 | `INDEXER_START_BLOCK` | `9196722` | Block to start scanning marketplace events from |
@@ -249,8 +255,10 @@ Optional env vars (all have sensible defaults):
 | `INDEXER_POLL_INTERVAL_MS` | `6000` | Mirror poll cadence |
 | `INDEXER_BLOCK_BATCH_SIZE` | `500` | Blocks per indexer tick |
 | `STARKNET_NETWORK` | `mainnet` | `mainnet` or `sepolia` |
-| `MARKETPLACE_CONTRACT_MAINNET` | current audited address | Override for custom deployments |
-| `COLLECTION_CONTRACT_MAINNET` | current audited address | Override for custom deployments |
+| `MARKETPLACE_721_CONTRACT_MAINNET` | current audited address | ERC-721 marketplace protocol override |
+| `MARKETPLACE_1155_CONTRACT_MAINNET` | current audited address | ERC-1155 marketplace protocol override |
+| `COLLECTION_721_CONTRACT_MAINNET` | current audited address | ERC-721 mint / collection registry override |
+| `COLLECTION_1155_CONTRACT_MAINNET` | current audited address | ERC-1155 mint / collection factory override |
 
 ### Commands
 

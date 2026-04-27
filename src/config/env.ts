@@ -6,13 +6,13 @@ const envSchema = z.object({
   ALCHEMY_RPC_URL: z.string().url(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
   VOYAGER_API_KEY: z.string().default(""),
-  MARKETPLACE_CONTRACT_MAINNET: z
+  MARKETPLACE_721_CONTRACT_MAINNET: z
     .string()
     .default("0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6"),
   MARKETPLACE_1155_CONTRACT_MAINNET: z
     .string()
     .default("0x04a0a65bd13e1ec9a2ce92c36115578486331e941b395f97d49fe488baac8309"),
-  COLLECTION_CONTRACT_MAINNET: z
+  COLLECTION_721_CONTRACT_MAINNET: z
     .string()
     .default("0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b"),
   COMMENTS_CONTRACT_ADDRESS: z.string().default("0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799"),
@@ -21,7 +21,7 @@ const envSchema = z.object({
   POP_START_BLOCK: z.coerce.number().default(0),
   DROP_FACTORY_ADDRESS: z.string().default(""),
   DROP_START_BLOCK: z.coerce.number().default(0),
-  ERC1155_FACTORY_ADDRESS: z
+  COLLECTION_1155_CONTRACT_MAINNET: z
     .string()
     .default("0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6"),
   ERC1155_FACTORY_START_BLOCK: z.coerce.number().default(0),
@@ -54,7 +54,18 @@ const envSchema = z.object({
 });
 
 function parseEnv() {
-  const result = envSchema.safeParse(process.env);
+  // Preserve compatibility with legacy variable names during the rename rollout.
+  const rawEnv = {
+    ...process.env,
+    MARKETPLACE_721_CONTRACT_MAINNET:
+      process.env.MARKETPLACE_721_CONTRACT_MAINNET ?? process.env.MARKETPLACE_CONTRACT_MAINNET,
+    COLLECTION_721_CONTRACT_MAINNET:
+      process.env.COLLECTION_721_CONTRACT_MAINNET ?? process.env.COLLECTION_CONTRACT_MAINNET,
+    COLLECTION_1155_CONTRACT_MAINNET:
+      process.env.COLLECTION_1155_CONTRACT_MAINNET ?? process.env.ERC1155_FACTORY_ADDRESS,
+  };
+
+  const result = envSchema.safeParse(rawEnv);
   if (!result.success) {
     console.error("Invalid environment variables:");
     console.error(result.error.flatten().fieldErrors);

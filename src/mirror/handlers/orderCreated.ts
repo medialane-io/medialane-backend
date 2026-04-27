@@ -1,7 +1,7 @@
 import { Contract } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "../../config/abis.js";
-import { MARKETPLACE_CONTRACT } from "../../config/constants.js";
+import { MARKETPLACE_721_CONTRACT } from "../../config/constants.js";
 import { createProvider, normalizeAddress } from "../../utils/starknet.js";
 import { getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -19,7 +19,7 @@ export async function handleOrderCreated(
   const provider = createProvider();
   const contract = new Contract(
     IPMarketplaceABI as any,
-    MARKETPLACE_CONTRACT,
+    MARKETPLACE_721_CONTRACT,
     provider
   );
 
@@ -86,7 +86,7 @@ export async function handleOrderCreated(
       priceRaw,
       priceFormatted,
       currencySymbol,
-      marketplaceContract: normalizeAddress(MARKETPLACE_CONTRACT),
+      marketplaceContract: normalizeAddress(MARKETPLACE_721_CONTRACT),
     },
     update: {
       offerer: details.offerer,

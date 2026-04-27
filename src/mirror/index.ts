@@ -17,7 +17,7 @@ import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ERC1155_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR } from "../config/constants.js";
+import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";

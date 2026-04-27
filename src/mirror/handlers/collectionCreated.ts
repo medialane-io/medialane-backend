@@ -1,7 +1,7 @@
 import { Contract, cairo, num } from "starknet";
 import type { ParsedCollectionCreated } from "../../types/marketplace.js";
 import { normalizeAddress, createProvider } from "../../utils/starknet.js";
-import { COLLECTION_CONTRACT } from "../../config/constants.js";
+import { COLLECTION_721_CONTRACT } from "../../config/constants.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("handler:collectionCreated");
@@ -58,7 +58,7 @@ export async function resolveCollectionCreated(
 
   try {
     const provider = createProvider();
-    const contract = new Contract(REGISTRY_ABI as any, COLLECTION_CONTRACT, provider);
+    const contract = new Contract(REGISTRY_ABI as any, COLLECTION_721_CONTRACT, provider);
     const id = BigInt(collectionId);
     const col = await (contract as any).get_collection(cairo.uint256(id));
 

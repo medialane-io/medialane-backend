@@ -1,8 +1,8 @@
 import { createProvider } from "../utils/starknet.js";
 import {
-  MARKETPLACE_CONTRACT,
+  MARKETPLACE_721_CONTRACT,
   MARKETPLACE_1155_CONTRACT,
-  COLLECTION_CONTRACT,
+  COLLECTION_721_CONTRACT,
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
@@ -16,7 +16,7 @@ import {
   POP_ALLOWLIST_UPDATED_SELECTOR,
   DROP_FACTORY_CONTRACT,
   DROP_CREATED_SELECTOR,
-  ERC1155_FACTORY_CONTRACT,
+  COLLECTION_1155_CONTRACT,
   COLLECTION_DEPLOYED_SELECTOR,
 } from "../config/constants.js";
 import { env } from "../config/env.js";
@@ -48,7 +48,7 @@ export async function pollEvents(
 
   do {
     const response = await provider.getEvents({
-      address: MARKETPLACE_CONTRACT,
+      address: MARKETPLACE_721_CONTRACT,
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
       keys: [
@@ -174,7 +174,7 @@ export async function pollCollectionCreatedEvents(
 
   do {
     const response = await provider.getEvents({
-      address: COLLECTION_CONTRACT,
+      address: COLLECTION_721_CONTRACT,
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
       keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
@@ -361,13 +361,13 @@ export async function pollDropAllowlistEvents(
 
 /**
  * Fetch CollectionDeployed events from the IP-Programmable-ERC1155-Collections factory.
- * Returns an empty array when ERC1155_FACTORY_CONTRACT is not configured.
+ * Returns an empty array when COLLECTION_1155_CONTRACT is not configured.
  */
 export async function pollERC1155FactoryEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!ERC1155_FACTORY_CONTRACT) return [];
+  if (!COLLECTION_1155_CONTRACT) return [];
 
   const provider = createProvider();
   const allEvents: RawStarknetEvent[] = [];
@@ -375,7 +375,7 @@ export async function pollERC1155FactoryEvents(
 
   do {
     const response = await provider.getEvents({
-      address: ERC1155_FACTORY_CONTRACT,
+      address: COLLECTION_1155_CONTRACT,
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
       keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],

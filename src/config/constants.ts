@@ -2,9 +2,9 @@ import { hash } from "starknet";
 import { env } from "./env.js";
 
 // Contract addresses
-export const MARKETPLACE_CONTRACT = env.MARKETPLACE_CONTRACT_MAINNET;
+export const MARKETPLACE_721_CONTRACT = env.MARKETPLACE_721_CONTRACT_MAINNET;
 export const MARKETPLACE_1155_CONTRACT = env.MARKETPLACE_1155_CONTRACT_MAINNET;
-export const COLLECTION_CONTRACT = env.COLLECTION_CONTRACT_MAINNET;
+export const COLLECTION_721_CONTRACT = env.COLLECTION_721_CONTRACT_MAINNET;
 
 // Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
@@ -28,7 +28,7 @@ export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS;
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 export const DROP_FACTORY_CONTRACT = env.DROP_FACTORY_ADDRESS;
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
-export const ERC1155_FACTORY_CONTRACT = env.ERC1155_FACTORY_ADDRESS;
+export const COLLECTION_1155_CONTRACT = env.COLLECTION_1155_CONTRACT_MAINNET;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 
 // Token map (address → metadata)

@@ -8,7 +8,7 @@ import { env } from "../../config/env.js";
 import { serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { RpcProvider, num as starkNum } from "starknet";
-import { COLLECTION_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
@@ -172,7 +172,7 @@ collections.post("/sync-tx", async (c) => {
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>
-        e.from_address?.toLowerCase() === COLLECTION_CONTRACT.toLowerCase() &&
+        e.from_address?.toLowerCase() === COLLECTION_721_CONTRACT.toLowerCase() &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
     );
 
