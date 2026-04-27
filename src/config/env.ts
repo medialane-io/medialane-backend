@@ -54,18 +54,7 @@ const envSchema = z.object({
 });
 
 function parseEnv() {
-  // Preserve compatibility with legacy variable names during the rename rollout.
-  const rawEnv = {
-    ...process.env,
-    MARKETPLACE_721_CONTRACT_MAINNET:
-      process.env.MARKETPLACE_721_CONTRACT_MAINNET ?? process.env.MARKETPLACE_CONTRACT_MAINNET,
-    COLLECTION_721_CONTRACT_MAINNET:
-      process.env.COLLECTION_721_CONTRACT_MAINNET ?? process.env.COLLECTION_CONTRACT_MAINNET,
-    COLLECTION_1155_CONTRACT_MAINNET:
-      process.env.COLLECTION_1155_CONTRACT_MAINNET ?? process.env.ERC1155_FACTORY_ADDRESS,
-  };
-
-  const result = envSchema.safeParse(rawEnv);
+  const result = envSchema.safeParse(process.env);
   if (!result.success) {
     console.error("Invalid environment variables:");
     console.error(result.error.flatten().fieldErrors);

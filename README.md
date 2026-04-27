@@ -243,11 +243,6 @@ bun dev
 
 Optional env vars (all have sensible defaults):
 
-Legacy env aliases still work during the transition:
-`MARKETPLACE_CONTRACT_MAINNET` -> `MARKETPLACE_721_CONTRACT_MAINNET`,
-`COLLECTION_CONTRACT_MAINNET` -> `COLLECTION_721_CONTRACT_MAINNET`,
-`ERC1155_FACTORY_ADDRESS` -> `COLLECTION_1155_CONTRACT_MAINNET`.
-
 | Variable | Default | Notes |
 |---|---|---|
 | `INDEXER_START_BLOCK` | `9196722` | Block to start scanning marketplace events from |
