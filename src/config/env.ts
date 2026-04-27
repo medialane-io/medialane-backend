@@ -8,10 +8,10 @@ const envSchema = z.object({
   VOYAGER_API_KEY: z.string().default(""),
   MARKETPLACE_CONTRACT_MAINNET: z
     .string()
-    .default("0x004387e58d469f19332dd5d20846b10339ddc49ef208025ec7d5bef294a8daf3"),
+    .default("0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6"),
   MARKETPLACE_1155_CONTRACT_MAINNET: z
     .string()
-    .default("0x035836932ba1d219e00b8e42cd9a433fb2b211a08edcaa8bae40232f335f777d"),
+    .default("0x04a0a65bd13e1ec9a2ce92c36115578486331e941b395f97d49fe488baac8309"),
   COLLECTION_CONTRACT_MAINNET: z
     .string()
     .default("0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b"),
@@ -25,7 +25,7 @@ const envSchema = z.object({
     .string()
     .default("0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6"),
   ERC1155_FACTORY_START_BLOCK: z.coerce.number().default(0),
-  INDEXER_START_BLOCK: z.coerce.number().default(9130000),
+  INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   COLLECTION_START_BLOCK: z.coerce.number().default(8660000),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
