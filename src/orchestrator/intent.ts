@@ -392,7 +392,8 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 
   const is1155 =
     body.tokenStandard === "ERC1155" ||
-    order?.offerItemType === "ERC1155";
+    order?.offerItemType === "ERC1155" ||
+    order?.considerationItemType === "ERC1155";
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
 
   const nonce = is1155
@@ -424,9 +425,13 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
-  // Approve the payment token to the correct marketplace contract.
-  // For ERC-1155: buyer pays price_per_unit × buyer's chosen quantity.
-  if (order?.considerationToken && order?.considerationStartAmount) {
+  const offerItemType = order?.offerItemType;
+  const considerationItemType = order?.considerationItemType;
+  const isListing = offerItemType === "ERC721" || offerItemType === "ERC1155";
+  const isOffer = considerationItemType === "ERC721" || considerationItemType === "ERC1155";
+
+  if (isListing && order?.considerationToken && order?.considerationStartAmount) {
+    // Buyer fulfills a listing: approve payment token for price_per_unit × quantity.
     const pricePerUnit = BigInt(order.considerationStartAmount);
     const totalPrice = (pricePerUnit * quantity1155).toString();
     const amountUint256 = cairo.uint256(totalPrice);
@@ -435,6 +440,22 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
       entrypoint: "approve",
       calldata: [marketplaceContract, amountUint256.low.toString(), amountUint256.high.toString()],
     });
+  } else if (isOffer && order?.considerationToken && order?.considerationIdentifier) {
+    // Seller accepts an offer: approve the NFT side to the marketplace.
+    if (is1155 || considerationItemType === "ERC1155") {
+      calls.push({
+        contractAddress: order.considerationToken,
+        entrypoint: "set_approval_for_all",
+        calldata: [marketplaceContract, "0x1"],
+      });
+    } else {
+      const tokenIdUint256 = cairo.uint256(order.considerationIdentifier);
+      calls.push({
+        contractAddress: order.considerationToken,
+        entrypoint: "approve",
+        calldata: [marketplaceContract, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
+      });
+    }
   }
 
   calls.push({
