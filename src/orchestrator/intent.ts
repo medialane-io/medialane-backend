@@ -1,9 +1,9 @@
 // SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
-import { Contract, num, cairo } from "starknet";
+import { num, cairo, hash } from "starknet";
 import { createProvider, normalizeAddress } from "../utils/starknet.js";
-import { IPMarketplaceABI, Medialane1155ABI } from "../config/abis.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
+import { env } from "../config/env.js";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
@@ -95,12 +95,10 @@ const CANCELLATION_TYPES_1155 = {
 };
 
 const DOMAIN_1155 = { name: "Medialane", version: "2", revision: "1" };
+const NONCES_SELECTOR = hash.getSelectorFromName("nonces");
 
 async function fetchNonce1155(address: string): Promise<string> {
-  const provider = createProvider();
-  const contract = new Contract(Medialane1155ABI as any, MARKETPLACE_1155_CONTRACT, provider);
-  const nonce = await contract.nonces(normalizeAddress(address));
-  return nonce.toString();
+  return fetchNonceFromContract(MARKETPLACE_1155_CONTRACT, address);
 }
 
 function toHex(value: string | number | bigint): string {
@@ -116,10 +114,41 @@ function toHex(value: string | number | bigint): string {
 }
 
 async function fetchNonce(address: string): Promise<string> {
-  const provider = createProvider();
-  const contract = new Contract(IPMarketplaceABI as any, MARKETPLACE_721_CONTRACT, provider);
-  const nonce = await contract.nonces(normalizeAddress(address));
-  return nonce.toString();
+  return fetchNonceFromContract(MARKETPLACE_721_CONTRACT, address);
+}
+
+async function fetchNonceFromContract(contractAddress: string, address: string): Promise<string> {
+  const res = await fetch(env.ALCHEMY_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "starknet_call",
+      params: {
+        request: {
+          contract_address: contractAddress,
+          entry_point_selector: NONCES_SELECTOR,
+          calldata: [normalizeAddress(address)],
+        },
+        block_id: "latest",
+      },
+      id: 1,
+    }),
+  });
+
+  const text = await res.text();
+  let json: { result?: string[]; error?: { message?: string } };
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`Nonce RPC returned non-JSON response (${res.status})`);
+  }
+
+  if (!res.ok || json.error || !json.result?.[0]) {
+    throw new Error(json.error?.message ?? `Nonce RPC failed (${res.status})`);
+  }
+
+  return BigInt(json.result[0]).toString();
 }
 
 function generateSalt(): string {
