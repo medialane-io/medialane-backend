@@ -27,6 +27,7 @@ const VALID_COLLECTION_SOURCES = new Set([
   "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
   "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP", "ERC1155_FACTORY",
 ]);
+const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155", "UNKNOWN"]);
 
 // GET /v1/collections
 collections.get("/", async (c) => {
@@ -240,12 +241,29 @@ collections.post("/register", async (c) => {
 
   const contractAddress = normalizeAddress(body.contractAddress);
   const startBlock = typeof body.startBlock === "number" ? BigInt(body.startBlock) : BigInt(0);
+  const standard =
+    typeof body.standard === "string" && VALID_COLLECTION_STANDARDS.has(body.standard)
+      ? body.standard
+      : undefined;
+  const source =
+    typeof body.source === "string" && VALID_COLLECTION_SOURCES.has(body.source)
+      ? body.source
+      : undefined;
 
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
   });
   if (existing) {
-    return c.json({ data: serializeCollection(existing) });
+    const collection = await prisma.collection.update({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+      data: {
+        standard,
+        source: source as any,
+        metadataStatus: "PENDING",
+      },
+    });
+    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
+    return c.json({ data: serializeCollection(collection) });
   }
 
   const collection = await prisma.collection.create({
@@ -254,6 +272,8 @@ collections.post("/register", async (c) => {
       contractAddress,
       startBlock,
       metadataStatus: "PENDING",
+      standard: standard ?? "UNKNOWN",
+      source: source as any,
     },
   });
 

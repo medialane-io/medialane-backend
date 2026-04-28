@@ -85,7 +85,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // for image/owner that was previously done separately as `existingFull`).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, baseUri: true, description: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, standard: true, baseUri: true, description: true },
   });
 
   // Skip if already fully resolved. For ERC1155_FACTORY collections, also re-run
