@@ -15,12 +15,16 @@ import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.j
 import { pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
+import { fetchMarketplaceReceiptEvents } from "../../utils/txVerifier.js";
+import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR } from "../../config/constants.js";
+import { num } from "starknet";
 
 import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
 import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
+const ORDER_CREATED_SELECTOR_HEX = num.toHex(ORDER_CREATED_SELECTOR);
 
 // Simple IP-based rate limiter for admin routes (20 req/min per IP)
 const adminRateLimitStore = new InMemoryRateLimitStore();
@@ -778,6 +782,50 @@ admin.post("/orders/:orderHash/resync", async (c) => {
 
   const updated = await prisma.order.findFirst({ where: { orderHash } });
   return c.json({ priceRaw: updated?.priceRaw, priceFormatted: updated?.priceFormatted, currencySymbol: updated?.currencySymbol });
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/marketplace/tx/:txHash/hydrate — hydrate OrderCreated rows from a tx receipt
+// ---------------------------------------------------------------------------
+admin.post("/marketplace/tx/:txHash/hydrate", async (c) => {
+  const txHash = c.req.param("txHash");
+  if (!/^0x[0-9a-fA-F]{1,64}$/.test(txHash)) {
+    return c.json({ error: "Invalid transaction hash" }, 400);
+  }
+
+  const events = await fetchMarketplaceReceiptEvents(txHash);
+  const createdEvents = events.filter((event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_CREATED_SELECTOR_HEX);
+  if (!createdEvents.length) {
+    return c.json({ error: "No OrderCreated events found for marketplace transaction" }, 404);
+  }
+
+  const hydrated: string[] = [];
+  await prisma.$transaction(async (tx) => {
+    for (const event of createdEvents) {
+      const orderHash = num.toHex(event.keys[1]);
+      const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
+      if (is1155) {
+        await handleOrderCreated1155(event, tx, "STARKNET");
+      } else {
+        await handleOrderCreated(
+          {
+            type: "OrderCreated",
+            orderHash,
+            offerer: normalizeAddress(event.keys[2]),
+            blockNumber: BigInt(event.block_number),
+            txHash: event.transaction_hash,
+            logIndex: 0,
+          },
+          tx,
+          "STARKNET"
+        );
+      }
+      hydrated.push(orderHash);
+    }
+  }, { timeout: 60000 });
+
+  log.info({ txHash, orderHashes: hydrated }, "Marketplace tx hydrated via admin");
+  return c.json({ txHash, orderHashes: hydrated });
 });
 
 // ---------------------------------------------------------------------------
