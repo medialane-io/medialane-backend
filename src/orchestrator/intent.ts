@@ -96,6 +96,7 @@ const CANCELLATION_TYPES_1155 = {
 
 const DOMAIN_1155 = { name: "Medialane", version: "2", revision: "1" };
 const NONCES_SELECTOR = hash.getSelectorFromName("nonces");
+const PUBLIC_STARKNET_RPC_FALLBACK = "https://starknet-rpc.publicnode.com/";
 
 async function fetchNonce1155(address: string): Promise<string> {
   return fetchNonceFromContract(MARKETPLACE_1155_CONTRACT, address);
@@ -118,7 +119,27 @@ async function fetchNonce(address: string): Promise<string> {
 }
 
 async function fetchNonceFromContract(contractAddress: string, address: string): Promise<string> {
-  const res = await fetch(env.ALCHEMY_RPC_URL, {
+  const urls = Array.from(new Set([
+    env.ALCHEMY_RPC_URL,
+    env.STARKNET_RPC_FALLBACK_URL,
+    PUBLIC_STARKNET_RPC_FALLBACK,
+  ].filter(Boolean) as string[]));
+  let lastError: Error | null = null;
+
+  for (const url of urls) {
+    try {
+      return await fetchNonceFromRpc(url, contractAddress, address);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      log.warn({ err: lastError, rpcUrl: sanitizeRpcUrl(url) }, "Nonce RPC failed — trying fallback");
+    }
+  }
+
+  throw lastError ?? new Error("Nonce RPC failed");
+}
+
+async function fetchNonceFromRpc(rpcUrl: string, contractAddress: string, address: string): Promise<string> {
+  const res = await fetch(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -149,6 +170,15 @@ async function fetchNonceFromContract(contractAddress: string, address: string):
   }
 
   return BigInt(json.result[0]).toString();
+}
+
+function sanitizeRpcUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "invalid-rpc-url";
+  }
 }
 
 function generateSalt(): string {
