@@ -525,9 +525,11 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
   } as const;
 
   if (verifyResult.status === "CONFIRMED") {
+    let hydratedOrderHash: string | undefined;
     if (intent?.type && ORDER_CREATING_INTENT_TYPES.has(intent.type)) {
       try {
-        await hydrateCreatedOrdersFromTx(txHash);
+        const orderHashes = await hydrateCreatedOrdersFromTx(txHash);
+        hydratedOrderHash = orderHashes[0];
       } catch (err) {
         log.error({ err, intentId, txHash, type: intent.type }, "Failed to hydrate created order from confirmed tx");
       }
@@ -560,7 +562,7 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
     } else {
       await prisma.transactionIntent.update({
         where: { id: intentId },
-        data: { status: "CONFIRMED" },
+        data: { status: "CONFIRMED", ...(hydratedOrderHash ? { orderHash: hydratedOrderHash } : {}) },
       });
     }
     log.info({ intentId, txHash, type: intent?.type }, "Intent CONFIRMED");
@@ -595,27 +597,30 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
   }
 }
 
-async function hydrateCreatedOrdersFromTx(txHash: string): Promise<void> {
+async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string[]> {
   const events = await fetchMarketplaceReceiptEvents(txHash);
   const createdEvents = events.filter((event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_CREATED_SELECTOR_HEX);
 
   if (!createdEvents.length) {
     log.warn({ txHash }, "Confirmed marketplace tx had no OrderCreated events to hydrate");
-    return;
+    return [];
   }
 
+  const hydratedOrderHashes: string[] = [];
   await prisma.$transaction(async (tx) => {
     for (const event of createdEvents) {
+      const orderHash = num.toHex(event.keys[1]);
       const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
       if (is1155) {
         await handleOrderCreated1155(event, tx, "STARKNET");
+        hydratedOrderHashes.push(orderHash);
         continue;
       }
 
       await handleOrderCreated(
         {
           type: "OrderCreated",
-          orderHash: num.toHex(event.keys[1]),
+          orderHash,
           offerer: normalizeAddress(event.keys[2]),
           blockNumber: BigInt(event.block_number),
           txHash: event.transaction_hash,
@@ -624,11 +629,45 @@ async function hydrateCreatedOrdersFromTx(txHash: string): Promise<void> {
         tx,
         "STARKNET"
       );
+      hydratedOrderHashes.push(orderHash);
     }
   }, { timeout: 60000 });
 
-  log.info({ txHash, eventCount: createdEvents.length }, "Hydrated marketplace orders from confirmed tx");
+  log.info({ txHash, orderHashes: hydratedOrderHashes }, "Hydrated marketplace orders from confirmed tx");
+  return hydratedOrderHashes;
 }
+
+// POST /v1/intents/:id/hydrate — tenant-safe repair for confirmed marketplace txs
+intents.post("/:id/hydrate", async (c) => {
+  const { id } = c.req.param();
+  const intent = await prisma.transactionIntent.findUnique({ where: { id } });
+  if (!intent) return c.json({ error: "Intent not found" }, 404);
+
+  const callerTenantId = c.get("tenant")?.id;
+  if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    return c.json({ error: "Intent not found" }, 404);
+  }
+
+  if (!intent.txHash) {
+    return c.json({ error: "Intent has no transaction hash" }, 409);
+  }
+  if (!ORDER_CREATING_INTENT_TYPES.has(intent.type)) {
+    return c.json({ error: "Intent type does not create an order" }, 400);
+  }
+  if (intent.status !== "CONFIRMED" && intent.status !== "SUBMITTED") {
+    return c.json({ error: `Intent is ${intent.status}` }, 409);
+  }
+
+  const orderHashes = await hydrateCreatedOrdersFromTx(intent.txHash);
+  if (orderHashes[0]) {
+    await prisma.transactionIntent.update({
+      where: { id },
+      data: { orderHash: orderHashes[0], status: "CONFIRMED" },
+    });
+  }
+
+  return c.json({ data: { id, txHash: intent.txHash, orderHashes } });
+});
 
 // PATCH /v1/intents/:id/confirm — submit tx hash; background verification settles status
 intents.patch("/:id/confirm", async (c) => {
