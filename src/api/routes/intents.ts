@@ -14,10 +14,14 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
-import { verifyMarketplaceTx, checkOnChainOrderCancelled, fetchMarketplaceReceiptEvents } from "../../utils/txVerifier.js";
-import { ORDER_CREATED_SELECTOR, MARKETPLACE_1155_CONTRACT } from "../../config/constants.js";
+import { verifyMarketplaceTx, checkOnChainOrderCancelled, fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../utils/txVerifier.js";
+import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, MARKETPLACE_1155_CONTRACT, getTokenByAddress } from "../../config/constants.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.js";
+import { handleOrderFulfilled } from "../../mirror/handlers/orderFulfilled.js";
+import { handleOrderFulfilled1155 } from "../../mirror/handlers/orderFulfilled1155.js";
+import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
+import { parseEvents } from "../../mirror/parser.js";
 import { num } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -501,6 +505,7 @@ const ORDER_CREATING_INTENT_TYPES = new Set([
   "COUNTER_OFFER",
 ]);
 const ORDER_CREATED_SELECTOR_HEX = num.toHex(ORDER_CREATED_SELECTOR);
+const ORDER_FULFILLED_SELECTOR_HEX = num.toHex(ORDER_FULFILLED_SELECTOR);
 
 /** Background: verify tx receipt and settle intent to CONFIRMED or FAILED.
  *  For FULFILL_ORDER and CANCEL_ORDER intents, also syncs the order status in DB
@@ -520,7 +525,6 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
   // Both branches do an atomic (intent + order) update so the UI reflects
   // the correct state before the indexer catches up.
   const ORDER_SETTLE_STATUS = {
-    FULFILL_ORDER: "FULFILLED",
     CANCEL_ORDER: "CANCELLED",
   } as const;
 
@@ -532,6 +536,13 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
         hydratedOrderHash = orderHashes[0];
       } catch (err) {
         log.error({ err, intentId, txHash, type: intent.type }, "Failed to hydrate created order from confirmed tx");
+      }
+    }
+    if (intent?.type === "FULFILL_ORDER") {
+      try {
+        await hydrateFulfillmentFromTx(txHash);
+      } catch (err) {
+        log.error({ err, intentId, txHash, orderHash: intent.orderHash }, "Failed to hydrate fulfillment from confirmed tx");
       }
     }
 
@@ -637,6 +648,46 @@ async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string[]> {
   return hydratedOrderHashes;
 }
 
+async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
+  const rawEvents = await fetchReceiptEvents(txHash);
+  const parsedEvents = parseEvents(rawEvents);
+  const rawFulfilledEvents = rawEvents.filter(
+    (event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_FULFILLED_SELECTOR_HEX
+  );
+
+  await prisma.$transaction(async (tx) => {
+    for (const event of rawFulfilledEvents) {
+      const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
+      if (is1155) {
+        await handleOrderFulfilled1155(event, tx, "STARKNET");
+      }
+    }
+
+    for (const event of parsedEvents) {
+      if (event.type === "OrderFulfilled") {
+        const is1155 = rawFulfilledEvents.some(
+          (raw) =>
+            raw.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT) &&
+            normalizeAddress(raw.keys[1]) === normalizeAddress(event.orderHash)
+        );
+        if (!is1155) {
+          await handleOrderFulfilled(event, tx, "STARKNET");
+        }
+        continue;
+      }
+
+      if (
+        (event.type === "Transfer" || event.type === "TransferSingle" || event.type === "TransferBatch") &&
+        !getTokenByAddress(event.contractAddress)
+      ) {
+        await dispatchTransfer(event, tx, "STARKNET");
+      }
+    }
+  }, { timeout: 60000 });
+
+  log.info({ txHash }, "Hydrated fulfillment and transfer balances from confirmed tx");
+}
+
 // POST /v1/intents/:id/hydrate — tenant-safe repair for confirmed marketplace txs
 intents.post("/:id/hydrate", async (c) => {
   const { id } = c.req.param();
@@ -651,11 +702,20 @@ intents.post("/:id/hydrate", async (c) => {
   if (!intent.txHash) {
     return c.json({ error: "Intent has no transaction hash" }, 409);
   }
-  if (!ORDER_CREATING_INTENT_TYPES.has(intent.type)) {
-    return c.json({ error: "Intent type does not create an order" }, 400);
+  if (!ORDER_CREATING_INTENT_TYPES.has(intent.type) && intent.type !== "FULFILL_ORDER") {
+    return c.json({ error: "Intent type cannot be hydrated" }, 400);
   }
   if (intent.status !== "CONFIRMED" && intent.status !== "SUBMITTED") {
     return c.json({ error: `Intent is ${intent.status}` }, 409);
+  }
+
+  if (intent.type === "FULFILL_ORDER") {
+    await hydrateFulfillmentFromTx(intent.txHash);
+    await prisma.transactionIntent.update({
+      where: { id },
+      data: { status: "CONFIRMED" },
+    });
+    return c.json({ data: { id, txHash: intent.txHash, orderHashes: intent.orderHash ? [intent.orderHash] : [] } });
   }
 
   const orderHashes = await hydrateCreatedOrdersFromTx(intent.txHash);
@@ -665,7 +725,6 @@ intents.post("/:id/hydrate", async (c) => {
       data: { orderHash: orderHashes[0], status: "CONFIRMED" },
     });
   }
-
   return c.json({ data: { id, txHash: intent.txHash, orderHashes } });
 });
 
