@@ -23,6 +23,15 @@ export type VerifyResult =
   | { status: "CONFIRMED" }
   | { status: "FAILED"; failReason: string };
 
+export type MarketplaceReceiptEvent = {
+  from_address: string;
+  keys: string[];
+  data: string[];
+  block_number: number;
+  transaction_hash: string;
+  block_hash: string;
+};
+
 /**
  * Verify that a Starknet transaction emitted at least one event from a
  * marketplace contract (ERC-721 or ERC-1155). Catches ChipiPay silent
@@ -101,6 +110,27 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
     failReason:
       "Transaction verification timed out. Check your wallet for the transaction status.",
   };
+}
+
+export async function fetchMarketplaceReceiptEvents(txHash: string): Promise<MarketplaceReceiptEvent[]> {
+  const json = await fetchReceipt(txHash);
+  const receipt = json.result;
+  if (!receipt) return [];
+
+  const blockNumber = Number(receipt.block_number ?? 0);
+  const blockHash = typeof receipt.block_hash === "string" ? receipt.block_hash : "";
+  const events = (receipt.events as Array<{ from_address?: string; keys?: string[]; data?: string[] }>) ?? [];
+
+  return events
+    .filter((event) => VALID_MARKETPLACE_CONTRACTS.has(safeNormalizeAddress(event.from_address)))
+    .map((event) => ({
+      from_address: safeNormalizeAddress(event.from_address),
+      keys: event.keys ?? [],
+      data: event.data ?? [],
+      block_number: blockNumber,
+      transaction_hash: txHash,
+      block_hash: blockHash,
+    }));
 }
 
 async function fetchReceipt(txHash: string): Promise<{ result?: Record<string, unknown>; error?: unknown }> {

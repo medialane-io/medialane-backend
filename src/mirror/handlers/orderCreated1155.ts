@@ -17,6 +17,7 @@ import { withRetry } from "../../utils/retry.js";
 
 const log = createLogger("handler:orderCreated1155");
 const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
+const LAVA_RPC_URL = "https://rpc.starknet.lava.build/";
 
 type OrderDetails1155 = {
   offerer: string;
@@ -149,25 +150,7 @@ export async function handleOrderCreated1155(
 }
 
 async function fetchOrderDetails1155(orderHash: string): Promise<OrderDetails1155> {
-  const res = await fetch(env.ALCHEMY_RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "starknet_call",
-      params: {
-        request: {
-          contract_address: MARKETPLACE_1155_CONTRACT,
-          entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
-          calldata: [orderHash],
-        },
-        block_id: "latest",
-      },
-      id: 1,
-    }),
-  });
-
-  const json = await res.json() as { result?: string[]; error?: unknown };
+  const json = await callGetOrderDetails1155(orderHash);
   if (!json.result || json.result.length < 17) {
     throw new Error(`Invalid get_order_details response: ${JSON.stringify(json.error ?? json.result)}`);
   }
@@ -190,6 +173,47 @@ async function fetchOrderDetails1155(orderHash: string): Promise<OrderDetails115
     endTime: BigInt(raw[13]),
     remainingAmount: BigInt(raw[16]).toString(),
   };
+}
+
+async function callGetOrderDetails1155(orderHash: string): Promise<{ result?: string[]; error?: unknown }> {
+  const urls = Array.from(new Set([
+    env.ALCHEMY_RPC_URL,
+    env.STARKNET_RPC_FALLBACK_URL,
+    LAVA_RPC_URL,
+  ].filter((url): url is string => Boolean(url))));
+  let lastError: unknown;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "starknet_call",
+          params: {
+            request: {
+              contract_address: MARKETPLACE_1155_CONTRACT,
+              entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
+              calldata: [orderHash],
+            },
+            block_id: "latest",
+          },
+          id: 1,
+        }),
+      });
+
+      const json = await res.json() as { result?: string[]; error?: unknown };
+      if (json.result) return json;
+      lastError = json.error ?? new Error(`Empty RPC response from ${url}`);
+      log.warn({ orderHash, rpcError: json.error }, "ERC-1155 get_order_details RPC returned an error, trying next endpoint");
+    } catch (err) {
+      lastError = err;
+      log.warn({ err, orderHash }, "ERC-1155 get_order_details RPC failed, trying next endpoint");
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`get_order_details failed: ${JSON.stringify(lastError)}`);
 }
 
 /** Decode a Cairo felt252 short string into its ASCII representation. */

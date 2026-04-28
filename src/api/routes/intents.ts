@@ -14,7 +14,11 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
-import { verifyMarketplaceTx, checkOnChainOrderCancelled } from "../../utils/txVerifier.js";
+import { verifyMarketplaceTx, checkOnChainOrderCancelled, fetchMarketplaceReceiptEvents } from "../../utils/txVerifier.js";
+import { ORDER_CREATED_SELECTOR, MARKETPLACE_1155_CONTRACT } from "../../config/constants.js";
+import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
+import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.js";
+import { num } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:intents");
@@ -491,6 +495,12 @@ const MARKETPLACE_INTENT_TYPES = new Set([
   "CANCEL_ORDER",
   "COUNTER_OFFER",
 ]);
+const ORDER_CREATING_INTENT_TYPES = new Set([
+  "CREATE_LISTING",
+  "MAKE_OFFER",
+  "COUNTER_OFFER",
+]);
+const ORDER_CREATED_SELECTOR_HEX = num.toHex(ORDER_CREATED_SELECTOR);
 
 /** Background: verify tx receipt and settle intent to CONFIRMED or FAILED.
  *  For FULFILL_ORDER and CANCEL_ORDER intents, also syncs the order status in DB
@@ -515,6 +525,14 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
   } as const;
 
   if (verifyResult.status === "CONFIRMED") {
+    if (intent?.type && ORDER_CREATING_INTENT_TYPES.has(intent.type)) {
+      try {
+        await hydrateCreatedOrdersFromTx(txHash);
+      } catch (err) {
+        log.error({ err, intentId, txHash, type: intent.type }, "Failed to hydrate created order from confirmed tx");
+      }
+    }
+
     const orderStatus = intent?.type ? ORDER_SETTLE_STATUS[intent.type as keyof typeof ORDER_SETTLE_STATUS] : undefined;
     if (orderStatus && intent?.orderHash) {
       await prisma.$transaction([
@@ -575,6 +593,41 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
       }
     }
   }
+}
+
+async function hydrateCreatedOrdersFromTx(txHash: string): Promise<void> {
+  const events = await fetchMarketplaceReceiptEvents(txHash);
+  const createdEvents = events.filter((event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_CREATED_SELECTOR_HEX);
+
+  if (!createdEvents.length) {
+    log.warn({ txHash }, "Confirmed marketplace tx had no OrderCreated events to hydrate");
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const event of createdEvents) {
+      const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
+      if (is1155) {
+        await handleOrderCreated1155(event, tx, "STARKNET");
+        continue;
+      }
+
+      await handleOrderCreated(
+        {
+          type: "OrderCreated",
+          orderHash: num.toHex(event.keys[1]),
+          offerer: normalizeAddress(event.keys[2]),
+          blockNumber: BigInt(event.block_number),
+          txHash: event.transaction_hash,
+          logIndex: 0,
+        },
+        tx,
+        "STARKNET"
+      );
+    }
+  }, { timeout: 60000 });
+
+  log.info({ txHash, eventCount: createdEvents.length }, "Hydrated marketplace orders from confirmed tx");
 }
 
 // PATCH /v1/intents/:id/confirm — submit tx hash; background verification settles status

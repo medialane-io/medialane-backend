@@ -2,7 +2,7 @@ import { Contract } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "../../config/abis.js";
 import { MARKETPLACE_721_CONTRACT } from "../../config/constants.js";
-import { createProvider, normalizeAddress } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
 import type { ParsedOrderCreated, OnChainOrderDetails } from "../../types/marketplace.js";
@@ -16,17 +16,17 @@ export async function handleOrderCreated(
   tx: Prisma.TransactionClient,
   chain: Chain
 ): Promise<string | null> {
-  const provider = createProvider();
-  const contract = new Contract(
-    IPMarketplaceABI as any,
-    MARKETPLACE_721_CONTRACT,
-    provider
-  );
-
   let details: OnChainOrderDetails;
   try {
     const raw = await withRetry(
-      () => contract.get_order_details(event.orderHash),
+      () => callRpc((provider) => {
+        const contract = new Contract(
+          IPMarketplaceABI as any,
+          MARKETPLACE_721_CONTRACT,
+          provider
+        );
+        return contract.get_order_details(event.orderHash);
+      }),
       3,   // attempts
       500  // base delay ms (500 → 1000 → 2000)
     );
