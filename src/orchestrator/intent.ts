@@ -96,7 +96,7 @@ const CANCELLATION_TYPES_1155 = {
 
 const DOMAIN_1155 = { name: "Medialane", version: "2", revision: "1" };
 const NONCES_SELECTOR = hash.getSelectorFromName("nonces");
-const PUBLIC_STARKNET_RPC_FALLBACK = "https://starknet-rpc.publicnode.com/";
+const PUBLIC_STARKNET_RPC_FALLBACK = "https://rpc.starknet.lava.build/";
 
 async function fetchNonce1155(address: string): Promise<string> {
   return fetchNonceFromContract(MARKETPLACE_1155_CONTRACT, address);
