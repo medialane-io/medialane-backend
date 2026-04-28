@@ -40,49 +40,29 @@ export function buildPopulatedCalls(
   const sigCalldata = [sig.length.toString(), ...sig];
 
   if (intentType === "CREATE_LISTING" || intentType === "MAKE_OFFER" || intentType === "COUNTER_OFFER") {
-    // ERC-1155 flat OrderParameters: message has nft_contract instead of nested offer/consideration
-    if ("nft_contract" in message) {
-      // register_order(order: OrderParameters1155, signature: Span<felt252>)
-      // Cairo struct fields token_id, amount, price_per_unit are felt252 — one felt each.
-      // (NOT u256: serializing as [low, high] would shift all subsequent fields and cause
-      // the INVALID_AMOUNT assert to fire because Cairo reads token_id.high as amount.)
-      last.calldata = [
-        toFelt(message.offerer),
-        toFelt(message.nft_contract),
-        toFelt(message.token_id),
-        toFelt(message.amount),
-        toFelt(message.payment_token),
-        toFelt(message.price_per_unit),
-        toFelt(message.start_time),
-        toFelt(message.end_time),
-        toFelt(message.salt),
-        toFelt(message.nonce),
-        ...sigCalldata,
-      ];
-    } else {
-      // ERC-721 nested OrderParameters: register_order(order: OrderParameters, signature: Span<felt252>)
-      const o = message.offer as Message;
-      const cns = message.consideration as Message;
-      last.calldata = [
-        toFelt(message.offerer),
-        toFelt(o.item_type),
-        toFelt(o.token),
-        toFelt(o.identifier_or_criteria),
-        toFelt(o.start_amount),
-        toFelt(o.end_amount),
-        toFelt(cns.item_type),
-        toFelt(cns.token),
-        toFelt(cns.identifier_or_criteria),
-        toFelt(cns.start_amount),
-        toFelt(cns.end_amount),
-        toFelt(cns.recipient),
-        toFelt(message.start_time),
-        toFelt(message.end_time),
-        toFelt(message.salt),
-        toFelt(message.nonce),
-        ...sigCalldata,
-      ];
-    }
+    // ERC-721 and audited ERC-1155 both use nested OrderParameters:
+    // register_order(order: Order, signature: Span<felt252>)
+    const o = message.offer as Message;
+    const cns = message.consideration as Message;
+    last.calldata = [
+      toFelt(message.offerer),
+      toFelt(o.item_type),
+      toFelt(o.token),
+      toFelt(o.identifier_or_criteria),
+      toFelt(o.start_amount),
+      toFelt(o.end_amount),
+      toFelt(cns.item_type),
+      toFelt(cns.token),
+      toFelt(cns.identifier_or_criteria),
+      toFelt(cns.start_amount),
+      toFelt(cns.end_amount),
+      toFelt(cns.recipient),
+      toFelt(message.start_time),
+      toFelt(message.end_time),
+      toFelt(message.salt),
+      toFelt(message.nonce),
+      ...sigCalldata,
+    ];
   } else if (intentType === "FULFILL_ORDER") {
     // ERC-1155 OrderFulfillment has quantity between fulfiller and nonce
     if ("quantity" in message) {

@@ -75,32 +75,9 @@ const CANCELLATION_TYPES = {
 const DOMAIN = { name: "Medialane", version: "1", revision: "1" };
 
 // ─── ERC-1155 Medialane1155 SNIP-12 types ──────────────────────────────────
-// Flat OrderParameters — no nested OfferItem / ConsiderationItem structs.
-// Must exactly match the Cairo StructHash in Medialane1155 types.cairo.
-//
-// IMPORTANT: token_id, amount, and price_per_unit are felt252 in Cairo,
-// NOT u256. Declaring them as u256 here would produce a different Poseidon
-// hash than the contract computes, causing INVALID_SIGNATURE panics.
-const SNIP12_TYPES_1155 = {
-  StarknetDomain: [
-    { name: "name", type: "shortstring" },
-    { name: "version", type: "shortstring" },
-    { name: "chainId", type: "shortstring" },
-    { name: "revision", type: "shortstring" },
-  ],
-  OrderParameters: [
-    { name: "offerer", type: "ContractAddress" },
-    { name: "nft_contract", type: "ContractAddress" },
-    { name: "token_id", type: "felt" },
-    { name: "amount", type: "felt" },
-    { name: "payment_token", type: "ContractAddress" },
-    { name: "price_per_unit", type: "felt" },
-    { name: "start_time", type: "felt" },
-    { name: "end_time", type: "felt" },
-    { name: "salt", type: "felt" },
-    { name: "nonce", type: "felt" },
-  ],
-};
+// The audited ERC-1155 protocol now mirrors the ERC-721 marketplace shape:
+// OrderParameters contains nested OfferItem and ConsiderationItem structs.
+const SNIP12_TYPES_1155 = SNIP12_TYPES;
 
 const FULFILLMENT_TYPES_1155 = {
   StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
@@ -117,7 +94,7 @@ const CANCELLATION_TYPES_1155 = {
   OrderCancellation: CANCELLATION_TYPES.OrderCancellation,
 };
 
-const DOMAIN_1155 = { name: "Medialane1155", version: "1", revision: "1" };
+const DOMAIN_1155 = { name: "Medialane", version: "2", revision: "1" };
 
 async function fetchNonce1155(address: string): Promise<string> {
   const provider = createProvider();
@@ -175,15 +152,23 @@ async function buildCreateListing1155Intent(body: CreateListingIntentBody & { am
   if (amount < 1n) throw new Error("amount must be at least 1");
   const nonce = await fetchNonce1155(body.offerer);
 
-  // token_id, amount, price_per_unit are felt252 in Cairo — pass as plain hex,
-  // NOT as u256 structs. Using u256 would produce a mismatched Poseidon hash.
   const orderParams = {
     offerer: toHex(body.offerer),
-    nft_contract: toHex(body.nftContract),
-    token_id: toHex(body.tokenId),
-    amount: toHex(amount),
-    payment_token: toHex(body.currency),
-    price_per_unit: toHex(priceWei),
+    offer: {
+      item_type: "ERC1155",
+      token: toHex(body.nftContract),
+      identifier_or_criteria: toHex(body.tokenId),
+      start_amount: toHex(amount),
+      end_amount: toHex(amount),
+    },
+    consideration: {
+      item_type: "ERC20",
+      token: toHex(body.currency),
+      identifier_or_criteria: toHex("0"),
+      start_amount: toHex(priceWei),
+      end_amount: toHex(priceWei),
+      recipient: toHex(body.offerer),
+    },
     start_time: toHex(Math.floor(Date.now() / 1000) + 30),
     end_time: toHex(body.endTime),
     salt: toHex(salt),

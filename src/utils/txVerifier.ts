@@ -108,9 +108,8 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
   };
 }
 
-// ERC-721 OrderDetails flat layout: [offerer, offer×5, consideration×6, start_time, end_time, order_status, ...]
-// ERC-1155 OrderDetails flat layout: [offerer, nft_contract, token_id, amount, payment_token, price_per_unit, start_time, end_time, order_status, ...]
-const ORDER_STATUS_INDEX = { erc721: 14, erc1155: 8 };
+// OrderDetails flat layout: [offerer, offer×5, consideration×6, start_time, end_time, order_status, ...]
+const ORDER_STATUS_INDEX = { erc721: 14, erc1155: 14 };
 const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
 
 /**
