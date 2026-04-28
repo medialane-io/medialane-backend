@@ -17,6 +17,7 @@ const VALID_MARKETPLACE_CONTRACTS = new Set([
   normalizeAddress(MARKETPLACE_721_CONTRACT),
   normalizeAddress(MARKETPLACE_1155_CONTRACT),
 ]);
+const LAVA_RPC_URL = "https://rpc.starknet.lava.build/";
 
 export type VerifyResult =
   | { status: "CONFIRMED" }
@@ -36,18 +37,7 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
     }
 
     try {
-      const res = await fetch(env.ALCHEMY_RPC_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "starknet_getTransactionReceipt",
-          params: { transaction_hash: txHash },
-          id: 1,
-        }),
-      });
-
-      const json = await res.json() as { result?: Record<string, unknown> };
+      const json = await fetchReceipt(txHash);
       const receipt = json?.result;
 
       if (!receipt) {
@@ -84,7 +74,12 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
         }
 
         // Events present but none from marketplace — silent inner-call failure
-        log.warn({ txHash, eventCount: events.length }, "Tx accepted but no marketplace event — inner call panicked");
+        log.warn({
+          txHash,
+          eventCount: events.length,
+          eventContracts: Array.from(new Set(events.map((e) => safeNormalizeAddress(e.from_address)))),
+          marketplaceContracts: Array.from(VALID_MARKETPLACE_CONTRACTS),
+        }, "Tx accepted but no marketplace event — inner call panicked");
         return {
           status: "FAILED",
           failReason:
@@ -106,6 +101,67 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
     failReason:
       "Transaction verification timed out. Check your wallet for the transaction status.",
   };
+}
+
+async function fetchReceipt(txHash: string): Promise<{ result?: Record<string, unknown>; error?: unknown }> {
+  const urls = receiptRpcUrls();
+  let lastError: unknown;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "starknet_getTransactionReceipt",
+          params: { transaction_hash: txHash },
+          id: 1,
+        }),
+      });
+
+      const json = await res.json() as { result?: Record<string, unknown>; error?: unknown };
+      if (json.result) return json;
+      if (json.error) {
+        lastError = json.error;
+        log.warn({ txHash, rpcUrl: redactRpcUrl(url), rpcError: json.error }, "Receipt RPC returned an error, trying next endpoint");
+        continue;
+      }
+      lastError = new Error(`Empty RPC response from ${url}`);
+    } catch (err) {
+      lastError = err;
+      log.warn({ err, txHash, rpcUrl: redactRpcUrl(url) }, "Receipt RPC failed, trying next endpoint");
+    }
+  }
+
+  if (lastError) throw lastError;
+  return {};
+}
+
+function safeNormalizeAddress(address?: string): string {
+  if (!address) return "";
+  try {
+    return normalizeAddress(address);
+  } catch {
+    return address;
+  }
+}
+
+function receiptRpcUrls(): string[] {
+  return Array.from(new Set([
+    env.ALCHEMY_RPC_URL,
+    env.STARKNET_RPC_FALLBACK_URL,
+    LAVA_RPC_URL,
+  ].filter((url): url is string => Boolean(url))));
+}
+
+function redactRpcUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname.split("/").slice(0, 4).join("/")}`;
+  } catch {
+    return "invalid-rpc-url";
+  }
 }
 
 // OrderDetails flat layout: [offerer, offer×5, consideration×6, start_time, end_time, order_status, ...]
