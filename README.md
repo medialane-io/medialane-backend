@@ -207,7 +207,7 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 | Contract | Address |
 |---|---|
 | Marketplace Protocol (ERC-721) | `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6` |
-| Marketplace Protocol (ERC-1155) | `0x04a0a65bd13e1ec9a2ce92c36115578486331e941b395f97d49fe488baac8309` |
+| Marketplace Protocol (ERC-1155) | `0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99` |
 | Collection Protocol (ERC-721 registry) | `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b` |
 | Collection Protocol (ERC-1155 factory) | `0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6` |
 | NFTComments | `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799` |

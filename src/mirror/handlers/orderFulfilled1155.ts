@@ -4,7 +4,7 @@
  * Unlike ERC-721 fulfillment, a single fill may be partial — the buyer picks a
  * quantity Q ≤ remaining_amount. The order stays ACTIVE until all units are sold.
  *
- * Event structure (v2 contract — deployed 2026-04-20):
+   * Event structure (V2 marketplace — deployed 2026-04-28):
  *   keys[1] = order_hash       (felt252, indexed)
  *   keys[2] = offerer          (ContractAddress, indexed)
  *   keys[3] = fulfiller        (ContractAddress, indexed)

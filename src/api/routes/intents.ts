@@ -42,7 +42,10 @@ const listingSchema = z.object({
   amount: z.string().optional(),
 });
 
-const offerSchema = listingSchema;
+const offerSchema = listingSchema.extend({
+  tokenStandard: z.string().optional(),
+  quantity: z.string().optional(),
+});
 
 const fulfillSchema = z.object({
   fulfiller: starknetAddress,

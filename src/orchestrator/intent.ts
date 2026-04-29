@@ -328,9 +328,13 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   if (!token) throw new Error(`Unsupported currency: ${body.currency}`);
   const priceWei = parseAmount(body.price, token.decimals);
 
-  const nonce = await fetchNonce(body.offerer);
+  const is1155 = body.tokenStandard === "ERC1155";
+  const nonce = is1155 ? await fetchNonce1155(body.offerer) : await fetchNonce(body.offerer);
   const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
+  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
+  const quantity = is1155 ? BigInt(body.quantity ?? "1") : 1n;
+  if (quantity < 1n) throw new Error("quantity must be at least 1");
 
   const orderParams = {
     offerer: toHex(body.offerer),
@@ -342,11 +346,11 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
       end_amount: toHex(priceWei),
     },
     consideration: {
-      item_type: "ERC721",
+      item_type: is1155 ? "ERC1155" : "ERC721",
       token: toHex(body.nftContract),
       identifier_or_criteria: toHex(body.tokenId),
-      start_amount: toHex("1"),
-      end_amount: toHex("1"),
+      start_amount: toHex(quantity),
+      end_amount: toHex(quantity),
       recipient: toHex(body.offerer),
     },
     start_time: toHex(Math.floor(Date.now() / 1000) + 30), // 30s buffer — enough for tx inclusion on Starknet (~6s blocks)
@@ -356,9 +360,9 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   };
 
   const typedData: TypedData = {
-    types: SNIP12_TYPES,
+    types: is1155 ? SNIP12_TYPES_1155 : SNIP12_TYPES,
     primaryType: "OrderParameters",
-    domain: { ...DOMAIN, chainId },
+    domain: { ...(is1155 ? DOMAIN_1155 : DOMAIN), chainId },
     message: orderParams,
   };
 
@@ -368,10 +372,10 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
     {
       contractAddress: body.currency,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_721_CONTRACT, priceUint256.low.toString(), priceUint256.high.toString()],
+      calldata: [marketplaceContract, priceUint256.low.toString(), priceUint256.high.toString()],
     },
     {
-      contractAddress: MARKETPLACE_721_CONTRACT,
+      contractAddress: marketplaceContract,
       entrypoint: "register_order",
       calldata: [],
     },
@@ -478,7 +482,8 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
 
   const is1155 =
     body.tokenStandard === "ERC1155" ||
-    order?.offerItemType === "ERC1155";
+    order?.offerItemType === "ERC1155" ||
+    order?.considerationItemType === "ERC1155";
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
 
   const nonce = is1155

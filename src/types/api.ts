@@ -44,6 +44,10 @@ export interface MakeOfferIntentBody {
   price: string;
   endTime: number;
   salt?: string;
+  /** Caller hint — "ERC1155" creates the bid on the ERC-1155 marketplace. */
+  tokenStandard?: string;
+  /** ERC-1155 only: number of units the buyer wants. Defaults to 1. */
+  quantity?: string;
 }
 
 export interface CounterOfferIntentBody {

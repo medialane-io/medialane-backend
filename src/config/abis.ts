@@ -598,7 +598,7 @@ export const IPMarketplaceABI = [
 ] as const;
 
 // Minimal ABI for Medialane1155 — only the functions needed by the intent builder.
-// Contract: 0x04a0a65bd13e1ec9a2ce92c36115578486331e941b395f97d49fe488baac8309
+// Contract: 0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99
 export const Medialane1155ABI = [
   {
     type: "function",
