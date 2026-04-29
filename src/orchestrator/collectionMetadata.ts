@@ -88,12 +88,13 @@ export async function handleCollectionMetadataFetch(payload: {
     select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, standard: true, baseUri: true, description: true },
   });
 
-  // Skip if already fully resolved. For ERC1155_FACTORY collections, also re-run
+  // Skip if already fully resolved. For event-sourced collections, also re-run
   // if image is still null (base_uri JSON fetch may not have happened on the first pass).
   const alreadyComplete =
     existing?.metadataStatus === "FETCHED" &&
     existing?.owner !== null &&
-    (existing?.source !== "ERC1155_FACTORY" || existing?.image !== null);
+    (existing?.source !== "ERC1155_FACTORY" || existing?.image !== null) &&
+    (existing?.source !== "MEDIALANE_REGISTRY" || existing?.image !== null);
 
   if (alreadyComplete) {
     log.debug({ chain, contractAddress }, "Collection metadata already fetched, skipping");
@@ -158,9 +159,10 @@ export async function handleCollectionMetadataFetch(payload: {
 
   try {
     const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress);
+    const collectionMetadata = await fetchCollectionMetadataJson(baseUri);
 
     // Look up description + image + owner from the most recent matching CREATE_COLLECTION intent
-    const resolvedName = existing?.name ?? name;
+    const resolvedName = name || existing?.name || "";
     const { description, image, owner: intentOwner } = await findIntentMetadata(resolvedName);
 
     // Try to fetch on-chain owner() as fallback
@@ -177,14 +179,13 @@ export async function handleCollectionMetadataFetch(payload: {
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
-        // Preserve admin-set values — only fill in if not already set
-        name: existing?.name ?? (name || null),
-        symbol: existing?.symbol ?? (symbol || null),
+        name: name || existing?.name || null,
+        symbol: symbol || existing?.symbol || null,
         baseUri: baseUri || null,
-        description: description ?? undefined,
-        image: existing?.image ?? image ?? undefined,
+        description: collectionMetadata.description ?? description ?? undefined,
+        image: collectionMetadata.image ?? existing?.image ?? image ?? undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
-        standard,
+        standard: existing?.source === "MEDIALANE_REGISTRY" ? "ERC721" : standard,
         metadataStatus: "FETCHED",
       },
     });
@@ -206,6 +207,32 @@ export async function handleCollectionMetadataFetch(payload: {
     });
     throw err;
   }
+}
+
+async function fetchCollectionMetadataJson(
+  baseUri: string
+): Promise<{ description: string | null; image: string | null }> {
+  if (!baseUri) return { description: null, image: null };
+
+  const cid = baseUri.startsWith("ipfs://") ? baseUri.slice(7) : null;
+  const urls = cid ? IPFS_GATEWAYS.map((gateway) => `${gateway}/${cid}`) : [ipfsToHttp(baseUri)];
+
+  for (const url of urls) {
+    if (!url) continue;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) continue;
+      const meta = await res.json() as Record<string, unknown>;
+      return {
+        description: typeof meta.description === "string" && meta.description ? meta.description : null,
+        image: typeof meta.image === "string" && meta.image ? meta.image : null,
+      };
+    } catch {
+      // Try next gateway.
+    }
+  }
+
+  return { description: null, image: null };
 }
 
 /**
