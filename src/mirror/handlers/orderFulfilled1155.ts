@@ -27,7 +27,7 @@ export async function handleOrderFulfilled1155(
   tx: Prisma.TransactionClient,
   chain: Chain
 ): Promise<void> {
-  const orderHash   = normalizeAddress(rawEvent.keys[1]);
+  const orderHash   = num.toHex(rawEvent.keys[1]);
   const fulfiller   = normalizeAddress(rawEvent.keys[3]);
   const txHash      = rawEvent.transaction_hash ?? "";
 

@@ -1,7 +1,7 @@
 // SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
 import { num, cairo, hash } from "starknet";
-import { createProvider, normalizeAddress } from "../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../utils/starknet.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type {
@@ -560,13 +560,12 @@ export async function buildMintIntent(body: MintIntentBody) {
   const owner = normalizeAddress(body.owner);
 
   // Validate that the owner address is actually the collection owner on-chain.
-  const provider = createProvider();
-  const ownershipResult = await provider.callContract({
+  const ownershipResult = await callRpc((provider) => provider.callContract({
     contractAddress: contract,
     entrypoint: "is_collection_owner",
     calldata: [id.low.toString(), id.high.toString(), owner],
-  });
-  if (ownershipResult[0] === "0x0") {
+  }));
+  if (!ownershipResult[0] || BigInt(ownershipResult[0]) === 0n) {
     throw new Error(`Address ${body.owner} is not the owner of collection ${body.collectionId}`);
   }
 

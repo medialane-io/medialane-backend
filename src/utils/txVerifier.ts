@@ -40,7 +40,6 @@ export type MarketplaceReceiptEvent = {
  * marketplace call panics.
  */
 export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult> {
-
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     if (RETRY_DELAYS_MS[attempt] > 0) {
       await new Promise<void>((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
@@ -75,7 +74,7 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
       // Events present — check for marketplace event (ERC-721 or ERC-1155 contract)
       if (events.length > 0) {
         const hasMarketplaceEvent = events.some(
-          (e) => VALID_MARKETPLACE_CONTRACTS.has(normalizeAddress(e.from_address ?? ""))
+          (e) => VALID_MARKETPLACE_CONTRACTS.has(safeNormalizeAddress(e.from_address))
         );
 
         if (hasMarketplaceEvent) {
