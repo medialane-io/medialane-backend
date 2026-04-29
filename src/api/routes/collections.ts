@@ -300,6 +300,8 @@ collections.post("/sync-tx", async (c) => {
           baseUri: resolved.baseUri ?? undefined,
           owner: resolved.owner,
           startBlock: resolved.startBlock,
+          source: "MEDIALANE_REGISTRY",
+          standard: "ERC721",
           metadataStatus: "PENDING",
         },
         update: {
@@ -307,6 +309,8 @@ collections.post("/sync-tx", async (c) => {
           name: resolved.name ?? undefined,
           symbol: resolved.symbol ?? undefined,
           owner: resolved.owner,
+          source: "MEDIALANE_REGISTRY",
+          standard: "ERC721",
         },
       });
 
