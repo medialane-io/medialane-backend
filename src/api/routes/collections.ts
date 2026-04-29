@@ -19,6 +19,85 @@ const log = createLogger("routes:collections");
 
 const collections = new Hono();
 
+type ResolvedCollectionForSync = {
+  contractAddress: string;
+  owner: string;
+  name: string | null;
+  symbol: string | null;
+  baseUri: string | null;
+  startBlock: bigint;
+};
+
+function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
+  if (offset >= felts.length) return { value: "", nextOffset: offset };
+  const dataLen = Number(BigInt(felts[offset]));
+  if (felts.length < offset + 1 + dataLen + 2) return { value: "", nextOffset: felts.length };
+
+  const pendingWord = BigInt(felts[offset + 1 + dataLen] ?? "0x0");
+  const pendingWordLen = Number(BigInt(felts[offset + 1 + dataLen + 1] ?? "0"));
+  const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
+  let byteOffset = 0;
+
+  for (let i = 0; i < dataLen; i++) {
+    const value = BigInt(felts[offset + 1 + i]);
+    for (let j = 0; j < 31; j++) {
+      bytes[byteOffset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
+    }
+  }
+
+  for (let j = 0; j < pendingWordLen; j++) {
+    bytes[byteOffset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
+  }
+
+  return {
+    value: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+    nextOffset: offset + 1 + dataLen + 2,
+  };
+}
+
+function safeNormalizeAddress(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    return normalizeAddress(value);
+  } catch {
+    return null;
+  }
+}
+
+function resolveCollectionFromReceipt(
+  collectionEvent: any,
+  allEvents: any[],
+  registryAddress: string,
+  owner: string,
+  blockNumber: bigint
+): ResolvedCollectionForSync | null {
+  const dataFelts = ((collectionEvent.data ?? []) as string[]).map((d) => starkNum.toHex(d));
+  if (dataFelts.length < 6) return null;
+
+  const { value: name, nextOffset: afterName } = decodeByteArray(dataFelts, 3);
+  const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(dataFelts, afterName);
+  const { value: baseUri } = decodeByteArray(dataFelts, afterSymbol);
+
+  const deployedEvent = allEvents.find((event: any) => {
+    const fromAddress = safeNormalizeAddress(event.from_address);
+    if (!fromAddress || fromAddress === registryAddress) return false;
+    const data = (event.data ?? []) as string[];
+    return data.some((felt) => safeNormalizeAddress(felt) === registryAddress);
+  });
+
+  const contractAddress = safeNormalizeAddress(deployedEvent?.from_address);
+  if (!contractAddress) return null;
+
+  return {
+    contractAddress,
+    owner,
+    name: name || null,
+    symbol: symbol || null,
+    baseUri: baseUri || null,
+    startBlock: blockNumber,
+  };
+}
+
 // Valid sort values for GET /v1/collections
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
@@ -192,7 +271,7 @@ collections.post("/sync-tx", async (c) => {
       const owner = normalizeAddress(data[2]);
       const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
 
-      const resolved = await resolveCollectionCreated({
+      let resolved = await resolveCollectionCreated({
         type: "CollectionCreated",
         collectionId,
         owner,
@@ -200,6 +279,11 @@ collections.post("/sync-tx", async (c) => {
         txHash,
         logIndex: 0,
       });
+
+      if (!resolved) {
+        resolved = resolveCollectionFromReceipt(event, events, registryAddress, owner, blockNumber);
+      }
+
       if (!resolved) {
         unresolved++;
         continue;
