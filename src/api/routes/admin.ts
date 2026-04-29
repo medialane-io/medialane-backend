@@ -15,9 +15,10 @@ import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.j
 import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
-import { fetchMarketplaceReceiptEvents } from "../../utils/txVerifier.js";
-import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR } from "../../config/constants.js";
+import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../utils/txVerifier.js";
+import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR, getTokenByAddress } from "../../config/constants.js";
 import { num } from "starknet";
+import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../types/marketplace.js";
 
 import { InMemoryRateLimitStore } from "../middleware/rateLimit.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -25,6 +26,15 @@ import { toErrorMessage } from "../../utils/error.js";
 const log = createLogger("routes:admin");
 const admin = new Hono();
 const ORDER_CREATED_SELECTOR_HEX = num.toHex(ORDER_CREATED_SELECTOR);
+
+function isNftTransferEvent(
+  event: ReturnType<typeof parseEvents>[number]
+): event is ParsedTransfer | ParsedTransferSingle | ParsedTransferBatch {
+  return (
+    (event.type === "Transfer" || event.type === "TransferSingle" || event.type === "TransferBatch") &&
+    !getTokenByAddress(event.contractAddress)
+  );
+}
 
 // Simple IP-based rate limiter for admin routes (20 req/min per IP)
 const adminRateLimitStore = new InMemoryRateLimitStore();
@@ -814,6 +824,54 @@ admin.post("/marketplace/tx/:txHash/hydrate", async (c) => {
 
   log.info({ txHash, orderHashes: hydrated }, "Marketplace tx hydrated via admin");
   return c.json({ txHash, orderHashes: hydrated });
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/transfers/tx/:txHash/hydrate — hydrate NFT Transfer rows from a tx receipt
+// ---------------------------------------------------------------------------
+admin.post("/transfers/tx/:txHash/hydrate", async (c) => {
+  const txHash = c.req.param("txHash");
+  if (!/^0x[0-9a-fA-F]{1,64}$/.test(txHash)) {
+    return c.json({ error: "Invalid transaction hash" }, 400);
+  }
+
+  const rawEvents = await fetchReceiptEvents(txHash);
+  const transferEvents = parseEvents(rawEvents).filter(isNftTransferEvent);
+
+  if (!transferEvents.length) {
+    return c.json({ error: "No NFT transfer events found for transaction" }, 404);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const event of transferEvents) {
+      await dispatchTransfer(event, tx, "STARKNET");
+    }
+  }, { timeout: 60000 });
+
+  const hydrated = transferEvents.map((event) => {
+    if (event.type === "TransferBatch") {
+      return {
+        type: event.type,
+        contractAddress: event.contractAddress,
+        transfers: event.transfers.map((transfer) => ({
+          tokenId: transfer.tokenId,
+          amount: transfer.amount,
+        })),
+      };
+    }
+
+    return {
+      type: event.type,
+      contractAddress: event.contractAddress,
+      tokenId: event.tokenId,
+      amount: event.type === "TransferSingle" ? event.amount : "1",
+      from: event.from,
+      to: event.to,
+    };
+  });
+
+  log.info({ txHash, transferCount: transferEvents.length }, "NFT transfers hydrated via admin tx receipt");
+  return c.json({ txHash, hydrated });
 });
 
 // ---------------------------------------------------------------------------
