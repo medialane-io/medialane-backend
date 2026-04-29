@@ -1,7 +1,7 @@
 import { Contract, shortString } from "starknet";
 import { type Chain } from "@prisma/client";
 import { z } from "zod";
-import { createProvider } from "../utils/starknet.js";
+import { callRpc } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
@@ -194,8 +194,6 @@ async function fetchTokenUri(
   tokenId: string,
   chain: Chain
 ): Promise<string | null> {
-  const provider = createProvider();
-
   // Convert tokenId to u256 (low, high)
   const tokenIdBig = BigInt(tokenId);
   const low = tokenIdBig & ((1n << 128n) - 1n);
@@ -222,8 +220,10 @@ async function fetchTokenUri(
   const cached = contractAbiCache.get(contractAddress);
   if (cached) {
     try {
-      const contract = new Contract(cached.abi as any, contractAddress, provider);
-      const result = await (contract as any)[cached.fn](u256);
+      const result = await callRpc((provider) => {
+        const contract = new Contract(cached.abi as any, contractAddress, provider);
+        return (contract as any)[cached.fn](u256);
+      });
       if (result != null) {
         let uri = decodeTokenUri(result);
         if (uri) {
@@ -239,10 +239,12 @@ async function fetchTokenUri(
 
   // Probe all variants in order: ERC-721 ByteArray, ERC-721 felt array, ERC-1155 ByteArray, ERC-1155 felt array
   for (const { abi, fns } of ABI_VARIANTS) {
-    const contract = new Contract(abi as any, contractAddress, provider);
     for (const fn of fns) {
       try {
-        const result = await (contract as any)[fn](u256);
+        const result = await callRpc((provider) => {
+          const contract = new Contract(abi as any, contractAddress, provider);
+          return (contract as any)[fn](u256);
+        });
         if (result != null) {
           let uri = decodeTokenUri(result);
           if (uri) {
