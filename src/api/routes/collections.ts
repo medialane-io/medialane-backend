@@ -170,10 +170,12 @@ collections.post("/sync-tx", async (c) => {
     const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
+    const registryAddress = normalizeAddress(COLLECTION_721_CONTRACT);
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>
-        e.from_address?.toLowerCase() === COLLECTION_721_CONTRACT.toLowerCase() &&
+        e.from_address &&
+        normalizeAddress(e.from_address) === registryAddress &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
     );
 
@@ -187,7 +189,7 @@ collections.post("/sync-tx", async (c) => {
       if (!data || data.length < 3) continue;
       const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
       const owner = normalizeAddress(data[2]);
-      const blockNumber = BigInt(event.block_number ?? 0);
+      const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
 
       const resolved = await resolveCollectionCreated({
         type: "CollectionCreated",
