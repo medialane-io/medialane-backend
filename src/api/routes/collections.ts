@@ -7,12 +7,13 @@ import { authMiddleware } from "../middleware/auth.js";
 import { env } from "../../config/env.js";
 import { serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { RpcProvider, num as starkNum } from "starknet";
+import { num as starkNum } from "starknet";
 import { COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
+import { callRpc } from "../../utils/starknet.js";
 
 const log = createLogger("routes:collections");
 
@@ -166,8 +167,7 @@ collections.post("/sync-tx", async (c) => {
 
   const { txHash } = parsed.data;
   try {
-    const provider = new RpcProvider({ nodeUrl: env.ALCHEMY_RPC_URL });
-    const receipt = await provider.getTransactionReceipt(txHash);
+    const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
     const events = (receipt as any).events ?? [];
