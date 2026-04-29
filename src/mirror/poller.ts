@@ -1,4 +1,4 @@
-import { createProvider } from "../utils/starknet.js";
+import { callRpc, createProvider } from "../utils/starknet.js";
 import {
   MARKETPLACE_721_CONTRACT,
   MARKETPLACE_1155_CONTRACT,
@@ -130,14 +130,13 @@ export async function pollTransferEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  const provider = createProvider();
   const allEvents: RawStarknetEvent[] = [];
   let continuationToken: string | undefined = undefined;
   let page = 0;
   const MAX_PAGES = 100;
 
   do {
-    const response = await provider.getEvents({
+    const response = await callRpc((provider) => provider.getEvents({
       address: contractAddress,
       from_block: { block_number: fromBlock },
       to_block: { block_number: toBlock },
@@ -148,7 +147,7 @@ export async function pollTransferEvents(
       ]],
       chunk_size: 1000,
       continuation_token: continuationToken,
-    });
+    }));
 
     if (response.events?.length) {
       allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
