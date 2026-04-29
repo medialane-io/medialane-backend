@@ -184,6 +184,7 @@ collections.post("/sync-tx", async (c) => {
     }
 
     let synced = 0;
+    let unresolved = 0;
     for (const event of collectionEvents) {
       const data = event.data;
       if (!data || data.length < 3) continue;
@@ -199,7 +200,10 @@ collections.post("/sync-tx", async (c) => {
         txHash,
         logIndex: 0,
       });
-      if (!resolved) continue;
+      if (!resolved) {
+        unresolved++;
+        continue;
+      }
 
       await prisma.collection.upsert({
         where: { chain_contractAddress: { chain: "STARKNET", contractAddress: resolved.contractAddress } },
@@ -225,6 +229,17 @@ collections.post("/sync-tx", async (c) => {
       worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: resolved.contractAddress });
       synced++;
       log.info({ txHash, contractAddress: resolved.contractAddress, owner }, "Collection synced from tx");
+    }
+
+    if (synced === 0 && unresolved > 0) {
+      log.error({ txHash, unresolved }, "CollectionCreated event found but could not be resolved");
+      return c.json(
+        {
+          error: "CollectionCreated event found but collection details could not be resolved",
+          data: { synced, unresolved },
+        },
+        502
+      );
     }
 
     return c.json({ data: { synced } });

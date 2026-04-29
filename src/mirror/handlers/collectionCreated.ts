@@ -1,41 +1,10 @@
-import { Contract, cairo, num } from "starknet";
+import { num } from "starknet";
 import type { ParsedCollectionCreated } from "../../types/marketplace.js";
 import { normalizeAddress, createProvider } from "../../utils/starknet.js";
 import { COLLECTION_721_CONTRACT } from "../../config/constants.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("handler:collectionCreated");
-
-const REGISTRY_ABI = [
-  {
-    type: "struct",
-    name: "core::byte_array::ByteArray",
-    members: [
-      { name: "data", type: "core::array::Array::<core::felt252>" },
-      { name: "pending_word", type: "core::felt252" },
-      { name: "pending_word_len", type: "core::integer::u32" },
-    ],
-  },
-  {
-    type: "struct",
-    name: "ip_collection_erc_721::types::Collection",
-    members: [
-      { name: "name", type: "core::byte_array::ByteArray" },
-      { name: "symbol", type: "core::byte_array::ByteArray" },
-      { name: "base_uri", type: "core::byte_array::ByteArray" },
-      { name: "owner", type: "core::starknet::contract_address::ContractAddress" },
-      { name: "ip_nft", type: "core::starknet::contract_address::ContractAddress" },
-      { name: "is_active", type: "core::bool" },
-    ],
-  },
-  {
-    type: "function",
-    name: "get_collection",
-    inputs: [{ name: "collection_id", type: "core::integer::u256" }],
-    outputs: [{ type: "ip_collection_erc_721::types::Collection" }],
-    state_mutability: "view",
-  },
-] as const;
 
 export interface ResolvedCollection {
   contractAddress: string;
@@ -44,6 +13,37 @@ export interface ResolvedCollection {
   symbol: string | null;
   baseUri: string | null;
   startBlock: bigint;
+}
+
+/**
+ * Decode Cairo ByteArray raw felts from provider.callContract().
+ * Raw layout: [data_len, ...31-byte chunks, pending_word, pending_word_len].
+ */
+function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
+  if (offset >= felts.length) return { value: "", nextOffset: offset };
+  const dataLen = Number(BigInt(felts[offset]));
+  if (felts.length < offset + 1 + dataLen + 2) return { value: "", nextOffset: felts.length };
+
+  const pendingWord = BigInt(felts[offset + 1 + dataLen] ?? "0x0");
+  const pendingWordLen = Number(BigInt(felts[offset + 1 + dataLen + 1] ?? "0"));
+  const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
+  let byteOffset = 0;
+
+  for (let i = 0; i < dataLen; i++) {
+    const value = BigInt(felts[offset + 1 + i]);
+    for (let j = 0; j < 31; j++) {
+      bytes[byteOffset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
+    }
+  }
+
+  for (let j = 0; j < pendingWordLen; j++) {
+    bytes[byteOffset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
+  }
+
+  return {
+    value: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+    nextOffset: offset + 1 + dataLen + 2,
+  };
 }
 
 /**
@@ -58,32 +58,49 @@ export async function resolveCollectionCreated(
 
   try {
     const provider = createProvider();
-    const contract = new Contract(REGISTRY_ABI as any, COLLECTION_721_CONTRACT, provider);
     const id = BigInt(collectionId);
-    const col = await (contract as any).get_collection(cairo.uint256(id));
+    const low = id & ((1n << 128n) - 1n);
+    const high = id >> 128n;
+    const raw = (await provider.callContract({
+      contractAddress: COLLECTION_721_CONTRACT,
+      entrypoint: "get_collection",
+      calldata: [num.toHex(low), num.toHex(high)],
+    })) as unknown as string[];
 
-    const ipNftRaw = col.ip_nft ?? col["ip_nft"];
+    if (!raw || raw.length < 3) {
+      log.warn({ collectionId }, "get_collection returned an empty response");
+      return null;
+    }
+
+    const { value: name, nextOffset: afterName } = decodeByteArray(raw, 0);
+    const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(raw, afterName);
+    const { value: baseUri, nextOffset: afterBaseUri } = decodeByteArray(raw, afterSymbol);
+    const ownerRaw = raw[afterBaseUri];
+    const ipNftRaw = raw[afterBaseUri + 1];
     if (!ipNftRaw) {
       log.warn({ collectionId }, "get_collection returned no ip_nft");
       return null;
     }
 
-    const contractAddress = normalizeAddress(
-      "0x" + num.toBigInt(ipNftRaw.toString()).toString(16)
-    );
+    const contractAddress = normalizeAddress(ipNftRaw);
 
     if (contractAddress === "0x" + "0".repeat(64)) {
       log.warn({ collectionId }, "ip_nft is zero address, skipping");
       return null;
     }
 
-    const name = typeof col.name === "string" && col.name ? col.name : null;
-    const symbol = typeof col.symbol === "string" && col.symbol ? col.symbol : null;
-    const baseUri = typeof col.base_uri === "string" && col.base_uri ? col.base_uri : null;
+    const resolvedOwner = ownerRaw ? normalizeAddress(ownerRaw) : owner;
 
-    log.info({ collectionId, contractAddress, owner, name }, "CollectionCreated resolved");
+    log.info({ collectionId, contractAddress, owner: resolvedOwner, name }, "CollectionCreated resolved");
 
-    return { contractAddress, owner, name, symbol, baseUri, startBlock: blockNumber };
+    return {
+      contractAddress,
+      owner: resolvedOwner,
+      name: name || null,
+      symbol: symbol || null,
+      baseUri: baseUri || null,
+      startBlock: blockNumber,
+    };
   } catch (err) {
     log.error({ err, collectionId }, "Failed to resolve CollectionCreated event");
     return null;
