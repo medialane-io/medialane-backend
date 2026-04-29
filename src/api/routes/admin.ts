@@ -395,9 +395,8 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
-  const latestBlock = await getLatestBlock();
   const fromBlock   = parsed.data.fromBlock;
-  const toBlock     = parsed.data.toBlock ?? latestBlock;
+  const toBlock     = parsed.data.toBlock ?? await getLatestBlock();
 
   if (fromBlock > toBlock) {
     return c.json({ error: `fromBlock (${fromBlock}) must be ≤ toBlock (${toBlock})` }, 400);
