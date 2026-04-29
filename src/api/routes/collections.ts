@@ -113,7 +113,7 @@ const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155", "UNKNOWN"]);
 collections.get("/", async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
-  const isFeatured   = c.req.query("isFeatured");
+  const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
   const owner     = c.req.query("owner");
   const source    = c.req.query("source");
   const hideEmpty = c.req.query("hideEmpty") === "true";
