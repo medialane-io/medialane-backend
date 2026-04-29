@@ -387,74 +387,80 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
   const { contract } = c.req.param();
   const contractAddress = normalizeAddress(contract);
 
-  const body = await c.req.json().catch(() => ({}));
-  const schema = z.object({
-    fromBlock: z.number().int().min(0).default(0),
-    toBlock:   z.number().int().min(0).optional(),
-  });
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const schema = z.object({
+      fromBlock: z.number().int().min(0).default(0),
+      toBlock:   z.number().int().min(0).optional(),
+    });
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
-  const fromBlock   = parsed.data.fromBlock;
-  const toBlock     = parsed.data.toBlock ?? await getLatestBlock();
+    const fromBlock   = parsed.data.fromBlock;
+    const toBlock     = parsed.data.toBlock ?? await getLatestBlock();
 
-  if (fromBlock > toBlock) {
-    return c.json({ error: `fromBlock (${fromBlock}) must be ≤ toBlock (${toBlock})` }, 400);
-  }
+    if (fromBlock > toBlock) {
+      return c.json({ error: `fromBlock (${fromBlock}) must be ≤ toBlock (${toBlock})` }, 400);
+    }
 
-  log.info({ contractAddress, fromBlock, toBlock }, "Starting Transfer backfill");
+    log.info({ contractAddress, fromBlock, toBlock }, "Starting Transfer backfill");
 
-  const rawEvents = await pollTransferEvents(contractAddress, fromBlock, toBlock);
-  const parsedEvents = parseEvents(rawEvents);
-  const transferEvents = parsedEvents.filter(
-    (e) => e.type === "Transfer" || e.type === "TransferSingle" || e.type === "TransferBatch"
-  );
+    const rawEvents = await pollTransferEvents(contractAddress, fromBlock, toBlock);
+    const parsedEvents = parseEvents(rawEvents);
+    const transferEvents = parsedEvents.filter(
+      (e) => e.type === "Transfer" || e.type === "TransferSingle" || e.type === "TransferBatch"
+    );
 
-  let inserted = 0;
-  let skipped  = 0;
+    let inserted = 0;
+    let skipped  = 0;
 
-  for (const event of transferEvents) {
-    try {
-      await prisma.$transaction(async (tx) => {
-        await dispatchTransfer(event, tx, "STARKNET");
-      });
-      inserted++;
-    } catch (err: unknown) {
-      // P2002 = unique constraint — already processed
-      if ((err as { code?: string }).code === "P2002") {
-        skipped++;
-      } else {
-        log.warn({ err, eventType: event.type }, "Transfer backfill row error — skipping");
-        skipped++;
+    for (const event of transferEvents) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          await dispatchTransfer(event, tx, "STARKNET");
+        });
+        inserted++;
+      } catch (err: unknown) {
+        // P2002 = unique constraint — already processed
+        if ((err as { code?: string }).code === "P2002") {
+          skipped++;
+        } else {
+          log.warn({ err, eventType: event.type }, "Transfer backfill row error — skipping");
+          skipped++;
+        }
       }
     }
+
+    // Enqueue metadata fetch for all PENDING tokens in this collection
+    const pendingTokens = await prisma.token.findMany({
+      where: { chain: "STARKNET", contractAddress, metadataStatus: "PENDING" },
+      select: { tokenId: true },
+    });
+    for (const t of pendingTokens) {
+      worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId: t.tokenId });
+    }
+
+    // Trigger stats update
+    worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
+
+    log.info({ contractAddress, inserted, skipped, metadataJobs: pendingTokens.length }, "Transfer backfill complete");
+
+    return c.json({
+      data: {
+        contractAddress,
+        fromBlock,
+        toBlock,
+        rawEvents: rawEvents.length,
+        inserted,
+        skipped,
+        metadataJobsEnqueued: pendingTokens.length,
+      },
+    });
+  } catch (err) {
+    const error = toErrorMessage(err);
+    log.error({ err, contractAddress }, "Transfer backfill failed");
+    return c.json({ error }, 500);
   }
-
-  // Enqueue metadata fetch for all PENDING tokens in this collection
-  const pendingTokens = await prisma.token.findMany({
-    where: { chain: "STARKNET", contractAddress, metadataStatus: "PENDING" },
-    select: { tokenId: true },
-  });
-  for (const t of pendingTokens) {
-    worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId: t.tokenId });
-  }
-
-  // Trigger stats update
-  worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
-
-  log.info({ contractAddress, inserted, skipped, metadataJobs: pendingTokens.length }, "Transfer backfill complete");
-
-  return c.json({
-    data: {
-      contractAddress,
-      fromBlock,
-      toBlock,
-      rawEvents: rawEvents.length,
-      inserted,
-      skipped,
-      metadataJobsEnqueued: pendingTokens.length,
-    },
-  });
 });
 
 // ---------------------------------------------------------------------------
