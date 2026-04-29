@@ -1,4 +1,4 @@
-import { callRpc, createProvider } from "../utils/starknet.js";
+import { callRpc } from "../utils/starknet.js";
 import {
   MARKETPLACE_721_CONTRACT,
   MARKETPLACE_1155_CONTRACT,
@@ -19,17 +19,45 @@ import {
   COLLECTION_1155_CONTRACT,
   COLLECTION_DEPLOYED_SELECTOR,
 } from "../config/constants.js";
-import { env } from "../config/env.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
-import { createLogger } from "../utils/logger.js";
 import { num } from "starknet";
-
-const log = createLogger("poller");
 
 export interface PollResult {
   events: RawStarknetEvent[];
   fromBlock: number;
   toBlock: number;
+}
+
+async function pollContractEvents(params: {
+  address: string;
+  fromBlock: number;
+  toBlock: number;
+  keys: string[][];
+  chunkSize?: number;
+  maxPages?: number;
+}): Promise<RawStarknetEvent[]> {
+  const allEvents: RawStarknetEvent[] = [];
+  let continuationToken: string | undefined = undefined;
+  let page = 0;
+  do {
+    const response = await callRpc((provider) => provider.getEvents({
+      address: params.address,
+      from_block: { block_number: params.fromBlock },
+      to_block: { block_number: params.toBlock },
+      keys: params.keys,
+      chunk_size: params.chunkSize ?? 1000,
+      continuation_token: continuationToken,
+    }));
+
+    if (response.events?.length) {
+      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
+    }
+
+    continuationToken = response.continuation_token;
+    page++;
+  } while (continuationToken && (params.maxPages === undefined || page < params.maxPages));
+
+  return allEvents;
 }
 
 /**
@@ -40,41 +68,17 @@ export async function pollEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-  let page = 0;
-  const MAX_PAGES = 100;
-
-  do {
-    const response = await provider.getEvents({
-      address: MARKETPLACE_721_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [
-        [
-          num.toHex(ORDER_CREATED_SELECTOR),
-          num.toHex(ORDER_FULFILLED_SELECTOR),
-          num.toHex(ORDER_CANCELLED_SELECTOR),
-        ],
-      ],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-    page++;
-
-    if (page % 10 === 0) {
-      log.debug({ page, total: allEvents.length }, "Paginating events...");
-    }
-  } while (continuationToken && page < MAX_PAGES);
-
-  return allEvents;
+  return pollContractEvents({
+    address: MARKETPLACE_721_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[
+      num.toHex(ORDER_CREATED_SELECTOR),
+      num.toHex(ORDER_FULFILLED_SELECTOR),
+      num.toHex(ORDER_CANCELLED_SELECTOR),
+    ]],
+    maxPages: 100,
+  });
 }
 
 /**
@@ -87,37 +91,17 @@ export async function pollEvents1155(
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
   if (!MARKETPLACE_1155_CONTRACT) return [];
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-  let page = 0;
-  const MAX_PAGES = 100;
-
-  do {
-    const response = await provider.getEvents({
-      address: MARKETPLACE_1155_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [
-        [
-          num.toHex(ORDER_CREATED_SELECTOR),
-          num.toHex(ORDER_FULFILLED_SELECTOR),
-          num.toHex(ORDER_CANCELLED_SELECTOR),
-        ],
-      ],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-    page++;
-  } while (continuationToken && page < MAX_PAGES);
-
-  return allEvents;
+  return pollContractEvents({
+    address: MARKETPLACE_1155_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[
+      num.toHex(ORDER_CREATED_SELECTOR),
+      num.toHex(ORDER_FULFILLED_SELECTOR),
+      num.toHex(ORDER_CANCELLED_SELECTOR),
+    ]],
+    maxPages: 100,
+  });
 }
 
 /**
@@ -130,34 +114,17 @@ export async function pollTransferEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-  let page = 0;
-  const MAX_PAGES = 100;
-
-  do {
-    const response = await callRpc((provider) => provider.getEvents({
-      address: contractAddress,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[
-        num.toHex(TRANSFER_SELECTOR),
-        num.toHex(TRANSFER_SINGLE_SELECTOR),
-        num.toHex(TRANSFER_BATCH_SELECTOR),
-      ]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    }));
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-    page++;
-  } while (continuationToken && page < MAX_PAGES);
-
-  return allEvents;
+  return pollContractEvents({
+    address: contractAddress,
+    fromBlock,
+    toBlock,
+    keys: [[
+      num.toHex(TRANSFER_SELECTOR),
+      num.toHex(TRANSFER_SINGLE_SELECTOR),
+      num.toHex(TRANSFER_BATCH_SELECTOR),
+    ]],
+    maxPages: 100,
+  });
 }
 
 /**
@@ -167,28 +134,12 @@ export async function pollCollectionCreatedEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: COLLECTION_721_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: COLLECTION_721_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
+  });
 }
 
 /**
@@ -201,28 +152,12 @@ export async function pollCommentEvents(
 ): Promise<RawStarknetEvent[]> {
   if (!COMMENTS_CONTRACT) return [];
 
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: COMMENTS_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(COMMENT_ADDED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: COMMENTS_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(COMMENT_ADDED_SELECTOR)]],
+  });
 }
 
 /**
@@ -235,28 +170,12 @@ export async function pollPopFactoryEvents(
 ): Promise<RawStarknetEvent[]> {
   if (!POP_FACTORY_CONTRACT) return [];
 
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: POP_FACTORY_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: POP_FACTORY_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
+  });
 }
 
 /**
@@ -267,28 +186,12 @@ export async function pollPopAllowlistEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: collectionAddress,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: collectionAddress,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
+  });
 }
 
 /**
@@ -301,28 +204,12 @@ export async function pollDropFactoryEvents(
 ): Promise<RawStarknetEvent[]> {
   if (!DROP_FACTORY_CONTRACT) return [];
 
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: DROP_FACTORY_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(DROP_CREATED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: DROP_FACTORY_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(DROP_CREATED_SELECTOR)]],
+  });
 }
 
 /**
@@ -334,28 +221,12 @@ export async function pollDropAllowlistEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: collectionAddress,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: collectionAddress,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(POP_ALLOWLIST_UPDATED_SELECTOR)]],
+  });
 }
 
 /**
@@ -368,32 +239,15 @@ export async function pollERC1155FactoryEvents(
 ): Promise<RawStarknetEvent[]> {
   if (!COLLECTION_1155_CONTRACT) return [];
 
-  const provider = createProvider();
-  const allEvents: RawStarknetEvent[] = [];
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const response = await provider.getEvents({
-      address: COLLECTION_1155_CONTRACT,
-      from_block: { block_number: fromBlock },
-      to_block: { block_number: toBlock },
-      keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
-      chunk_size: 1000,
-      continuation_token: continuationToken,
-    });
-
-    if (response.events?.length) {
-      allEvents.push(...(response.events as unknown as RawStarknetEvent[]));
-    }
-
-    continuationToken = response.continuation_token;
-  } while (continuationToken);
-
-  return allEvents;
+  return pollContractEvents({
+    address: COLLECTION_1155_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
+  });
 }
 
 export async function getLatestBlock(): Promise<number> {
-  const provider = createProvider();
-  const block = await provider.getBlockWithTxHashes("latest");
+  const block = await callRpc((provider) => provider.getBlockWithTxHashes("latest"));
   return (block as any).block_number as number;
 }

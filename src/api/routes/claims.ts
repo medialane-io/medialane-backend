@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
-import { normalizeAddress, createProvider } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { clerkAuth } from "../middleware/clerkAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
 import { hashApiKey, hashApiKeyPlain } from "../../utils/apiKey.js";
@@ -88,14 +88,15 @@ claims.post(
 
     // Attempt on-chain owner() call
     try {
-      const provider = createProvider();
-      const contract = new Contract(
-        [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
-        normContract,
-        provider
-      );
-      const ownerResult = await contract.owner();
-      const onChainOwner = normalizeAddress(ownerResult.toString());
+      const ownerResult = await callRpc((provider) => {
+        const contract = new Contract(
+          [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
+          normContract,
+          provider
+        );
+        return contract.owner();
+      });
+      const onChainOwner = normalizeAddress(String(ownerResult));
       const ZERO = normalizeAddress("0x0");
 
       if (onChainOwner === ZERO || onChainOwner !== normWallet) {
@@ -181,7 +182,6 @@ claims.post(
 
     // Verify SNIP-12 signature using starknet.js v6
     try {
-      const provider = createProvider();
       const typedDataObj = {
         domain: { name: "Medialane", version: "1", chainId: "SN_MAIN", revision: "1" },
         primaryType: "CollectionClaim",
@@ -200,8 +200,10 @@ claims.post(
         message: { contractAddress: normContract, challenge: record.challenge },
       };
 
-      const account = new Account(provider, normWallet, "0x1");
-      const isValid = await account.verifyMessage(typedDataObj, [BigInt(signature.r).toString(), BigInt(signature.s).toString()]);
+      const isValid = await callRpc((provider) => {
+        const account = new Account(provider, normWallet, "0x1");
+        return account.verifyMessage(typedDataObj, [BigInt(signature.r).toString(), BigInt(signature.s).toString()]);
+      });
       if (!isValid) return c.json({ verified: false, reason: "invalid_signature" });
     } catch {
       return c.json({ verified: false, reason: "signature_verification_failed" });

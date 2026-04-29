@@ -1,6 +1,6 @@
 import { num } from "starknet";
 import type { ParsedCollectionCreated } from "../../types/marketplace.js";
-import { normalizeAddress, createProvider } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { COLLECTION_721_CONTRACT } from "../../config/constants.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -57,15 +57,14 @@ export async function resolveCollectionCreated(
   const { collectionId, owner, blockNumber } = event;
 
   try {
-    const provider = createProvider();
     const id = BigInt(collectionId);
     const low = id & ((1n << 128n) - 1n);
     const high = id >> 128n;
-    const raw = (await provider.callContract({
+    const raw = (await callRpc((provider) => provider.callContract({
       contractAddress: COLLECTION_721_CONTRACT,
       entrypoint: "get_collection",
       calldata: [num.toHex(low), num.toHex(high)],
-    })) as unknown as string[];
+    }))) as unknown as string[];
 
     if (!raw || raw.length < 3) {
       log.warn({ collectionId }, "get_collection returned an empty response");

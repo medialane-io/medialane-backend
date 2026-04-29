@@ -1,6 +1,6 @@
-import { Contract, shortString, RpcProvider } from "starknet";
+import { Contract, shortString } from "starknet";
 import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
-import { createProvider, normalizeAddress } from "../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
@@ -168,9 +168,10 @@ export async function handleCollectionMetadataFetch(payload: {
     // Try to fetch on-chain owner() as fallback
     let onChainOwner: string | null = null;
     try {
-      const provider = createProvider();
-      const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
-      const raw = await (ownerContract as any).owner();
+      const raw = await callRpc((provider) => {
+        const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
+        return (ownerContract as any).owner();
+      });
       if (raw) onChainOwner = normalizeAddress(raw.toString());
     } catch { /* contract may not expose owner() */ }
 
@@ -240,14 +241,17 @@ async function fetchCollectionMetadataJson(
  * Falls back to UNKNOWN if the contract doesn't expose the function.
  */
 async function detectTokenStandard(contractAddress: string): Promise<TokenStandard> {
-  const provider = createProvider();
-  const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
-
   for (const fn of ["supports_interface", "supportsInterface"]) {
     try {
-      const is1155 = await (contract as any)[fn](INTERFACE_ID_ERC1155);
+      const is1155 = await callRpc((provider) => {
+        const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+        return (contract as any)[fn](INTERFACE_ID_ERC1155);
+      });
       if (is1155 === true || is1155 === 1n || String(is1155) === "1") return "ERC1155";
-      const is721 = await (contract as any)[fn](INTERFACE_ID_ERC721);
+      const is721 = await callRpc((provider) => {
+        const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+        return (contract as any)[fn](INTERFACE_ID_ERC721);
+      });
       if (is721 === true || is721 === 1n || String(is721) === "1") return "ERC721";
       // Contract responded but supports neither — stop trying
       return "UNKNOWN";
@@ -262,15 +266,13 @@ async function detectTokenStandard(contractAddress: string): Promise<TokenStanda
 async function fetchCollectionOnChainInfo(
   contractAddress: string
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
-  const provider = createProvider();
-
   // Try ByteArray variant first using raw calls (UTF-8 safe — starknet.js ABI
   // decoding of ByteArray is ASCII-only and corrupts non-Latin characters).
   try {
     const [name, symbol, baseUri] = await Promise.all([
-      callViewByteArrayUtf8(provider, contractAddress, "name"),
-      callViewByteArrayUtf8(provider, contractAddress, "symbol"),
-      callViewByteArrayUtf8(provider, contractAddress, "base_uri"),
+      callViewByteArrayUtf8(contractAddress, "name"),
+      callViewByteArrayUtf8(contractAddress, "symbol"),
+      callViewByteArrayUtf8(contractAddress, "base_uri"),
     ]);
     if (name || symbol) {
       return { name: name ?? "", symbol: symbol ?? "", baseUri: baseUri ?? "" };
@@ -280,12 +282,11 @@ async function fetchCollectionOnChainInfo(
   }
 
   // Felt252 fallback for older contracts
-  const contract = new Contract(ERC721_INFO_ABI_FELT as any, contractAddress, provider);
   try {
     const [nameRaw, symbolRaw, baseUriRaw] = await Promise.all([
-      callView(contract, "name"),
-      callView(contract, "symbol"),
-      callView(contract, "base_uri"),
+      callView(contractAddress, "name"),
+      callView(contractAddress, "symbol"),
+      callView(contractAddress, "base_uri"),
     ]);
     const name = decodeField(nameRaw);
     const symbol = decodeField(symbolRaw);
@@ -300,9 +301,12 @@ async function fetchCollectionOnChainInfo(
   return { name: "", symbol: "", baseUri: "" };
 }
 
-async function callView(contract: Contract, fn: string): Promise<unknown> {
+async function callView(contractAddress: string, fn: string): Promise<unknown> {
   try {
-    return await (contract as any)[fn]();
+    return await callRpc((provider) => {
+      const contract = new Contract(ERC721_INFO_ABI_FELT as any, contractAddress, provider);
+      return (contract as any)[fn]();
+    });
   } catch {
     return null;
   }
@@ -329,16 +333,15 @@ function decodeField(raw: unknown): string {
  * multi-byte characters (non-Latin scripts, emoji, etc.).
  */
 async function callViewByteArrayUtf8(
-  provider: RpcProvider,
   contractAddress: string,
   fn: string
 ): Promise<string | null> {
   try {
-    const res = await provider.callContract({
+    const res = await callRpc((provider) => provider.callContract({
       contractAddress,
       entrypoint: fn,
       calldata: [],
-    });
+    }));
     const felts: string[] = res as unknown as string[];
     if (!felts || felts.length < 3) return null;
     const dataLen = Number(BigInt(felts[0]));
