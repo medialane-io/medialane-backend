@@ -112,6 +112,46 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
   };
 }
 
+export async function verifyTransactionSucceeded(txHash: string): Promise<VerifyResult> {
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+    if (RETRY_DELAYS_MS[attempt] > 0) {
+      await new Promise<void>((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+
+    try {
+      const json = await fetchReceipt(txHash);
+      const receipt = json?.result;
+
+      if (!receipt) {
+        log.debug({ txHash, attempt }, "No receipt yet, retrying");
+        continue;
+      }
+
+      const execStatus = (receipt.execution_status ?? receipt.status) as string | undefined;
+
+      if (execStatus === "REVERTED" || execStatus === "REJECTED") {
+        const reason = (receipt.revert_reason as string | undefined) ??
+          `Transaction reverted (${execStatus})`;
+        log.warn({ txHash, execStatus, reason }, "Tx reverted");
+        return { status: "FAILED", failReason: reason };
+      }
+
+      if (execStatus === "SUCCEEDED") {
+        return { status: "CONFIRMED" };
+      }
+
+      log.debug({ txHash, execStatus, attempt }, "Tx not yet finalized, retrying");
+    } catch (err) {
+      log.warn({ err, txHash, attempt }, "Receipt fetch failed, retrying");
+    }
+  }
+
+  return {
+    status: "FAILED",
+    failReason: "Transaction verification timed out. Check your wallet for the transaction status.",
+  };
+}
+
 export async function fetchMarketplaceReceiptEvents(txHash: string): Promise<MarketplaceReceiptEvent[]> {
   const json = await fetchReceipt(txHash);
   const receipt = json.result;

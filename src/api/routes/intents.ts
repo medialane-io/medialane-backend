@@ -14,7 +14,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
-import { verifyMarketplaceTx, checkOnChainOrderCancelled, fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../utils/txVerifier.js";
+import { verifyMarketplaceTx, verifyTransactionSucceeded, checkOnChainOrderCancelled, fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../utils/txVerifier.js";
 import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, MARKETPLACE_1155_CONTRACT, getTokenByAddress } from "../../config/constants.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.js";
@@ -502,6 +502,9 @@ const MARKETPLACE_INTENT_TYPES = new Set([
   "CANCEL_ORDER",
   "COUNTER_OFFER",
 ]);
+const RECEIPT_HYDRATED_INTENT_TYPES = new Set([
+  "MINT",
+]);
 const ORDER_CREATING_INTENT_TYPES = new Set([
   "CREATE_LISTING",
   "MAKE_OFFER",
@@ -516,13 +519,13 @@ const ORDER_FULFILLED_SELECTOR_HEX = num.toHex(ORDER_FULFILLED_SELECTOR);
  *  On cancel failure, checks on-chain status: if the order is already Cancelled
  *  on-chain (stale DB), syncs DB to CANCELLED so the listing disappears immediately. */
 async function verifyAndSettle(intentId: string, txHash: string): Promise<void> {
-  const [intent, verifyResult] = await Promise.all([
-    prisma.transactionIntent.findUnique({
-      where: { id: intentId },
-      select: { type: true, orderHash: true, requester: true },
-    }),
-    verifyMarketplaceTx(txHash),
-  ]);
+  const intent = await prisma.transactionIntent.findUnique({
+    where: { id: intentId },
+    select: { type: true, orderHash: true, requester: true },
+  });
+  const verifyResult = intent?.type && MARKETPLACE_INTENT_TYPES.has(intent.type)
+    ? await verifyMarketplaceTx(txHash)
+    : await verifyTransactionSucceeded(txHash);
 
   // Map intent types to the order status they should settle to.
   // Both branches do an atomic (intent + order) update so the UI reflects
@@ -546,6 +549,13 @@ async function verifyAndSettle(intentId: string, txHash: string): Promise<void> 
         await hydrateFulfillmentFromTx(txHash);
       } catch (err) {
         log.error({ err, intentId, txHash, orderHash: intent.orderHash }, "Failed to hydrate fulfillment from confirmed tx");
+      }
+    }
+    if (intent?.type === "MINT") {
+      try {
+        await hydrateTransfersFromTx(txHash);
+      } catch (err) {
+        log.error({ err, intentId, txHash }, "Failed to hydrate mint transfers from confirmed tx");
       }
     }
 
@@ -691,6 +701,24 @@ async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
   log.info({ txHash }, "Hydrated fulfillment and transfer balances from confirmed tx");
 }
 
+async function hydrateTransfersFromTx(txHash: string): Promise<void> {
+  const rawEvents = await fetchReceiptEvents(txHash);
+  const parsedEvents = parseEvents(rawEvents);
+
+  await prisma.$transaction(async (tx) => {
+    for (const event of parsedEvents) {
+      if (
+        (event.type === "Transfer" || event.type === "TransferSingle" || event.type === "TransferBatch") &&
+        !getTokenByAddress(event.contractAddress)
+      ) {
+        await dispatchTransfer(event, tx, "STARKNET");
+      }
+    }
+  }, { timeout: 60000 });
+
+  log.info({ txHash }, "Hydrated NFT transfers from confirmed tx");
+}
+
 // POST /v1/intents/:id/hydrate — tenant-safe repair for confirmed marketplace txs
 intents.post("/:id/hydrate", async (c) => {
   const { id } = c.req.param();
@@ -751,7 +779,7 @@ intents.patch("/:id/confirm", async (c) => {
     return c.json({ error: "Intent not found" }, 404);
   }
 
-  if (!MARKETPLACE_INTENT_TYPES.has(intent.type)) {
+  if (!MARKETPLACE_INTENT_TYPES.has(intent.type) && !RECEIPT_HYDRATED_INTENT_TYPES.has(intent.type)) {
     return c.json({ error: "Intent type does not require tx confirmation" }, 400);
   }
 
