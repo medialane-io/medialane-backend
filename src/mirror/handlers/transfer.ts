@@ -71,6 +71,29 @@ async function upsertTokenAndCollection(
   });
 }
 
+async function createTransferIfNew(
+  tx: Prisma.TransactionClient,
+  data: {
+    chain: Chain;
+    contractAddress: string;
+    tokenId: string;
+    fromAddress: string;
+    toAddress: string;
+    amount: string;
+    blockNumber: bigint;
+    txHash: string;
+    logIndex: number;
+  }
+): Promise<boolean> {
+  try {
+    await tx.transfer.create({ data });
+    return true;
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === "P2002") return false;
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ERC-721 Transfer
 // ---------------------------------------------------------------------------
@@ -84,17 +107,22 @@ export async function handleTransfer(
 
   await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber);
 
-  // Update TokenBalance: ERC-721 is always quantity 1
+  const isNew = await createTransferIfNew(tx, {
+    chain,
+    contractAddress,
+    tokenId,
+    fromAddress: from,
+    toAddress: to,
+    amount: "1",
+    blockNumber,
+    txHash,
+    logIndex,
+  });
+  if (!isNew) return;
+
+  // Update TokenBalance: ERC-721 is always quantity 1.
   await decrementBalance(tx, chain, contractAddress, tokenId, from, 1n);
   await incrementBalance(tx, chain, contractAddress, tokenId, to, 1n);
-
-  try {
-    await tx.transfer.create({
-      data: { chain, contractAddress, tokenId, fromAddress: from, toAddress: to, amount: "1", blockNumber, txHash, logIndex },
-    });
-  } catch (err: unknown) {
-    if ((err as { code?: string }).code !== "P2002") throw err;
-  }
 
   log.debug({ chain, contractAddress, tokenId, from, to }, "ERC-721 Transfer processed");
 }
@@ -113,16 +141,21 @@ export async function handleTransferSingle(
 
   await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber);
 
+  const isNew = await createTransferIfNew(tx, {
+    chain,
+    contractAddress,
+    tokenId,
+    fromAddress: from,
+    toAddress: to,
+    amount,
+    blockNumber,
+    txHash,
+    logIndex,
+  });
+  if (!isNew) return;
+
   await decrementBalance(tx, chain, contractAddress, tokenId, from, qty);
   await incrementBalance(tx, chain, contractAddress, tokenId, to, qty);
-
-  try {
-    await tx.transfer.create({
-      data: { chain, contractAddress, tokenId, fromAddress: from, toAddress: to, amount, blockNumber, txHash, logIndex },
-    });
-  } catch (err: unknown) {
-    if ((err as { code?: string }).code !== "P2002") throw err;
-  }
 
   log.debug({ chain, contractAddress, tokenId, from, to, amount }, "ERC-1155 TransferSingle processed");
 }
@@ -146,16 +179,21 @@ export async function handleTransferBatch(
 
     await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber);
 
+    const isNew = await createTransferIfNew(tx, {
+      chain,
+      contractAddress,
+      tokenId,
+      fromAddress: from,
+      toAddress: to,
+      amount,
+      blockNumber,
+      txHash,
+      logIndex: itemLogIndex,
+    });
+    if (!isNew) continue;
+
     await decrementBalance(tx, chain, contractAddress, tokenId, from, qty);
     await incrementBalance(tx, chain, contractAddress, tokenId, to, qty);
-
-    try {
-      await tx.transfer.create({
-        data: { chain, contractAddress, tokenId, fromAddress: from, toAddress: to, amount, blockNumber, txHash, logIndex: itemLogIndex },
-      });
-    } catch (err: unknown) {
-      if ((err as { code?: string }).code !== "P2002") throw err;
-    }
   }
 
   log.debug({ chain, contractAddress, from, to, count: transfers.length }, "ERC-1155 TransferBatch processed");

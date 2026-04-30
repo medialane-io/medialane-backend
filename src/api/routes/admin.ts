@@ -17,7 +17,7 @@ import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from 
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../utils/txVerifier.js";
-import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR, getTokenByAddress } from "../../config/constants.js";
+import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress } from "../../config/constants.js";
 import { num } from "starknet";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../types/marketplace.js";
 
@@ -249,6 +249,63 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   } catch (err) {
     return c.json({ error: toErrorMessage(err) }, 500);
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/tokens/:contract/:tokenId/rebuild-balances — replay indexed
+// transfers for one token and replace TokenBalance with deterministic state.
+// ---------------------------------------------------------------------------
+admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
+  const { contract, tokenId } = c.req.param();
+  const contractAddress = normalizeAddress(contract);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const transfers = await tx.transfer.findMany({
+      where: { chain: "STARKNET", contractAddress, tokenId },
+      orderBy: [{ blockNumber: "asc" }, { logIndex: "asc" }],
+      select: { fromAddress: true, toAddress: true, amount: true },
+    });
+
+    const balances = new Map<string, bigint>();
+    for (const transfer of transfers) {
+      const amount = BigInt(transfer.amount);
+      const from = transfer.fromAddress;
+      const to = transfer.toAddress;
+
+      if (from !== ZERO_ADDRESS) {
+        const next = (balances.get(from) ?? 0n) - amount;
+        balances.set(from, next > 0n ? next : 0n);
+      }
+      if (to !== ZERO_ADDRESS) {
+        balances.set(to, (balances.get(to) ?? 0n) + amount);
+      }
+    }
+
+    await tx.tokenBalance.deleteMany({
+      where: { chain: "STARKNET", contractAddress, tokenId },
+    });
+
+    const rows = [...balances.entries()]
+      .filter(([, amount]) => amount > 0n)
+      .map(([owner, amount]) => ({
+        chain: "STARKNET" as const,
+        contractAddress,
+        tokenId,
+        owner,
+        amount: amount.toString(),
+      }));
+
+    if (rows.length > 0) {
+      await tx.tokenBalance.createMany({ data: rows });
+    }
+
+    return { transferCount: transfers.length, balances: rows };
+  }, { timeout: 60000 });
+
+  await handleStatsUpdate({ chain: "STARKNET", contractAddress });
+
+  log.info({ contractAddress, tokenId, ...result }, "Token balances rebuilt from transfer ledger");
+  return c.json({ data: { contractAddress, tokenId, ...result } });
 });
 
 // ---------------------------------------------------------------------------
