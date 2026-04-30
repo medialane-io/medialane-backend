@@ -45,21 +45,21 @@ const listingSchema = z.object({
 });
 
 const offerSchema = listingSchema.extend({
-  tokenStandard: z.string().optional(),
+  tokenStandard: z.enum(["ERC721", "ERC1155"]).optional(),
   quantity: z.string().optional(),
 });
 
 const fulfillSchema = z.object({
   fulfiller: starknetAddress,
   orderHash: z.string(),
-  tokenStandard: z.string().optional(),
+  tokenStandard: z.enum(["ERC721", "ERC1155"]).optional(),
   quantity: z.string().optional(),
 });
 
 const cancelSchema = z.object({
   offerer: starknetAddress,
   orderHash: z.string(),
-  tokenStandard: z.string().optional(),
+  tokenStandard: z.enum(["ERC721", "ERC1155"]).optional(),
 });
 
 const mintSchema = z.object({
@@ -245,6 +245,16 @@ intents.post("/fulfill", async (c) => {
   }
 
   try {
+    if (!parsed.data.tokenStandard) {
+      const order = await prisma.order.findUnique({
+        where: { orderHash: parsed.data.orderHash },
+        select: { id: true },
+      });
+      if (!order) {
+        return c.json({ error: "Order not found in index — provide tokenStandard hint" }, 400);
+      }
+    }
+
     const { typedData, calls } = await buildFulfillOrderIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
