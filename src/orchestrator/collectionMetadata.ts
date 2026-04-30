@@ -108,15 +108,45 @@ export async function handleCollectionMetadataFetch(payload: {
   // and because detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet
   // OZ SRC5 interface IDs (would always return UNKNOWN). standard=ERC1155 is set directly.
   if (existing?.source === "ERC1155_FACTORY" || existing?.standard === "ERC1155") {
+    const missingCanonicalFields =
+      !existing?.name ||
+      !existing?.symbol ||
+      !existing?.baseUri ||
+      !existing?.owner;
+
+    let onchainName = "";
+    let onchainSymbol = "";
+    let onchainBaseUri = "";
+    let onchainOwner: string | null = null;
+
+    if (missingCanonicalFields) {
+      const onchainInfo = await fetchCollectionOnChainInfo(contractAddress);
+      onchainName = onchainInfo.name;
+      onchainSymbol = onchainInfo.symbol;
+      onchainBaseUri = onchainInfo.baseUri;
+
+      try {
+        const rawOwner = await callRpc((provider) => {
+          const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
+          return (ownerContract as any).owner();
+        });
+        if (rawOwner) onchainOwner = normalizeAddress(rawOwner.toString());
+      } catch {
+        // Some ERC1155 deployments may omit owner(); keep the existing value.
+      }
+    }
+
+    const canonicalBaseUri = existing?.baseUri || onchainBaseUri || "";
+
     // Resolve image + description from the base_uri JSON if not already set.
     // base_uri points to an IPFS collection metadata JSON (OpenSea format):
     // { name, description, image, external_link }
     let resolvedImage: string | null = existing.image ?? null;
     let resolvedDescription: string | null = existing.description ?? null;
-    if (existing?.baseUri && (!resolvedImage || !resolvedDescription)) {
+    if (canonicalBaseUri && (!resolvedImage || !resolvedDescription)) {
       // Try each IPFS gateway in order — the private Pinata gateway can block
       // server-side requests, so fall through to public gateways as needed.
-      const cid = existing.baseUri.startsWith("ipfs://") ? existing.baseUri.slice(7) : null;
+      const cid = canonicalBaseUri.startsWith("ipfs://") ? canonicalBaseUri.slice(7) : null;
       if (cid) {
         for (let i = 0; i < IPFS_GATEWAYS.length; i++) {
           try {
@@ -142,6 +172,10 @@ export async function handleCollectionMetadataFetch(payload: {
         source: "ERC1155_FACTORY",
         standard: "ERC1155",
         metadataStatus: "FETCHED",
+        name: existing?.name || onchainName || undefined,
+        symbol: existing?.symbol || onchainSymbol || undefined,
+        baseUri: canonicalBaseUri || undefined,
+        owner: existing?.owner || onchainOwner || undefined,
         image: resolvedImage ?? undefined,
         description: resolvedDescription ?? undefined,
       },
