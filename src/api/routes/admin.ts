@@ -359,8 +359,13 @@ admin.post("/collections/:contract/refresh", async (c) => {
   const { contract } = c.req.param();
   const contractAddress = normalizeAddress(contract);
   try {
+    // Reset status so the alreadyComplete guard in handleCollectionMetadataFetch
+    // does not short-circuit — makes this endpoint a true force-refresh.
+    await prisma.collection.updateMany({
+      where: { chain: "STARKNET", contractAddress },
+      data: { metadataStatus: "PENDING" },
+    });
     await handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress });
-    // Also enqueue stats update to backfill totalSupply, holderCount, and image/description from tokens
     worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
     const col = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },

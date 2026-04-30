@@ -348,12 +348,23 @@ async function callView(contractAddress: string, fn: string): Promise<unknown> {
 
 function decodeField(raw: unknown): string {
   if (raw == null) return "";
-  if (typeof raw === "string") {
-    return raw;
-  }
+  if (typeof raw === "string") return raw;
   if (typeof raw === "bigint") {
     try {
-      return shortString.decodeShortString(raw.toString());
+      const hex = raw.toString(16);
+      const paddedHex = hex.length % 2 === 0 ? hex : "0" + hex;
+      const bytes: number[] = [];
+      for (let i = 0; i < paddedHex.length; i += 2) {
+        const b = parseInt(paddedHex.slice(i, i + 2), 16);
+        if (b !== 0) bytes.push(b);
+      }
+      // Try strict UTF-8 first — handles Portuguese, Chinese, emoji, etc.
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
+      } catch {
+        // Bytes are not valid UTF-8 — fall back to ASCII short string decoding
+        return shortString.decodeShortString(raw.toString());
+      }
     } catch {
       return raw.toString();
     }
