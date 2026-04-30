@@ -6,6 +6,7 @@ import { generateApiKey } from "../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../orchestrator/metadata.js";
 import { handleCollectionMetadataFetch } from "../../orchestrator/collectionMetadata.js";
 import { handleStatsUpdate } from "../../orchestrator/stats.js";
+import { runTransferFollowups } from "../../orchestrator/transferFollowup.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../utils/mailer.js";
@@ -847,6 +848,7 @@ admin.post("/transfers/tx/:txHash/hydrate", async (c) => {
       await dispatchTransfer(event, tx, "STARKNET");
     }
   }, { timeout: 60000 });
+  const followup = await runTransferFollowups(transferEvents, "STARKNET");
 
   const hydrated = transferEvents.map((event) => {
     if (event.type === "TransferBatch") {
@@ -870,8 +872,8 @@ admin.post("/transfers/tx/:txHash/hydrate", async (c) => {
     };
   });
 
-  log.info({ txHash, transferCount: transferEvents.length }, "NFT transfers hydrated via admin tx receipt");
-  return c.json({ txHash, hydrated });
+  log.info({ txHash, transferCount: transferEvents.length, followup }, "NFT transfers hydrated via admin tx receipt");
+  return c.json({ txHash, hydrated, followup });
 });
 
 // ---------------------------------------------------------------------------

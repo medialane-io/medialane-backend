@@ -22,8 +22,10 @@ import { handleOrderFulfilled } from "../../mirror/handlers/orderFulfilled.js";
 import { handleOrderFulfilled1155 } from "../../mirror/handlers/orderFulfilled1155.js";
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
+import { runTransferFollowups } from "../../orchestrator/transferFollowup.js";
 import { num } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
+import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../types/marketplace.js";
 
 const log = createLogger("routes:intents");
 const intents = new Hono<AppEnv>();
@@ -513,6 +515,15 @@ const ORDER_CREATING_INTENT_TYPES = new Set([
 const ORDER_CREATED_SELECTOR_HEX = num.toHex(ORDER_CREATED_SELECTOR);
 const ORDER_FULFILLED_SELECTOR_HEX = num.toHex(ORDER_FULFILLED_SELECTOR);
 
+function isNftTransferEvent(
+  event: ReturnType<typeof parseEvents>[number]
+): event is ParsedTransfer | ParsedTransferSingle | ParsedTransferBatch {
+  return (
+    (event.type === "Transfer" || event.type === "TransferSingle" || event.type === "TransferBatch") &&
+    !getTokenByAddress(event.contractAddress)
+  );
+}
+
 /** Background: verify tx receipt and settle intent to CONFIRMED or FAILED.
  *  For FULFILL_ORDER and CANCEL_ORDER intents, also syncs the order status in DB
  *  so the UI reflects the correct state before the indexer catches up (~6s delay).
@@ -664,6 +675,7 @@ async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string[]> {
 async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
   const rawEvents = await fetchReceiptEvents(txHash);
   const parsedEvents = parseEvents(rawEvents);
+  const transferEvents = parsedEvents.filter(isNftTransferEvent);
   const rawFulfilledEvents = rawEvents.filter(
     (event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_FULFILLED_SELECTOR_HEX
   );
@@ -698,25 +710,25 @@ async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
     }
   }, { timeout: 60000 });
 
-  log.info({ txHash }, "Hydrated fulfillment and transfer balances from confirmed tx");
+  const followup = await runTransferFollowups(transferEvents, "STARKNET");
+
+  log.info({ txHash, followup }, "Hydrated fulfillment and transfer balances from confirmed tx");
 }
 
 async function hydrateTransfersFromTx(txHash: string): Promise<void> {
   const rawEvents = await fetchReceiptEvents(txHash);
   const parsedEvents = parseEvents(rawEvents);
+  const transferEvents = parsedEvents.filter(isNftTransferEvent);
 
   await prisma.$transaction(async (tx) => {
-    for (const event of parsedEvents) {
-      if (
-        (event.type === "Transfer" || event.type === "TransferSingle" || event.type === "TransferBatch") &&
-        !getTokenByAddress(event.contractAddress)
-      ) {
-        await dispatchTransfer(event, tx, "STARKNET");
-      }
+    for (const event of transferEvents) {
+      await dispatchTransfer(event, tx, "STARKNET");
     }
   }, { timeout: 60000 });
 
-  log.info({ txHash }, "Hydrated NFT transfers from confirmed tx");
+  const followup = await runTransferFollowups(transferEvents, "STARKNET");
+
+  log.info({ txHash, followup }, "Hydrated NFT transfers from confirmed tx");
 }
 
 // POST /v1/intents/:id/hydrate — tenant-safe repair for confirmed marketplace txs
