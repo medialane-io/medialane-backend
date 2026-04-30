@@ -19,7 +19,7 @@ import type {
   ParsedCollectionCreated,
 } from "../types/marketplace.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
-import { normalizeAddress } from "../utils/starknet.js";
+import { normalizeAddress, normalizeHash } from "../utils/starknet.js";
 import { u256ToBigInt } from "../utils/bigint.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -41,7 +41,8 @@ export function parseEvent(
   const keys = event.keys.map((k) => num.toHex(k));
   const selector = keys[0];
   const blockNumber = BigInt(event.block_number);
-  const { transaction_hash: txHash, from_address } = event;
+  const { from_address } = event;
+  const txHash = normalizeHash(event.transaction_hash);
   const contractAddress = normalizeAddress(from_address);
 
   try {
@@ -224,8 +225,9 @@ export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
   const txCounters = new Map<string, number>();
   const results: ParsedEvent[] = [];
   for (const event of events) {
-    const n = txCounters.get(event.transaction_hash) ?? 0;
-    txCounters.set(event.transaction_hash, n + 1);
+    const txHash = normalizeHash(event.transaction_hash);
+    const n = txCounters.get(txHash) ?? 0;
+    txCounters.set(txHash, n + 1);
     const parsed = parseEvent(event, n);
     if (parsed) results.push(parsed);
   }

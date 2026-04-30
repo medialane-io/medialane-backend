@@ -1,6 +1,6 @@
 import { hash } from "starknet";
 import { env } from "../config/env.js";
-import { normalizeAddress } from "./starknet.js";
+import { normalizeAddress, normalizeHash } from "./starknet.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
 import { createLogger } from "./logger.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -157,6 +157,7 @@ export async function fetchMarketplaceReceiptEvents(txHash: string): Promise<Mar
   const receipt = json.result;
   if (!receipt) return [];
 
+  const normalizedTxHash = normalizeHash(txHash);
   const blockNumber = Number(receipt.block_number ?? 0);
   const blockHash = typeof receipt.block_hash === "string" ? receipt.block_hash : "";
   const events = (receipt.events as Array<{ from_address?: string; keys?: string[]; data?: string[] }>) ?? [];
@@ -168,7 +169,7 @@ export async function fetchMarketplaceReceiptEvents(txHash: string): Promise<Mar
       keys: event.keys ?? [],
       data: event.data ?? [],
       block_number: blockNumber,
-      transaction_hash: txHash,
+      transaction_hash: normalizedTxHash,
       block_hash: blockHash,
     }));
 }
@@ -178,6 +179,7 @@ export async function fetchReceiptEvents(txHash: string): Promise<RawStarknetEve
   const receipt = json.result;
   if (!receipt) return [];
 
+  const normalizedTxHash = normalizeHash(txHash);
   const blockNumber = Number(receipt.block_number ?? 0);
   const blockHash = typeof receipt.block_hash === "string" ? receipt.block_hash : "";
   const events = (receipt.events as Array<{ from_address?: string; keys?: string[]; data?: string[] }>) ?? [];
@@ -187,7 +189,7 @@ export async function fetchReceiptEvents(txHash: string): Promise<RawStarknetEve
     keys: event.keys ?? [],
     data: event.data ?? [],
     block_number: blockNumber,
-    transaction_hash: txHash,
+    transaction_hash: normalizedTxHash,
     block_hash: blockHash,
   }));
 }

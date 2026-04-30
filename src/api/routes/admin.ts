@@ -10,7 +10,7 @@ import { runTransferFollowups } from "../../orchestrator/transferFollowup.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../utils/mailer.js";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.js";
 import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../mirror/poller.js";
@@ -263,11 +263,61 @@ admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
     const transfers = await tx.transfer.findMany({
       where: { chain: "STARKNET", contractAddress, tokenId },
       orderBy: [{ blockNumber: "asc" }, { logIndex: "asc" }],
-      select: { fromAddress: true, toAddress: true, amount: true },
+      select: {
+        id: true,
+        txHash: true,
+        logIndex: true,
+        fromAddress: true,
+        toAddress: true,
+        amount: true,
+        blockNumber: true,
+      },
     });
 
-    const balances = new Map<string, bigint>();
+    const uniqueTransfers = new Map<string, (typeof transfers)[number]>();
+    const duplicateTransferIds: string[] = [];
+    const txHashUpdates: Array<{ id: string; txHash: string }> = [];
+
     for (const transfer of transfers) {
+      const normalizedTxHash = normalizeHash(transfer.txHash);
+      const key = `${normalizedTxHash}:${transfer.logIndex}`;
+      const existing = uniqueTransfers.get(key);
+
+      if (!existing) {
+        uniqueTransfers.set(key, transfer);
+        if (transfer.txHash !== normalizedTxHash) {
+          txHashUpdates.push({ id: transfer.id, txHash: normalizedTxHash });
+        }
+        continue;
+      }
+
+      const existingIsCanonical = existing.txHash === normalizedTxHash;
+      const transferIsCanonical = transfer.txHash === normalizedTxHash;
+      if (!existingIsCanonical && transferIsCanonical) {
+        duplicateTransferIds.push(existing.id);
+        uniqueTransfers.set(key, transfer);
+      } else {
+        duplicateTransferIds.push(transfer.id);
+      }
+    }
+
+    if (duplicateTransferIds.length > 0) {
+      await tx.transfer.deleteMany({ where: { id: { in: duplicateTransferIds } } });
+    }
+
+    for (const { id, txHash } of txHashUpdates) {
+      if (!duplicateTransferIds.includes(id)) {
+        await tx.transfer.update({ where: { id }, data: { txHash } });
+      }
+    }
+
+    const balances = new Map<string, bigint>();
+    const replayTransfers = [...uniqueTransfers.values()].sort((a, b) => {
+      const blockDelta = a.blockNumber < b.blockNumber ? -1 : a.blockNumber > b.blockNumber ? 1 : 0;
+      return blockDelta || a.logIndex - b.logIndex;
+    });
+
+    for (const transfer of replayTransfers) {
       const amount = BigInt(transfer.amount);
       const from = transfer.fromAddress;
       const to = transfer.toAddress;
@@ -299,7 +349,12 @@ admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
       await tx.tokenBalance.createMany({ data: rows });
     }
 
-    return { transferCount: transfers.length, balances: rows };
+    return {
+      transferCount: replayTransfers.length,
+      duplicateTransferCount: duplicateTransferIds.length,
+      normalizedTransferCount: txHashUpdates.length,
+      balances: rows,
+    };
   }, { timeout: 60000 });
 
   await handleStatsUpdate({ chain: "STARKNET", contractAddress });

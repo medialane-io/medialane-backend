@@ -102,6 +102,20 @@ export function normalizeAddress(address: string): string {
 }
 
 /**
+ * Normalize a Starknet felt/hash to a 0x-prefixed 64-char lowercase hex string.
+ * Starknet RPCs and wallets may omit leading zeroes for the same value; database
+ * uniqueness must not treat those textual variants as different transactions.
+ */
+export function normalizeHash(hash: string): string {
+  try {
+    const hex = num.toHex(BigInt(hash));
+    return "0x" + hex.slice(2).padStart(64, "0").toLowerCase();
+  } catch {
+    throw new Error(`Invalid Starknet hash: "${hash}"`);
+  }
+}
+
+/**
  * Convert a raw felt (possibly as decimal string or hex) to 0x-prefixed hex.
  */
 export function feltToHex(felt: string | bigint): string {
