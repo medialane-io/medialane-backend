@@ -295,6 +295,16 @@ intents.post("/cancel", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
+  if (!parsed.data.tokenStandard) {
+    const order = await prisma.order.findFirst({
+      where: { chain: "STARKNET", orderHash: parsed.data.orderHash },
+      select: { id: true },
+    });
+    if (!order) {
+      return c.json({ error: "Order not found in index — provide tokenStandard hint" }, 400);
+    }
+  }
+
   try {
     const { typedData, calls } = await buildCancelOrderIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
