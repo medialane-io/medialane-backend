@@ -147,7 +147,7 @@ const counterOfferSchema = z.object({
   sellerAddress:     z.string().min(1),
   originalOrderHash: z.string().min(1),
   durationSeconds:   z.number().int().min(3600).max(2592000),
-  counterPrice:      z.string().regex(/^\d+$/, "counterPrice must be a non-negative integer string"),
+  priceRaw:          z.string().regex(/^\d+$/, "priceRaw must be a non-negative integer string"),
   message:           z.string().max(500).optional(),
 });
 
@@ -159,7 +159,7 @@ intents.post("/counter-offer", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  const { sellerAddress, originalOrderHash, durationSeconds, counterPrice, message } = parsed.data;
+  const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed.data;
   const normalizedSeller = normalizeAddress(sellerAddress);
 
   // 1. Validate original order: must be active + a bid (ERC20 offer)
@@ -192,7 +192,7 @@ intents.post("/counter-offer", async (c) => {
       nftContract:     originalOrder.considerationToken,
       tokenId:         originalOrder.considerationIdentifier,
       currencyAddress: originalOrder.offerToken,
-      priceRaw:        counterPrice,
+      priceRaw,
       durationSeconds,
     });
 
