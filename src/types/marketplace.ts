@@ -1,21 +1,7 @@
 // --- Medialane Simplified Marketplace Types (Matching On-Chain ABI) ---
 
-/**
- * ItemType denotes the type of item being transferred.
- * 0: Native (ETH/STRK)
- * 1: ERC20
- * 2: ERC721
- * 3: ERC1155
- */
-export enum ItemType {
-  NATIVE = 0,
-  ERC20 = 1,
-  ERC721 = 2,
-  ERC1155 = 3,
-}
-
 export interface OfferItem {
-  item_type: ItemType;
+  item_type: string;
   token: string;
   identifier_or_criteria: string;
   start_amount: string;
