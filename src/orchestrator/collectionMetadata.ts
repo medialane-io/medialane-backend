@@ -9,9 +9,18 @@ import { IPFS_GATEWAYS } from "../config/constants.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
-// ERC-165 interface IDs (as felt252 hex)
-const INTERFACE_ID_ERC721  = "0x80ac58cd";
-const INTERFACE_ID_ERC1155 = "0xd9b67a26";
+// Starknet SRC5 interface IDs (OpenZeppelin Cairo)
+// Computed as XOR of sn_keccak(fn_selector) for each function in the interface.
+// These differ from EVM ERC-165 IDs — Starknet OZ contracts reject EVM IDs.
+const INTERFACE_ID_SRC5_ERC721  = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16d3d20a2a";
+const INTERFACE_ID_SRC5_ERC1155 = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
+
+// EVM ERC-165 IDs — kept as fallback for bridged/EVM-compatible contracts
+const INTERFACE_ID_ERC165_ERC721  = "0x80ac58cd";
+const INTERFACE_ID_ERC165_ERC1155 = "0xd9b67a26";
+
+const ERC1155_PROBE_IDS = [INTERFACE_ID_SRC5_ERC1155, INTERFACE_ID_ERC165_ERC1155];
+const ERC721_PROBE_IDS  = [INTERFACE_ID_SRC5_ERC721, INTERFACE_ID_ERC165_ERC721];
 
 const SUPPORTS_INTERFACE_ABI = [
   {
@@ -88,11 +97,12 @@ export async function handleCollectionMetadataFetch(payload: {
     select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, standard: true, baseUri: true, description: true },
   });
 
-  // Skip if already fully resolved. For event-sourced collections, also re-run
-  // if image is still null (base_uri JSON fetch may not have happened on the first pass).
+  // Skip if already fully resolved. Re-run if standard is still UNKNOWN (detection may
+  // have previously used wrong EVM interface IDs) or image is missing for event-sourced collections.
   const alreadyComplete =
     existing?.metadataStatus === "FETCHED" &&
     existing?.owner !== null &&
+    existing?.standard !== "UNKNOWN" &&
     (existing?.source !== "ERC1155_FACTORY" || existing?.image !== null) &&
     (existing?.source !== "MEDIALANE_REGISTRY" || existing?.image !== null);
 
@@ -220,7 +230,7 @@ export async function handleCollectionMetadataFetch(payload: {
         description: collectionMetadata.description ?? description ?? undefined,
         image: collectionMetadata.image ?? existing?.image ?? image ?? undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
-        standard: existing?.source === "MEDIALANE_REGISTRY" ? "ERC721" : standard,
+        standard: resolveStandardBySource(existing?.source, standard),
         metadataStatus: "FETCHED",
       },
     });
@@ -271,23 +281,45 @@ async function fetchCollectionMetadataJson(
 }
 
 /**
- * Detect whether a contract is ERC-721 or ERC-1155 via ERC-165 supportsInterface().
- * Falls back to UNKNOWN if the contract doesn't expose the function.
+ * Apply source-based override when on-chain detection is ambiguous.
+ * COLLECTION_DROP and POP_PROTOCOL are always ERC-721 by protocol design.
+ * MEDIALANE_REGISTRY is always ERC-721 (registry only mints ERC-721 collections).
+ */
+function resolveStandardBySource(
+  source: string | null | undefined,
+  detected: TokenStandard
+): TokenStandard {
+  if (
+    source === "MEDIALANE_REGISTRY" ||
+    source === "COLLECTION_DROP" ||
+    source === "POP_PROTOCOL"
+  ) return "ERC721";
+  return detected;
+}
+
+/**
+ * Detect whether a contract is ERC-721 or ERC-1155 via SRC5 supportsInterface().
+ * Tries Starknet OZ SRC5 IDs first, then EVM ERC-165 IDs for bridged contracts.
+ * Falls back to UNKNOWN if the contract doesn't expose the function or matches no known ID.
  */
 async function detectTokenStandard(contractAddress: string): Promise<TokenStandard> {
   for (const fn of ["supports_interface", "supportsInterface"]) {
     try {
-      const is1155 = await callRpc((provider) => {
-        const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
-        return (contract as any)[fn](INTERFACE_ID_ERC1155);
-      });
-      if (is1155 === true || is1155 === 1n || String(is1155) === "1") return "ERC1155";
-      const is721 = await callRpc((provider) => {
-        const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
-        return (contract as any)[fn](INTERFACE_ID_ERC721);
-      });
-      if (is721 === true || is721 === 1n || String(is721) === "1") return "ERC721";
-      // Contract responded but supports neither — stop trying
+      for (const id of ERC1155_PROBE_IDS) {
+        const result = await callRpc((provider) => {
+          const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+          return (contract as any)[fn](id);
+        });
+        if (result === true || result === 1n || String(result) === "1") return "ERC1155";
+      }
+      for (const id of ERC721_PROBE_IDS) {
+        const result = await callRpc((provider) => {
+          const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+          return (contract as any)[fn](id);
+        });
+        if (result === true || result === 1n || String(result) === "1") return "ERC721";
+      }
+      // Contract responded but matched no known interface ID
       return "UNKNOWN";
     } catch {
       // Try the other function name variant
