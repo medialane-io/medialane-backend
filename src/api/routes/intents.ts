@@ -246,8 +246,8 @@ intents.post("/fulfill", async (c) => {
 
   try {
     if (!parsed.data.tokenStandard) {
-      const order = await prisma.order.findUnique({
-        where: { orderHash: parsed.data.orderHash },
+      const order = await prisma.order.findFirst({
+        where: { chain: "STARKNET", orderHash: parsed.data.orderHash },
         select: { id: true },
       });
       if (!order) {
@@ -401,6 +401,20 @@ intents.post("/checkout", async (c) => {
 
   for (const orderHash of orderHashes) {
     try {
+      // Guard: if the order isn't indexed yet we cannot safely determine ERC721 vs ERC1155
+      // routing and would silently submit ERC1155 orders to the ERC721 contract.
+      const dbOrder = await prisma.order.findFirst({
+        where: { chain: "STARKNET", orderHash },
+        select: { id: true },
+      });
+      if (!dbOrder) {
+        results.push({
+          orderHash,
+          error: "Order not found in index — cannot determine token standard for checkout",
+        });
+        continue;
+      }
+
       const { typedData, calls } = await buildFulfillOrderIntent({
         fulfiller: normalizeAddress(fulfiller),
         orderHash,
