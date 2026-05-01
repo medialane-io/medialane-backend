@@ -213,8 +213,9 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 - ERC-721 Transfer tokenId = u256 split: keys[3] = low, keys[4] = high
 
 ### Listing vs bid
-- Listing: `offer.item_type = ERC721`, `consideration.item_type = ERC20` → nftContract = offer.token
-- Bid: `offer.item_type = ERC20`, `consideration.item_type = ERC721` → nftContract = consideration.token (fixed 2026-03-01)
+- Listing: `offer.item_type = ERC721/ERC1155`, `consideration.item_type = ERC20` → nftContract = offer.token
+- Bid: `offer.item_type = ERC20`, `consideration.item_type = ERC721/ERC1155` → nftContract = consideration.token (fixed 2026-03-01)
+- **Cancel/fulfill tokenStandard derivation**: for bid orders, `offer.itemType` is `"ERC20"` — the NFT standard lives in `consideration.itemType`. The frontend (`use-order-actions.ts`) was sending `"ERC20"` as `tokenStandard` for cancel calls on bid orders; fixed 2026-04-30.
 
 ### Price sorting
 `priceRaw` is a String DB column. Uses `$queryRaw` with `::numeric NULLS LAST`. Do not change to ORM sort.
@@ -242,6 +243,8 @@ Apply this pattern to **every** `$queryRaw` that compares against an enum column
 - **CREATE_COLLECTION**: `owner` stored as `requester` only — caller of the tx becomes the on-chain owner (contract uses `get_caller_address()`).
 - Collection contract: `COLLECTION_CONTRACT` constant (`0x05e73b7...`) — can be overridden per-request via `collectionContract` field
 - `cairo.uint256(collectionId)` used for u256 encoding; `encodeByteArray()` used for Cairo ByteArray felts
+- **`tokenStandard` validation (added 2026-04-30)**: cancel, fulfill, and offer schemas now validate `tokenStandard` as `.enum(["ERC721", "ERC1155"])`. Sending any other value (e.g. `"ERC20"`, `"ERC-1155"`) returns 400 "Invalid body". This was a direct regression trigger that revealed a frontend bug where bid order cancellations sent `"ERC20"` as the standard.
+- **fulfill 400 guard (added 2026-04-30)**: if `tokenStandard` is omitted on fulfill and the order is not in the DB, the endpoint now returns 400 "Order not found in index — provide tokenStandard hint" instead of silently routing to ERC-721.
 
 ### On-chain NFT comments (added 2026-03-22)
 
