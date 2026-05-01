@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { type Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../db/client.js";
 import {
   buildCreateListingIntent,
@@ -99,8 +100,8 @@ intents.post("/listing", async (c) => {
         type: "CREATE_LISTING",
         requester: normalizeAddress(parsed.data.offerer),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         expiresAt,
       },
     });
@@ -129,8 +130,8 @@ intents.post("/offer", async (c) => {
         type: "MAKE_OFFER",
         requester: normalizeAddress(parsed.data.offerer),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         expiresAt,
       },
     });
@@ -215,8 +216,8 @@ intents.post("/counter-offer", async (c) => {
           type: "COUNTER_OFFER",
           requester: normalizedSeller,
           tenantId: c.get("tenant")?.id ?? null,
-          typedData: typedData as any,
-          calls: calls as any,
+          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+          calls: calls as PrismaTypes.InputJsonValue,
           expiresAt,
           parentOrderHash: originalOrderHash,
           counterOfferMessage: message ?? null,
@@ -268,8 +269,8 @@ intents.post("/fulfill", async (c) => {
         type: "FULFILL_ORDER",
         requester: normalizeAddress(parsed.data.fulfiller),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         orderHash: parsed.data.orderHash,
         expiresAt,
       },
@@ -299,8 +300,8 @@ intents.post("/cancel", async (c) => {
         type: "CANCEL_ORDER",
         requester: normalizeAddress(parsed.data.offerer),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         orderHash: parsed.data.orderHash,
         expiresAt,
       },
@@ -332,7 +333,7 @@ intents.post("/mint", async (c) => {
         requester: normalizeAddress(parsed.data.owner),
         tenantId: c.get("tenant")?.id ?? null,
         typedData: {},
-        calls: calls as any,
+        calls: calls as PrismaTypes.InputJsonValue,
         status: "SIGNED",
         expiresAt,
       },
@@ -374,7 +375,7 @@ intents.post("/create-collection", async (c) => {
           image: parsed.data.image ?? null,
           owner: normalizeAddress(parsed.data.owner),
         },
-        calls: calls as any,
+        calls: calls as PrismaTypes.InputJsonValue,
         status: "SIGNED",
         expiresAt,
       },
@@ -430,8 +431,8 @@ intents.post("/checkout", async (c) => {
           type: "FULFILL_ORDER",
           requester: normalizeAddress(fulfiller),
           tenantId: c.get("tenant")?.id ?? null,
-          typedData: typedData as any,
-          calls: calls as any,
+          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+          calls: calls as PrismaTypes.InputJsonValue,
           orderHash,
           expiresAt,
         },
@@ -514,7 +515,7 @@ intents.patch("/:id/signature", async (c) => {
 
   const updated = await prisma.transactionIntent.update({
     where: { id },
-    data: { signature: body.signature, status: "SIGNED", calls: populatedCalls as any },
+    data: { signature: body.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
   });
 
   log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
