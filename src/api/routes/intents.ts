@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { type Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../db/client.js";
 import {
   buildCreateListingIntent,
@@ -99,8 +100,8 @@ intents.post("/listing", async (c) => {
         type: "CREATE_LISTING",
         requester: normalizeAddress(parsed.data.offerer),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         expiresAt,
       },
     });
@@ -120,6 +121,10 @@ intents.post("/offer", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
+  if (!parsed.data.tokenStandard) {
+    log.warn({ nftContract: parsed.data.nftContract, offerer: parsed.data.offerer }, "tokenStandard omitted in offer intent — routing determined by DB lookup");
+  }
+
   try {
     const { typedData, calls } = await buildMakeOfferIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
@@ -129,8 +134,8 @@ intents.post("/offer", async (c) => {
         type: "MAKE_OFFER",
         requester: normalizeAddress(parsed.data.offerer),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         expiresAt,
       },
     });
@@ -146,7 +151,7 @@ const counterOfferSchema = z.object({
   sellerAddress:     z.string().min(1),
   originalOrderHash: z.string().min(1),
   durationSeconds:   z.number().int().min(3600).max(2592000),
-  counterPrice:      z.string().regex(/^\d+$/, "counterPrice must be a non-negative integer string"),
+  priceRaw:          z.string().regex(/^\d+$/, "priceRaw must be a non-negative integer string"),
   message:           z.string().max(500).optional(),
 });
 
@@ -158,7 +163,7 @@ intents.post("/counter-offer", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  const { sellerAddress, originalOrderHash, durationSeconds, counterPrice, message } = parsed.data;
+  const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed.data;
   const normalizedSeller = normalizeAddress(sellerAddress);
 
   // 1. Validate original order: must be active + a bid (ERC20 offer)
@@ -174,6 +179,11 @@ intents.post("/counter-offer", async (c) => {
     return c.json({ error: "Original order not found or not active" }, 400);
   }
 
+  // Counter-offer only supported for ERC-721 orders — ERC-1155 uses a different contract and domain.
+  if (originalOrder.considerationItemType === "ERC1155") {
+    return c.json({ error: "Counter-offer is not supported for ERC-1155 orders" }, 400);
+  }
+
   // 2. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
   if (normalizedSeller !== normalizeAddress(originalOrder.considerationRecipient)) {
     return c.json({ error: "sellerAddress does not match order recipient" }, 400);
@@ -186,7 +196,7 @@ intents.post("/counter-offer", async (c) => {
       nftContract:     originalOrder.considerationToken,
       tokenId:         originalOrder.considerationIdentifier,
       currencyAddress: originalOrder.offerToken,
-      priceRaw:        counterPrice,
+      priceRaw,
       durationSeconds,
     });
 
@@ -210,8 +220,8 @@ intents.post("/counter-offer", async (c) => {
           type: "COUNTER_OFFER",
           requester: normalizedSeller,
           tenantId: c.get("tenant")?.id ?? null,
-          typedData: typedData as any,
-          calls: calls as any,
+          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+          calls: calls as PrismaTypes.InputJsonValue,
           expiresAt,
           parentOrderHash: originalOrderHash,
           counterOfferMessage: message ?? null,
@@ -246,8 +256,8 @@ intents.post("/fulfill", async (c) => {
 
   try {
     if (!parsed.data.tokenStandard) {
-      const order = await prisma.order.findUnique({
-        where: { orderHash: parsed.data.orderHash },
+      const order = await prisma.order.findFirst({
+        where: { chain: "STARKNET", orderHash: parsed.data.orderHash },
         select: { id: true },
       });
       if (!order) {
@@ -263,8 +273,8 @@ intents.post("/fulfill", async (c) => {
         type: "FULFILL_ORDER",
         requester: normalizeAddress(parsed.data.fulfiller),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         orderHash: parsed.data.orderHash,
         expiresAt,
       },
@@ -285,6 +295,16 @@ intents.post("/cancel", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
+  if (!parsed.data.tokenStandard) {
+    const order = await prisma.order.findFirst({
+      where: { chain: "STARKNET", orderHash: parsed.data.orderHash },
+      select: { id: true },
+    });
+    if (!order) {
+      return c.json({ error: "Order not found in index — provide tokenStandard hint" }, 400);
+    }
+  }
+
   try {
     const { typedData, calls } = await buildCancelOrderIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
@@ -294,8 +314,8 @@ intents.post("/cancel", async (c) => {
         type: "CANCEL_ORDER",
         requester: normalizeAddress(parsed.data.offerer),
         tenantId: c.get("tenant")?.id ?? null,
-        typedData: typedData as any,
-        calls: calls as any,
+        typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+        calls: calls as PrismaTypes.InputJsonValue,
         orderHash: parsed.data.orderHash,
         expiresAt,
       },
@@ -327,7 +347,7 @@ intents.post("/mint", async (c) => {
         requester: normalizeAddress(parsed.data.owner),
         tenantId: c.get("tenant")?.id ?? null,
         typedData: {},
-        calls: calls as any,
+        calls: calls as PrismaTypes.InputJsonValue,
         status: "SIGNED",
         expiresAt,
       },
@@ -369,7 +389,7 @@ intents.post("/create-collection", async (c) => {
           image: parsed.data.image ?? null,
           owner: normalizeAddress(parsed.data.owner),
         },
-        calls: calls as any,
+        calls: calls as PrismaTypes.InputJsonValue,
         status: "SIGNED",
         expiresAt,
       },
@@ -401,6 +421,20 @@ intents.post("/checkout", async (c) => {
 
   for (const orderHash of orderHashes) {
     try {
+      // Guard: if the order isn't indexed yet we cannot safely determine ERC721 vs ERC1155
+      // routing and would silently submit ERC1155 orders to the ERC721 contract.
+      const dbOrder = await prisma.order.findFirst({
+        where: { chain: "STARKNET", orderHash },
+        select: { id: true },
+      });
+      if (!dbOrder) {
+        results.push({
+          orderHash,
+          error: "Order not found in index — cannot determine token standard for checkout",
+        });
+        continue;
+      }
+
       const { typedData, calls } = await buildFulfillOrderIntent({
         fulfiller: normalizeAddress(fulfiller),
         orderHash,
@@ -411,8 +445,8 @@ intents.post("/checkout", async (c) => {
           type: "FULFILL_ORDER",
           requester: normalizeAddress(fulfiller),
           tenantId: c.get("tenant")?.id ?? null,
-          typedData: typedData as any,
-          calls: calls as any,
+          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+          calls: calls as PrismaTypes.InputJsonValue,
           orderHash,
           expiresAt,
         },
@@ -495,7 +529,7 @@ intents.patch("/:id/signature", async (c) => {
 
   const updated = await prisma.transactionIntent.update({
     where: { id },
-    data: { signature: body.signature, status: "SIGNED", calls: populatedCalls as any },
+    data: { signature: body.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
   });
 
   log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
