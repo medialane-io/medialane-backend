@@ -77,7 +77,7 @@ const DOMAIN = { name: "Medialane", version: "1", revision: "1" };
 // ─── ERC-1155 Medialane1155 SNIP-12 types ──────────────────────────────────
 // The audited ERC-1155 protocol now mirrors the ERC-721 marketplace shape:
 // OrderParameters contains nested OfferItem and ConsiderationItem structs.
-const SNIP12_TYPES_1155 = SNIP12_TYPES;
+const SNIP12_TYPES_1155 = { ...SNIP12_TYPES };
 
 const FULFILLMENT_TYPES_1155 = {
   StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
@@ -91,7 +91,7 @@ const FULFILLMENT_TYPES_1155 = {
 
 const CANCELLATION_TYPES_1155 = {
   StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
-  OrderCancellation: CANCELLATION_TYPES.OrderCancellation,
+  OrderCancellation: [...CANCELLATION_TYPES.OrderCancellation],
 };
 
 const DOMAIN_1155 = { name: "Medialane", version: "2", revision: "1" };
