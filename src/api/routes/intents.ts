@@ -174,6 +174,11 @@ intents.post("/counter-offer", async (c) => {
     return c.json({ error: "Original order not found or not active" }, 400);
   }
 
+  // Counter-offer only supported for ERC-721 orders — ERC-1155 uses a different contract and domain.
+  if (originalOrder.considerationItemType === "ERC1155") {
+    return c.json({ error: "Counter-offer is not supported for ERC-1155 orders" }, 400);
+  }
+
   // 2. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
   if (normalizedSeller !== normalizeAddress(originalOrder.considerationRecipient)) {
     return c.json({ error: "sellerAddress does not match order recipient" }, 400);
