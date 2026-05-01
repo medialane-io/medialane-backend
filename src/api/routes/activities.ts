@@ -77,7 +77,7 @@ activities.get("/", async (c) => {
     type === "sale"
       ? { status: "FULFILLED" as const }
       : type === "listing"
-      ? { status: "ACTIVE" as const, offerItemType: "ERC721" as const }
+      ? { status: "ACTIVE" as const, offerItemType: { in: ["ERC721", "ERC1155"] as const } }
       : type === "cancelled"
       ? { status: "CANCELLED" as const }
       : type === "offer"
@@ -131,6 +131,7 @@ activities.get("/", async (c) => {
         from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
         to: t.toAddress,
         blockNumber: t.blockNumber.toString(),
+        amount: t.amount ?? "1",
         txHash: t.txHash,
         timestamp: t.createdAt,
       })),
@@ -149,6 +150,7 @@ activities.get("/", async (c) => {
       offerer: o.offerer,
       fulfiller: o.fulfiller,
       price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
+      tokenStandard: o.offerItemType === "ERC20" ? o.considerationItemType : o.offerItemType,
       txHash: o.createdTxHash,
       timestamp: o.updatedAt,
     })),
@@ -254,6 +256,7 @@ activities.get("/:address", async (c) => {
         from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
         to: t.toAddress,
         blockNumber: t.blockNumber.toString(),
+        amount: t.amount ?? "1",
         txHash: t.txHash,
         timestamp: t.createdAt,
       })),
@@ -272,6 +275,7 @@ activities.get("/:address", async (c) => {
       offerer: o.offerer,
       fulfiller: o.fulfiller,
       price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
+      tokenStandard: o.offerItemType === "ERC20" ? o.considerationItemType : o.offerItemType,
       txHash: o.createdTxHash,
       timestamp: o.updatedAt,
     })),
