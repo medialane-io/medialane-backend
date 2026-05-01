@@ -37,7 +37,7 @@ export async function recoverPendingWork(): Promise<void> {
       select: { contractAddress: true, tokenId: true },
     }),
     prisma.collection.findMany({
-      where: { name: null },
+      where: { OR: [{ name: null }, { name: "" }] },
       select: { contractAddress: true },
     }),
   ]);
