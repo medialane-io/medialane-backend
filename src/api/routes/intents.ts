@@ -121,6 +121,10 @@ intents.post("/offer", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
+  if (!parsed.data.tokenStandard) {
+    log.warn({ nftContract: parsed.data.nftContract, offerer: parsed.data.offerer }, "tokenStandard omitted in offer intent — routing determined by DB lookup");
+  }
+
   try {
     const { typedData, calls } = await buildMakeOfferIntent(parsed.data);
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
