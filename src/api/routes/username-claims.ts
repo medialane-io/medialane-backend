@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkAuth } from "../middleware/clerkAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const usernameClaims = new Hono<AppEnv>();
@@ -61,10 +61,10 @@ usernameClaims.get("/check/:username", async (c) => {
 
 usernameClaims.post(
   "/",
-  clerkAuth,
+  identityAuth,
   zValidator("json", z.object({ username: z.string(), notifyEmail: z.string().email().optional() })),
   async (c) => {
-    const jwtWallet = c.get("clerkWallet") as string;
+    const jwtWallet = c.get("walletAddress") as string;
     const { username, notifyEmail } = c.req.valid("json");
     const slug = username.toLowerCase().trim();
 
@@ -113,9 +113,9 @@ usernameClaims.post(
 
 usernameClaims.get(
   "/me",
-  clerkAuth,
+  identityAuth,
   async (c) => {
-    const jwtWallet = c.get("clerkWallet") as string;
+    const jwtWallet = c.get("walletAddress") as string;
 
     const [profile, latestClaim] = await Promise.all([
       prisma.creatorProfile.findUnique({

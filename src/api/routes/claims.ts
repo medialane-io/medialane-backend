@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
-import { clerkAuth } from "../middleware/clerkAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
 import { hashApiKey, hashApiKeyPlain } from "../../utils/apiKey.js";
 import { env } from "../../config/env.js";
@@ -53,14 +53,14 @@ async function xApiKeyAuth(c: any, next: any) {
 claims.post(
   "/",
   xApiKeyAuth,
-  clerkAuth,
+  identityAuth,
   zValidator("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
   })),
   async (c) => {
     const { contractAddress, walletAddress } = c.req.valid("json");
-    const jwtWallet = c.get("clerkWallet") as string;
+    const jwtWallet = c.get("walletAddress") as string;
     const normContract = normalizeAddress(contractAddress);
     const normWallet = normalizeAddress(walletAddress);
 

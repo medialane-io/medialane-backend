@@ -4,7 +4,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkAuth, clerkJwtOnly } from "../middleware/clerkAuth.js";
+import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
 import { env } from "../../config/env.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -81,10 +81,10 @@ profiles.patch(
       c.set("isAdmin", true);
       return next();
     }
-    // Non-admin path: call clerkAuth as a plain function, passing the same c and next.
-    // In Hono, `next` here IS the chain's next item (zValidator), so clerkAuth's internal
+    // Non-admin path: call identityAuth as a plain function, passing the same c and next.
+    // In Hono, `next` here IS the chain's next item (zValidator), so identityAuth's internal
     // `await next()` correctly forwards to it.
-    return clerkAuth(c, next);
+    return identityAuth(c, next);
   },
   zValidator("json", collectionProfileSchema),
   async (c) => {
@@ -98,13 +98,13 @@ profiles.patch(
     if (!collection) return c.json({ error: "Collection not found — register the collection first" }, 404);
 
     if (!isAdmin) {
-      const jwtWallet = c.get("clerkWallet") as string;
+      const jwtWallet = c.get("walletAddress") as string;
       if (!collection.claimedBy || normalizeAddress(collection.claimedBy) !== jwtWallet) {
         return c.json({ error: "Not authorized to edit this collection. Collections with no claimer can only be updated via admin API key." }, 403);
       }
     }
 
-    const updatedBy = isAdmin ? "admin" : (c.get("clerkWallet") as string);
+    const updatedBy = isAdmin ? "admin" : (c.get("walletAddress") as string);
 
     const hasGatedContent = data.gatedContentUrl != null
       ? data.gatedContentUrl.length > 0
@@ -140,10 +140,10 @@ profiles.patch(
 
 profiles.get(
   "/collections/:contract/gated-content",
-  async (c, next) => clerkJwtOnly(c, next),
+  async (c, next) => requireClerkJwt(c, next),
   async (c) => {
     const contract = normalizeAddress(c.req.param("contract"));
-    const walletAddress = c.get("clerkWallet") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
     // Check if this wallet holds at least one token in the collection (ERC-721 or ERC-1155)
     const ownedToken = await prisma.tokenBalance.findFirst({
@@ -277,11 +277,11 @@ profiles.get("/creators/:wallet/profile", async (c) => {
 
 profiles.patch(
   "/creators/:wallet/profile",
-  clerkAuth,
+  identityAuth,
   zValidator("json", creatorProfileSchema),
   async (c) => {
     const wallet = normalizeAddress(c.req.param("wallet"));
-    const jwtWallet = c.get("clerkWallet") as string;
+    const jwtWallet = c.get("walletAddress") as string;
     const data = c.req.valid("json");
 
     if (jwtWallet !== wallet) {

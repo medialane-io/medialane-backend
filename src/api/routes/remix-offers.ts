@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkAuth, clerkJwtOnly } from "../middleware/clerkAuth.js";
+import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -189,11 +189,11 @@ function serializeOffer(offer: any, callerWallet?: string) {
 remixOffers.post(
   "/",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", createOfferSchema),
   async (c) => {
     const body = c.req.valid("json");
-    const requesterAddress = c.get("clerkWallet") as string;
+    const requesterAddress = c.get("walletAddress") as string;
 
     if (!checkOfferRateLimit(requesterAddress)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
@@ -268,11 +268,11 @@ remixOffers.post(
 remixOffers.post(
   "/auto",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", autoOfferSchema),
   async (c) => {
     const body = c.req.valid("json");
-    const requesterAddress = c.get("clerkWallet") as string;
+    const requesterAddress = c.get("walletAddress") as string;
 
     if (!checkOfferRateLimit(requesterAddress)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
@@ -351,11 +351,11 @@ remixOffers.post(
 remixOffers.post(
   "/self/confirm",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", selfConfirmSchema),
   async (c) => {
     const body = c.req.valid("json");
-    const walletAddress = c.get("clerkWallet") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
     const originalContract = normalizeAddress(body.originalContract);
     const originalTokenId = body.originalTokenId;
@@ -402,12 +402,12 @@ remixOffers.post(
 remixOffers.post(
   "/:id/confirm",
 
-  (c, next) => clerkJwtOnly(c, next),
+  (c, next) => requireClerkJwt(c, next),
   zValidator("json", confirmSchema),
   async (c) => {
     const { id } = c.req.param();
     const body = c.req.valid("json");
-    const walletAddress = c.get("clerkWallet") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
     const offer = await prisma.remixOffer.findUnique({ where: { id } });
     if (!offer) return c.json({ error: "Offer not found" }, 404);
@@ -438,10 +438,10 @@ remixOffers.post(
 remixOffers.post(
   "/:id/reject",
 
-  (c, next) => clerkJwtOnly(c, next),
+  (c, next) => requireClerkJwt(c, next),
   async (c) => {
     const { id } = c.req.param();
-    const walletAddress = c.get("clerkWallet") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
     const offer = await prisma.remixOffer.findUnique({ where: { id } });
     if (!offer) return c.json({ error: "Offer not found" }, 404);
@@ -466,10 +466,10 @@ remixOffers.post(
 remixOffers.post(
   "/:id/extend",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => identityAuth(c, next),
   async (c) => {
     const { id } = c.req.param();
-    const walletAddress = c.get("clerkWallet") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
     if (!checkOfferRateLimit(walletAddress)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
@@ -507,11 +507,11 @@ remixOffers.post(
 remixOffers.get(
   "/",
 
-  (c, next) => clerkAuth(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("query", listSchema),
   async (c) => {
     const { role, status, page, limit } = c.req.valid("query");
-    const walletAddress = c.get("clerkWallet") as string;
+    const walletAddress = c.get("walletAddress") as string;
 
     const where: any = {
       ...(role === "creator" ? { creatorAddress: walletAddress } : { requesterAddress: walletAddress }),
@@ -544,8 +544,8 @@ remixOffers.get("/:id", async (c) => {
     const authHeader = c.req.header("Authorization");
     if (authHeader?.startsWith("Bearer ")) {
       // Soft-resolve — ignore errors for unauthenticated callers
-      await clerkAuth(c, async () => {});
-      callerWallet = c.get("clerkWallet") as string | undefined;
+      await identityAuth(c, async () => {});
+      callerWallet = c.get("walletAddress") as string | undefined;
     }
   } catch { /* not authenticated — show public fields only */ }
 

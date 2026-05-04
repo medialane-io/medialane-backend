@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkJwtOnly } from "../middleware/clerkAuth.js";
+import { requireClerkJwt } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -43,7 +43,7 @@ const conditionsSchema = z.object({
 // Store claim conditions after a successful create_drop transaction.
 // Requires Clerk JWT — only the collection owner (claimedBy or owner field) may set conditions.
 // Body: { collectionAddress, maxSupply, price, paymentToken, startTime, endTime, maxPerWallet }
-drop.post("/conditions", async (c, next) => clerkJwtOnly(c, next), async (c) => {
+drop.post("/conditions", async (c, next) => requireClerkJwt(c, next), async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ error: "Invalid request body" }, 400);
 
@@ -54,7 +54,7 @@ drop.post("/conditions", async (c, next) => clerkJwtOnly(c, next), async (c) => 
   const data = parsed.data;
 
   const collectionAddress = normalizeAddress(data.collectionAddress);
-  const callerWallet = c.get("clerkWallet") as string | undefined;
+  const callerWallet = c.get("walletAddress") as string | undefined;
 
   // Ownership check: caller must match the collection owner or claimedBy wallet
   const collection = await prisma.collection.findUnique({
