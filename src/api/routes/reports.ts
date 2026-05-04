@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { clerkJwtOnly } from "../middleware/clerkAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -54,9 +54,7 @@ function validateTargetKey(
 
 const reports = new Hono<AppEnv>();
 
-// reporterUserId is derived server-side from the verified Clerk JWT sub claim.
-// It is NOT accepted from the request body — body-supplied values were trivially
-// forgeable, allowing any API key holder to auto-hide comments with 3 fake IDs.
+// reporterWallet is derived server-side from identityAuth — never from the request body.
 const submitReportSchema = z.object({
   targetType: z.enum(["COLLECTION", "TOKEN", "CREATOR", "COMMENT"]),
   targetKey: z.string().min(1),
@@ -80,15 +78,14 @@ const submitReportSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
-// POST /v1/reports — requires tenant API key (global middleware) + Clerk JWT (local)
+// POST /v1/reports — requires tenant API key (global middleware) + identity auth (local)
 reports.post(
   "/",
-  async (c, next) => clerkJwtOnly(c, next),
+  async (c, next) => identityAuth(c, next),
   zValidator("json", submitReportSchema),
   async (c) => {
     const body = c.req.valid("json");
-    // Derive reporter identity from the verified Clerk JWT — never from request body
-    const reporterUserId = c.get("clerkUserId") as string;
+    const reporterWallet = c.get("walletAddress") as string;
 
     const targetContract = body.targetContract
       ? normalizeAddress(body.targetContract)
@@ -106,11 +103,11 @@ reports.post(
       return c.json({ error: keyError }, 400);
     }
 
-    // Per-user rate limit: max 5 reports per hour (keyed on verified Clerk userId)
+    // Per-wallet rate limit: max 5 reports per hour
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentCount = await prisma.report.count({
       where: {
-        reporterUserId,
+        reporterWallet,
         createdAt: { gte: oneHourAgo },
       },
     });
@@ -118,12 +115,12 @@ reports.post(
       return c.json({ error: "Rate limit exceeded" }, 429);
     }
 
-    // Deduplication: one report per user per target (@@unique enforced at DB level too)
+    // Deduplication: one report per wallet per target (@@unique enforced at DB level too)
     const existing = await prisma.report.findUnique({
       where: {
-        targetKey_reporterUserId: {
+        targetKey_reporterWallet: {
           targetKey: body.targetKey,
-          reporterUserId,
+          reporterWallet,
         },
       },
     });
@@ -138,7 +135,7 @@ reports.post(
         targetContract,
         targetTokenId: body.targetTokenId,
         targetAddress,
-        reporterUserId,
+        reporterWallet,
         categories: body.categories,
         description: body.description,
       },

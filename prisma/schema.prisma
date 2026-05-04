@@ -483,7 +483,7 @@ model Report {
   targetContract String?
   targetTokenId  String?
   targetAddress  String?
-  reporterUserId String           // Clerk user ID — trusted via platform API key
+  reporterWallet String           // wallet address — set server-side from identityAuth
   reviewedBy     String?          // Clerk admin user ID — honor-system
   categories     ReportCategory[]
   description    String?
@@ -493,7 +493,7 @@ model Report {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
-  @@unique([targetKey, reporterUserId])
+  @@unique([targetKey, reporterWallet])
   @@index([status])
   @@index([targetType, targetKey])
   @@index([createdAt])
