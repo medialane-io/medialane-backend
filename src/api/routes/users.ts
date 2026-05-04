@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
-import { clerkAuth } from "../middleware/clerkAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const users = new Hono<AppEnv>();
@@ -8,18 +8,15 @@ const users = new Hono<AppEnv>();
 /**
  * POST /v1/users/me
  * Upsert the authenticated user's wallet address in our DB.
- * Called at onboarding completion. Requires Clerk JWT.
- * The wallet address is read from Clerk publicMetadata (via clerkAuth) —
- * clients do not supply it in the body.
+ * Called at onboarding completion. Works with any identityAuth path.
  */
-users.post("/me", async (c, next) => clerkAuth(c, next), async (c) => {
-  const walletAddress = c.get("clerkWallet") as string;
-  const clerkUserId = c.get("clerkUserId") as string;
+users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
+  const walletAddress = c.get("walletAddress") as string;
 
   await prisma.user.upsert({
-    where: { clerkUserId },
-    create: { clerkUserId, walletAddress },
-    update: { walletAddress },
+    where: { walletAddress },
+    create: { walletAddress },
+    update: {},
   });
 
   return c.json({ walletAddress });
@@ -28,13 +25,12 @@ users.post("/me", async (c, next) => clerkAuth(c, next), async (c) => {
 /**
  * GET /v1/users/me
  * Return the authenticated user's stored wallet address.
- * Returns 404 if the user has not completed onboarding in the backend yet.
- * Used as a third-tier fallback in the frontend when ChipiPay is unavailable.
+ * Returns 404 if the user has not called POST /v1/users/me yet.
  */
-users.get("/me", async (c, next) => clerkAuth(c, next), async (c) => {
-  const clerkUserId = c.get("clerkUserId") as string;
+users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
+  const walletAddress = c.get("walletAddress") as string;
 
-  const user = await prisma.user.findUnique({ where: { clerkUserId } });
+  const user = await prisma.user.findUnique({ where: { walletAddress } });
   if (!user) return c.json({ error: "User not found" }, 404);
 
   return c.json({ walletAddress: user.walletAddress });
