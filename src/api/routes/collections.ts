@@ -190,10 +190,22 @@ collections.get("/:contract", async (c) => {
     ...(include === "profile" ? { include: { profile: true } } : {}),
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
+
+  let profileData: Record<string, unknown> | null = null;
+  if (include === "profile") {
+    const profile = (col as any).profile ?? null;
+    if (profile) {
+      // gatedContentUrl and gatedContentType are only returned to verified
+      // token holders via GET /v1/collections/:contract/gated-content
+      const { gatedContentUrl: _url, gatedContentType: _type, ...safeProfile } = profile;
+      profileData = safeProfile;
+    }
+  }
+
   return c.json({
     data: {
       ...serializeCollection(col),
-      ...(include === "profile" ? { profile: (col as any).profile ?? null } : {}),
+      ...(include === "profile" ? { profile: profileData } : {}),
     },
   });
 });
