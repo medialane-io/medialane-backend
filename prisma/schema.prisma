@@ -305,6 +305,16 @@ model ClaimChallenge {
   @@index([walletAddress, contractAddress])
 }
 
+model SiwsNonce {
+  id            String   @id @default(cuid())
+  walletAddress String
+  nonce         String   @unique
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([walletAddress])
+}
+
 model Transfer {
   id              String   @id @default(cuid())
   chain           Chain    @default(STARKNET)
