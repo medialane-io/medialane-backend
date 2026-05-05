@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { requireClerkJwt } from "../middleware/identityAuth.js";
+import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -189,7 +189,7 @@ function serializeOffer(offer: any, callerWallet?: string) {
 remixOffers.post(
   "/",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", createOfferSchema),
   async (c) => {
     const body = c.req.valid("json");
@@ -268,7 +268,7 @@ remixOffers.post(
 remixOffers.post(
   "/auto",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", autoOfferSchema),
   async (c) => {
     const body = c.req.valid("json");
@@ -351,7 +351,7 @@ remixOffers.post(
 remixOffers.post(
   "/self/confirm",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", selfConfirmSchema),
   async (c) => {
     const body = c.req.valid("json");
@@ -466,7 +466,7 @@ remixOffers.post(
 remixOffers.post(
   "/:id/extend",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   async (c) => {
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
@@ -507,7 +507,7 @@ remixOffers.post(
 remixOffers.get(
   "/",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("query", listSchema),
   async (c) => {
     const { role, status, page, limit } = c.req.valid("query");
@@ -544,7 +544,7 @@ remixOffers.get("/:id", async (c) => {
     const authHeader = c.req.header("Authorization");
     if (authHeader?.startsWith("Bearer ")) {
       // Soft-resolve — ignore errors for unauthenticated callers
-      await requireClerkJwt(c, async () => {});
+      await identityAuth(c, async () => {});
       callerWallet = c.get("walletAddress") as string | undefined;
     }
   } catch { /* not authenticated — show public fields only */ }

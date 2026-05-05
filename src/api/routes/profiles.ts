@@ -4,7 +4,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { requireClerkJwt } from "../middleware/identityAuth.js";
+import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
 import { env } from "../../config/env.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -81,10 +81,10 @@ profiles.patch(
       c.set("isAdmin", true);
       return next();
     }
-    // Non-admin path: call requireClerkJwt as a plain function, passing the same c and next.
-    // In Hono, `next` here IS the chain's next item (zValidator), so requireClerkJwt's internal
+    // Non-admin path: call identityAuth as a plain function, passing the same c and next.
+    // In Hono, `next` here IS the chain's next item (zValidator), so identityAuth's internal
     // `await next()` correctly forwards to it.
-    return requireClerkJwt(c, next);
+    return identityAuth(c, next);
   },
   zValidator("json", collectionProfileSchema),
   async (c) => {
@@ -277,7 +277,7 @@ profiles.get("/creators/:wallet/profile", async (c) => {
 
 profiles.patch(
   "/creators/:wallet/profile",
-  requireClerkJwt,
+  identityAuth,
   zValidator("json", creatorProfileSchema),
   async (c) => {
     const wallet = normalizeAddress(c.req.param("wallet"));

@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { requireClerkJwt } from "../middleware/identityAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -81,7 +81,7 @@ const submitReportSchema = z.object({
 // POST /v1/reports — requires tenant API key (global middleware) + identity auth (local)
 reports.post(
   "/",
-  async (c, next) => requireClerkJwt(c, next),
+  async (c, next) => identityAuth(c, next),
   zValidator("json", submitReportSchema),
   async (c) => {
     const body = c.req.valid("json");
