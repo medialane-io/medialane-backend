@@ -28,6 +28,7 @@ import reports from "./routes/reports.js";
 import remixOffers from "./routes/remix-offers.js";
 import pop from "./routes/pop.js";
 import drop from "./routes/drop.js";
+import siws from "./routes/siws.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -49,6 +50,9 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/users", users);
   // Remix offers — Clerk JWT auth + x-api-key (mounted before global apiKeyAuth)
   app.route("/v1/remix-offers", remixOffers);
+
+  // SIWS auth — public, no API key required (authentication precedes key issuance)
+  app.route("/v1/auth/siws", siws);
 
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);
