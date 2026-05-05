@@ -22,7 +22,13 @@ export async function fetchJson(
     const res = await fetch(url, {
       signal: controller.signal,
       headers: { Accept: "application/json" },
+      redirect: "manual",
     });
+
+    if (res.status >= 300 && res.status < 400) {
+      log.warn({ url, status: res.status }, "Redirect blocked");
+      return null;
+    }
 
     if (!res.ok) {
       log.warn({ url, status: res.status }, "Non-OK response");

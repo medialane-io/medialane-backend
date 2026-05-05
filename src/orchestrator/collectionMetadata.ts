@@ -6,6 +6,7 @@ import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
 import { ipfsToHttp } from "../utils/ipfs.js";
 import { IPFS_GATEWAYS } from "../config/constants.js";
+import { isPrivateOrInsecureUrl } from "../utils/ssrf.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
@@ -264,8 +265,13 @@ async function fetchCollectionMetadataJson(
 
   for (const url of urls) {
     if (!url) continue;
+    if (isPrivateOrInsecureUrl(url, false)) {
+      log.warn({ url }, "Blocked SSRF attempt in collection metadata fetch");
+      continue;
+    }
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: "manual" });
+      if (res.status >= 300 && res.status < 400) continue;
       if (!res.ok) continue;
       const meta = await res.json() as Record<string, unknown>;
       return {

@@ -141,23 +141,6 @@ reports.post(
       },
     });
 
-    // Auto-hide comment after 3 unique reports
-    if (body.targetType === "COMMENT") {
-      const commentId = body.targetKey.split("::")[1];
-      if (commentId) {
-        const reportCount = await prisma.report.count({
-          where: { targetKey: body.targetKey },
-        });
-        if (reportCount >= 3) {
-          await prisma.comment.update({
-            where: { id: commentId },
-            data: { isHidden: true },
-          });
-          log.info({ commentId, reportCount }, "Comment auto-hidden after report threshold");
-        }
-      }
-    }
-
     return c.json({ data: report }, 201);
   }
 );
