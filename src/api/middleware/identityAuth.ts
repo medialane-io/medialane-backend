@@ -7,23 +7,18 @@ const clerk = createClerkClient({
 });
 
 /**
- * Resolves caller identity to a walletAddress from two auth paths:
+ * Resolves caller identity to a walletAddress from a verified Clerk JWT.
  *
  * Path 1 — Clerk JWT  (Authorization: Bearer <token>)
- *   Used by medialane.io. Validates JWT, fetches wallet from Clerk metadata.
+ *   Validates JWT, fetches wallet from Clerk metadata.
  *   Sets walletAddress + clerkUserId.
  *
- * Path 2 — Wallet-address header  (x-wallet-address: 0x...)
- *   Used by medialane-dapp. Trust established by upstream API key validation.
- *   Sets walletAddress only.
- *
- * Path 3 (future) — SIWS signature
- *   Slot reserved for stateless Starknet signature verification.
+ * Path 2 (future) — SIWS signature
+ *   Reserved for stateless Starknet signature verification.
  */
 export async function identityAuth(c: Context, next: Next) {
   const authHeader = c.req.header("Authorization");
 
-  // ── Path 1: Clerk JWT ───────────────────────────────────────────────────────
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
     try {
@@ -43,35 +38,16 @@ export async function identityAuth(c: Context, next: Next) {
     return next();
   }
 
-  // ── Path 2: Wallet-address header ──────────────────────────────────────────
-  // Only reachable when Authorization: Bearer is absent.
-  // Requires a valid tenant API key to have already been validated upstream.
-  const rawWallet = c.req.header("x-wallet-address");
-  if (rawWallet) {
-    try {
-      c.set("walletAddress", normalizeAddress(rawWallet));
-    } catch {
-      return c.json({ error: "Invalid wallet address" }, 400);
-    }
-    return next();
-  }
-
-  // ── Path 3: SIWS signature (future) ────────────────────────────────────────
+  // Path 2: SIWS signature (future)
   // Reserved for stateless Starknet signature verification.
-  // When implemented: verify typed-data signature against x-wallet-address,
-  // check timestamp freshness, set walletAddress.
 
   return c.json({ error: "Authentication required" }, 401);
 }
 
 /**
  * Strict variant: only accepts Clerk JWT in Authorization: Bearer.
- * Use on endpoints where an unverified wallet-header would allow impersonation.
+ * Alias for identityAuth — kept for call-site clarity and future divergence.
  */
 export async function requireClerkJwt(c: Context, next: Next) {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return c.json({ error: "Clerk session token required" }, 401);
-  }
   return identityAuth(c, next);
 }
