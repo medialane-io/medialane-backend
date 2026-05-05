@@ -54,7 +54,7 @@ function validateTargetKey(
 
 const reports = new Hono<AppEnv>();
 
-// reporterWallet is derived server-side from identityAuth — never from the request body.
+// reporterWallet is derived server-side from requireClerkJwt — never from the request body.
 const submitReportSchema = z.object({
   targetType: z.enum(["COLLECTION", "TOKEN", "CREATOR", "COMMENT"]),
   targetKey: z.string().min(1),
