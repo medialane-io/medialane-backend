@@ -2,6 +2,7 @@ import { getIpfsFallbackUrls, resolveUri } from "./resolver.js";
 import { fetchJson } from "./fetcher.js";
 import { getCachedMetadata, setCachedMetadata } from "./cache.js";
 import { isIpfsUri } from "../utils/ipfs.js";
+import { isPrivateOrInsecureUrl } from "../utils/ssrf.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("discovery");
@@ -34,6 +35,14 @@ export async function resolveMetadata(
     }
   } else {
     const { url } = resolveUri(uri);
+    // SSRF guard: block private/internal IPs and cloud metadata ranges.
+    // requireHttps=false allows http:// for legacy on-chain token URIs while
+    // still blocking all RFC-1918, loopback, link-local, and IMDS ranges.
+    if (isPrivateOrInsecureUrl(url, false)) {
+      log.warn({ url }, "Blocked SSRF attempt in token URI");
+      setCachedMetadata(uri, null, null, false);
+      return null;
+    }
     resolvedUrl = url;
     metadata = await fetchJson(url);
   }
