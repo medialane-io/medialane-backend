@@ -34,6 +34,7 @@ const envSchema = z.object({
   // When set, new API keys are hashed with HMAC-SHA256(key, HMAC_KEY) instead of
   // plain SHA-256. Existing keys stored as plain SHA-256 continue to work (dual-lookup).
   HMAC_KEY: z.string().default(""),
+  SIWS_SECRET: z.string().min(32),
   CORS_ORIGINS: z
     .string()
     .default("https://medialane.io,https://www.medialane.io,https://dapp.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
