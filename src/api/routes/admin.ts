@@ -827,6 +827,66 @@ admin.patch("/username-claims/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /admin/collection-slug-claims — list collection slug claims
+// ---------------------------------------------------------------------------
+admin.get("/collection-slug-claims", async (c) => {
+  const status = c.req.query("status");
+  const page = parseInt(c.req.query("page") ?? "1");
+  const limit = parseInt(c.req.query("limit") ?? "20");
+  const where = status ? { status: status as any } : {};
+
+  const [claims, total] = await Promise.all([
+    prisma.collectionSlugClaim.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.collectionSlugClaim.count({ where }),
+  ]);
+
+  return c.json({ claims, total, page, limit });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/collection-slug-claims/:id — approve or reject a collection slug claim
+// On approve: sets slug on CollectionProfile (upsert) and rejects any other
+// pending claims for the same slug or same contractAddress.
+// ---------------------------------------------------------------------------
+admin.patch("/collection-slug-claims/:id", async (c) => {
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const { status, adminNotes } = body;
+
+  if (!["APPROVED", "REJECTED"].includes(status)) {
+    return c.json({ error: "status must be APPROVED or REJECTED" }, 400);
+  }
+
+  const claim = await prisma.collectionSlugClaim.findUnique({ where: { id } });
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.status !== "PENDING") return c.json({ error: "Claim is no longer pending" }, 409);
+
+  const updated = await prisma.collectionSlugClaim.update({
+    where: { id },
+    data: { status, adminNotes: adminNotes ?? null, reviewedAt: new Date() },
+  });
+
+  if (status === "APPROVED") {
+    await prisma.collectionProfile.upsert({
+      where: { chain_contractAddress: { chain: claim.chain, contractAddress: claim.contractAddress } },
+      create: { chain: claim.chain, contractAddress: claim.contractAddress, slug: claim.slug },
+      update: { slug: claim.slug },
+    });
+
+    await prisma.collectionSlugClaim.updateMany({
+      where: {
+        id: { not: id },
+        status: "PENDING",
+        OR: [{ slug: claim.slug }, { contractAddress: claim.contractAddress }],
+      },
+      data: { status: "REJECTED", adminNotes: "Superseded by approved claim", reviewedAt: new Date() },
+    });
+  }
+
+  return c.json({ claim: updated });
+});
+
+// ---------------------------------------------------------------------------
 // GET /admin/collections — list collections with optional filters
 // ---------------------------------------------------------------------------
 admin.get("/collections", async (c) => {
