@@ -187,6 +187,28 @@ collections.get("/", async (c) => {
   return c.json({ data: data.map(serializeCollection), meta: { page, limit, total } });
 });
 
+// GET /v1/collections/by-slug/:slug — resolve a vanity slug to a full collection
+collections.get("/by-slug/:slug", async (c) => {
+  const slug = c.req.param("slug").toLowerCase().trim();
+
+  const profile = await prisma.collectionProfile.findUnique({
+    where: { slug },
+    select: { contractAddress: true, chain: true },
+  });
+
+  if (!profile) return c.json({ error: "Collection not found" }, 404);
+
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain: profile.chain, contractAddress: profile.contractAddress } },
+    include: { profile: true },
+  });
+
+  if (!col || col.deletedAt) return c.json({ error: "Collection not found" }, 404);
+
+  const { gatedContentUrl: _url, gatedContentType: _type, ...safeProfile } = col.profile as any;
+  return c.json({ data: { ...serializeCollection(col), profile: safeProfile } });
+});
+
 // GET /v1/collections/:contract
 collections.get("/:contract", async (c) => {
   const { contract } = c.req.param();
@@ -473,7 +495,7 @@ function serializeCollection(c: any) {
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     profile: profile
-      ? { hasGatedContent: profile.hasGatedContent, gatedContentTitle: profile.gatedContentTitle ?? null }
+      ? { hasGatedContent: profile.hasGatedContent, gatedContentTitle: profile.gatedContentTitle ?? null, slug: profile.slug ?? null }
       : null,
   };
 }
