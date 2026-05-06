@@ -20,6 +20,7 @@ import portal from "./routes/portal.js";
 import admin from "./routes/admin.js";
 import claims from "./routes/claims.js";
 import usernameClaims from "./routes/username-claims.js";
+import collectionSlugClaims from "./routes/collection-slug-claims.js";
 import users from "./routes/users.js";
 import profiles from "./routes/profiles.js";
 import stats from "./routes/stats.js";
@@ -47,6 +48,7 @@ export function createApp(): Hono<AppEnv> {
   // Claims routers — mounted BEFORE global apiKeyAuth; both handle their own Clerk JWT auth
   app.route("/v1/collections/claim", claims);
   app.route("/v1/username-claims", usernameClaims);
+  app.route("/v1/collection-slug-claims", collectionSlugClaims);
   app.route("/v1/users", users);
   // Remix offers — Clerk JWT auth + x-api-key (mounted before global apiKeyAuth)
   app.route("/v1/remix-offers", remixOffers);
