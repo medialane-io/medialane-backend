@@ -25,11 +25,16 @@ export class CircuitBreaker {
   private openedAt = 0;
 
   recordSuccess(): void {
-    if (this.state !== "CLOSED") {
+    if (this.state === "HALF") {
+      // Probe succeeded — primary is healthy again
       log.info({ from: this.state }, "Circuit breaker: primary recovered, closing");
+      this.state = "CLOSED";
+      this.failures = 0;
+    } else if (this.state === "CLOSED") {
+      this.failures = 0;
     }
-    this.state = "CLOSED";
-    this.failures = 0;
+    // OPEN: ignore stale in-flight successes so the 60s cool-down isn't short-circuited
+    // by concurrent requests that captured usePrimary=true before the circuit opened.
   }
 
   recordFailure(): void {
