@@ -108,6 +108,40 @@ async function main() {
 
   // ── 8. (removed) Job table was dropped in 20260314000000_lean_indexer
 
+  // ── 9. identity_wallet_pk — migration failed at 2026-05-04; apply idempotently ──
+  // Drops Clerk-based User identity in favour of walletAddress PK.
+  // Uses IF EXISTS / IF NOT EXISTS guards so re-runs are safe.
+  await prisma.$executeRaw`DROP INDEX IF EXISTS "Report_targetKey_reporterUserId_key"`;
+  await prisma.$executeRaw`DROP INDEX IF EXISTS "User_clerkUserId_key"`;
+  await prisma.$executeRaw`DROP INDEX IF EXISTS "User_clerkUserId_idx"`;
+  await prisma.$executeRaw`ALTER TABLE "Report" DROP COLUMN IF EXISTS "reporterUserId"`;
+  // DEFAULT '' makes this safe for any pre-existing rows; Prisma always supplies the value.
+  await prisma.$executeRaw`ALTER TABLE "Report" ADD COLUMN IF NOT EXISTS "reporterWallet" TEXT NOT NULL DEFAULT ''`;
+  await prisma.$executeRaw`ALTER TABLE "User" DROP COLUMN IF EXISTS "clerkUserId"`;
+  await prisma.$executeRaw`ALTER TABLE "User" DROP COLUMN IF EXISTS "id"`;
+  // Re-key User to walletAddress PK — idempotent: skip if walletAddress is already the PK.
+  await prisma.$executeRaw`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.key_column_usage kcu
+        JOIN information_schema.table_constraints tc
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_name     = kcu.table_name
+        WHERE kcu.table_name  = 'User'
+          AND tc.constraint_type = 'PRIMARY KEY'
+          AND kcu.column_name    = 'walletAddress'
+      ) THEN
+        ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_pkey";
+        ALTER TABLE "User" ADD CONSTRAINT "User_pkey" PRIMARY KEY ("walletAddress");
+      END IF;
+    END
+    $$
+  `;
+  await prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "Report_targetKey_reporterWallet_key" ON "Report"("targetKey", "reporterWallet")`;
+  await markApplied("20260504000000_identity_wallet_pk");
+
   console.log("[pre-migrate] Done.");
 }
 
