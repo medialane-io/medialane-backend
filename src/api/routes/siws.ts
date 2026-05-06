@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { randomBytes } from "crypto";
-import { Account } from "starknet";
 import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
@@ -60,7 +59,7 @@ siws.post(
   zValidator("json", z.object({
     walletAddress: z.string().min(1),
     nonce:         z.string().min(1),
-    signature:     z.tuple([z.string(), z.string()]),
+    signature:     z.array(z.string()).min(1),
   })),
   async (c) => {
     const { walletAddress, nonce, signature } = c.req.valid("json");
@@ -77,13 +76,10 @@ siws.post(
 
     const typedData = buildTypedData(wallet, nonce);
     try {
-      const isValid = await callRpc((provider) => {
-        const account = new Account(provider, wallet, "0x1");
-        return account.verifyMessage(typedData, [
-          BigInt(signature[0]).toString(),
-          BigInt(signature[1]).toString(),
-        ]);
-      });
+      const normalizedSignature = signature.map((value) => BigInt(value).toString());
+      const isValid = await callRpc((provider) =>
+        provider.verifyMessageInStarknet(typedData, normalizedSignature, wallet)
+      );
       if (!isValid) return c.json({ error: "invalid_signature" }, 401);
     } catch {
       return c.json({ error: "invalid_signature" }, 401);
