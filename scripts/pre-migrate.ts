@@ -89,7 +89,24 @@ async function main() {
     WHERE "owner" IS NOT NULL AND length(substring("owner" FROM 3)) < 64
   `;
 
-  // ── 7. (removed) Job table was dropped in 20260314000000_lean_indexer
+  // ── 7. Ensure SIWS nonce table exists before Prisma migration deploy ────────
+  // Production can otherwise start without this table if migrate deploy fails and
+  // the shell continues to the app start command. Keep this idempotent.
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "SiwsNonce" (
+      "id" TEXT NOT NULL,
+      "walletAddress" TEXT NOT NULL,
+      "nonce" TEXT NOT NULL,
+      "expiresAt" TIMESTAMP(3) NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "SiwsNonce_pkey" PRIMARY KEY ("id")
+    )
+  `;
+  await prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "SiwsNonce_nonce_key" ON "SiwsNonce"("nonce")`;
+  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SiwsNonce_walletAddress_idx" ON "SiwsNonce"("walletAddress")`;
+  await markApplied("20260505000000_add_siws_nonce");
+
+  // ── 8. (removed) Job table was dropped in 20260314000000_lean_indexer
 
   console.log("[pre-migrate] Done.");
 }
