@@ -174,7 +174,13 @@ collections.get("/", async (c) => {
                         { createdAt: "desc" as const };  // "recent" — new default
 
   const [data, total] = await Promise.all([
-    prisma.collection.findMany({ where, orderBy, skip, take: limit }),
+    prisma.collection.findMany({
+      where,
+      orderBy,
+      skip,
+      take: limit,
+      include: { profile: { select: { hasGatedContent: true, gatedContentTitle: true } } },
+    }),
     prisma.collection.count({ where }),
   ]);
 
@@ -442,6 +448,7 @@ collections.post("/", authMiddleware, async (c) => {
 
 
 function serializeCollection(c: any) {
+  const profile = c.profile ?? null;
   return {
     id: c.id,
     chain: c.chain,
@@ -465,6 +472,9 @@ function serializeCollection(c: any) {
     totalSupply: c.totalSupply,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
+    profile: profile
+      ? { hasGatedContent: profile.hasGatedContent, gatedContentTitle: profile.gatedContentTitle ?? null }
+      : null,
   };
 }
 
