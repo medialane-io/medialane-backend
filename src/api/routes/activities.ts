@@ -2,6 +2,12 @@ import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
+import {
+  ACTIVE_LISTING_ACTIVITY_WHERE,
+  ACTIVE_OFFER_ACTIVITY_WHERE,
+  SALE_ORDER_WHERE,
+  isOrderSale,
+} from "../utils/orderSale.js";
 
 const activities = new Hono();
 
@@ -75,13 +81,13 @@ activities.get("/", async (c) => {
 
   const orderStatusFilter =
     type === "sale"
-      ? { status: "FULFILLED" as const }
+      ? SALE_ORDER_WHERE
       : type === "listing"
-      ? { status: "ACTIVE" as const, offerItemType: { in: ["ERC721", "ERC1155"] as const } }
+      ? ACTIVE_LISTING_ACTIVITY_WHERE
       : type === "cancelled"
       ? { status: "CANCELLED" as const }
       : type === "offer"
-      ? { offerItemType: "ERC20" as const, status: "ACTIVE" as const }
+      ? ACTIVE_OFFER_ACTIVITY_WHERE
       : {};
 
   const transferWhere: any = { chain: "STARKNET" };
@@ -113,12 +119,12 @@ activities.get("/", async (c) => {
     wantOrders ? prisma.order.count({ where: orderWhere }) : 0,
   ]);
 
-  // Collect txHashes of fulfilled orders so we can suppress the redundant Transfer
+  // Collect txHashes of sale orders so we can suppress the redundant Transfer
   // row that the marketplace contract emits during a sale (same tx, misleading type).
   const saleTxHashes = new Set(
     (orders as any[])
-      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
-      .map((o) => o.createdTxHash as string)
+      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
+      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
   );
 
   const rawFeed = [
@@ -137,7 +143,7 @@ activities.get("/", async (c) => {
       })),
     ...(orders as any[]).map((o) => ({
       type:
-        o.status === "FULFILLED"
+        isOrderSale(o)
           ? "sale"
           : o.status === "ACTIVE" && o.offerItemType === "ERC20"
           ? "offer"
@@ -239,11 +245,11 @@ activities.get("/:address", async (c) => {
     }),
   ]);
 
-  // Suppress transfer rows that are part of a fulfilled sale
+  // Suppress transfer rows that are part of a sale
   const saleTxHashes = new Set(
     orders
-      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
-      .map((o) => o.createdTxHash as string)
+      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
+      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
   );
 
   const rawFeed = [
@@ -262,7 +268,7 @@ activities.get("/:address", async (c) => {
       })),
     ...orders.map((o) => ({
       type:
-        o.status === "FULFILLED"
+        isOrderSale(o)
           ? "sale"
           : o.status === "ACTIVE" && o.offerItemType === "ERC20"
           ? "offer"

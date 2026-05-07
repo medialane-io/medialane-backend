@@ -6,6 +6,7 @@ import { createLogger } from "../../utils/logger.js";
 import { serializeOrder, serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
+import { isOrderSale } from "../utils/orderSale.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -352,11 +353,11 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
     }),
   ]);
 
-  // Suppress transfer rows that are part of a fulfilled sale (same txHash)
+  // Suppress transfer rows that are part of a sale (same txHash)
   const saleTxHashes = new Set(
     orders
-      .filter((o) => o.status === "FULFILLED" && o.createdTxHash)
-      .map((o) => o.createdTxHash as string)
+      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
+      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
   );
 
   const activities = [
@@ -373,7 +374,7 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
       })),
     ...orders.map((o) => ({
       type:
-        o.status === "FULFILLED"
+        isOrderSale(o)
           ? "sale"
           : o.status === "ACTIVE" && o.offerItemType === "ERC20"
           ? "offer"
