@@ -138,6 +138,10 @@ Response headers on every `/v1/*` response:
 | POST | `/v1/metadata/upload-file` | Multipart `file` field → Pinata → `{ cid, url }` |
 | GET | `/v1/metadata/resolve` | `?uri=` — resolves ipfs://, data:, https:// |
 | GET | `/v1/collections/:contract/gated-content` | Clerk JWT + tenant API key required. Checks token ownership; returns `{ title, url, type }` to verified holders only; 403 for non-holders. `gatedContentUrl` is **never** exposed in public profile GET. |
+| GET | `/v1/collections/by-slug/:slug` | Resolve a vanity slug to a full collection. Returns 404 if slug not claimed/approved. |
+| GET | `/v1/collection-slug-claims/check/:slug` | Public availability check. Returns `{ available: boolean; reason?: string }`. No auth required. Mounted **before** global apiKeyAuth. |
+| POST | `/v1/collection-slug-claims` | Submit a slug claim. Clerk JWT required; caller must be collection `owner` or `claimedBy`. Body: `{ contractAddress, slug, notifyEmail? }`. |
+| GET | `/v1/collection-slug-claims/me` | Returns all slug claims submitted by the authenticated wallet. Clerk JWT required. |
 | GET | `/v1/portal/me` | `{ id, name, email, plan, status }` |
 | GET | `/v1/portal/keys` | List keys (prefix only, no plaintext) |
 | POST | `/v1/portal/keys` | `{ label? }` — max 5 active; returns plaintext ONCE |
@@ -164,6 +168,8 @@ Response headers on every `/v1/*` response:
 | POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all PENDING/FAILED/unnamed/ownerless collections |
 | POST | `/admin/collections/backfill-registry` | Scan ALL `CollectionCreated` events on-chain + upsert every missing collection. Returns `{ inserted, skipped }` |
 | POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection (uses upsert, can create from scratch) |
+| GET | `/admin/collection-slug-claims` | List collection slug claims. `?status=PENDING\|APPROVED\|REJECTED`, `page`, `limit` |
+| PATCH | `/admin/collection-slug-claims/:id` | Approve or reject a slug claim. Body: `{ status: "APPROVED"\|"REJECTED", adminNotes? }`. On approve: writes slug to `CollectionProfile` (upsert) and rejects competing pending claims. |
 | GET | `/admin/comments` | List comments. `?hidden=true\|false`, `?author=address`, `?contract=address`, `page`, `limit` |
 | PATCH | `/admin/comments/:id/hide` | Set `isHidden = true` on a comment |
 | PATCH | `/admin/comments/:id/show` | Set `isHidden = false` on a comment |
@@ -186,6 +192,17 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Collection Slug Claims (added 2026-05-06)
+
+`CollectionProfile` has a new `slug String? @unique` field. New `CollectionSlugClaim` model mirrors `UsernameClaim` but keyed on `contractAddress` rather than wallet.
+
+- `GET /v1/collection-slug-claims/check/:slug` — public; validates format + checks for taken profile slug or pending/approved claim.
+- `POST /v1/collection-slug-claims` — Clerk JWT required; verifies caller is `collection.owner` or `collection.claimedBy`. One pending claim per collection at a time.
+- `PATCH /admin/collection-slug-claims/:id` — on APPROVED: upserts `CollectionProfile.slug`; rejects all other pending claims for same slug or same contract.
+- `GET /v1/collections/by-slug/:slug` — looks up `CollectionProfile` by slug, joins to `Collection`, returns full serialized collection.
+- Slug rules: 3–20 chars, `/^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$|^[a-z0-9]{3}$/`, same RESERVED set as username claims.
+- Routes mounted **before** global `apiKeyAuth` in `server.ts` (same pattern as `/v1/username-claims`).
 
 ### Token-Gated Content (added 2026-03-31)
 
