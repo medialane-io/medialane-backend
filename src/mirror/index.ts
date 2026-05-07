@@ -23,6 +23,7 @@ import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
+import type { ParsedTransferSingle, ParsedTransfer } from "../types/marketplace.js";
 
 const log = createLogger("mirror");
 export const CHAIN = "STARKNET" as const;
@@ -189,6 +190,22 @@ async function tick(tickId: string): Promise<number> {
   );
 
   const parsedEvents = parseEvents(rawEvents);
+
+  // Some ERC-1155 contracts emit both Transfer (ERC-721 compat) and TransferSingle for the same
+  // operation. Both events get different logIndexes and both pass createTransferIfNew, causing
+  // each buyer's balance to be incremented twice. Deduplicate by dropping Transfer events when
+  // a TransferSingle exists for the same (txHash, contractAddress, tokenId, from, to).
+  const transferSingleFingerprints = new Set(
+    parsedEvents
+      .filter((e): e is ParsedTransferSingle => e.type === "TransferSingle")
+      .map((e) => `${e.txHash}:${e.contractAddress}:${e.tokenId}:${e.from}:${e.to}`)
+  );
+  const deduplicatedEvents = parsedEvents.filter((e) => {
+    if (e.type !== "Transfer") return true;
+    const t = e as ParsedTransfer;
+    return !transferSingleFingerprints.has(`${t.txHash}:${t.contractAddress}:${t.tokenId}:${t.from}:${t.to}`);
+  });
+
   // Contracts from Transfer events (for existing METADATA_FETCH/STATS_UPDATE logic)
   const affectedContracts = new Set<string>();
   // NFT contracts extracted from Order events (listing + bid)
@@ -196,13 +213,13 @@ async function tick(tickId: string): Promise<number> {
   // Order hashes from fulfilled/cancelled events (to look up their nftContract post-tx)
   const fulfilledOrCancelledHashes: string[] = [];
   // CollectionCreated events to resolve after the DB transaction
-  const collectionCreatedEvents = parsedEvents.filter((e) => e.type === "CollectionCreated");
+  const collectionCreatedEvents = deduplicatedEvents.filter((e) => e.type === "CollectionCreated");
 
   // All writes + cursor advance in one atomic transaction (no async I/O inside)
   await prisma.$transaction(
     async (tx) => {
       // ── ERC-721 marketplace events ───────────────────────────────────────
-      for (const event of parsedEvents) {
+      for (const event of deduplicatedEvents) {
         switch (event.type) {
           case "OrderCreated": {
             const nftContract = await handleOrderCreated(event, tx, CHAIN);
@@ -390,8 +407,8 @@ async function tick(tickId: string): Promise<number> {
     worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress: contract });
   }
 
-  // Fan out webhook deliveries for each parsed event (fire-and-forget errors)
-  for (const event of parsedEvents) {
+  // Fan out webhook deliveries for each deduplicated event (fire-and-forget errors)
+  for (const event of deduplicatedEvents) {
     const { eventType, payload } = buildWebhookPayload(event);
     fanoutWebhooks(eventType, payload).catch((err) =>
       tlog.warn({ err, eventType }, "Webhook fanout error")
@@ -410,7 +427,7 @@ async function tick(tickId: string): Promise<number> {
       dropFactoryEvents: rawDropFactoryEvents.length,
       dropAllowlistEvents: rawDropAllowlistEvents.length,
       erc1155FactoryEvents: rawERC1155FactoryEvents.length,
-      parsed: parsedEvents.length,
+      parsed: deduplicatedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: allAffectedContracts.size,
     },
