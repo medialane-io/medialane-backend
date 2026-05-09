@@ -339,7 +339,7 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
   const limit = Number(c.req.query("limit") ?? 20);
   const contractLower = normalizeAddress(contract);
 
-  const [transfers, orders] = await Promise.all([
+  const [transfers, orders, fills] = await Promise.all([
     prisma.transfer.findMany({
       where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
       orderBy: { blockNumber: "desc" },
@@ -351,14 +351,15 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
+    prisma.orderFill.findMany({
+      where: { chain: "STARKNET", nftContract: contractLower, nftTokenId: tokenId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
   ]);
 
   // Suppress transfer rows that are part of a sale (same txHash)
-  const saleTxHashes = new Set(
-    orders
-      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
-      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
-  );
+  const saleTxHashes = new Set(fills.map((fill) => fill.txHash));
 
   const activities = [
     ...transfers
@@ -372,11 +373,18 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
         txHash: t.txHash,
         timestamp: t.createdAt,
       })),
-    ...orders.map((o) => ({
+    ...fills.map((fill) => ({
+      type: "sale",
+      orderHash: fill.orderHash,
+      price: { raw: fill.priceRaw, formatted: fill.priceFormatted, currency: fill.currencySymbol },
+      fulfiller: fill.fulfiller,
+      amount: fill.quantity,
+      txHash: fill.txHash,
+      timestamp: fill.createdAt,
+    })),
+    ...orders.filter((o) => !isOrderSale(o)).map((o) => ({
       type:
-        isOrderSale(o)
-          ? "sale"
-          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
+        o.status === "ACTIVE" && o.offerItemType === "ERC20"
           ? "offer"
           : o.status === "ACTIVE"
           ? "listing"

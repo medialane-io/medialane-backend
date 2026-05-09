@@ -267,7 +267,7 @@ async function tick(tickId: string): Promise<number> {
           const offerer   = normalizeAddress(rawEvent.keys[2]);
           const blockNumber = BigInt(rawEvent.block_number);
           if (selector === SEL_FULFILLED) {
-            await handleOrderFulfilled1155(rawEvent, tx, CHAIN);
+            await handleOrderFulfilled1155(rawEvent, tx, CHAIN, logIndex);
             fulfilledOrCancelledHashes.push(orderHash);
           } else {
             await handleOrderCancelled(

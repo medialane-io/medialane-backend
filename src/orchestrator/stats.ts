@@ -51,7 +51,7 @@ export async function handleStatsUpdate(payload: {
       chain,
       nftContract: contractAddress,
       status: "ACTIVE",
-      offerItemType: "ERC721",
+      offerItemType: { in: ["ERC721", "ERC1155"] },
       endTime: { gt: BigInt(Math.floor(Date.now() / 1000)) },
       priceRaw: { not: null },
     },
@@ -83,20 +83,21 @@ export async function handleStatsUpdate(payload: {
     }
   }
 
-  // Calculate total volume from fulfilled orders, grouped by currency token.
+  // Calculate total volume from fulfillment events, grouped by currency token.
+  // ERC-1155 partial fills create multiple OrderFill rows for a single Order.
   // Mirror the floorPrice approach: format as human-readable + symbol.
   // If sales span multiple currencies, pick the one with the highest raw volume.
-  const fulfilledOrders = await prisma.order.findMany({
-    where: { chain, nftContract: contractAddress, status: "FULFILLED" },
-    select: { priceRaw: true, considerationToken: true },
+  const fills = await prisma.orderFill.findMany({
+    where: { chain, nftContract: contractAddress },
+    select: { priceRaw: true, currencyToken: true },
   });
 
   const volumeByToken = new Map<string, bigint>();
-  for (const o of fulfilledOrders) {
-    if (o.priceRaw && o.considerationToken) {
+  for (const fill of fills) {
+    if (fill.priceRaw && fill.currencyToken) {
       try {
-        const prev = volumeByToken.get(o.considerationToken) ?? 0n;
-        volumeByToken.set(o.considerationToken, prev + BigInt(o.priceRaw));
+        const prev = volumeByToken.get(fill.currencyToken) ?? 0n;
+        volumeByToken.set(fill.currencyToken, prev + BigInt(fill.priceRaw));
       } catch {}
     }
   }

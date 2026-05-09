@@ -130,6 +130,7 @@ model Order {
   counterOfferMessage      String?
   marketplaceContract      String?
   remainingAmount          String?
+  fills                    OrderFill[]
   createdAt                DateTime    @default(now())
   updatedAt                DateTime    @updatedAt
 
@@ -142,6 +143,32 @@ model Order {
   @@index([considerationToken])
   @@index([createdAt])
   @@index([marketplaceContract])
+}
+
+model OrderFill {
+  id              String   @id @default(cuid())
+  chain           Chain    @default(STARKNET)
+  orderHash       String
+  order           Order    @relation(fields: [chain, orderHash], references: [chain, orderHash])
+  fulfiller       String
+  quantity        String   @default("1")
+  remainingAmount String?
+  priceRaw        String?
+  priceFormatted  String?
+  currencySymbol  String?
+  currencyToken   String?
+  nftContract     String?
+  nftTokenId      String?
+  txHash          String
+  logIndex        Int
+  blockNumber     BigInt
+  createdAt       DateTime @default(now())
+
+  @@unique([chain, orderHash, txHash, logIndex])
+  @@index([chain, orderHash])
+  @@index([chain, nftContract])
+  @@index([chain, nftContract, nftTokenId])
+  @@index([createdAt])
 }
 
 enum MetadataStatus {

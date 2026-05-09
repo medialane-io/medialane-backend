@@ -85,6 +85,20 @@ async function createTransferIfNew(
     logIndex: number;
   }
 ): Promise<boolean> {
+  const existingTransfer = await tx.transfer.findFirst({
+    where: {
+      chain: data.chain,
+      txHash: data.txHash,
+      contractAddress: data.contractAddress,
+      tokenId: data.tokenId,
+      fromAddress: data.fromAddress,
+      toAddress: data.toAddress,
+      amount: data.amount,
+    },
+    select: { id: true },
+  });
+  if (existingTransfer) return false;
+
   try {
     await tx.transfer.create({ data });
     return true;

@@ -1,6 +1,7 @@
 import { type Chain, type Prisma } from "@prisma/client";
 import type { ParsedOrderFulfilled } from "../../types/marketplace.js";
 import { createLogger } from "../../utils/logger.js";
+import { recordOrderFill } from "./orderFill.js";
 
 const log = createLogger("handler:orderFulfilled");
 
@@ -9,6 +10,20 @@ export async function handleOrderFulfilled(
   tx: Prisma.TransactionClient,
   chain: Chain
 ): Promise<void> {
+  await recordOrderFill(
+    {
+      chain,
+      orderHash: event.orderHash,
+      fulfiller: event.fulfiller,
+      txHash: event.txHash,
+      logIndex: event.logIndex,
+      blockNumber: event.blockNumber,
+      quantity: "1",
+      remainingAmount: "0",
+    },
+    tx
+  );
+
   await tx.order.updateMany({
     where: { chain, orderHash: event.orderHash },
     data: {

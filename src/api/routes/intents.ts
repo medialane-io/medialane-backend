@@ -11,7 +11,7 @@ import {
   buildCreateCollectionIntent,
   buildCounterOfferIntent,
 } from "../../orchestrator/intent.js";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
@@ -728,7 +728,18 @@ async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
     for (const event of rawFulfilledEvents) {
       const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
       if (is1155) {
-        await handleOrderFulfilled1155(event, tx, "STARKNET");
+        const parsed = parsedEvents.find(
+          (parsedEvent) =>
+            parsedEvent.type === "OrderFulfilled" &&
+            parsedEvent.txHash === normalizeHash(event.transaction_hash) &&
+            parsedEvent.orderHash === num.toHex(event.keys[1])
+        );
+        await handleOrderFulfilled1155(
+          event,
+          tx,
+          "STARKNET",
+          parsed?.type === "OrderFulfilled" ? parsed.logIndex : 0
+        );
       }
     }
 

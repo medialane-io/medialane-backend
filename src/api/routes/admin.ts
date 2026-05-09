@@ -267,6 +267,8 @@ admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
         id: true,
         txHash: true,
         logIndex: true,
+        contractAddress: true,
+        tokenId: true,
         fromAddress: true,
         toAddress: true,
         amount: true,
@@ -280,7 +282,14 @@ admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
 
     for (const transfer of transfers) {
       const normalizedTxHash = normalizeHash(transfer.txHash);
-      const key = `${normalizedTxHash}:${transfer.logIndex}`;
+      const key = [
+        normalizedTxHash,
+        transfer.contractAddress,
+        transfer.tokenId,
+        transfer.fromAddress,
+        transfer.toAddress,
+        transfer.amount,
+      ].join(":");
       const existing = uniqueTransfers.get(key);
 
       if (!existing) {
