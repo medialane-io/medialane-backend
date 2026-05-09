@@ -90,6 +90,12 @@ export async function handleOrderCreated(
     },
     update: {
       offerer: details.offerer,
+      offerItemType: details.offerItemType,
+      offerToken: details.offerToken,
+      offerIdentifier: details.offerIdentifier,
+      considerationItemType: details.considerationItemType,
+      considerationToken: details.considerationToken,
+      considerationIdentifier: details.considerationIdentifier,
       nftContract,
       nftTokenId,
       priceRaw,
