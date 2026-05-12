@@ -188,6 +188,56 @@ orders.get("/token/:contract/:tokenId", async (c) => {
   return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
+// GET /v1/orders/received/:address — active ERC20 offers on tokens the address currently holds
+orders.get("/received/:address", async (c) => {
+  const { address } = c.req.param();
+  const page = Number(c.req.query("page") ?? 1);
+  const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+  const normalizedAddress = normalizeAddress(address);
+  const offset = (page - 1) * limit;
+
+  const [data, countRows] = await Promise.all([
+    prisma.$queryRaw<RawOrderRow[]>`
+      SELECT o.*
+      FROM "Order" o
+      JOIN "TokenBalance" tb
+        ON tb.chain = 'STARKNET'
+        AND tb."contractAddress" = o."nftContract"
+        AND tb."tokenId" = o."nftTokenId"
+        AND tb.owner = ${normalizedAddress}
+        AND tb.amount::numeric > 0
+      WHERE o.chain = 'STARKNET'
+        AND o."offerItemType" = 'ERC20'
+        AND o.status = 'ACTIVE'::"OrderStatus"
+        AND o."nftContract" IS NOT NULL
+        AND o."nftTokenId" IS NOT NULL
+      ORDER BY o."createdAt" DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `,
+    prisma.$queryRaw<RawCountRow[]>`
+      SELECT COUNT(o.id)::bigint AS count
+      FROM "Order" o
+      JOIN "TokenBalance" tb
+        ON tb.chain = 'STARKNET'
+        AND tb."contractAddress" = o."nftContract"
+        AND tb."tokenId" = o."nftTokenId"
+        AND tb.owner = ${normalizedAddress}
+        AND tb.amount::numeric > 0
+      WHERE o.chain = 'STARKNET'
+        AND o."offerItemType" = 'ERC20'
+        AND o.status = 'ACTIVE'::"OrderStatus"
+        AND o."nftContract" IS NOT NULL
+        AND o."nftTokenId" IS NOT NULL
+    `,
+  ]);
+
+  const tokenMeta = await batchTokenMeta(data);
+  return c.json({
+    data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))),
+    meta: { page, limit, total: Number(countRows[0]?.count ?? 0) },
+  });
+});
+
 // GET /v1/orders/user/:address
 orders.get("/user/:address", async (c) => {
   const { address } = c.req.param();
