@@ -30,6 +30,7 @@ import remixOffers from "./routes/remix-offers.js";
 import pop from "./routes/pop.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
+import { rewards, adminRewards } from "./routes/rewards.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -44,6 +45,7 @@ export function createApp(): Hono<AppEnv> {
 
   // Admin routes — internal auth (API_SECRET_KEY) handled inside admin.ts
   app.route("/admin", admin);
+  app.route("/admin/rewards", adminRewards);
 
   // Claims routers — mounted BEFORE global apiKeyAuth; both handle their own Clerk JWT auth
   app.route("/v1/collections/claim", claims);
@@ -77,6 +79,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/reports", reports);
   app.route("/v1/pop", pop);
   app.route("/v1/drop", drop);
+  app.route("/v1/rewards", rewards);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));

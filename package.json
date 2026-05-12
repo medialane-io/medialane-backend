@@ -13,7 +13,9 @@
     "db:studio": "bunx prisma studio",
     "backfill": "bun run scripts/backfill.ts",
     "backfill:tokens": "bun run scripts/backfillTokens.ts",
-    "reset-cursor": "bun run scripts/resetCursor.ts"
+    "reset-cursor": "bun run scripts/resetCursor.ts",
+    "seed-rewards": "bun run src/scripts/seed-rewards.ts",
+    "compute-rewards": "bun run src/scripts/compute-rewards.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.0",

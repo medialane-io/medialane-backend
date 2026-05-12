@@ -628,6 +628,105 @@ enum RemixOfferStatus {
   SELF_MINTED
 }
 
+// ── Rewards & Ranking ─────────────────────────────────────────────────────────
+
+// 50 levels — DAO-editable via admin API
+model RewardLevel {
+  level       Int      @id          // 1–50
+  name        String                // "Genesis", "Explorer", etc.
+  xpRequired  Int                   // cumulative XP to reach this level
+  badgeColor  String   @default("#6366f1")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Per-action XP weights — DAO-editable
+model RewardAction {
+  type         String   @id         // "mint_asset", "buy_asset", etc.
+  label        String
+  xp           Int
+  dailyCap     Int?                  // null = unlimited
+  minValueUsdc Float?               // null = no minimum
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Global multipliers — DAO-editable
+model RewardMultiplier {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  factor      Float                 // e.g. 1.5
+  condition   String                // machine-readable key, e.g. "beta_tester"
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Badge catalogue — DAO-editable
+model BadgeDefinition {
+  id          String      @id @default(cuid())
+  key         String      @unique   // "og", "sold_out", "early_believer"
+  name        String
+  description String
+  icon        String                // lucide icon name
+  color       String      @default("#6366f1")
+  category    String                // "creator" | "collector" | "community"
+  enabled     Boolean     @default(true)
+  awards      UserBadge[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+// Computed score per address — rebuilt by the recompute script
+model UserScore {
+  address      String   @id        // normalised wallet address
+  chain        Chain    @default(STARKNET)
+  totalXp      Int      @default(0)
+  currentLevel Int      @default(1)
+  breakdown    Json                 // { mint_asset: 200, buy_asset: 150, … }
+  computedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([totalXp])
+  @@index([currentLevel])
+  @@index([chain])
+}
+
+// Awarded badges per address
+model UserBadge {
+  id         String          @id @default(cuid())
+  address    String
+  badgeKey   String
+  badge      BadgeDefinition @relation(fields: [badgeKey], references: [key])
+  awardedAt  DateTime        @default(now())
+  txHash     String?
+
+  @@unique([address, badgeKey])
+  @@index([address])
+}
+
+// Audit log of every point event — written during recompute and future live tracking
+model PointEvent {
+  id         String   @id @default(cuid())
+  chain      Chain    @default(STARKNET)
+  address    String
+  actionType String
+  xp         Int
+  multiplier Float    @default(1.0)
+  finalXp    Int
+  txHash     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([address])
+  @@index([actionType])
+  @@index([createdAt])
+  @@index([chain, address])
+}
+
 model RemixOffer {
   id        String           @id @default(cuid())
   status    RemixOfferStatus @default(PENDING)
