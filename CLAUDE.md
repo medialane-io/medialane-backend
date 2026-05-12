@@ -148,6 +148,9 @@ Response headers on every `/v1/*` response:
 | DELETE | `/v1/portal/keys/:id` | → status REVOKED |
 | GET | `/v1/portal/usage/recent` | Last 10 UsageLog rows |
 | GET | `/v1/portal/usage` | 30 days grouped by day `{ day: "YYYY-MM-DD", requests }[]` |
+| GET | `/v1/rewards/:address` | Score + level + progress + badges + XP breakdown for one address |
+| GET | `/v1/rewards` | Paginated leaderboard. `page`, `limit` (max 100) |
+| GET | `/v1/rewards/:address/events` | Point event history for an address. `page`, `limit` |
 | GET | `/v1/portal/webhooks` | **PREMIUM only** |
 | POST | `/v1/portal/webhooks` | **PREMIUM only**. `{ url, events[], label? }`. Returns secret ONCE (`whsec_...`) |
 | DELETE | `/v1/portal/webhooks/:id` | **PREMIUM only** → status DISABLED |
@@ -175,6 +178,14 @@ Response headers on every `/v1/*` response:
 | PATCH | `/admin/comments/:id/show` | Set `isHidden = false` on a comment |
 | POST | `/admin/pop/allowlist` | Bulk add wallets to `PopAllowlist`. Body: `{ collectionAddress, addresses[] }`. Works for both POP and COLLECTION_DROP collections. |
 | DELETE | `/admin/pop/allowlist` | Bulk remove wallets (sets `allowed=false`). Body: `{ collectionAddress, addresses[] }` |
+| GET | `/admin/rewards/config` | Read current DAO reward config (actions, multipliers, levels) |
+| PATCH | `/admin/rewards/levels/:level` | Update level name, XP threshold, badge color, description |
+| PATCH | `/admin/rewards/actions/:type` | Update action XP weight, daily cap, min value, enabled flag |
+| PATCH | `/admin/rewards/multipliers/:id` | Toggle or adjust a multiplier factor |
+| GET | `/admin/rewards/badges` | List all badge definitions |
+| PATCH | `/admin/rewards/badges/:key` | Update badge name, description, icon, color, enabled |
+| POST | `/admin/rewards/badges/:address` | Manually award a badge to an address. Body: `{ badgeKey, txHash? }` |
+| POST | `/admin/rewards/compute` | Trigger retroactive XP + badge computation. `?dry_run=true` to preview. Responds when complete with `{ ok, elapsedMs, output }` |
 
 ---
 
@@ -192,6 +203,20 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Rewards & Ranking System (added 2026-05-12)
+
+50-level DAO-managed XP system. All weights are in DB tables — adjustable via admin API without code deploys.
+
+**Models**: `RewardLevel` (50 levels), `RewardAction` (per-action XP weights + daily caps), `RewardMultiplier` (global multipliers), `BadgeDefinition` (badge catalogue), `UserScore` (computed per address), `UserBadge` (awarded badges), `PointEvent` (audit log).
+
+**Seeding**: `src/scripts/seed-rewards.ts` — idempotent upsert of 50 levels, 15 actions, 3 multipliers, 14 badges. Runs automatically on every Railway deploy.
+
+**Computation**: `src/scripts/compute-rewards.ts` — retroactive XP engine. Reads Order, OrderFill, Transfer, Comment, Collection, RemixOffer, CreatorProfile; enforces per-action daily caps; applies `beta_tester` (1.5×) and `first_100` (2.0×) multipliers; truncates + rebuilds UserScore / PointEvent / UserBadge. Triggered via `POST /admin/rewards/compute` or `bun run compute-rewards`. Safe to re-run.
+
+**Anti-gaming**: Action-based scoring (not volume-proportional) — no incentive to wash trade.
+
+**Scripts**: `bun run seed-rewards`, `bun run compute-rewards [--dry-run] [--no-badges]`
 
 ### Collection Slug Claims (added 2026-05-06)
 
@@ -419,6 +444,11 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 **Production**: Railway. `railway.json` start command:
 ```
-bunx prisma migrate deploy; bun run src/index.ts
+bun run scripts/pre-migrate.ts; bunx prisma migrate deploy; bun run src/scripts/seed-rewards.ts; bun run src/index.ts
 ```
-Migrations run on every deploy. Health check: `GET /health` (60s timeout).
+Migrations run on every deploy. `seed-rewards.ts` runs after every migration (upsert — safe to repeat). Health check: `GET /health` (60s timeout).
+
+**After first deploy or after significant activity**, trigger retroactive score computation:
+```bash
+curl -X POST https://<railway-url>/admin/rewards/compute -H "x-api-key: <API_SECRET_KEY>"
+```
