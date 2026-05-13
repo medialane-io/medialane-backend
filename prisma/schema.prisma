@@ -593,10 +593,35 @@ model DropClaimConditions {
 }
 
 
+enum WalletType {
+  ARGENT
+  BRAAVOS
+  CARTRIDGE
+  PRIVY
+  CHIPIPAY
+  INJECTED
+  UNKNOWN
+}
+
+enum AppSource {
+  MEDIALANE_DAPP
+  MEDIALANE_IO
+  MEDIALANE_PORTAL
+  MEDIALANE_SDK
+}
+
 model User {
-  walletAddress String   @id
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  walletAddress String     @id
+  chain         Chain      @default(STARKNET)
+  walletType    WalletType @default(UNKNOWN)
+  appSource     AppSource  @default(MEDIALANE_DAPP)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([chain])
+  @@index([appSource])
+  @@index([walletType])
+  @@index([createdAt])
 }
 
 model Comment {
