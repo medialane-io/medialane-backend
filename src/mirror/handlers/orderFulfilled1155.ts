@@ -28,7 +28,7 @@ export async function handleOrderFulfilled1155(
   tx: Prisma.TransactionClient,
   chain: Chain,
   logIndex = 0
-): Promise<void> {
+): Promise<{ isFinalFill: boolean; orderHash: string }> {
   const orderHash   = num.toHex(rawEvent.keys[1]);
   const fulfiller   = normalizeAddress(rawEvent.keys[3]);
   const txHash      = rawEvent.transaction_hash ?? "";
@@ -65,4 +65,6 @@ export async function handleOrderFulfilled1155(
     { chain, orderHash, fulfiller, remainingAmount, isFinalFill },
     isFinalFill ? "ERC-1155 order fully fulfilled" : "ERC-1155 order partially fulfilled"
   );
+
+  return { isFinalFill, orderHash };
 }
