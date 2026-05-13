@@ -1,11 +1,17 @@
-import { createClerkClient, verifyToken as clerkVerifyToken } from "@clerk/backend";
 import type { Context, Next } from "hono";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 
-const clerk = createClerkClient({
-  secretKey: process.env.CLERK_SECRET_KEY!,
-});
+// Lazily initialised — only created on the first Clerk JWT request.
+// SIWS callers (the majority) never pay the Clerk SDK initialisation cost.
+let _clerk: Awaited<ReturnType<typeof import("@clerk/backend").createClerkClient>> | null = null;
+function getClerk() {
+  if (!_clerk) {
+    const { createClerkClient } = require("@clerk/backend");
+    _clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
+  }
+  return _clerk!;
+}
 
 /**
  * Resolves caller identity to a walletAddress from two auth paths:
@@ -37,10 +43,11 @@ export async function identityAuth(c: Context, next: Next) {
 
   // ── Path 1: Clerk JWT ──────────────────────────────────────────────────────
   try {
+    const { verifyToken: clerkVerifyToken } = require("@clerk/backend");
     const payload = await clerkVerifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY!,
     });
-    const user = await clerk.users.getUser(payload.sub);
+    const user = await getClerk().users.getUser(payload.sub);
     const rawWallet = (user.publicMetadata?.publicKey ?? user.publicMetadata?.walletAddress) as string | undefined;
     if (!rawWallet) {
       return c.json({ error: "No wallet associated with this account" }, 403);
