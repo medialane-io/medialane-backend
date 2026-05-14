@@ -638,10 +638,12 @@ admin.post("/collections/backfill-registry", async (c) => {
   let skipped = 0;
 
   for (const event of events) {
+    // Audited contract: collection_id is #[key] (keys[1..2]), owner moved to data[0].
+    const keys = event.keys;
     const data = event.data;
-    if (!data || data.length < 3) continue;
-    const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
-    const owner = normalizeAddress(data[2]);
+    if (!keys || keys.length < 3 || !data || data.length < 1) continue;
+    const collectionId = (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString();
+    const owner = normalizeAddress(data[0]);
     const blockNumber = BigInt(event.block_number ?? 0);
 
     const resolved = await resolveCollectionCreated({
