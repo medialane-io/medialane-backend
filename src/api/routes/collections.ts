@@ -305,10 +305,13 @@ collections.post("/sync-tx", async (c) => {
     let synced = 0;
     let unresolved = 0;
     for (const event of collectionEvents) {
+      // Audited contract emits collection_id in keys[1..2] (#[key] u256 splits low+high),
+      // with owner at data[0]. Legacy v2 put both in data[0..2].
+      const keys = event.keys;
       const data = event.data;
-      if (!data || data.length < 3) continue;
-      const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
-      const owner = normalizeAddress(data[2]);
+      if (!keys || keys.length < 3 || !data || data.length < 1) continue;
+      const collectionId = (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString();
+      const owner = normalizeAddress(data[0]);
       const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
 
       let resolved = await resolveCollectionCreated({

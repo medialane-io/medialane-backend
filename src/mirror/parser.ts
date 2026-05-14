@@ -197,11 +197,13 @@ export function parseEvent(
     }
 
     if (selector === SEL_COLLECTION_CREATED) {
-      // CollectionCreated data: [collection_id.low, collection_id.high, owner, ...ByteArrays]
+      // Audited contract (2026-05-14): collection_id is #[key] (keys[1..2]),
+      // owner moves to data[0]. Legacy v2 emitted collection_id in data[0..1].
+      // The indexer only polls the audited registry now, so we read the new layout.
       const data = event.data;
-      if (!data || data.length < 3) return null;
-      const collectionId = (BigInt(data[0]) + (BigInt(data[1]) << 128n)).toString();
-      const owner = normalizeAddress(data[2]);
+      if (!keys || keys.length < 3 || !data || data.length < 1) return null;
+      const collectionId = (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString();
+      const owner = normalizeAddress(data[0]);
       return {
         type: "CollectionCreated",
         collectionId,
