@@ -403,12 +403,15 @@ The launchpad page becomes a render of `listServices()` rather than a hard-coded
 
 ### 7.1 Active services (active on mainnet, MUST be in SDK v0.12.0)
 
-| Service ID | Display name | Standard | UI variant | On-chain |
-|---|---|---|---|---|
-| `mip-erc721` | IP Collection | ERC721 | standard | MIP-Collections-ERC721 registry |
-| `mip-erc1155` | NFT Editions | ERC1155 | edition | ERC1155 factory |
-| `pop` | POP Protocol | ERC721 | pop | POP factory |
-| `drop` | Collection Drop | ERC721 | drop | Drop factory |
+| Service ID | Display name | Standard | UI variant | On-chain | Issuance model |
+|---|---|---|---|---|---|
+| `mip-erc721` | IP Collection | ERC721 | standard | MIP-Collections-ERC721 registry | Many collections, each owned by one creator who mints into their own |
+| `mip-erc1155` | NFT Editions | ERC1155 | edition | ERC1155 collection factory | Many collections, each owned by one creator who mints editions |
+| `ip-erc721` | Programmable IP (genesis) | ERC721 | standard | IP-Programmable-ERC-721 (single contract) | One shared collection, many wallets can mint genesis pieces |
+| `pop` | POP Protocol | ERC721 | pop | POP factory | Soulbound proof-of-presence per event |
+| `drop` | Collection Drop | ERC721 | drop | Drop factory | Sequential mint with claim windows + allowlist |
+
+**Note on the two ERC-721 services:** `mip-erc721` and `ip-erc721` deploy different contract architectures. MIP is a registry that deploys a new per-creator collection contract on every `create_collection`, with that creator as the sole minter. IP-Programmable-ERC-721 is a single contract everyone mints into — the "genesis" pattern. The service ID makes them distinguishable in one field; the dapp's `getService(asset.service).issuanceModel` (or similar capability) determines whether minting is gated to a single owner or open.
 
 ### 7.2 Marketplace services
 
@@ -486,13 +489,17 @@ Rollback for Phase 2 (schema):
 
 ---
 
-## 10. Open questions (answer before Phase 2 plan)
+## 10. Decisions (locked 2026-05-15)
 
-1. **`marketplaceContract` column** — keep as a denormalized explorer-link helper, or drop entirely once `marketplaceService` carries the meaning? (Leaning: keep, since explorer URLs are concrete addresses.)
-2. **Service capability schema** — should `capabilities` be an enum (typed) or open-ended string array (matches the service-as-string philosophy)? (Leaning: enum, since capabilities are a small bounded set across all services and consumers benefit from type safety.)
-3. **Where does the Service registry live in the SDK file tree?** Suggest: `src/services/registry.ts` alongside the existing `pop.ts` / `drop.ts` imperative classes. The registry imports nothing from the classes.
-4. **Backward compat duration** — keep `ApiCollection.source` for one minor SDK version (0.12.0 → 0.13.0) or two? Two is safer for any third-party integrators we don't know about.
-5. **`IP-Programmable-ERC-721` vs `mip-erc721`** — are these the same service or different? Need to confirm with the contracts team.
+1. **`marketplaceContract` column** — **Keep** as a denormalized explorer-link helper. Explorer URLs are concrete addresses, and decoupling the user-facing link from the service-routing field is cleaner than reusing one column for both.
+
+2. **Service capability schema** — `capabilities` is a **typed enum** (`ServiceCapability` string union in TypeScript). Capabilities are a small bounded set shared across all services; consumers benefit from autocomplete and exhaustiveness checking. Services that need behaviour outside the bounded set are a signal that the capability list itself should expand, not that capabilities should become free-form.
+
+3. **Service registry location in SDK** — `src/services/registry.ts` alongside the existing `pop.ts` / `drop.ts` imperative service classes. The registry imports no service classes (no circular dependency); service classes may optionally import their own definition from the registry to read their factory address.
+
+4. **Backward-compat duration for `ApiCollection.source`** — **Two SDK minor versions** (0.12.0 + 0.13.0), removed in 0.14.0. Adds one release of soak time for any third-party integrators we don't know about. Marked `@deprecated` at 0.12.0; consumers see TypeScript warnings throughout the transition.
+
+5. **`IP-Programmable-ERC-721` vs `mip-erc721`** — **Two distinct services** (`ip-erc721` + `mip-erc721`). Different issuance models, different contract architectures. See §7.1 for the catalog entries and the distinction.
 
 ---
 
