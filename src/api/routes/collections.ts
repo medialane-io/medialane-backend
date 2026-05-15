@@ -104,6 +104,7 @@ type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
 // Valid source enum values — mirrors the CollectionSource Prisma enum
 const VALID_COLLECTION_SOURCES = new Set([
+  "MEDIALANE_ERC721", "MEDIALANE_ERC1155", "EXTERNAL_ERC721", "EXTERNAL_ERC1155",
   "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
   "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP", "ERC1155_FACTORY",
 ]);
@@ -339,7 +340,7 @@ collections.post("/sync-tx", async (c) => {
           baseUri: resolved.baseUri ?? undefined,
           owner: resolved.owner,
           startBlock: resolved.startBlock,
-          source: "MEDIALANE_REGISTRY",
+          source: "MEDIALANE_ERC721",
           standard: "ERC721",
           metadataStatus: "PENDING",
         },
@@ -348,7 +349,7 @@ collections.post("/sync-tx", async (c) => {
           name: resolved.name ?? undefined,
           symbol: resolved.symbol ?? undefined,
           owner: resolved.owner,
-          source: "MEDIALANE_REGISTRY",
+          source: "MEDIALANE_ERC721",
           standard: "ERC721",
         },
       });

@@ -104,8 +104,8 @@ export async function handleCollectionMetadataFetch(payload: {
     existing?.metadataStatus === "FETCHED" &&
     existing?.owner !== null &&
     existing?.standard !== "UNKNOWN" &&
-    (existing?.source !== "ERC1155_FACTORY" || existing?.image !== null) &&
-    (existing?.source !== "MEDIALANE_REGISTRY" || existing?.image !== null);
+    (!["MEDIALANE_ERC1155", "ERC1155_FACTORY"].includes(existing?.source ?? "") || existing?.image !== null) &&
+    (!["MEDIALANE_ERC721", "MEDIALANE_REGISTRY"].includes(existing?.source ?? "") || existing?.image !== null);
 
   if (alreadyComplete) {
     log.debug({ chain, contractAddress }, "Collection metadata already fetched, skipping");
@@ -118,7 +118,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // view functions, we skip the RPC fetch here to avoid overwriting event-sourced data
   // and because detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet
   // OZ SRC5 interface IDs (would always return UNKNOWN). standard=ERC1155 is set directly.
-  if (existing?.source === "ERC1155_FACTORY" || existing?.standard === "ERC1155") {
+  if (existing?.source === "MEDIALANE_ERC1155" || existing?.source === "ERC1155_FACTORY" || existing?.standard === "ERC1155") {
     const missingCanonicalFields =
       !existing?.name ||
       !existing?.symbol ||
@@ -180,7 +180,7 @@ export async function handleCollectionMetadataFetch(payload: {
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
-        source: "ERC1155_FACTORY",
+        source: "MEDIALANE_ERC1155",
         standard: "ERC1155",
         metadataStatus: "FETCHED",
         name: existing?.name || onchainName || undefined,
@@ -289,13 +289,14 @@ async function fetchCollectionMetadataJson(
 /**
  * Apply source-based override when on-chain detection is ambiguous.
  * COLLECTION_DROP and POP_PROTOCOL are always ERC-721 by protocol design.
- * MEDIALANE_REGISTRY is always ERC-721 (registry only mints ERC-721 collections).
+ * Medialane ERC-721 registry sources are always ERC-721.
  */
 function resolveStandardBySource(
   source: string | null | undefined,
   detected: TokenStandard
 ): TokenStandard {
   if (
+    source === "MEDIALANE_ERC721" ||
     source === "MEDIALANE_REGISTRY" ||
     source === "COLLECTION_DROP" ||
     source === "POP_PROTOCOL"

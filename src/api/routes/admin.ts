@@ -425,7 +425,17 @@ admin.patch("/collections/:contract", async (c) => {
     isHidden:     z.boolean().optional(),
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
-    source:       z.enum(["MEDIALANE_REGISTRY", "ERC1155_FACTORY", "POP_PROTOCOL", "COLLECTION_DROP", "EXTERNAL"]).optional(),
+    source:       z.enum([
+      "MEDIALANE_ERC721",
+      "MEDIALANE_ERC1155",
+      "EXTERNAL_ERC721",
+      "EXTERNAL_ERC1155",
+      "MEDIALANE_REGISTRY",
+      "ERC1155_FACTORY",
+      "POP_PROTOCOL",
+      "COLLECTION_DROP",
+      "EXTERNAL",
+    ]).optional(),
     standard:     z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
   });
   const parsed = schema.safeParse(body);
@@ -665,6 +675,8 @@ admin.post("/collections/backfill-registry", async (c) => {
         baseUri: resolved.baseUri ?? undefined,
         owner: resolved.owner,
         startBlock: resolved.startBlock,
+        source: "MEDIALANE_ERC721",
+        standard: "ERC721",
         metadataStatus: "PENDING",
       },
       update: {
@@ -672,6 +684,8 @@ admin.post("/collections/backfill-registry", async (c) => {
         name: resolved.name ?? undefined,
         symbol: resolved.symbol ?? undefined,
         owner: resolved.owner,
+        source: "MEDIALANE_ERC721",
+        standard: "ERC721",
       },
     });
 
