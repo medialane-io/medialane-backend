@@ -628,7 +628,7 @@ admin.post("/collections/backfill-metadata", async (c) => {
 // POST /admin/collections/backfill-registry — scan all CollectionCreated events
 // on-chain and upsert every collection that's missing from the DB.
 // ---------------------------------------------------------------------------
-import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
+import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { COLLECTION_START_BLOCK } from "../../config/constants.js";
 
 admin.post("/collections/backfill-registry", async (c) => {
@@ -638,12 +638,9 @@ admin.post("/collections/backfill-registry", async (c) => {
   let skipped = 0;
 
   for (const event of events) {
-    // Audited contract: collection_id is #[key] (keys[1..2]), owner moved to data[0].
-    const keys = event.keys;
-    const data = event.data;
-    if (!keys || keys.length < 3 || !data || data.length < 1) continue;
-    const collectionId = (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString();
-    const owner = normalizeAddress(data[0]);
+    const decoded = decodeCollectionCreatedEvent(event);
+    if (!decoded) continue;
+    const { collectionId, owner } = decoded;
     const blockNumber = BigInt(event.block_number ?? 0);
 
     const resolved = await resolveCollectionCreated({

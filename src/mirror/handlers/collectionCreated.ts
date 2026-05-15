@@ -15,6 +15,30 @@ export interface ResolvedCollection {
   startBlock: bigint;
 }
 
+export interface DecodedCollectionCreated {
+  collectionId: string;
+  owner: string;
+}
+
+/**
+ * Decode the audited CollectionCreated event layout (MIP-Collections-ERC721 v3,
+ * deployed 2026-05-14). collection_id is a `#[key]` u256 emitted as low+high in
+ * keys[1..2]; owner is the first data field.
+ *
+ * Returns null when keys/data are malformed. Single source of truth — when the
+ * event shape changes again, this is the only place to update.
+ */
+export function decodeCollectionCreatedEvent(
+  event: { keys?: string[]; data?: string[] }
+): DecodedCollectionCreated | null {
+  const { keys, data } = event;
+  if (!keys || keys.length < 3 || !data || data.length < 1) return null;
+  return {
+    collectionId: (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString(),
+    owner: normalizeAddress(data[0]),
+  };
+}
+
 /**
  * Decode Cairo ByteArray raw felts from provider.callContract().
  * Raw layout: [data_len, ...31-byte chunks, pending_word, pending_word_len].

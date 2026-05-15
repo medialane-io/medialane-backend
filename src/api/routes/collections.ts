@@ -9,7 +9,7 @@ import { serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
 import { COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
-import { resolveCollectionCreated } from "../../mirror/handlers/collectionCreated.js";
+import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -305,13 +305,9 @@ collections.post("/sync-tx", async (c) => {
     let synced = 0;
     let unresolved = 0;
     for (const event of collectionEvents) {
-      // Audited contract emits collection_id in keys[1..2] (#[key] u256 splits low+high),
-      // with owner at data[0]. Legacy v2 put both in data[0..2].
-      const keys = event.keys;
-      const data = event.data;
-      if (!keys || keys.length < 3 || !data || data.length < 1) continue;
-      const collectionId = (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString();
-      const owner = normalizeAddress(data[0]);
+      const decoded = decodeCollectionCreatedEvent(event);
+      if (!decoded) continue;
+      const { collectionId, owner } = decoded;
       const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
 
       let resolved = await resolveCollectionCreated({

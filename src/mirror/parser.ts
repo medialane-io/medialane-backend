@@ -22,6 +22,7 @@ import type { RawStarknetEvent } from "../types/starknet.js";
 import { normalizeAddress, normalizeHash } from "../utils/starknet.js";
 import { u256ToBigInt } from "../utils/bigint.js";
 import { createLogger } from "../utils/logger.js";
+import { decodeCollectionCreatedEvent } from "./handlers/collectionCreated.js";
 
 const log = createLogger("parser");
 
@@ -197,17 +198,12 @@ export function parseEvent(
     }
 
     if (selector === SEL_COLLECTION_CREATED) {
-      // Audited contract (2026-05-14): collection_id is #[key] (keys[1..2]),
-      // owner moves to data[0]. Legacy v2 emitted collection_id in data[0..1].
-      // The indexer only polls the audited registry now, so we read the new layout.
-      const data = event.data;
-      if (!keys || keys.length < 3 || !data || data.length < 1) return null;
-      const collectionId = (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString();
-      const owner = normalizeAddress(data[0]);
+      const decoded = decodeCollectionCreatedEvent({ keys, data: event.data });
+      if (!decoded) return null;
       return {
         type: "CollectionCreated",
-        collectionId,
-        owner,
+        collectionId: decoded.collectionId,
+        owner: decoded.owner,
         blockNumber,
         txHash,
         logIndex,
