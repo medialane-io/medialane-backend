@@ -245,7 +245,9 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 
 **`collectionId` field** (added 2026-03-09): stored on `Collection` as `String?`. Required by `POST /v1/intents/mint` to encode the Cairo uint256 collection ID. Collections indexed before this migration will have `collectionId = null` until re-indexed via `POST /admin/collections/backfill-registry`.
 
-**Event data layout**: `[collection_id.low, collection_id.high, owner, ...name_bytearray, ...symbol_bytearray, ...base_uri_bytearray]`. **ip_nft is NOT in the event** — must call `get_collection()` on the registry.
+**Event layout — audited contract (2026-05-14):** `collection_id` is `#[key]` on the new IPCollection, so it's emitted in `event.keys[1..2]` (u256 low+high split), not in `event.data`. `owner` is `event.data[0]`. The rest of `event.data` is `[...name_bytearray, ...symbol_bytearray, ...base_uri_bytearray]`. **ip_nft is NOT in the event** — must call `get_collection()` on the registry.
+
+**Decoder helper:** Always decode this event via `decodeCollectionCreatedEvent({ keys, data })` exported from `src/mirror/handlers/collectionCreated.ts`. The function is the single source of truth for the layout — three call sites use it (`mirror/parser.ts`, `routes/collections.ts` sync-tx, `routes/admin.ts` backfill-registry). Never open-code the decode again; when the event shape changes, update the helper and every site benefits.
 
 **If the indexer cursor already passed the collection creation blocks**: run `POST /admin/collections/backfill-registry` once — it scans all historical events and upserts everything in one call.
 
