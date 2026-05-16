@@ -133,6 +133,11 @@ model Order {
   parentOrderHash          String?
   counterOfferMessage      String?
   marketplaceContract      String?
+  /// Stable marketplace service ID (05-service-model §V). Resolves SNIP-12
+  /// domain / fulfillment / cancellation via the SDK registry. Open-ended
+  /// string. `marketplaceContract` is kept as an explorer-link helper only
+  /// (draft §10.1, locked) — never a behavior discriminator.
+  marketplaceService       String?
   remainingAmount          String?
   fills                    OrderFill[]
   createdAt                DateTime    @default(now())
@@ -147,6 +152,7 @@ model Order {
   @@index([considerationToken])
   @@index([createdAt])
   @@index([marketplaceContract])
+  @@index([marketplaceService])
 }
 
 model OrderFill {
@@ -236,6 +242,11 @@ model Collection {
   tokens          Token[]
   standard        TokenStandard     @default(UNKNOWN)
   source          CollectionSource  @default(MEDIALANE_REGISTRY)
+  /// Stable Medialane service ID. Open-ended string; values live in the
+  /// @medialane/sdk service registry, NOT a Prisma enum (05-service-model §I).
+  /// null = external collection (01-core-model §I). Dual-written with `source`
+  /// until Phase 2D drops `source`.
+  service         String?
   claimedBy       String?
   profile         CollectionProfile?
   deletedAt   DateTime?
@@ -246,6 +257,7 @@ model Collection {
   @@unique([chain, contractAddress])
   @@index([owner])
   @@index([chain, isHidden])
+  @@index([chain, service])
 }
 
 model CollectionProfile {
