@@ -341,6 +341,7 @@ collections.post("/sync-tx", async (c) => {
           owner: resolved.owner,
           startBlock: resolved.startBlock,
           source: "MEDIALANE_ERC721",
+          service: "mip-erc721",
           standard: "ERC721",
           metadataStatus: "PENDING",
         },
@@ -350,6 +351,7 @@ collections.post("/sync-tx", async (c) => {
           symbol: resolved.symbol ?? undefined,
           owner: resolved.owner,
           source: "MEDIALANE_ERC721",
+          service: "mip-erc721",
           standard: "ERC721",
         },
       });

@@ -307,6 +307,7 @@ async function tick(tickId: string): Promise<number> {
         baseUri: resolved.baseUri ?? undefined,
         owner: resolved.owner,
         startBlock: resolved.startBlock,
+        service: "mip-erc721",
         metadataStatus: "PENDING",
       },
       update: {
@@ -315,6 +316,7 @@ async function tick(tickId: string): Promise<number> {
         name: resolved.name ?? undefined,
         symbol: resolved.symbol ?? undefined,
         owner: resolved.owner,
+        service: "mip-erc721",
       },
     });
 
