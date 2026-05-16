@@ -489,6 +489,7 @@ function serializeCollection(c: any) {
     isFeatured: c.isFeatured,
     isHidden: c.isHidden,
     source: c.source,
+    service: c.service ?? null,
     claimedBy: c.claimedBy ?? null,
     floorPrice: c.floorPrice,
     totalVolume: c.totalVolume,
