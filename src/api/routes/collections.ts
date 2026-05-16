@@ -362,13 +362,19 @@ collections.post("/sync-tx", async (c) => {
     }
 
     if (synced === 0 && unresolved > 0) {
-      log.error({ txHash, unresolved }, "CollectionCreated event found but could not be resolved");
+      // RPC couldn't resolve the just-created collection right now (typically
+      // transient RPC-provider flapping on get_collection). This is NOT a
+      // failure: the mirror poll re-indexes the CollectionCreated event within
+      // ~6s. Return 202 (accepted, async) instead of a misleading 502 that
+      // alarms the client console for a self-healing condition.
+      log.warn({ txHash, unresolved }, "sync-tx: RPC unresolved — deferring to indexer poll");
       return c.json(
         {
-          error: "CollectionCreated event found but collection details could not be resolved",
-          data: { synced, unresolved },
+          data: { synced, unresolved, deferred: true },
+          message:
+            "RPC unavailable for instant sync — this collection will be indexed by the poll shortly.",
         },
-        502
+        202
       );
     }
 

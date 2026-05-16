@@ -106,8 +106,13 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch(async (e) => {
-  log.error({ err: e }, "backfill failed");
-  await prisma.$disconnect();
-  process.exit(1);
-});
+// Explicit exit codes: this runs in the Railway start chain BEFORE
+// `bun run src/index.ts` (railway.json). A lingering handle must never
+// stall the chain and keep the server from booting — always terminate.
+main()
+  .then(() => process.exit(0))
+  .catch(async (e) => {
+    log.error({ err: e }, "backfill failed");
+    await prisma.$disconnect();
+    process.exit(1);
+  });
