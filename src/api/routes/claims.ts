@@ -108,8 +108,8 @@ claims.post(
 
     const collection = await prisma.collection.upsert({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
-      create: { chain: "STARKNET", contractAddress: normContract, source: "EXTERNAL", claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
-      update: { claimedBy: normWallet, source: "EXTERNAL" },
+      create: { chain: "STARKNET", contractAddress: normContract, source: "EXTERNAL", service: null, claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
+      update: { claimedBy: normWallet, source: "EXTERNAL", service: null },
     });
 
     await prisma.collectionClaim.create({
@@ -213,8 +213,8 @@ claims.post(
 
     const collection = await prisma.collection.upsert({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
-      create: { chain: "STARKNET", contractAddress: normContract, source: "EXTERNAL", claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
-      update: { claimedBy: normWallet, source: "EXTERNAL" },
+      create: { chain: "STARKNET", contractAddress: normContract, source: "EXTERNAL", service: null, claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
+      update: { claimedBy: normWallet, source: "EXTERNAL", service: null },
     });
 
     await prisma.collectionClaim.create({

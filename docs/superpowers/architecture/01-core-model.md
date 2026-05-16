@@ -4,6 +4,19 @@
 
 ---
 
+## Context: what Medialane is
+
+Medialane is a monetization hub for the creative economy on the Integrity Web — it lets humans, organizations, and autonomous agents turn intellectual property into revenue streams with full sovereignty over their assets and identity. It is built on [Mediolano](https://www.mediolano.org)'s zero-fee, Berne-aligned tokenization primitives (`00-principles §13`) and adds a commercial layer on top.
+
+That commercial layer is **two integrated hubs**:
+
+- **Launchpad** — the capital-structuring engine. Creates financial and revenue products: collection drops, POP, NFT editions, IP commissions, IP Clubs (membership/subscriptions), IP tickets, IP Coins, Creator Coins.
+- **Digital Assets Marketplace** — the high-integrity secondary exchange. Trading, auctions, remix, and licensing of every tokenized asset, with interoperability and minimal fees.
+
+Both hubs' **protocols are zero-fee and permissionless**; any fee is a platform-layer concern and the fuller schedule is still undecided (`00-principles §12`).
+
+Both hubs are expressed through the same six primitives below. Nothing in the model privileges one hub over the other — a Launchpad product and a Marketplace order are both just Services, Assets, and Orders.
+
 ## What this is
 
 The irreducible primitives of the Medialane protocol. Six concepts that everything else composes from. Once these are locked, every other architecture document (`02` through `09`) describes how to project these primitives onto contracts, indexers, SDKs, and apps.
@@ -11,7 +24,7 @@ The irreducible primitives of the Medialane protocol. Six concepts that everythi
 ## The six primitives
 
 1. **Asset** — a digital good on a chain
-2. **Identity** — a wallet, a creator, or the bridge between them
+2. **Account** — an actor: a wallet, the account that aggregates wallets, or the profile that presents it
 3. **Service** — a protocol module that produces assets, venues, or both
 4. **License** — the programmable rights attached to an asset
 5. **Order** — a proposal to exchange assets
@@ -23,11 +36,11 @@ Venues exist, but they are a *kind* of Service (one with marketplace capabilitie
 
 ## I. Asset
 
-**Definition:** A digital good that exists on a chain. Held by an Identity. Issued by a Service (or by no Service, in which case it is "external"). Carries metadata that includes its License.
+**Definition:** A digital good that exists on a chain. Held by an Account. Issued by a Service (or by no Service, in which case it is "external"). Carries metadata that includes its License.
 
-### Identity (the addressing of an Asset)
+### Addressing
 
-Two levels:
+How an Asset is identified. Two levels:
 
 - **Chain-local identity** — the tuple `(chain, contractAddress, tokenId)`. Always exists. Always unique within the chain. Already in the schema today.
 - **Logical identity** — the `IP-ID`. A canonical work identifier issued by the `IP-ID` contract on Starknet. One `IP-ID` may have multiple chain-local representations (e.g. the same composition exists as an ERC-721 on Starknet, an Ordinal on Bitcoin, an ERC-1155 edition on Ethereum). The `IP-ID` is what makes "this is the same work" provable across chains.
@@ -57,47 +70,52 @@ Two levels:
 
 - The schema has separate `Collection` and `Token` tables. A `Collection` is a group of Assets sharing a contract address. A `Token` is one Asset. This split predates this document and stays — it's a useful aggregation, not a conceptual primitive.
 - Asset metadata schema is OpenSea-compatible (see `03-interoperability.md`). New service-specific shapes layer on top of the OpenSea baseline, never replace it.
+- Asset programmable license is immutable with ipfs metadata schema (see `03-interoperability.md`) to be fully compliance with the berne convention for the protection of literary and artistic works, which protects intellectual property ownership on 181 countries.
 
 ---
 
-## II. Identity
+## II. Account
 
-**Definition:** Who is acting. The "who" exists at three scales: wallet, creator, profile. They are distinct entities; the relationships between them matter as much as the entities themselves.
+**Definition:** Who is acting. An Account is an actor — a human, an AI agent, an organization, a collector. The actor exists at **three facets**: Wallet, Account, Profile. They are distinct entities; the relationships between them matter as much as the entities themselves.
+
+> **Terminology.** "Account" is the umbrella for every actor. **Creator** is a *role* an Account can hold (the creator privileges on the platform), not a separate primitive — the same way *collector*, *organization*, and *agent* are roles/types, not primitives. The primitive is always Account; roles are attributes of it. This matches the product convention already in use.
 
 ### Wallet
 
 A specific address on a specific chain. Atomic. Has a private key (or session-key control via a smart-wallet contract). Cannot be split. Cannot be merged with another wallet.
 
-**Identity:** `(chain, address)`. Address is normalized (per chain conventions — Starknet pads to 64-char hex, Ethereum uses checksummed lowercase, Bitcoin uses bech32/base58).
+**Identifier:** `(chain, address)`. Address is normalized (per chain conventions — Starknet pads to 64-char hex, Ethereum uses checksummed lowercase, Bitcoin uses bech32/base58).
 
-A wallet is the only thing that can sign and act on-chain. Everything else in the identity model bridges to wallets.
+A Wallet is the only thing that can sign and act on-chain. Everything else in the account model bridges to Wallets.
 
-### Creator
+### Account
 
-A logical person or organization. May own wallets across multiple chains. The same creator might have a Starknet wallet for trading IP and a Bitcoin wallet for receiving payments. To the protocol, they are one Creator.
+The logical actor. May own Wallets across multiple chains — e.g. a Starknet wallet for trading IP and a Bitcoin wallet for receiving payments, both belonging to one Account. The Account is what holds **reputation, role(s), work, and sales history** aggregated across its Wallets.
 
-**Identity:** A `CreatorID` issued by the future `CreatorID` contract on Starknet. v1 uses a primary wallet as the creator identifier (with off-chain linkages to secondary wallets via signed attestations).
+**Identifier:** an `AccountID` issued by the future `AccountID` contract on Starknet (the actor-side parallel to the Asset's `IP-ID`). v1 uses a primary Wallet as the Account identifier, with off-chain linkages to secondary Wallets via signed attestations.
 
-A wallet declares it belongs to a Creator via a signed statement on a chain the Creator trusts. The protocol verifies the signature; the indexer aggregates owned wallets into one logical creator.
+A Wallet declares it belongs to an Account via a signed statement on a chain the Account trusts. The protocol verifies the signature; the indexer aggregates owned Wallets into one logical Account.
 
-**Year-1 reality:** Creator identity is currently `(chain, walletAddress)` — one wallet, one creator. Cross-chain linkage is a Year-2+ project. The architecture must not block it.
+**Roles.** An Account carries one or more roles — `creator`, `collector`, `organization`, `agent`. Roles gate platform affordances (e.g. only a creator-role Account sees launchpad authoring tools) but never gate protocol actions (`00-principles §1, §2`): any Account that owns an Asset can trade it, role or no role.
+
+**Year-1 reality:** an Account is currently `(chain, walletAddress)` — one Wallet, one Account. Cross-chain linkage is a Year-2+ project. The architecture must not block it.
 
 ### Profile
 
-Off-chain enrichment for a Creator. Display name, bio, social handles, avatar, custom slug. Stored in `CreatorProfile` (and `CollectionProfile` for collection-level versions). Editable. Never authoritative.
+Off-chain enrichment for an Account. Display name, bio, social handles, avatar, custom slug. Stored in `AccountProfile`, with `CreatorProfile` as the creator-role extension (the backend already splits it this way). Editable. Never authoritative.
 
-The Profile is presentation layer. Losing it loses no protocol state — the wallet's history, ownership, and orders all persist.
+The Profile is the presentation layer. Losing it loses no protocol state — the Wallet's history, ownership, and Orders all persist.
 
-**Why three scales:** The wallet is the only thing that can sign. The Creator is the only thing that has a reputation. The Profile is the only thing that has a face. Conflating them means the protocol can't handle a creator changing wallets, can't aggregate cross-chain reputation, and can't let users edit display info without affecting their crypto identity.
+**Why three facets:** the Wallet is the only thing that can sign; the Account is the only thing that has a reputation; the Profile is the only thing that has a face. Conflating them means the protocol can't handle an Account rotating Wallets, can't aggregate cross-chain reputation, and can't let users edit display info without touching their cryptographic identity.
 
 ### Cross-chain identity: two distinct mechanisms
 
 Per `00-principles §10`:
 
-- **Asset cross-chain identity** uses `IP-ID`. The same *work* (the song, the photograph, the document) exists as multiple Assets on multiple chains; `IP-ID` is the canonical join.
-- **Creator cross-chain identity** uses signed attestations. The same *person* owns wallets on multiple chains; signed link statements ("I, this Bitcoin wallet, attest I am the same creator as this Starknet wallet, at block N") form the graph.
+- **Asset** cross-chain identity uses `IP-ID`. The same *work* (the song, the photograph, the document) exists as multiple Assets on multiple chains; `IP-ID` is the canonical join.
+- **Account** cross-chain identity uses signed attestations via `AccountID`. The same *actor* owns Wallets on multiple chains; signed link statements ("I, this Bitcoin wallet, attest I am the same Account as this Starknet wallet, at block N") form the graph.
 
-These are different mechanisms because they answer different questions. "Is this the same artwork?" is about provenance and authorship; the work itself is a fixed thing being represented. "Is this the same person?" is about claims of equivalence; the person is the asserter.
+These are different mechanisms because they answer different questions. "Is this the same artwork?" is about provenance and authorship; the work itself is a fixed thing being represented. "Is this the same actor?" is about claims of equivalence; the Account is the asserter.
 
 ---
 
@@ -105,11 +123,11 @@ These are different mechanisms because they answer different questions. "Is this
 
 **Definition:** A protocol module that produces Assets or matches Orders (or both). Identified by a stable string ID. Defined in the SDK service registry (year 1) and eventually on-chain (year 2+).
 
-### Identity
+### Identifier
 
-`service: string` — e.g. `"mip-erc721"`, `"pop"`, `"drop"`, `"mip-erc1155"`, `"ip-erc721"` (today's five active services), plus marketplace services like `"medialane-marketplace-erc721"`.
+`service: string` — e.g. `"mip-erc721"`, `"pop-protocol"`, `"drop-collection"`, `"mip-erc1155"`, `"ip-erc721"` (today's five active services), plus marketplace services like `"medialane-marketplace-erc721"`.
 
-Stable across contract upgrades. When a service's contract gets a new audit, the service ID stays the same; only the registry's pointer to the contract address updates. This is what the v3 audit incident on 2026-05-14 should have been like — single source of truth update, no cascading code changes.
+Stable across contract upgrades. When a service's contract gets a new audit, the service ID stays the same; only the registry's pointer to the contract address updates.
 
 ### A Service definition
 
@@ -117,7 +135,7 @@ What lives in the service registry (TypeScript today; on-chain registry contract
 
 ```
 {
-  id: string                          // "pop"
+  id: string                          // "pop-protocol"
   displayName: string                 // "POP Protocol"
   description: string                 // "Soulbound proof-of-presence collectibles"
   standard: TokenStandard             // "ERC721"
@@ -231,7 +249,7 @@ It honors three principles at once:
 
 **Definition:** A signed proposal to exchange Assets. Lives partially on-chain (signature and parameters in events / contract state) and partially in the indexer (denormalized for query speed). Settles on the chain it was posted on.
 
-### Identity
+### Identifier
 
 `orderHash` (within a chain) — derived from the typed-data signing payload (SNIP-12 on Starknet). Unique. Permanent.
 
@@ -265,7 +283,7 @@ Both are defensible. Choose at the moment the first multi-item service ships, no
 
 An Order is the join of several primitives:
 
-- `offerer` — an Identity (Wallet) signed the order
+- `offerer` — an Account (Wallet) signed the order
 - `marketplaceService` — a Service ID. Determines signing scheme (SNIP-12 domain), fulfillment shape, cancellation semantics, and which venue contract matches the order
 - `offerItem.token` and `considerationItem.token` — references to Assets (via `(chain, contractAddress, tokenId)`)
 - Eventually `parentOrderHash` for counter-offer workflows
@@ -288,7 +306,7 @@ The current Order model is fine for v1. The 1+1 shape covers all today's flows. 
 
 **Definition:** A record of an on-chain occurrence that the indexer captures and projects into platform state. The atomic unit of state change. Every other primitive's history is a stream of Events.
 
-### Identity
+### Identifier
 
 `(chain, txHash, logIndex)`. Always unique. Always durable. Always re-readable from chain.
 
@@ -312,8 +330,8 @@ This means:
 Each Service defines its own event shapes. Examples:
 
 - `mip-erc721`: `CollectionCreated`, `TokenMinted`, `TokenArchived`, `TokenTransferred`, `CollectionOwnershipTransferred`
-- `pop`: `EventCreated`, `Claimed`, `AllowlistUpdated`
-- `drop`: `DropDeployed`, `ConditionsUpdated`, `Claimed`, `PaymentsWithdrawn`
+- `pop-protocol`: `EventCreated`, `Claimed`, `AllowlistUpdated`
+- `drop-collection`: `DropDeployed`, `ConditionsUpdated`, `Claimed`, `PaymentsWithdrawn`
 - `medialane-marketplace-erc721`: `OrderCreated`, `OrderFulfilled`, `OrderCancelled`
 - `medialane-marketplace-erc1155`: same names, different parameter encoding
 
@@ -329,7 +347,7 @@ The current backend has hand-coded parsers for each service's events. This works
 
 ```
                           ┌──────────────┐
-                          │   Identity   │ (Wallet, Creator, Profile)
+                          │   Account    │ (Wallet · Account · Profile)
                           └──────┬───────┘
                                  │
                   owns / signs   │
@@ -356,8 +374,8 @@ Reading the diagram:
 
 - **Service** is the only thing that creates an Asset (services that issue) or processes an Order (services that match — i.e. marketplace venues).
 - **Asset** carries its **License** in metadata. The License is not a separate join; it's a view on the Asset.
-- **Identity** owns Assets and signs Orders. A Wallet does the signing; the Creator is the aggregate; the Profile is the face.
-- **Order** is a proposal between Identities, referencing Assets, routed through a marketplace Service.
+- **Account** owns Assets and signs Orders. A Wallet does the signing; the Account is the aggregate (and carries roles like *creator*); the Profile is the face.
+- **Order** is a proposal between Accounts, referencing Assets, routed through a marketplace Service.
 - **Event** is the on-chain heartbeat. Every change to anything above is an Event. The indexer is the reducer.
 
 Six primitives. One diagram. Every Medialane feature, current and future, composes from these.
@@ -385,11 +403,11 @@ Six primitives. One diagram. Every Medialane feature, current and future, compos
 3. Assets indexed from Ethereum get `chain: ETHEREUM` and the same `service` discrimination as Starknet
 4. Cross-chain joins (when `IP-ID` is ready) link Starknet representations to Ethereum representations
 
-**Cross-chain creator reputation:**
-1. Creator signs an attestation from their Bitcoin wallet stating their Starknet wallet is also theirs
-2. Attestation is stored (eventually on-chain, today off-chain) and verified
-3. The indexer's profile aggregator joins Assets and Orders from both wallets under the same Creator
-4. Reputation, sales history, and XP rewards aggregate across the linked wallets
+**Cross-chain Account reputation (the Account here happens to hold the creator role):**
+1. The Account signs an attestation from its Bitcoin wallet stating its Starknet wallet is also theirs
+2. Attestation is stored (eventually on-chain via `AccountID`, today off-chain) and verified
+3. The indexer's profile aggregator joins Assets and Orders from both Wallets under the same Account
+4. Reputation, sales history, and XP rewards aggregate across the linked Wallets
 
 ---
 
@@ -400,7 +418,7 @@ What the v1 implementation will and won't have:
 | Primitive | v1 has | v1 doesn't have (yet) |
 |---|---|---|
 | Asset | `(chain, contract, tokenId)` identity, OpenSea metadata baseline | `IP-ID` cross-chain joins (Year 2+) |
-| Identity | Wallet identity per chain, Profile per wallet | Cross-chain wallet linkage, on-chain `CreatorID` (Year 2+) |
+| Account | Wallet identifier per chain, Profile per Wallet, roles (creator/collector/…) | Cross-chain Wallet linkage, on-chain `AccountID` (Year 2+) |
 | Service | SDK service registry, 5 active services + 2 marketplace venues | On-chain service registry, permissionless service registration (Year 2+) |
 | License | CC BY-SA default, metadata-encoded attributes, soft enforcement | Selective on-chain enforcement per service (per-service when needed) |
 | Order | 1+1 offer/consideration shape, current 5 statuses, marketplaceContract address | N+N order items, criteria orders, generalized status model |
@@ -418,7 +436,7 @@ A check against `00-principles.md` — designs that look reasonable but conflict
 
 - **License as a database entity with foreign keys to Asset.** The License lives in the Asset's metadata. It is the Asset's data, not a related row. Joining a license to an asset by FK introduces drift between database state and metadata state — exactly the kind of soft state that `§1 on-chain truth` rules out.
 
-- **Identity as `wallet = creator = profile` collapsed into one row.** The three scales are separate because they answer separate questions and have separate failure modes. Conflating them blocks cross-chain identity, blocks creator wallet rotation, and ties cosmetic profile edits to authoritative crypto identity.
+- **Account as `wallet = account = profile` collapsed into one row.** The three facets are separate because they answer separate questions and have separate failure modes. Conflating them blocks cross-chain identity, blocks Wallet rotation, and ties cosmetic Profile edits to authoritative crypto identity.
 
 - **Orders that bind to `marketplaceContract` address instead of `marketplaceService`.** Same reason as the service model audit — address discrimination forces N-way string comparisons every time a new venue ships. The service registry is the indirection.
 
@@ -431,7 +449,7 @@ A check against `00-principles.md` — designs that look reasonable but conflict
 - **License extension schema** (full attribute taxonomy beyond CC BY-SA) → `04-licensing-model.md`
 - **Order generalization decision** (Option A vs Option B above) → made at the moment a multi-item service ships, not pre-emptively
 - **Capability set evolution** (when to add a new capability vs decompose an existing one) → `05-service-model.md`
-- **Creator attestation signing scheme** (SIWS variants, chain-of-trust rules) → `07-identity-model.md`
+- **Account attestation signing scheme** (SIWS variants, chain-of-trust rules) → `07-identity-model.md`
 - **Event parser registry shape** (when to move from hand-coded to data-driven) → not v1; surfaces in the operational doc when service count warrants
 
 ---
@@ -444,10 +462,21 @@ A check against `00-principles.md` — designs that look reasonable but conflict
 - `04-licensing-model.md` — License attribute taxonomy, customization flow, selective on-chain enforcement
 - `05-service-model.md` — the Service primitive in detail, including the existing service-model draft rescoped
 - `06-venue-model.md` — marketplace venues as Services with marketplace capabilities
-- `07-identity-model.md` — Wallet, Creator, Profile, `IP-ID`, `CreatorID`, attestations
+- `07-identity-model.md` — Wallet, Account, Profile, the Creator role, `AccountID`, attestations
 - `08-dao-governance.md` — how the DAO governs the service registry and protocol fees
 - `09-roadmap.md` — phased rollout
 
 ---
 
 **Next document:** `02-protocol-app-split.md` — for each primitive in this model, what lives on-chain vs in the indexer vs in the SDK vs in the apps. The contract-as-truth principle made concrete.
+
+
+---
+
+## Provenance
+
+The framing notes Salvador attached to the review of this doc (2026-05-16) have been folded in by altitude rather than kept as a raw appendix:
+
+- Mission ("monetization hub for the creative economy") and the **two-hub model** (Launchpad / Marketplace) → "Context: what Medialane is" at the top of this document.
+- **Mediolano as a separate, zero-fee, Berne-aligned public good** and the **fee posture** → `00-principles.md` §12 (fees) and §13 (Mediolano substrate).
+- Sovereign Capital / Programmable Licensing / AI-agent autonomy were already load-bearing principles in `00` (§1, §6, §9) and are not duplicated here.

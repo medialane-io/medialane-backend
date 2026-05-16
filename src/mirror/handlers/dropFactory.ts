@@ -54,12 +54,14 @@ export async function handleDropCreated(event: RawStarknetEvent): Promise<void> 
         owner: organizer,
         startBlock,
         source: "COLLECTION_DROP",
+        service: "drop-collection",
         metadataStatus: "PENDING",
       },
       update: {
         collectionId: dropId,
         owner: organizer,
         source: "COLLECTION_DROP",
+        service: "drop-collection",
       },
     });
 

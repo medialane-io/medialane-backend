@@ -676,6 +676,7 @@ admin.post("/collections/backfill-registry", async (c) => {
         owner: resolved.owner,
         startBlock: resolved.startBlock,
         source: "MEDIALANE_ERC721",
+        service: "mip-erc721",
         standard: "ERC721",
         metadataStatus: "PENDING",
       },
@@ -685,6 +686,7 @@ admin.post("/collections/backfill-registry", async (c) => {
         symbol: resolved.symbol ?? undefined,
         owner: resolved.owner,
         source: "MEDIALANE_ERC721",
+        service: "mip-erc721",
         standard: "ERC721",
       },
     });

@@ -13,7 +13,7 @@ This is not a coding style guide. It's about architectural decisions — what ge
 
 ## Scope
 
-Applies to the full Medialane protocol stack: on-chain contracts (`mediolano-contracts`), the indexer (`medialane-backend`), the SDK (`medialane-sdk`), and reference apps (`medialane-dapp`, `medialane-io`). Constrains how new services, features, and integrations are designed.
+Applies to the full Medialane protocol stack: on-chain contracts (`medialane-contracts`, `mediolano-contracts`), the indexer (`medialane-backend`), the SDK (`medialane-sdk`), and reference apps (`medialane-dapp`, `medialane-io`, `medialane-portal`, `medialane-docs`). Constrains how new services, features, and integrations are designed.
 
 ---
 
@@ -28,7 +28,7 @@ Medialane is a shell over on-chain state. The indexer and database are caches fo
 - "Soft state" that exists only off-chain and cannot be rebuilt from chain events
 - Centralized moderation that contradicts on-chain state
 
-**Why:** Two P0 incidents on 2026-05-15 (a wallet-type gate, an `is_transferable_token` gate) both violated this. The marketplace contract is the only authority on whether a trade can happen. If the contract accepts the call, the user can make it. Memory: `feedback_medialane_values.md`.
+**Why:** A prior incident violated this — development gated a trading action on database state, blocking calls the contract would have accepted. The protocols are the only authority on whether a trade can happen. If the contract accepts the call, the user can make it. Memory: `feedback_medialane_values.md`.
 
 ### 2. Permissionless
 
@@ -39,13 +39,13 @@ Anyone can use Medialane without asking. Anyone can deploy a contract that integ
 - Approval workflows for legitimate trading actions
 - Hardcoded curation of which contracts the indexer respects
 
-**Year-1 reality:** the service registry (which protocols the *official* dapp surfaces in its UI) is curated by the DAO during year 1. This is a UI curation choice, not a protocol gate — third parties can index and use any contract; they just don't appear in dapp.medialane.io's launchpad without DAO blessing. Year 2+ moves toward an on-chain service registry anyone can write to.
+**Year-1 reality:** the service registry (which protocols the *official* apps surfaces in its UI) is curated by the DAO during foundation. This is a UI curation choice, not a protocol gate — third parties can index and use any contract; but medialane.io is governed by Medialane DAO and it's community. Year 2+ moves toward an on-chain service registry anyone can write to.
 
 ### 3. Censorship-resistant via chain diversification
 
-Censorship-resistance is a property of the base layer. Bitcoin is the gold standard. Starknet is permissionless but its sequencer is currently centralized. Ethereum has MEV / OFAC pressure. Solana has had pauses. No single chain is fully censorship-resistant.
+Censorship-resistance is a property of the base layer. Bitcoin is the gold standard. Starknet is permissionless but its sequencer is currently centralized. Ethereum has MEV / OFAC pressure. Solana has had pauses. No single chain is fully censorship-resistant. Starknet was the choice for foundation for unique features: quantum resistance, zk proofs, account abstraction, scalability.
 
-Medialane's strategy: be on multiple chains, with Bitcoin as the gravity well. If one chain shuts down, censors, or fails, creators' work and identity persist on others.
+Medialane's strategy: be on multiple chains, with Bitcoin as the gravity well. If one chain shuts down, censors, or fails, creators' work and identity persist on others. In the future Medialane plans to offer services for multichain full ownership and censorship resistance.
 
 **Rules out:**
 - Treating `Chain` as a future/optional dimension. It is load-bearing from day one.
@@ -55,7 +55,7 @@ Medialane's strategy: be on multiple chains, with Bitcoin as the gravity well. I
 **Implementation reality:** v1 ships Starknet-only. The architecture is multichain from day one; the implementation arrives in stages:
 1. Starknet (live)
 2. BTC as payment currency — wBTC already accepted on the marketplace
-3. Asset issuance on Bitcoin via Ordinals / Runes / Bitcoin L2s
+3. Asset issuance on Bitcoin (future)
 4. Bitcoin-anchored license registry (proof of existence on the most durable chain)
 5. Ethereum L1 reach, other L2s as warranted
 
@@ -80,11 +80,11 @@ Long-term, Medialane is a protocol — a set of contracts plus the SDK that expo
 **The protocol is a public good. The apps are tools that consume the public good.**
 
 **Rules out:**
-- Features that only work in dapp.medialane.io (the SDK must expose everything the dapp does)
+- Features that only work in medialane.io or dapp.medialane.io (the SDK must expose everything the dapp does)
 - Lock-in patterns where assets are unusable outside Medialane's apps
 - Closed-source SDK or API gating that prevents partner / agent integration
 
-**Implication:** Every dapp feature has an SDK equivalent. Every SDK feature is accessible via the public API. The reference apps are the canonical demonstration of the protocol, not the only path to use it.
+**Implication:** Every feature has an SDK equivalent. Every SDK feature is accessible via the public API. The reference apps are the canonical demonstration of the protocol, not the only path to use it.
 
 ### 6. AI agents are first-class users from day one
 
@@ -128,7 +128,6 @@ Medialane-deployed assets follow OpenSea ERC-721 / ERC-1155 metadata standards. 
 Medialane's differentiation lives in the **platform layer** — gated content, on-chain comments, licensing UX, capital markets venues, verifiable proofs, AI agent integration. Not in vendor-locking the assets.
 
 **Rules out:**
-- Custom metadata formats that only Medialane can read
 - Contract behaviors that trap assets in Medialane (mandatory royalty hooks that fail on third-party marketplaces, non-transferable by default, etc.)
 - Soulbound assets *except* where the specific service requires it (e.g., POP Protocol attendance proofs)
 
@@ -153,14 +152,14 @@ Programmable IP licenses are encoded in asset metadata via OpenSea-compatible at
 
 A creator's "work" is a logical identity. Each chain hosts a representation (ERC-721 on Starknet, Ordinal on Bitcoin, ERC-1155 edition on Ethereum). The protocol provides a canonical work identifier (`IP-ID` contract on Starknet) that representations reference.
 
-Similarly for creator identity: a single creator may hold wallets across multiple chains. The protocol links them via signed attestations; the platform aggregates reputation, work, and sales across the linked set.
+Similarly for account identity: a single **Account** (human, AI agent, organization, collector — "creator" is one role among these, not the umbrella) may hold wallets across multiple chains. The protocol links them via signed attestations through the `AccountID` contract; the platform aggregates reputation, work, and sales across the linked set.
 
 **Rules out:**
 - Asset identity that assumes one `(chain, contract, tokenId)` tuple is the canonical identifier
 - Profile / reputation systems that fragment per chain
-- Trust assumptions that one wallet = one creator
+- Trust assumptions that one wallet = one account
 
-**Year-1 reality:** `IP-ID` is unfinished and will be reviewed/refactored. v1 uses `(chain, contract, tokenId)` as identity, with the indexer doing cross-chain joins via off-chain heuristics. As `IP-ID` matures, the system migrates to on-chain joins. Both for assets and for creators.
+**Year-1 reality:** `IP-ID` (asset side) and `AccountID` (actor side) are unfinished and will be reviewed/refactored. v1 uses `(chain, contract, tokenId)` for assets and a primary wallet for accounts, with the indexer doing cross-chain joins via off-chain heuristics. As both contracts mature, the system migrates to on-chain joins — for assets and for accounts alike.
 
 ---
 
@@ -181,9 +180,15 @@ Medialane optimizes for creator agency and cultural durability — not investor 
 
 The Medialane DAO is the protocol's steward. Governance via [Snapshot](https://snapshot.org/#/s:medialane.eth) with the MDLN token (Ethereum, Starknet bridge). Public site: [medialane.org](https://www.medialane.org).
 
+**Fee model — a platform-layer decision, deliberately *not* in the contracts:**
+- The Medialane marketplace and Launchpad **protocols are zero-fee and permissionless**. The immutable contracts take no cut. Baking a mandatory fee into a contract would gate a permissionless action and freeze fee policy into immutable code — a direct conflict with §1, §2, and §9. (Mediolano, the substrate, is likewise zero-fee — §13.)
+- Any fee is applied at the **platform layer** (settlement / indexer / app), where it can change without a contract migration and where third parties running their own clients are not forced to pay it.
+- **Today:** a 1% fee is applied to marketplace activity at the platform layer. The fuller fee model (e.g. a Launchpad service fee on revenue products; auction / remix / licensing fees) is **not yet decided** — when it is, it lands at the platform layer, never in the contracts.
+- Whatever the schedule becomes: it accrues to the DAO treasury, funds the protocol as a public good (not extraction), applies equally across user categories (no agent-vs-human split — §6), and never becomes a second *gate* (§11).
+
 **Year-1 responsibilities:**
 - Owns and operates the contracts
-- Receives protocol fees (1% on marketplace today)
+- Receives the platform-layer fees described above and sets the (still-open) fee schedule
 - Curates the service registry (which protocols appear in the official dapp launchpad)
 - Decides parameter changes (fee tiers, featured collections, treasury allocations)
 
@@ -197,6 +202,17 @@ The Medialane DAO is the protocol's steward. Governance via [Snapshot](https://s
 - Platform-team unilateral decisions on what's in the official service registry once year 1 ends
 - Centralized treasury that can be seized
 - Closed governance that excludes MDLN holders
+
+### 13. Mediolano is the public-goods substrate; Medialane is the commercial layer
+
+Mediolano Protocol was built **before** Medialane and is a separate, independent entity. It functions as a public good for the tokenization and protection of intellectual property, with **zero fees**, and is built for compliance with the [Berne Convention](https://en.wikipedia.org/wiki/Berne_Convention) for the Protection of Literary and Artistic Works (IP ownership protection across 181 countries). Medialane builds on Mediolano's primitives and adds the commercial layer (marketplace, launchpad, discovery) — note the commercial-layer *protocols are themselves zero-fee*; any fee is a platform-layer concern, see §12.
+
+Keeping the two entities distinct is what keeps **both** legally durable: Mediolano stays a neutral, fee-free, treaty-aligned ownership registry; Medialane carries the commercial surface and house rules. The separation is a compliance feature, not an org-chart accident.
+
+**Rules out:**
+- Folding Mediolano's zero-fee tokenization/protection primitives behind a Medialane paywall
+- Coupling Mediolano contracts to Medialane fee logic such that one cannot operate without the other
+- Treating Berne-aligned, immutable ownership metadata as optional or platform-mutable (see §9 — the License's authorship/ownership claims live in immutable IPFS metadata for exactly this reason)
 
 ---
 
@@ -228,13 +244,13 @@ A design that violates a principle without amending the document is, by definiti
 ## VII. Related documents (planned, in dependency order)
 
 - **00** — Architectural Principles (this document)
-- **01** — `core-model.md` — Asset, Service, License, Identity, Order, Venue, Event primitives
+- **01** — `core-model.md` — Asset, Account, Service, License, Order, Event primitives (Venue = a Service)
 - **02** — `protocol-app-split.md` — What lives on-chain vs indexer vs SDK vs apps
 - **03** — `interoperability.md` — OpenSea metadata baseline + Medialane attribute extensions
 - **04** — `licensing-model.md` — Programmable licensing in detail (CC BY-SA default, customization, selective on-chain enforcement)
 - **05** — `service-model.md` — The asset/service model (rescoped from the 2026-05-15 draft)
 - **06** — `venue-model.md` — Marketplace venues as composable surfaces (bulk orders, auctions, future coin trader)
-- **07** — `identity-model.md` — Wallets, profiles, `IP-ID`, cross-chain identity
+- **07** — `identity-model.md` — Wallets, Accounts, Profiles, the Creator role, `AccountID`, cross-chain identity
 - **08** — `dao-governance.md` — DAO role, fees, registry curation, decentralization roadmap
 - **09** — `roadmap.md` — Phased rollout, year-1 milestones, year-2 targets, year-3+ horizon
 

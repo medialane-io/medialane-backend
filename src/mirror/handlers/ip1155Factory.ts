@@ -87,6 +87,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
         owner,
         startBlock,
         source: "MEDIALANE_ERC1155",
+        service: "mip-erc1155",
         standard: "ERC1155",
         metadataStatus: "PENDING",
       },
@@ -96,6 +97,7 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
         baseUri: baseUri || undefined,
         owner,
         source: "MEDIALANE_ERC1155",
+        service: "mip-erc1155",
         standard: "ERC1155",
       },
     });

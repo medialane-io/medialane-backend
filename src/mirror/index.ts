@@ -138,7 +138,7 @@ async function tick(tickId: string): Promise<number> {
   let rawPopAllowlistEvents: RawStarknetEvent[] = [];
   if (POP_FACTORY_CONTRACT && now - _lastPopAllowlistPollTime >= transferPollIntervalMs()) {
     const popCollections = await prisma.collection.findMany({
-      where: { chain: CHAIN, source: "POP_PROTOCOL", startBlock: { lte: BigInt(toBlock) } },
+      where: { chain: CHAIN, OR: [{ source: "POP_PROTOCOL" }, { service: "pop-protocol" }], startBlock: { lte: BigInt(toBlock) } },
       select: { contractAddress: true },
     });
     if (popCollections.length > 0) {
@@ -157,7 +157,7 @@ async function tick(tickId: string): Promise<number> {
   let rawDropAllowlistEvents: RawStarknetEvent[] = [];
   if (DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
     const dropCollections = await prisma.collection.findMany({
-      where: { chain: CHAIN, source: "COLLECTION_DROP", startBlock: { lte: BigInt(toBlock) } },
+      where: { chain: CHAIN, OR: [{ source: "COLLECTION_DROP" }, { service: "drop-collection" }], startBlock: { lte: BigInt(toBlock) } },
       select: { contractAddress: true },
     });
     if (dropCollections.length > 0) {
@@ -307,6 +307,7 @@ async function tick(tickId: string): Promise<number> {
         baseUri: resolved.baseUri ?? undefined,
         owner: resolved.owner,
         startBlock: resolved.startBlock,
+        service: "mip-erc721",
         metadataStatus: "PENDING",
       },
       update: {
@@ -315,6 +316,7 @@ async function tick(tickId: string): Promise<number> {
         name: resolved.name ?? undefined,
         symbol: resolved.symbol ?? undefined,
         owner: resolved.owner,
+        service: "mip-erc721",
       },
     });
 

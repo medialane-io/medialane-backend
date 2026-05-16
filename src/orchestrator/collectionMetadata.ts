@@ -181,6 +181,7 @@ export async function handleCollectionMetadataFetch(payload: {
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
         source: "MEDIALANE_ERC1155",
+        service: "mip-erc1155",
         standard: "ERC1155",
         metadataStatus: "FETCHED",
         name: existing?.name || onchainName || undefined,
