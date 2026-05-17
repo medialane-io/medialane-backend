@@ -917,12 +917,14 @@ admin.get("/collections", async (c) => {
   const page = parseInt(c.req.query("page") ?? "1");
   const limit = parseInt(c.req.query("limit") ?? "20");
   const source = c.req.query("source");
+  const service = c.req.query("service");
   const metadataStatus = c.req.query("metadataStatus");
   const isFeaturedParam = c.req.query("isFeatured");
   const search = c.req.query("search");
 
   const where: Record<string, unknown> = {};
   if (source) where.source = source;
+  if (service) where.service = service;
   if (metadataStatus) where.metadataStatus = metadataStatus;
   if (isFeaturedParam !== undefined && isFeaturedParam !== "") where.isFeatured = isFeaturedParam === "true";
   if (search) {
