@@ -95,7 +95,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // for image/owner that was previously done separately as `existingFull`).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, source: true, standard: true, baseUri: true, description: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, service: true, standard: true, baseUri: true, description: true },
   });
 
   // Skip if already fully resolved. Re-run if standard is still UNKNOWN (detection may
@@ -104,8 +104,8 @@ export async function handleCollectionMetadataFetch(payload: {
     existing?.metadataStatus === "FETCHED" &&
     existing?.owner !== null &&
     existing?.standard !== "UNKNOWN" &&
-    (!["MEDIALANE_ERC1155", "ERC1155_FACTORY"].includes(existing?.source ?? "") || existing?.image !== null) &&
-    (!["MEDIALANE_ERC721", "MEDIALANE_REGISTRY"].includes(existing?.source ?? "") || existing?.image !== null);
+    (existing?.service !== "mip-erc1155" || existing?.image !== null) &&
+    (existing?.service !== "mip-erc721" || existing?.image !== null);
 
   if (alreadyComplete) {
     log.debug({ chain, contractAddress }, "Collection metadata already fetched, skipping");
@@ -118,7 +118,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // view functions, we skip the RPC fetch here to avoid overwriting event-sourced data
   // and because detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet
   // OZ SRC5 interface IDs (would always return UNKNOWN). standard=ERC1155 is set directly.
-  if (existing?.source === "MEDIALANE_ERC1155" || existing?.source === "ERC1155_FACTORY" || existing?.standard === "ERC1155") {
+  if (existing?.service === "mip-erc1155" || existing?.standard === "ERC1155") {
     const missingCanonicalFields =
       !existing?.name ||
       !existing?.symbol ||
@@ -180,7 +180,6 @@ export async function handleCollectionMetadataFetch(payload: {
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
-        source: "MEDIALANE_ERC1155",
         service: "mip-erc1155",
         standard: "ERC1155",
         metadataStatus: "FETCHED",
@@ -232,7 +231,7 @@ export async function handleCollectionMetadataFetch(payload: {
         description: collectionMetadata.description ?? description ?? undefined,
         image: collectionMetadata.image ?? existing?.image ?? image ?? undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
-        standard: resolveStandardBySource(existing?.source, standard),
+        standard: resolveStandardByService(existing?.service, standard),
         metadataStatus: "FETCHED",
       },
     });
@@ -288,19 +287,18 @@ async function fetchCollectionMetadataJson(
 }
 
 /**
- * Apply source-based override when on-chain detection is ambiguous.
- * COLLECTION_DROP and POP_PROTOCOL are always ERC-721 by protocol design.
- * Medialane ERC-721 registry sources are always ERC-721.
+ * Apply service-based override when on-chain detection is ambiguous.
+ * pop-protocol and drop-collection are always ERC-721 by protocol design,
+ * as is the Medialane ERC-721 registry (mip-erc721).
  */
-function resolveStandardBySource(
-  source: string | null | undefined,
+function resolveStandardByService(
+  service: string | null | undefined,
   detected: TokenStandard
 ): TokenStandard {
   if (
-    source === "MEDIALANE_ERC721" ||
-    source === "MEDIALANE_REGISTRY" ||
-    source === "COLLECTION_DROP" ||
-    source === "POP_PROTOCOL"
+    service === "mip-erc721" ||
+    service === "pop-protocol" ||
+    service === "drop-collection"
   ) return "ERC721";
   return detected;
 }

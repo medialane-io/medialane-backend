@@ -136,12 +136,10 @@ export async function handleOrderCreated1155(
         contractAddress: nftContract,
         startBlock: blockNumber,
         standard: "ERC1155",
-        source: "MEDIALANE_ERC1155",
         service: "mip-erc1155",
       },
       update: {
         standard: "ERC1155",
-        source: "MEDIALANE_ERC1155",
         service: "mip-erc1155",
       },
     });

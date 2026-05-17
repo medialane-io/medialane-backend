@@ -102,12 +102,6 @@ function resolveCollectionFromReceipt(
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-// Valid source enum values — mirrors the CollectionSource Prisma enum
-const VALID_COLLECTION_SOURCES = new Set([
-  "MEDIALANE_ERC721", "MEDIALANE_ERC1155", "EXTERNAL_ERC721", "EXTERNAL_ERC1155",
-  "MEDIALANE_REGISTRY", "EXTERNAL", "PARTNERSHIP", "IP_TICKET",
-  "IP_CLUB", "GAME", "POP_PROTOCOL", "COLLECTION_DROP", "ERC1155_FACTORY",
-]);
 const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155", "UNKNOWN"]);
 
 // GET /v1/collections
@@ -116,7 +110,6 @@ collections.get("/", async (c) => {
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
   const owner     = c.req.query("owner");
-  const source    = c.req.query("source");
   const service   = c.req.query("service");
   const hideEmpty = c.req.query("hideEmpty") === "true";
   const sortRaw = c.req.query("sort") ?? "recent";
@@ -126,17 +119,12 @@ collections.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  if (source && !VALID_COLLECTION_SOURCES.has(source)) {
-    return c.json({ error: "Invalid source value" }, 400);
-  }
-
   // floor and volume are String? columns — need ::numeric cast via raw SQL
   if (sort === "floor" || sort === "volume") {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`, Prisma.sql`"isHidden" = false`];
     if (isFeatured === "true")  conditions.push(Prisma.sql`"isFeatured" = true`);
     if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
     if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
-    if (source)    conditions.push(Prisma.sql`source = ${source}::"CollectionSource"`);
     if (service)   conditions.push(Prisma.sql`service = ${service}`);
     if (hideEmpty) conditions.push(Prisma.sql`"totalSupply" > 0`);
     const whereClause = Prisma.join(conditions, " AND ");
@@ -168,7 +156,6 @@ collections.get("/", async (c) => {
   if (isFeatured === "true")  where.isFeatured = true;
   if (isFeatured === "false") where.isFeatured = false;
   if (owner)     where.owner = normalizeAddress(owner);
-  if (source)    where.source = source;
   if (service)   where.service = service;
   if (hideEmpty) where.totalSupply = { gt: 0 };
 
@@ -343,7 +330,6 @@ collections.post("/sync-tx", async (c) => {
           baseUri: resolved.baseUri ?? undefined,
           owner: resolved.owner,
           startBlock: resolved.startBlock,
-          source: "MEDIALANE_ERC721",
           service: "mip-erc721",
           standard: "ERC721",
           metadataStatus: "PENDING",
@@ -353,7 +339,6 @@ collections.post("/sync-tx", async (c) => {
           name: resolved.name ?? undefined,
           symbol: resolved.symbol ?? undefined,
           owner: resolved.owner,
-          source: "MEDIALANE_ERC721",
           service: "mip-erc721",
           standard: "ERC721",
         },
@@ -401,9 +386,9 @@ collections.post("/register", async (c) => {
     typeof body.standard === "string" && VALID_COLLECTION_STANDARDS.has(body.standard)
       ? body.standard
       : undefined;
-  const source =
-    typeof body.source === "string" && VALID_COLLECTION_SOURCES.has(body.source)
-      ? body.source
+  const service =
+    typeof body.service === "string" && body.service.length > 0
+      ? body.service
       : undefined;
 
   const existing = await prisma.collection.findUnique({
@@ -414,7 +399,7 @@ collections.post("/register", async (c) => {
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
       data: {
         standard,
-        source: source as any,
+        ...(service ? { service } : {}),
         metadataStatus: "PENDING",
       },
     });
@@ -429,7 +414,7 @@ collections.post("/register", async (c) => {
       startBlock,
       metadataStatus: "PENDING",
       standard: standard ?? "UNKNOWN",
-      source: source as any,
+      ...(service ? { service } : {}),
     },
   });
 
@@ -497,7 +482,6 @@ function serializeCollection(c: any) {
     standard: c.standard ?? "UNKNOWN",
     isFeatured: c.isFeatured,
     isHidden: c.isHidden,
-    source: c.source,
     service: c.service ?? null,
     claimedBy: c.claimedBy ?? null,
     floorPrice: c.floorPrice,
