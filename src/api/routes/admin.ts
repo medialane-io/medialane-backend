@@ -425,17 +425,7 @@ admin.patch("/collections/:contract", async (c) => {
     isHidden:     z.boolean().optional(),
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
-    source:       z.enum([
-      "MEDIALANE_ERC721",
-      "MEDIALANE_ERC1155",
-      "EXTERNAL_ERC721",
-      "EXTERNAL_ERC1155",
-      "MEDIALANE_REGISTRY",
-      "ERC1155_FACTORY",
-      "POP_PROTOCOL",
-      "COLLECTION_DROP",
-      "EXTERNAL",
-    ]).optional(),
+    service:      z.string().optional(),
     standard:     z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
   });
   const parsed = schema.safeParse(body);
@@ -675,7 +665,6 @@ admin.post("/collections/backfill-registry", async (c) => {
         baseUri: resolved.baseUri ?? undefined,
         owner: resolved.owner,
         startBlock: resolved.startBlock,
-        source: "MEDIALANE_ERC721",
         service: "mip-erc721",
         standard: "ERC721",
         metadataStatus: "PENDING",
@@ -685,7 +674,6 @@ admin.post("/collections/backfill-registry", async (c) => {
         name: resolved.name ?? undefined,
         symbol: resolved.symbol ?? undefined,
         owner: resolved.owner,
-        source: "MEDIALANE_ERC721",
         service: "mip-erc721",
         standard: "ERC721",
       },
@@ -743,7 +731,7 @@ admin.get("/claims", async (c) => {
 admin.patch("/claims/:id", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json();
-  const { status, adminNotes, source } = body;
+  const { status, adminNotes, service } = body;
 
   if (!["APPROVED", "REJECTED"].includes(status)) {
     return c.json({ error: "status must be APPROVED or REJECTED" }, 400);
@@ -767,13 +755,13 @@ admin.patch("/claims/:id", async (c) => {
 
     if (!existing) {
       await prisma.collection.create({
-        data: { chain: "STARKNET", contractAddress: normContract, source: source ?? "EXTERNAL", claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
+        data: { chain: "STARKNET", contractAddress: normContract, service: service ?? null, claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
       });
       worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: normContract });
     } else {
       await prisma.collection.update({
         where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
-        data: { claimedBy: normWallet, ...(source ? { source } : {}) },
+        data: { claimedBy: normWallet, ...(service ? { service } : {}) },
       });
     }
   }
@@ -916,14 +904,12 @@ admin.patch("/collection-slug-claims/:id", async (c) => {
 admin.get("/collections", async (c) => {
   const page = parseInt(c.req.query("page") ?? "1");
   const limit = parseInt(c.req.query("limit") ?? "20");
-  const source = c.req.query("source");
   const service = c.req.query("service");
   const metadataStatus = c.req.query("metadataStatus");
   const isFeaturedParam = c.req.query("isFeatured");
   const search = c.req.query("search");
 
   const where: Record<string, unknown> = {};
-  if (source) where.source = source;
   if (service) where.service = service;
   if (metadataStatus) where.metadataStatus = metadataStatus;
   if (isFeaturedParam !== undefined && isFeaturedParam !== "") where.isFeatured = isFeaturedParam === "true";

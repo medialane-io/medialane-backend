@@ -54,7 +54,6 @@ export async function handlePopCollectionCreated(event: RawStarknetEvent): Promi
         collectionId,
         owner: organizer,
         startBlock,
-        source: "POP_PROTOCOL",
         service: "pop-protocol",
         metadataStatus: "PENDING",
       },
@@ -62,7 +61,6 @@ export async function handlePopCollectionCreated(event: RawStarknetEvent): Promi
         // Don't overwrite admin-set values; keep collectionId + owner in sync
         collectionId,
         owner: organizer,
-        source: "POP_PROTOCOL",
         service: "pop-protocol",
       },
     });
