@@ -14,22 +14,6 @@ enum Chain {
   BITCOIN
 }
 
-enum CollectionSource {
-  MEDIALANE_ERC721
-  MEDIALANE_ERC1155
-  EXTERNAL_ERC721
-  EXTERNAL_ERC1155
-  MEDIALANE_REGISTRY
-  EXTERNAL
-  PARTNERSHIP
-  IP_TICKET
-  IP_CLUB
-  GAME
-  POP_PROTOCOL
-  COLLECTION_DROP
-  ERC1155_FACTORY
-}
-
 enum TokenStandard {
   ERC721
   ERC1155
@@ -241,7 +225,6 @@ model Collection {
   totalSupply     Int            @default(0)
   tokens          Token[]
   standard        TokenStandard     @default(UNKNOWN)
-  source          CollectionSource  @default(MEDIALANE_REGISTRY)
   /// Stable Medialane service ID. Open-ended string; values live in the
   /// @medialane/sdk service registry, NOT a Prisma enum (05-service-model §I).
   /// null = external collection (01-core-model §I). Dual-written with `source`
