@@ -930,6 +930,36 @@ admin.get("/collections", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /admin/collections/service-coverage — service-model migration readiness.
+// `missingService` = non-external collections still lacking a `service`. It
+// MUST be 0 before the legacy `Collection.source` column / `CollectionSource`
+// enum can be dropped (Phase 2D.4). NULL source (post-dual-write external rows)
+// is correctly excluded by `NOT LIKE` NULL semantics. Static SQL, read-only.
+// ---------------------------------------------------------------------------
+admin.get("/collections/service-coverage", async (c) => {
+  const [missing] = await prisma.$queryRawUnsafe<{ count: number }[]>(
+    `SELECT COUNT(*)::int AS count FROM "Collection" WHERE service IS NULL AND source::text NOT LIKE 'EXTERNAL%'`
+  );
+  const byService = await prisma.$queryRawUnsafe<{ service: string | null; count: number }[]>(
+    `SELECT service, COUNT(*)::int AS count FROM "Collection" GROUP BY service ORDER BY count DESC`
+  );
+  const missingService = missing?.count ?? 0;
+  const sampleMissing = missingService > 0
+    ? await prisma.$queryRawUnsafe<{ contractAddress: string; source: string | null }[]>(
+        `SELECT "contractAddress", source::text AS source FROM "Collection" WHERE service IS NULL AND source::text NOT LIKE 'EXTERNAL%' LIMIT 20`
+      )
+    : [];
+  return c.json({
+    data: {
+      missingService,
+      safeToDropSourceColumn: missingService === 0,
+      byService,
+      sampleMissing,
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/orders/:orderHash/resync — re-fetch order details from chain and fix price
 // Routes to the correct handler based on token standard (ERC-721 vs ERC-1155).
 // ---------------------------------------------------------------------------
