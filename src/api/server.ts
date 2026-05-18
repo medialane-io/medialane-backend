@@ -17,7 +17,7 @@ import intents from "./routes/intents.js";
 import metadata from "./routes/metadata.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
-import admin from "./routes/admin.js";
+import admin from "./routes/admin/index.js";
 import claims from "./routes/claims.js";
 import usernameClaims from "./routes/username-claims.js";
 import collectionSlugClaims from "./routes/collection-slug-claims.js";
