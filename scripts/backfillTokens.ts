@@ -14,7 +14,7 @@
 import { pollTransferEvents } from "../src/mirror/poller.js";
 import { parseEvents } from "../src/mirror/parser.js";
 import { handleTransfer } from "../src/mirror/handlers/transfer.js";
-import { enqueueJob } from "../src/orchestrator/queue.js";
+import { worker } from "../src/orchestrator/worker.js";
 import prisma from "../src/db/client.js";
 import { createLogger } from "../src/utils/logger.js";
 
@@ -106,7 +106,7 @@ async function run() {
 
   log.info({ count: pendingTokens.length }, "Enqueueing metadata fetch jobs");
   for (const token of pendingTokens) {
-    await enqueueJob("METADATA_FETCH", { chain: CHAIN, contractAddress: token.contractAddress, tokenId: token.tokenId });
+    worker.enqueue({ type: "METADATA_FETCH", chain: CHAIN, contractAddress: token.contractAddress, tokenId: token.tokenId });
   }
 
   log.info({ totalNewTokens, metadataJobs: pendingTokens.length }, "Token backfill complete");
