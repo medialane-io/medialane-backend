@@ -157,6 +157,8 @@ Response headers on every `/v1/*` response:
 
 ### Admin (`API_SECRET_KEY` required)
 
+> **Structure (2026-05-18):** admin routes live in `src/api/routes/admin/` — `index.ts` (Hono instance, shared IP rate-limit, the two global `admin.use("*")` middlewares, registrar calls, default export) + `_shared.ts` + domain files `tenants.ts`, `collections.ts` (collections/tokens/indexer), `claims.ts`, `marketplace-ops.ts`, `moderation.ts`. Each domain file exports `register<Domain>Routes(admin)` and mutates the same instance (registrar pattern — add new admin routes to the matching domain file, never recreate the Hono instance). `adminRewards` is separate in `routes/rewards.ts`.
+
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/admin/tenants` | Create tenant + initial key. Returns `plaintext` ONCE |
@@ -247,7 +249,7 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 
 **Event layout — audited contract (2026-05-14):** `collection_id` is `#[key]` on the new IPCollection, so it's emitted in `event.keys[1..2]` (u256 low+high split), not in `event.data`. `owner` is `event.data[0]`. The rest of `event.data` is `[...name_bytearray, ...symbol_bytearray, ...base_uri_bytearray]`. **ip_nft is NOT in the event** — must call `get_collection()` on the registry.
 
-**Decoder helper:** Always decode this event via `decodeCollectionCreatedEvent({ keys, data })` exported from `src/mirror/handlers/collectionCreated.ts`. The function is the single source of truth for the layout — three call sites use it (`mirror/parser.ts`, `routes/collections.ts` sync-tx, `routes/admin.ts` backfill-registry). Never open-code the decode again; when the event shape changes, update the helper and every site benefits.
+**Decoder helper:** Always decode this event via `decodeCollectionCreatedEvent({ keys, data })` exported from `src/mirror/handlers/collectionCreated.ts`. The function is the single source of truth for the layout — three call sites use it (`mirror/parser.ts`, `routes/collections.ts` sync-tx, `routes/admin/collections.ts` backfill-registry). Never open-code the decode again; when the event shape changes, update the helper and every site benefits.
 
 **If the indexer cursor already passed the collection creation blocks**: run `POST /admin/collections/backfill-registry` once — it scans all historical events and upserts everything in one call.
 
@@ -292,13 +294,13 @@ Apply this pattern to **every** `$queryRaw` that compares against an enum column
 
 ### On-chain NFT comments (added 2026-03-22)
 
-Comments are indexed from `CommentAdded` events emitted by the NFTComments contract (`0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799`). Separate from the marketplace poller — `pollCommentEvents` in `src/mirror/commentPoller.ts` runs in parallel.
+Comments are indexed from `CommentAdded` events emitted by the NFTComments contract — address set via the `COMMENTS_CONTRACT_ADDRESS` env (the live **deployed** instance). ⚠️ `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799` is **NOT deployed** (a 2026-05 misconfig that caused a platform-wide comments outage — see memory `project_comments_contract_outage`); never point the env at it. Separate from the marketplace poller — `pollCommentEvents` in `src/mirror/commentPoller.ts` runs in parallel.
 
 **Token existence filter**: `handleCommentAdded` in `src/mirror/handlers/commentAdded.ts` checks if the token exists in the DB before indexing. Comments on unindexed tokens are silently skipped (avoids orphan rows and spam from non-Medialane NFTs).
 
 **`Comment` model**: `id`, `chain`, `contractAddress`, `tokenId`, `author`, `content`, `txHash`, `logIndex`, `blockNumber`, `blockTimestamp`, `isHidden`. Idempotency: `@@unique([txHash, logIndex])`.
 
-**`NFTComments_CONTRACT` env var**: must be set in Railway. Value: `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799`.
+**`COMMENTS_CONTRACT_ADDRESS` env var**: must be set (Railway + Vercel) to the **deployed** NFTComments instance. Do NOT use `0x024f97…62799` — no contract is deployed there (root cause of the 2026-05-17 comments outage). The correct address is whatever is currently configured in prod env; keep code defaults in sync with it.
 
 **COMMENT report type**: `ReportTargetType` enum extended with `COMMENT`. `targetKey` format = `COMMENT::<commentId>` (double-colon to avoid collision). After 3 unique reports, `isHidden = true` is set automatically in `src/api/routes/reports.ts`. **Split on `"::"` not `":"` when parsing COMMENT targetKeys.**
 
@@ -405,7 +407,7 @@ DROP_START_BLOCK=8341335
 ```
 MARKETPLACE_CONTRACT_MAINNET=0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6
 MARKETPLACE_1155_CONTRACT_MAINNET=0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99
-COMMENTS_CONTRACT_ADDRESS=0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799
+COMMENTS_CONTRACT_ADDRESS=<deployed NFTComments instance — NOT 0x024f97…62799 (undeployed)>
 INDEXER_START_BLOCK=9196722
 ```
 
@@ -434,7 +436,7 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 - Marketplace ERC-721 (current): `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6`
 - **Marketplace ERC-1155 (Medialane1155V2, current)**: `0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99`
 - Collection (ERC-721): `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b`
-- NFTComments: `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799`
+- NFTComments: set via `COMMENTS_CONTRACT_ADDRESS` env (the deployed instance) — **not** `0x024f97…62799` (undeployed; caused the 2026-05-17 comments outage)
 - Indexer start block: `9196722`
 - SNIP-12 domain ERC-721: `{ name: "Medialane", version: "1", revision: "1" }`
 - SNIP-12 domain ERC-1155: `{ name: "Medialane", version: "2", revision: "1" }`
