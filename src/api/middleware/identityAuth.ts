@@ -1,14 +1,18 @@
 import type { Context, Next } from "hono";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
+import { env } from "../../config/env.js";
 
 // Lazily initialised — only created on the first Clerk JWT request.
 // SIWS callers (the majority) never pay the Clerk SDK initialisation cost.
 let _clerk: Awaited<ReturnType<typeof import("@clerk/backend").createClerkClient>> | null = null;
 function getClerk() {
   if (!_clerk) {
+    if (!env.CLERK_SECRET_KEY) {
+      throw new Error("CLERK_SECRET_KEY is not configured — Clerk JWT auth unavailable");
+    }
     const { createClerkClient } = require("@clerk/backend");
-    _clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
+    _clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
   }
   return _clerk!;
 }
@@ -45,7 +49,7 @@ export async function identityAuth(c: Context, next: Next) {
   try {
     const { verifyToken: clerkVerifyToken } = require("@clerk/backend");
     const payload = await clerkVerifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY!,
+      secretKey: env.CLERK_SECRET_KEY,
     });
     const user = await getClerk().users.getUser(payload.sub);
     const rawWallet = (user.publicMetadata?.publicKey ?? user.publicMetadata?.walletAddress) as string | undefined;

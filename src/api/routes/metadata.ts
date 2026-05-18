@@ -42,8 +42,16 @@ metadata.post("/upload", async (c) => {
     if (raw.length > MAX_JSON_BYTES) {
       return c.json({ error: "Payload too large (max 512 KB)" }, 413);
     }
-    const body = JSON.parse(raw);
-    const result = await pinata.upload.public.json(body);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return c.json({ error: "Body must be a JSON object" }, 400);
+    }
+    const result = await pinata.upload.public.json(parsed);
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to upload metadata");
