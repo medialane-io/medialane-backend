@@ -29,6 +29,7 @@ import { registerCollectionRoutes } from "./collections.js";
 import { registerClaimRoutes } from "./claims.js";
 import { registerMarketplaceOpsRoutes } from "./marketplace-ops.js";
 import { registerModerationRoutes } from "./moderation.js";
+import { registerServicesRoutes } from "./services.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -56,5 +57,6 @@ registerCollectionRoutes(admin);
 registerClaimRoutes(admin);
 registerMarketplaceOpsRoutes(admin);
 registerModerationRoutes(admin);
+registerServicesRoutes(admin);
 
 export default admin;
