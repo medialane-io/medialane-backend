@@ -56,6 +56,9 @@ async function main() {
         { address, walletType: u.walletType, provider, appSource: u.appSource },
         "DRY would create Account+Wallet+Identity",
       );
+      // Populate the map with a placeholder so Phase 2 can correctly distinguish
+      // CreatorProfiles that match a User (will become matched) vs true orphans.
+      walletAddressToAccountId.set(address, `dry:${address}`);
       accountsCreated++;
       walletsCreated++;
       identitiesCreated++;
