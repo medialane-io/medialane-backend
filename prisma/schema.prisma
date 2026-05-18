@@ -609,6 +609,29 @@ enum AppSource {
   MEDIALANE_SDK
 }
 
+enum AccountType {
+  PERSON
+  AGENT
+  ORGANIZATION
+  PARTNER
+}
+
+enum AccountRole {
+  CREATOR
+  COLLECTOR
+  ORGANIZATION
+  AGENT
+  PARTNER
+}
+
+enum IdentityProvider {
+  WALLET
+  CLERK
+  PRIVY
+  CHIPIPAY
+  EMAIL
+}
+
 model User {
   walletAddress String     @id
   chain         Chain      @default(STARKNET)
@@ -621,6 +644,72 @@ model User {
   @@index([appSource])
   @@index([walletType])
   @@index([createdAt])
+}
+
+model Account {
+  id        String        @id @default(cuid())
+  publicId  String        @unique
+  type      AccountType   @default(PERSON)
+  roles     AccountRole[] @default([])
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  wallets    Wallet[]
+  identities Identity[]
+  profile    AccountProfile?
+
+  @@index([type])
+  @@index([createdAt])
+}
+
+model Wallet {
+  id         String     @id @default(cuid())
+  accountId  String
+  account    Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  chain      Chain      @default(STARKNET)
+  address    String
+  walletType WalletType @default(UNKNOWN)
+  isPrimary  Boolean    @default(false)
+  verifiedAt DateTime?
+  linkedAt   DateTime   @default(now())
+
+  @@unique([chain, address])
+  @@index([accountId])
+  @@index([walletType])
+}
+
+model Identity {
+  id             String           @id @default(cuid())
+  accountId      String
+  account        Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  provider       IdentityProvider
+  providerUserId String
+  appSource      AppSource        @default(MEDIALANE_DAPP)
+  email          String?
+  verifiedAt     DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@unique([provider, providerUserId])
+  @@index([accountId])
+  @@index([appSource])
+  @@index([email])
+}
+
+model AccountProfile {
+  id          String   @id @default(cuid())
+  accountId   String   @unique
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  displayName String?
+  bio         String?
+  avatarImage String?
+  bannerImage String?
+  websiteUrl  String?
+  twitterUrl  String?
+  discordUrl  String?
+  telegramUrl String?
+  username    String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Comment {
@@ -707,6 +796,7 @@ model BadgeDefinition {
 // Computed score per address — rebuilt by the recompute script
 model UserScore {
   address      String   @id        // normalised wallet address
+  accountId    String?              // populated opportunistically when wallet resolves to an Account
   chain        Chain    @default(STARKNET)
   totalXp      Int      @default(0)
   currentLevel Int      @default(1)
@@ -717,12 +807,14 @@ model UserScore {
   @@index([totalXp])
   @@index([currentLevel])
   @@index([chain])
+  @@index([accountId])
 }
 
 // Awarded badges per address
 model UserBadge {
   id         String          @id @default(cuid())
   address    String
+  accountId  String?
   badgeKey   String
   badge      BadgeDefinition @relation(fields: [badgeKey], references: [key])
   awardedAt  DateTime        @default(now())
@@ -730,6 +822,7 @@ model UserBadge {
 
   @@unique([address, badgeKey])
   @@index([address])
+  @@index([accountId])
 }
 
 // Audit log of every point event — written during recompute and future live tracking
@@ -737,6 +830,7 @@ model PointEvent {
   id         String   @id @default(cuid())
   chain      Chain    @default(STARKNET)
   address    String
+  accountId  String?
   actionType String
   xp         Int
   multiplier Float    @default(1.0)
@@ -746,6 +840,7 @@ model PointEvent {
   createdAt  DateTime @default(now())
 
   @@index([address])
+  @@index([accountId])
   @@index([actionType])
   @@index([createdAt])
   @@index([chain, address])
