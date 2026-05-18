@@ -98,7 +98,12 @@ export async function handleStatsUpdate(payload: {
       try {
         const prev = volumeByToken.get(fill.currencyToken) ?? 0n;
         volumeByToken.set(fill.currencyToken, prev + BigInt(fill.priceRaw));
-      } catch {}
+      } catch (err) {
+        log.warn(
+          { err, currencyToken: fill.currencyToken, priceRaw: fill.priceRaw },
+          "skipped fill in volume calc — unparseable priceRaw",
+        );
+      }
     }
   }
 

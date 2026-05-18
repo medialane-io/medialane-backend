@@ -5,7 +5,7 @@
  * Run: ~/.bun/bin/bun scripts/backfill-collection-metadata.ts
  */
 import prisma from "../src/db/client.js";
-import { enqueueJob } from "../src/orchestrator/queue.js";
+import { worker } from "../src/orchestrator/worker.js";
 
 const collections = await prisma.collection.findMany({
   where: {
@@ -22,7 +22,8 @@ const collections = await prisma.collection.findMany({
 console.log(`Enqueuing COLLECTION_METADATA_FETCH for ${collections.length} collection(s)...`);
 
 for (const col of collections) {
-  await enqueueJob("COLLECTION_METADATA_FETCH", {
+  worker.enqueue({
+    type: "COLLECTION_METADATA_FETCH",
     chain: col.chain,
     contractAddress: col.contractAddress,
   });

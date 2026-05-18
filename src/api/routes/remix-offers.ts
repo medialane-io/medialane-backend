@@ -245,7 +245,7 @@ remixOffers.post(
             requesterAddress,
             message: body.message,
             proposedPrice: body.proposedPrice,
-            proposedCurrency: normalizeAddress(body.proposedCurrency),
+            proposedCurrency: body.proposedCurrency ? normalizeAddress(body.proposedCurrency) : "",
             licenseType: body.licenseType,
             commercial: body.commercial,
             derivatives: body.derivatives,

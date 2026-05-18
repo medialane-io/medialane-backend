@@ -12,7 +12,7 @@ import { handleOrderCancelled } from "../src/mirror/handlers/orderCancelled.js";
 import { handleTransfer } from "../src/mirror/handlers/transfer.js";
 import { resolveCollectionCreated } from "../src/mirror/handlers/collectionCreated.js";
 import { saveCursor } from "../src/mirror/cursor.js";
-import { enqueueJob } from "../src/orchestrator/queue.js";
+import { worker } from "../src/orchestrator/worker.js";
 import prisma from "../src/db/client.js";
 import { env } from "../src/config/env.js";
 import { createLogger } from "../src/utils/logger.js";
@@ -114,7 +114,7 @@ async function backfill() {
       });
 
       for (const t of pendingTokens) {
-        await enqueueJob("METADATA_FETCH", { chain: CHAIN, ...t });
+        worker.enqueue({ type: "METADATA_FETCH", chain: CHAIN, contractAddress: t.contractAddress, tokenId: t.tokenId });
       }
 
       log.info({ start, end, events: parsedEvents.length }, "Batch complete");

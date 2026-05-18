@@ -82,10 +82,42 @@ export function buildWebhookPayload(event: ParsedEvent): {
           tokenId: event.tokenId,
         },
       };
+    case "TransferSingle":
+      return {
+        eventType: "TRANSFER",
+        payload: {
+          ...base,
+          contractAddress: event.contractAddress,
+          operator: event.operator,
+          from: event.from,
+          to: event.to,
+          tokenId: event.tokenId,
+          amount: event.amount,
+        },
+      };
+    case "TransferBatch":
+      return {
+        eventType: "TRANSFER",
+        payload: {
+          ...base,
+          contractAddress: event.contractAddress,
+          operator: event.operator,
+          from: event.from,
+          to: event.to,
+          transfers: event.transfers,
+        },
+      };
     case "CollectionCreated":
       return {
         eventType: "TRANSFER",
         payload: { ...base, collectionId: event.collectionId, owner: event.owner },
       };
+    default: {
+      // Exhaustiveness guard: a new ParsedEvent variant must add a case here.
+      // Never return undefined — the caller destructures the result unguarded.
+      const _exhaustive: never = event;
+      log.warn({ event: _exhaustive }, "buildWebhookPayload: unhandled event type");
+      return { eventType: "TRANSFER", payload: base };
+    }
   }
 }
