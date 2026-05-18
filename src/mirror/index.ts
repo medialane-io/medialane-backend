@@ -138,7 +138,7 @@ async function tick(tickId: string): Promise<number> {
   let rawPopAllowlistEvents: RawStarknetEvent[] = [];
   if (POP_FACTORY_CONTRACT && now - _lastPopAllowlistPollTime >= transferPollIntervalMs()) {
     const popCollections = await prisma.collection.findMany({
-      where: { chain: CHAIN, OR: [{ source: "POP_PROTOCOL" }, { service: "pop-protocol" }], startBlock: { lte: BigInt(toBlock) } },
+      where: { chain: CHAIN, service: "pop-protocol", startBlock: { lte: BigInt(toBlock) } },
       select: { contractAddress: true },
     });
     if (popCollections.length > 0) {
@@ -157,7 +157,7 @@ async function tick(tickId: string): Promise<number> {
   let rawDropAllowlistEvents: RawStarknetEvent[] = [];
   if (DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
     const dropCollections = await prisma.collection.findMany({
-      where: { chain: CHAIN, OR: [{ source: "COLLECTION_DROP" }, { service: "drop-collection" }], startBlock: { lte: BigInt(toBlock) } },
+      where: { chain: CHAIN, service: "drop-collection", startBlock: { lte: BigInt(toBlock) } },
       select: { contractAddress: true },
     });
     if (dropCollections.length > 0) {
