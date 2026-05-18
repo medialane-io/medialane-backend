@@ -1,5 +1,8 @@
 import Redis from "ioredis";
 import type { RateLimitStore } from "./rateLimit.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("middleware:redisRateLimit");
 
 export class RedisRateLimitStore implements RateLimitStore {
   private readonly redis: Redis;
@@ -8,7 +11,7 @@ export class RedisRateLimitStore implements RateLimitStore {
     this.redis = new Redis(url, { lazyConnect: true, enableOfflineQueue: false });
     this.redis.on("error", (err: Error) => {
       // log but don't crash — rate limiter should degrade gracefully
-      console.error("[RedisRateLimitStore] Redis error:", err.message);
+      log.error({ err: err.message }, "Redis error");
     });
   }
 

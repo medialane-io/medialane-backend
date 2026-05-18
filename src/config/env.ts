@@ -6,6 +6,7 @@ const envSchema = z.object({
   ALCHEMY_RPC_URL: z.string().url(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
   VOYAGER_API_KEY: z.string().default(""),
+  CLERK_SECRET_KEY: z.string().default(""),
   MARKETPLACE_721_CONTRACT_MAINNET: z
     .string()
     .default("0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6"),
