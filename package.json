@@ -16,7 +16,9 @@
     "reset-cursor": "bun run scripts/resetCursor.ts",
     "seed-rewards": "bun run src/scripts/seed-rewards.ts",
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
-    "backfill-service-id": "bun run src/scripts/backfill-service-id.ts"
+    "backfill-service-id": "bun run src/scripts/backfill-service-id.ts",
+    "backfill-accounts": "bun run src/scripts/backfill-account-model.ts",
+    "verify-accounts": "bun run src/scripts/verify-account-model.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.0",
