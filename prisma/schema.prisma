@@ -785,3 +785,17 @@ model RemixOffer {
   @@index([requesterAddress])
   @@index([status, expiresAt])
 }
+
+model ServiceContract {
+  id              String   @id @default(cuid())
+  serviceId       String
+  chain           String
+  contractAddress String
+  startBlock      String
+  active          Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  @@index([serviceId])
+  @@index([chain, active])
+}
