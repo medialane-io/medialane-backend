@@ -265,7 +265,32 @@ collections.get("/:contract/tokens", async (c) => {
     prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
   ]);
 
-  return c.json({ data: data.map((t) => serializeToken(t, [])), meta: { page, limit, total } });
+  // Per-token current holders — without this the collection list returned
+  // balances:null, so clients couldn't tell which tokens the viewer owns
+  // (every card showed Buy/Offer, even to the owner). One indexed batch query.
+  const tokenIds = data.map((t) => t.tokenId);
+  const balanceRows = tokenIds.length
+    ? await prisma.tokenBalance.findMany({
+        where: {
+          chain: "STARKNET",
+          contractAddress: addr,
+          tokenId: { in: tokenIds },
+          amount: { not: "0" },
+        },
+        select: { tokenId: true, owner: true, amount: true },
+      })
+    : [];
+  const balancesByToken = new Map<string, { owner: string; amount: string }[]>();
+  for (const b of balanceRows) {
+    const arr = balancesByToken.get(b.tokenId) ?? [];
+    arr.push({ owner: b.owner, amount: b.amount });
+    balancesByToken.set(b.tokenId, arr);
+  }
+
+  return c.json({
+    data: data.map((t) => serializeToken(t, [], balancesByToken.get(t.tokenId) ?? [])),
+    meta: { page, limit, total },
+  });
 });
 
 // POST /v1/collections/sync-tx — immediately index a CollectionCreated event from a tx receipt
