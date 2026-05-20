@@ -18,7 +18,9 @@
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
     "backfill-service-id": "bun run src/scripts/backfill-service-id.ts",
     "backfill-accounts": "bun run src/scripts/backfill-account-model.ts",
-    "verify-accounts": "bun run src/scripts/verify-account-model.ts"
+    "verify-accounts": "bun run src/scripts/verify-account-model.ts",
+    "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
+    "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.0",
