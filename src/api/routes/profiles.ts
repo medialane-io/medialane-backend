@@ -5,6 +5,11 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
+import {
+  ensureAccountForWallet,
+  resolveAccountIdFromWallet,
+  addAccountRole,
+} from "../../utils/account.js";
 import { env } from "../../config/env.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -195,20 +200,33 @@ profiles.get("/creators", async (c) => {
     } : {}),
   };
 
-  const [total, creators] = await Promise.all([
-    prisma.creatorProfile.count({ where }),
-    prisma.creatorProfile.findMany({
+  const [total, profilesPage] = await Promise.all([
+    prisma.accountProfile.count({ where }),
+    prisma.accountProfile.findMany({
       where,
-      select: {
-        walletAddress: true, username: true, displayName: true, bio: true,
-        avatarImage: true, bannerImage: true, websiteUrl: true,
-        twitterUrl: true, discordUrl: true, telegramUrl: true,
+      include: {
+        account: { include: { wallets: { where: { isPrimary: true }, take: 1 } } },
       },
       orderBy: { username: "asc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
   ]);
+
+  const creators = profilesPage
+    .filter((p) => p.account.wallets[0])
+    .map((p) => ({
+      walletAddress: p.account.wallets[0]!.address,
+      username: p.username,
+      displayName: p.displayName,
+      bio: p.bio,
+      avatarImage: p.avatarImage,
+      bannerImage: p.bannerImage,
+      websiteUrl: p.websiteUrl,
+      twitterUrl: p.twitterUrl,
+      discordUrl: p.discordUrl,
+      telegramUrl: p.telegramUrl,
+    }));
 
   // For creators without avatarImage and bannerImage, populate collectionImage
   // from their first (most recent) collection — single batch query, no N+1.
@@ -245,16 +263,27 @@ profiles.get("/creators", async (c) => {
 
 profiles.get("/creators/by-username/:username", async (c) => {
   const username = c.req.param("username").toLowerCase().trim();
-  const profile = await prisma.creatorProfile.findUnique({
+  const profile = await prisma.accountProfile.findUnique({
     where: { username },
-    select: {
-      walletAddress: true, username: true, displayName: true, bio: true,
-      avatarImage: true, bannerImage: true, websiteUrl: true,
-      twitterUrl: true, discordUrl: true, telegramUrl: true,
+    include: {
+      account: { include: { wallets: { where: { isPrimary: true }, take: 1 } } },
     },
   });
-  if (!profile) return c.json({ error: "Creator not found" }, 404);
-  return c.json(profile);
+  if (!profile || !profile.account.wallets[0]) {
+    return c.json({ error: "Creator not found" }, 404);
+  }
+  return c.json({
+    walletAddress: profile.account.wallets[0].address,
+    username: profile.username,
+    displayName: profile.displayName,
+    bio: profile.bio,
+    avatarImage: profile.avatarImage,
+    bannerImage: profile.bannerImage,
+    websiteUrl: profile.websiteUrl,
+    twitterUrl: profile.twitterUrl,
+    discordUrl: profile.discordUrl,
+    telegramUrl: profile.telegramUrl,
+  });
 });
 
 // ─── Creator Hidden Indicator (public read) ──────────────────────────────────
@@ -271,8 +300,25 @@ profiles.get("/creators/:wallet/hidden", async (c) => {
 
 profiles.get("/creators/:wallet/profile", async (c) => {
   const wallet = normalizeAddress(c.req.param("wallet"));
-  const profile = await prisma.creatorProfile.findUnique({ where: { walletAddress: wallet } });
-  return c.json(profile); // null if not found — HTTP 200 per spec
+  const accountId = await resolveAccountIdFromWallet("STARKNET", wallet);
+  if (!accountId) return c.json(null);
+  const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
+  if (!profile) return c.json(null);
+  return c.json({
+    walletAddress: wallet,
+    chain: "STARKNET",
+    username: profile.username,
+    displayName: profile.displayName,
+    bio: profile.bio,
+    avatarImage: profile.avatarImage,
+    bannerImage: profile.bannerImage,
+    websiteUrl: profile.websiteUrl,
+    twitterUrl: profile.twitterUrl,
+    discordUrl: profile.discordUrl,
+    telegramUrl: profile.telegramUrl,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+  });
 });
 
 profiles.patch(
@@ -288,13 +334,38 @@ profiles.patch(
       return c.json({ error: "Not authorized to edit this profile" }, 403);
     }
 
-    const profile = await prisma.creatorProfile.upsert({
-      where: { walletAddress: wallet },
-      create: { walletAddress: wallet, chain: "STARKNET", ...data },
+    // Auto-provision Account if the JWT-verified wallet has none (lazy onboarding
+    // for users that hit the profile editor without going through /users/register first).
+    const { accountId } = await ensureAccountForWallet({
+      chain: "STARKNET",
+      address: wallet,
+      walletType: "UNKNOWN",
+      appSource: "MEDIALANE_DAPP",
+    });
+
+    await addAccountRole(accountId, "CREATOR");
+
+    const profile = await prisma.accountProfile.upsert({
+      where: { accountId },
+      create: { accountId, ...data },
       update: { ...data },
     });
 
-    return c.json(profile);
+    return c.json({
+      walletAddress: wallet,
+      chain: "STARKNET",
+      username: profile.username,
+      displayName: profile.displayName,
+      bio: profile.bio,
+      avatarImage: profile.avatarImage,
+      bannerImage: profile.bannerImage,
+      websiteUrl: profile.websiteUrl,
+      twitterUrl: profile.twitterUrl,
+      discordUrl: profile.discordUrl,
+      telegramUrl: profile.telegramUrl,
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+    });
   }
 );
 

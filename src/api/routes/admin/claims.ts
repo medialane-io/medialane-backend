@@ -11,6 +11,7 @@ import { worker } from "../../../orchestrator/worker.js";
 import { createLogger } from "../../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../../utils/mailer.js";
 import { normalizeAddress, normalizeHash } from "../../../utils/starknet.js";
+import { ensureAccountForWallet, addAccountRole } from "../../../utils/account.js";
 import { handleOrderCreated } from "../../../mirror/handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated1155.js";
 import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../../mirror/poller.js";
@@ -131,11 +132,18 @@ admin.patch("/username-claims/:id", async (c) => {
   });
 
   if (status === "APPROVED") {
-    // Write the approved username onto the creator's profile (upsert in case
-    // they haven't created a profile record yet)
-    await prisma.creatorProfile.upsert({
-      where: { walletAddress: claim.walletAddress },
-      create: { walletAddress: claim.walletAddress, chain: "STARKNET", username: claim.username },
+    // Resolve (or lazily provision) an Account for the claiming wallet,
+    // mark it CREATOR, write the username onto its AccountProfile.
+    const { accountId } = await ensureAccountForWallet({
+      chain: "STARKNET",
+      address: claim.walletAddress,
+      walletType: "UNKNOWN",
+      appSource: "MEDIALANE_DAPP",
+    });
+    await addAccountRole(accountId, "CREATOR");
+    await prisma.accountProfile.upsert({
+      where: { accountId },
+      create: { accountId, username: claim.username },
       update: { username: claim.username },
     });
 

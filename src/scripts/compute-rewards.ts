@@ -756,6 +756,23 @@ async function main() {
     console.log(`  Wrote ${badgeRows.length} UserBadge records`);
   }
 
+  // Opportunistic accountId backfill — links reputation rows to Accounts where
+  // the wallet is known. Activity-only addresses (no Wallet row) stay null.
+  const scoresLinked = await prisma.$executeRaw`
+    UPDATE "UserScore" us SET "accountId" = w."accountId"
+    FROM "Wallet" w
+    WHERE w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
+  `;
+  const badgesLinked = await prisma.$executeRaw`
+    UPDATE "UserBadge" ub SET "accountId" = w."accountId"
+    FROM "Wallet" w WHERE w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
+  `;
+  const eventsLinked = await prisma.$executeRaw`
+    UPDATE "PointEvent" pe SET "accountId" = w."accountId"
+    FROM "Wallet" w WHERE w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
+  `;
+  console.log(`  Linked accountId on ${scoresLinked} UserScore, ${badgesLinked} UserBadge, ${eventsLinked} PointEvent rows`);
+
   console.log("Done.");
 }
 

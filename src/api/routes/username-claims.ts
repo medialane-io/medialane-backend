@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
+import { resolveAccountIdFromWallet } from "../../utils/account.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const usernameClaims = new Hono<AppEnv>();
@@ -44,7 +45,7 @@ usernameClaims.get("/check/:username", async (c) => {
   if (RESERVED.has(slug)) return c.json({ available: false, reason: "That username is reserved." });
 
   const [takenProfile, pendingClaim] = await Promise.all([
-    prisma.creatorProfile.findUnique({ where: { username: slug }, select: { walletAddress: true } }),
+    prisma.accountProfile.findUnique({ where: { username: slug }, select: { accountId: true } }),
     prisma.usernameClaim.findFirst({ where: { username: slug, status: { in: ["PENDING", "APPROVED"] } } }),
   ]);
 
@@ -72,12 +73,15 @@ usernameClaims.post(
     if (validationError) return c.json({ error: validationError }, 400);
 
     // Check if the user already has an approved username
-    const profile = await prisma.creatorProfile.findUnique({
-      where: { walletAddress: jwtWallet },
-      select: { username: true },
-    });
-    if (profile?.username) {
-      return c.json({ error: "You already have an approved username." }, 409);
+    const callerAccountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
+    if (callerAccountId) {
+      const profile = await prisma.accountProfile.findUnique({
+        where: { accountId: callerAccountId },
+        select: { username: true },
+      });
+      if (profile?.username) {
+        return c.json({ error: "You already have an approved username." }, 409);
+      }
     }
 
     // Check if there's already a PENDING claim from this wallet
@@ -89,9 +93,9 @@ usernameClaims.post(
     }
 
     // Check if username is taken (approved profile or pending/approved claim)
-    const takenProfile = await prisma.creatorProfile.findUnique({
+    const takenProfile = await prisma.accountProfile.findUnique({
       where: { username: slug },
-      select: { walletAddress: true },
+      select: { accountId: true },
     });
     if (takenProfile) return c.json({ error: "That username is already taken." }, 409);
 
@@ -117,11 +121,14 @@ usernameClaims.get(
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;
 
+    const accountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
     const [profile, latestClaim] = await Promise.all([
-      prisma.creatorProfile.findUnique({
-        where: { walletAddress: jwtWallet },
-        select: { username: true },
-      }),
+      accountId
+        ? prisma.accountProfile.findUnique({
+            where: { accountId },
+            select: { username: true },
+          })
+        : Promise.resolve(null),
       prisma.usernameClaim.findFirst({
         where: { walletAddress: jwtWallet },
         orderBy: { createdAt: "desc" },

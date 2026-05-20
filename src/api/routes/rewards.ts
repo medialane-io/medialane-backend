@@ -16,7 +16,7 @@ const rewards = new Hono();
 rewards.get("/:address", async (c) => {
   const address = normalizeAddress(c.req.param("address"));
 
-  const [score, badges, levels] = await Promise.all([
+  const [score, badges, levels, wallet] = await Promise.all([
     prisma.userScore.findUnique({ where: { address } }),
     prisma.userBadge.findMany({
       where: { address },
@@ -24,7 +24,13 @@ rewards.get("/:address", async (c) => {
       orderBy: { awardedAt: "asc" },
     }),
     prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
+    prisma.wallet.findUnique({
+      where: { chain_address: { chain: "STARKNET", address } },
+      include: { account: { select: { publicId: true } } },
+    }),
   ]);
+  const accountId = wallet?.accountId ?? null;
+  const publicId = wallet?.account?.publicId ?? null;
 
   if (!score) {
     // Return zeroed state for addresses not yet in the system
@@ -32,6 +38,8 @@ rewards.get("/:address", async (c) => {
     return c.json({
       data: {
         address,
+        accountId,
+        publicId,
         totalXp: 0,
         currentLevel: 1,
         currentLevelName: starterLevel.name,
@@ -58,6 +66,8 @@ rewards.get("/:address", async (c) => {
   return c.json({
     data: {
       address,
+      accountId,
+      publicId,
       totalXp: score.totalXp,
       currentLevel: score.currentLevel,
       currentLevelName: currentLevelData?.name ?? "Starter",
@@ -91,10 +101,22 @@ rewards.get("/", async (c) => {
   const levels = await prisma.rewardLevel.findMany({ orderBy: { level: "asc" } });
   const levelMap = new Map(levels.map((l) => [l.level, l]));
 
+  // Batch-fetch publicIds for scores that have an accountId — one query, no N+1.
+  const accountIds = scores.map((s) => s.accountId).filter((id): id is string => id != null);
+  const accounts = accountIds.length
+    ? await prisma.account.findMany({
+        where: { id: { in: accountIds } },
+        select: { id: true, publicId: true },
+      })
+    : [];
+  const publicIdByAccount = new Map(accounts.map((a) => [a.id, a.publicId]));
+
   return c.json({
     data: scores.map((s, i) => ({
       rank: skip + i + 1,
       address: s.address,
+      accountId: s.accountId,
+      publicId: s.accountId ? publicIdByAccount.get(s.accountId) ?? null : null,
       totalXp: s.totalXp,
       currentLevel: s.currentLevel,
       currentLevelName: levelMap.get(s.currentLevel)?.name ?? "Starter",
