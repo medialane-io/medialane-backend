@@ -85,6 +85,11 @@ export async function ensureAccountForWallet(params: {
         data: { walletType: params.walletType },
       });
     }
+    // Backfill a CLERK Identity for medialane-io accounts that pre-date the
+    // dual-identity change. Idempotent via the (provider, providerUserId) unique key.
+    if (params.appSource === "MEDIALANE_IO") {
+      await ensureClerkIdentity(existing.accountId, address, params.email);
+    }
     return { accountId: existing.accountId, walletId: existing.id, created: false };
   }
 
@@ -135,6 +140,22 @@ export async function ensureAccountForWallet(params: {
       },
     });
 
+    // A medialane-io user authenticates via Clerk AND has a ChipiPay/Privy wallet.
+    // The wallet-provider Identity above captures the wallet provenance; this second
+    // Identity captures the auth provenance. They're distinct facets — see
+    // medialane-core/docs/architecture/07-identity-model.md.
+    if (params.appSource === "MEDIALANE_IO" && provider !== "CLERK") {
+      await tx.identity.create({
+        data: {
+          accountId: account.id,
+          provider: "CLERK",
+          providerUserId: `MEDIALANE_IO:clerk:${address}`,
+          appSource: params.appSource,
+          email: params.email ?? null,
+        },
+      });
+    }
+
     await tx.accountProfile.create({
       data: { accountId: account.id },
     });
@@ -143,4 +164,36 @@ export async function ensureAccountForWallet(params: {
   });
 
   return { ...result, created: true };
+}
+
+/**
+ * Idempotently ensure a CLERK Identity row exists for this Account. Used to
+ * backfill pre-existing medialane-io accounts that were created before the
+ * dual-Identity change; safe to call on every login.
+ */
+async function ensureClerkIdentity(
+  accountId: string,
+  address: string,
+  email?: string,
+): Promise<void> {
+  const providerUserId = `MEDIALANE_IO:clerk:${address}`;
+  const existing = await prisma.identity.findUnique({
+    where: { provider_providerUserId: { provider: "CLERK", providerUserId } },
+    select: { id: true },
+  });
+  if (existing) return;
+  try {
+    await prisma.identity.create({
+      data: {
+        accountId,
+        provider: "CLERK",
+        providerUserId,
+        appSource: "MEDIALANE_IO",
+        email: email ?? null,
+      },
+    });
+  } catch {
+    // Race-safe: a concurrent caller may have inserted the row; the unique key
+    // protects us. Swallow — the desired end-state is achieved either way.
+  }
 }
