@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { z } from "zod";
+import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
@@ -9,13 +11,33 @@ import type { WalletType, AppSource, Chain, IdentityProvider } from "@prisma/cli
 
 const users = new Hono<AppEnv>();
 
+const walletTypeEnum = z.enum([
+  "ARGENT", "BRAAVOS", "CARTRIDGE", "PRIVY", "CHIPIPAY", "INJECTED", "UNKNOWN",
+]);
+const appSourceEnum = z.enum([
+  "MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
+]);
+const chainEnum = z.enum(["STARKNET", "ETHEREUM", "SOLANA", "BITCOIN"]);
+
+const VALID_CHAINS = new Set<Chain>(["STARKNET", "ETHEREUM", "SOLANA", "BITCOIN"]);
 const VALID_WALLET_TYPES = new Set<WalletType>([
   "ARGENT", "BRAAVOS", "CARTRIDGE", "PRIVY", "CHIPIPAY", "INJECTED", "UNKNOWN",
 ]);
 const VALID_APP_SOURCES = new Set<AppSource>([
   "MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
 ]);
-const VALID_CHAINS = new Set<Chain>(["STARKNET", "ETHEREUM", "SOLANA", "BITCOIN"]);
+
+const registerBodySchema = z.object({
+  walletAddress: z.string().min(1, "walletAddress is required"),
+  walletType: walletTypeEnum.optional(),
+  appSource: appSourceEnum.optional(),
+  chain: chainEnum.optional(),
+});
+
+const meBodySchema = z.object({
+  walletType: walletTypeEnum.optional(),
+  appSource: appSourceEnum.optional(),
+});
 
 function pickProvider(walletType: WalletType, appSource: AppSource): IdentityProvider {
   if (walletType === "PRIVY") return "PRIVY";
@@ -29,30 +51,11 @@ function pickProvider(walletType: WalletType, appSource: AppSource): IdentityPro
  * Frictionless registration — authenticated by tenant API key.
  * Address provided in body. Idempotent: returns existing Account if already known.
  */
-users.post("/register", async (c, next) => apiKeyAuth(c, next), async (c) => {
-  const body = await c.req.json<{
-    walletAddress?: string;
-    walletType?: string;
-    appSource?: string;
-    chain?: string;
-  }>();
-
-  if (!body.walletAddress || typeof body.walletAddress !== "string") {
-    return c.json({ error: "walletAddress is required" }, 400);
-  }
-
-  const walletType: WalletType =
-    body.walletType && VALID_WALLET_TYPES.has(body.walletType as WalletType)
-      ? (body.walletType as WalletType)
-      : "UNKNOWN";
-  const appSource: AppSource =
-    body.appSource && VALID_APP_SOURCES.has(body.appSource as AppSource)
-      ? (body.appSource as AppSource)
-      : "MEDIALANE_DAPP";
-  const chain: Chain =
-    body.chain && VALID_CHAINS.has(body.chain as Chain)
-      ? (body.chain as Chain)
-      : "STARKNET";
+users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json", registerBodySchema), async (c) => {
+  const body = c.req.valid("json");
+  const walletType: WalletType = body.walletType ?? "UNKNOWN";
+  const appSource: AppSource = body.appSource ?? "MEDIALANE_DAPP";
+  const chain: Chain = body.chain ?? "STARKNET";
 
   const { accountId } = await ensureAccountForWallet({
     chain,
@@ -90,19 +93,13 @@ users.post("/register", async (c, next) => apiKeyAuth(c, next), async (c) => {
  */
 users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
-  const body: { walletType?: string; appSource?: string } =
-    await c.req
-      .json<{ walletType?: string; appSource?: string }>()
-      .catch(() => ({}));
-
-  const walletType: WalletType =
-    body.walletType && VALID_WALLET_TYPES.has(body.walletType as WalletType)
-      ? (body.walletType as WalletType)
-      : "UNKNOWN";
-  const appSource: AppSource =
-    body.appSource && VALID_APP_SOURCES.has(body.appSource as AppSource)
-      ? (body.appSource as AppSource)
-      : "MEDIALANE_IO";
+  const raw = await c.req.json<unknown>().catch(() => ({}));
+  const parsed = meBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
+  }
+  const walletType: WalletType = parsed.data.walletType ?? "UNKNOWN";
+  const appSource: AppSource = parsed.data.appSource ?? "MEDIALANE_IO";
 
   await ensureAccountForWallet({
     chain: "STARKNET",
