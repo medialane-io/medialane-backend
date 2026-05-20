@@ -1,9 +1,7 @@
 // SNIP-12 typed data builders — verified against Cairo contract types.cairo
 import type { TypedData } from "starknet";
 import { num, cairo, hash } from "starknet";
-import { buildFeeCall } from "@medialane/sdk";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
-import { backendFeeConfig } from "../config/fee.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import { env } from "../config/env.js";
 import type {
@@ -438,27 +436,18 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
 
   if (isListing && order?.considerationToken && order?.considerationStartAmount) {
     // Buyer fulfills a listing: approve payment token for price_per_unit × quantity.
+    // No fee is bundled here — the platform fee is charged by io as a separate
+    // post-confirmation transaction (the ChipiPay account is non-atomic, so a
+    // bundled fee would stick even when fulfill_order reverts). See
+    // medialane-core/docs/specs/2026-05-20-io-verify-then-charge-fee-design.md
     const pricePerUnit = BigInt(order.considerationStartAmount);
-    const totalPriceBig = pricePerUnit * quantity1155;
-    const totalPrice = totalPriceBig.toString();
+    const totalPrice = (pricePerUnit * quantity1155).toString();
     const amountUint256 = cairo.uint256(totalPrice);
     calls.push({
       contractAddress: order.considerationToken,
       entrypoint: "approve",
       calldata: [marketplaceContract, amountUint256.low.toString(), amountUint256.high.toString()],
     });
-    // Platform fee (creators fund) — buyer pays. Order: approve → fee → fulfill.
-    const feeCall = buildFeeCall(
-      { surface: "marketplace", token: order.considerationToken, grossAmount: totalPriceBig },
-      backendFeeConfig
-    );
-    if (feeCall) {
-      calls.push({
-        contractAddress: feeCall.contractAddress,
-        entrypoint: feeCall.entrypoint,
-        calldata: feeCall.calldata as string[],
-      });
-    }
   } else if (isOffer && order?.considerationToken && order?.considerationIdentifier) {
     // Seller accepts an offer: approve the NFT side to the marketplace.
     if (is1155 || considerationItemType === "ERC1155") {
