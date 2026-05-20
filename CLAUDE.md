@@ -16,10 +16,18 @@ Guidance for Claude Code when working in this repository.
 
 ~/.bun/bin/bun run backfill     # backfill historical on-chain data
 ~/.bun/bin/bun run reset-cursor # reset IndexerCursor to INDEXER_START_BLOCK
+
+# Account-model scripts (added 2026-05-20)
+~/.bun/bin/bun run verify-accounts        # invariants on the DB pointed to by DATABASE_URL
+~/.bun/bin/bun run backfill-accounts      # legacy User/CreatorProfile → Account/Wallet/Identity/AccountProfile
+~/.bun/bin/bun run prod:verify            # invariants against Railway prod (uses DATABASE_PUBLIC_URL)
+~/.bun/bin/bun run prod:migrate-status    # `prisma migrate status` against Railway prod
 ```
 
 Always use `~/.bun/bin/bun` — bun is not in PATH by default on this machine.
 No linting or test runner configured. Verify with curl against localhost:3000.
+
+**Hitting Railway prod from local** requires the public proxy URL — the in-cluster `postgres.railway.internal` won't resolve. The `prod:*` aliases above wrap `railway run --service Postgres bash -c 'DATABASE_URL="$DATABASE_PUBLIC_URL" …'`; prefer them over open-coding the incantation. Verify output now includes a `connection` field so the DB the numbers came from is unambiguous.
 
 ---
 
@@ -142,6 +150,10 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/collection-slug-claims/check/:slug` | Public availability check. Returns `{ available: boolean; reason?: string }`. No auth required. Mounted **before** global apiKeyAuth. |
 | POST | `/v1/collection-slug-claims` | Submit a slug claim. Clerk JWT required; caller must be collection `owner` or `claimedBy`. Body: `{ contractAddress, slug, notifyEmail? }`. |
 | GET | `/v1/collection-slug-claims/me` | Returns all slug claims submitted by the authenticated wallet. Clerk JWT required. |
+| POST | `/v1/users/register` | Frictionless account creation. Body: `{ walletAddress, walletType?, appSource?, chain? }`. Idempotent — returns existing Account if known. Tenant key only. |
+| POST | `/v1/users/me` | Upsert the JWT caller's Account (lazy onboarding for first-touch flows). identityAuth (Clerk JWT or SIWS). |
+| GET | `/v1/users/me` | Returns `{ walletAddress, accountId, publicId }` for JWT caller. 404 if unknown. identityAuth. |
+| GET | `/v1/users/count` | Account count with optional filters `?chain&appSource&walletType&since`. Used for grant reporting. Tenant key only. |
 | GET | `/v1/portal/me` | `{ id, name, email, plan, status }` |
 | GET | `/v1/portal/keys` | List keys (prefix only, no plaintext) |
 | POST | `/v1/portal/keys` | `{ label? }` — max 5 active; returns plaintext ONCE |
@@ -205,6 +217,34 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Account model (shipped 2026-05-20)
+
+The legacy `User` table has been replaced by a four-table model (PRs medialane-backend#17 and #18). Plan: `medialane-core/docs/plans/2026-05-18-account-model-redesign.md`. Architecture: `medialane-core/docs/architecture/01-core-model.md §II`, `07-identity-model.md`.
+
+**Tables:**
+- `Account` — the logical actor (`publicId`, roles[], `createdAt`). One per human/agent/org/collector. Reputation, badges, scores attach here.
+- `Wallet` — `(chain, address)`, normalized. Unique. Has `walletType`, `isPrimary`. v1: one Wallet per Account; year-2: many.
+- `Identity` — auth-provider record (`provider`, `appSource`, optional `externalId`). One Account may have several (e.g. CLERK + WALLET).
+- `AccountProfile` — off-chain enrichment (`username`, `displayName`, `bio`, social URLs, images). Keyed by `accountId` (unique) so an orphan Profile is structurally impossible.
+
+**Helpers (`src/utils/account.ts`):**
+- `resolveAccountIdFromWallet(chain, address)` — read; returns `accountId | null`.
+- `ensureAccountForWallet({chain, address, walletType, appSource, identityProvider?})` — idempotent upsert; returns `{ accountId, walletId }`. Every code path that creates a Profile, awards a badge, or links a reward MUST resolve the Account through this helper first, never via raw `prisma.account.create`.
+
+**Invariants enforced in code (verified by `bun run verify-accounts`):**
+- `orphan_wallets_no_account = 0` — every Wallet has an Account (Prisma FK).
+- `wallets_with_multiple_accounts = 0` — `(chain, address)` is unique on Wallet.
+- `AccountProfile.accountId` is the unique key, so every Profile has an Account by definition.
+
+**Rewards link (commit 7d9eb62):** `UserScore`, `UserBadge`, `PointEvent` now carry an optional `accountId`. Backfill populated 19/508 scores, 35/544 badges (the remaining ~489 are activity-only addresses that never onboarded — Tier-2, deferred). `compute-rewards.ts` writes the linkage when the wallet maps to a known Account.
+
+**Production state (2026-05-20 after backfill):** 61 Accounts, 61 Wallets, 59 Identities, 61 AccountProfiles, 0 orphan wallets. Run `bun run prod:verify` any time to refresh these numbers; output includes a `connection` field naming the DB.
+
+**Deferred (not blocked):**
+- Tier-2 backfill: provision Accounts for the ~449 activity-only addresses (`UserScore` rows with no matching wallet).
+- Cross-chain `WalletAttestation` (year-2 per `07 §IV`). Schema is shaped to accept it without migration.
+- Drop legacy `User` and `CreatorProfile` (Phase 2 of the plan). The new code no longer reads them; deletion is a future cleanup.
 
 ### Rewards & Ranking System (added 2026-05-12)
 
