@@ -120,7 +120,7 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/orders/user/:address` | `page`, `limit` |
 | GET | `/v1/collections` | `page` (max clamped), `limit` (max 100), `?owner=address`, `?isKnown=true\|false`, `?sort=recent\|supply\|floor\|volume\|name` (default: `recent` = `createdAt DESC`). `floor`/`volume` use `$queryRaw` with `::numeric NULLS LAST`. |
 | GET | `/v1/collections/:contract` | |
-| GET | `/v1/collections/:contract/tokens` | `page`, `limit` |
+| GET | `/v1/collections/:contract/tokens` | `page`, `limit`. Each token carries `balances` (per-holder `owner`+`amount`) so clients can determine ownership from a list response (added 2026-05-20). |
 | GET | `/v1/tokens/owned/:address` | `page`, `limit` |
 | GET | `/v1/tokens/:contract/:tokenId` | `?wait=true` blocks 3s for JIT metadata |
 | GET | `/v1/tokens/:contract/:tokenId/history` | Mixed transfers + orders, sorted by timestamp |
@@ -217,6 +217,24 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Platform fee + collection-token ownership (added 2026-05-20)
+
+**Platform fee in fulfill intents.** `buildFulfillOrderIntent` (`src/orchestrator/intent.ts`),
+in the **listing branch only** (buyer fulfills a listing), appends an ERC-20
+`transfer` to the creators-fund address after the `approve` and before
+`fulfill_order`. The fee is computed by `buildFeeCall` from `@medialane/sdk`
+(single source of truth); config via `src/config/fee.ts` (`FEE_ENABLED`,
+`FEE_FUND_ADDRESS`, `FEE_MARKETPLACE_BPS`/`FEE_LAUNCHPAD_BPS`, default 1%).
+The accept-offer (`isOffer`) branch is intentionally **not** fee'd — the
+fulfiller there is the seller, not the payer. No fee logic on-chain — platform
+layer only (`00 §12`).
+
+**Collection-token balances.** `GET /v1/collections/:contract/tokens` now batch-
+queries `TokenBalance` and includes per-token `balances` in the list response.
+Previously `balances` was `null` on list responses, so clients (e.g. the io
+collection page) couldn't tell which tokens the viewer owns. One indexed query
+per page.
 
 ### Account model (shipped 2026-05-20)
 
