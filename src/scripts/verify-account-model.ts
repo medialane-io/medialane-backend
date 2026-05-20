@@ -1,6 +1,37 @@
 import prisma from "../db/client.js";
 
+function connectionLabel(): string {
+  const url = process.env.DATABASE_URL;
+  if (!url) return "unknown (DATABASE_URL unset)";
+  try {
+    const u = new URL(url);
+    return `${u.hostname}:${u.port || "5432"}${u.pathname}`;
+  } catch {
+    return "unknown (DATABASE_URL unparseable)";
+  }
+}
+
+async function preflightSchema() {
+  const required = ["Account", "Wallet", "Identity", "AccountProfile"];
+  const rows = await prisma.$queryRaw<{ table_name: string }[]>`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = ANY(${required}::text[])
+  `;
+  const present = new Set(rows.map((r) => r.table_name));
+  const missing = required.filter((t) => !present.has(t));
+  if (missing.length > 0) {
+    console.error(
+      `Schema not ready on ${connectionLabel()}:\n` +
+        `  missing tables: ${missing.join(", ")}\n` +
+        `  run \`prisma migrate deploy\` first (or \`bun run prod:migrate-status\` to inspect).`
+    );
+    process.exit(2);
+  }
+}
+
 async function main() {
+  await preflightSchema();
+
   const [
     accounts,
     wallets,
@@ -34,6 +65,7 @@ async function main() {
   ]);
 
   const report = {
+    connection: connectionLabel(),
     accounts,
     wallets,
     identities,
