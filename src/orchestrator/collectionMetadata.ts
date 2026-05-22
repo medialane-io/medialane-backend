@@ -112,12 +112,12 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  // ERC1155_FACTORY collections: name, symbol, and base_uri are decoded directly from
-  // the CollectionDeployed event by the indexer and written at index time — they are
-  // the on-chain source of truth. Although v2 contracts expose name()/symbol()/base_uri()
-  // view functions, we skip the RPC fetch here to avoid overwriting event-sourced data
-  // and because detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet
-  // OZ SRC5 interface IDs (would always return UNKNOWN). standard=ERC1155 is set directly.
+  // ERC1155 collections (Medialane-deployed or external): name, symbol, and base_uri
+  // are decoded by the indexer for mip-erc1155, and read on-chain for externals.
+  // detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet OZ SRC5
+  // interface IDs (always returns UNKNOWN), so this branch handles ERC1155 fetch
+  // explicitly. `service` is intentionally NOT written here — it is owned by the
+  // indexer factory handlers (mip-erc1155) or stays null (external).
   if (existing?.service === "mip-erc1155" || existing?.standard === "ERC1155") {
     const missingCanonicalFields =
       !existing?.name ||
@@ -180,7 +180,6 @@ export async function handleCollectionMetadataFetch(payload: {
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
-        service: "mip-erc1155",
         standard: "ERC1155",
         metadataStatus: "FETCHED",
         name: existing?.name || onchainName || undefined,
@@ -191,7 +190,7 @@ export async function handleCollectionMetadataFetch(payload: {
         description: resolvedDescription ?? undefined,
       },
     });
-    log.debug({ chain, contractAddress, resolvedImage }, "ERC1155_FACTORY collection metadata marked FETCHED");
+    log.debug({ chain, contractAddress, resolvedImage }, "ERC1155 collection metadata marked FETCHED");
     worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
     return;
   }

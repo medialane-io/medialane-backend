@@ -25,7 +25,7 @@ import { InMemoryRateLimitStore } from "../../middleware/rateLimit.js";
 import { toErrorMessage } from "../../../utils/error.js";
 import { getClientIp } from "./_shared.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../../mirror/handlers/collectionCreated.js";
-import { COLLECTION_START_BLOCK } from "../../../config/constants.js";
+import { COLLECTION_721_START_BLOCK } from "../../../config/constants.js";
 
 const log = createLogger("routes:admin");
 
@@ -186,11 +186,14 @@ admin.post("/collections", async (c) => {
     chain: z.string().optional().default("STARKNET"),
     startBlock: z.number().optional().default(0),
     standard: z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
+    // service: caller chooses. Explicit `null` marks the collection as external.
+    // Omit to leave service untouched on existing rows / default to null on create.
+    service: z.string().nullable().optional(),
   });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
-  const { contractAddress: rawAddr, chain, startBlock, standard } = parsed.data;
+  const { contractAddress: rawAddr, chain, startBlock, standard, service } = parsed.data;
   const contractAddress = normalizeAddress(rawAddr);
 
   const col = await prisma.collection.upsert({
@@ -201,9 +204,11 @@ admin.post("/collections", async (c) => {
       metadataStatus: "PENDING",
       startBlock: BigInt(startBlock),
       ...(standard ? { standard: standard as any } : {}),
+      ...(service !== undefined ? { service } : {}),
     },
     update: {
       ...(standard ? { standard: standard as any } : {}),
+      ...(service !== undefined ? { service } : {}),
     },
   });
 
@@ -435,7 +440,7 @@ admin.post("/collections/backfill-metadata", async (c) => {
 
 admin.post("/collections/backfill-registry", async (c) => {
   const latestBlock = await getLatestBlock();
-  const events = await pollCollectionCreatedEvents(COLLECTION_START_BLOCK, latestBlock);
+  const events = await pollCollectionCreatedEvents(COLLECTION_721_START_BLOCK, latestBlock);
   let inserted = 0;
   let skipped = 0;
 

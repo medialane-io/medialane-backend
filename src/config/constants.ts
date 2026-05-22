@@ -8,8 +8,7 @@ export const COLLECTION_721_CONTRACT = env.COLLECTION_721_CONTRACT_MAINNET;
 
 // Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
-// Collection registry starting block (configurable via COLLECTION_START_BLOCK env var)
-export const COLLECTION_START_BLOCK = env.COLLECTION_START_BLOCK;
+export const COLLECTION_721_START_BLOCK = env.COLLECTION_721_START_BLOCK;
 
 // Event selectors (computed once at startup)
 export const ORDER_CREATED_SELECTOR = hash.getSelectorFromName("OrderCreated");
