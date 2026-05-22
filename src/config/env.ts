@@ -15,7 +15,7 @@ const envSchema = z.object({
     .default("0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99"),
   COLLECTION_721_CONTRACT_MAINNET: z
     .string()
-    .default("0x07c2207d200a1dce1cc82a117d8ba91dabfe3d1cc5072d9e4cdd9654fbb0ff10"),
+    .default("0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2"),
   COMMENTS_CONTRACT_ADDRESS: z.string().default("0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799"),
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_FACTORY_ADDRESS: z.string().default(""),
@@ -24,10 +24,10 @@ const envSchema = z.object({
   DROP_START_BLOCK: z.coerce.number().default(0),
   COLLECTION_1155_CONTRACT_MAINNET: z
     .string()
-    .default("0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6"),
-  ERC1155_FACTORY_START_BLOCK: z.coerce.number().default(0),
+    .default("0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131"),
+  ERC1155_FACTORY_START_BLOCK: z.coerce.number().default(10045611),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
-  COLLECTION_START_BLOCK: z.coerce.number().default(8660000),
+  COLLECTION_START_BLOCK: z.coerce.number().default(10046166),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
