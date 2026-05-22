@@ -195,10 +195,17 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  await prisma.collection.upsert({
+  // Only update if the row already exists. Collection rows are created
+  // by indexer handlers (factory CollectionCreated / Transfer events) —
+  // never by the metadata orchestrator. If the row is missing, that's a
+  // queue bug, not a recovery scenario.
+  if (!existing) {
+    log.warn({ chain, contractAddress }, "Metadata fetch queued for unknown collection — skipping");
+    return;
+  }
+  await prisma.collection.update({
     where: { chain_contractAddress: { chain, contractAddress } },
-    create: { chain, contractAddress, metadataStatus: "FETCHING", startBlock: BigInt(0) },
-    update: { metadataStatus: "FETCHING" },
+    data: { metadataStatus: "FETCHING" },
   });
 
   try {
@@ -245,10 +252,10 @@ export async function handleCollectionMetadataFetch(payload: {
     worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
   } catch (err) {
     log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
-    await prisma.collection.upsert({
+    // Row was guaranteed to exist above; update-only here too.
+    await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
-      create: { chain, contractAddress, metadataStatus: "FAILED", startBlock: BigInt(0) },
-      update: { metadataStatus: "FAILED" },
+      data: { metadataStatus: "FAILED" },
     });
     throw err;
   }
@@ -307,7 +314,7 @@ function resolveStandardByService(
  * Tries Starknet OZ SRC5 IDs first, then EVM ERC-165 IDs for bridged contracts.
  * Falls back to UNKNOWN if the contract doesn't expose the function or matches no known ID.
  */
-async function detectTokenStandard(contractAddress: string): Promise<TokenStandard> {
+export async function detectTokenStandard(contractAddress: string): Promise<TokenStandard> {
   for (const fn of ["supports_interface", "supportsInterface"]) {
     try {
       for (const id of ERC1155_PROBE_IDS) {

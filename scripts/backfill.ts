@@ -67,6 +67,7 @@ async function backfill() {
         if (event.type !== "CollectionCreated") continue;
         const resolved = await resolveCollectionCreated(event);
         if (!resolved) continue;
+        // CollectionCreated comes from the MIP registry, so service is mip-erc721.
         await prisma.collection.upsert({
           where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
           create: {
@@ -78,8 +79,10 @@ async function backfill() {
             owner: resolved.owner,
             startBlock: resolved.startBlock,
             metadataStatus: "PENDING",
+            service: "mip-erc721",
+            standard: "ERC721",
           },
-          update: { name: resolved.name ?? undefined, symbol: resolved.symbol ?? undefined, owner: resolved.owner },
+          update: { name: resolved.name ?? undefined, symbol: resolved.symbol ?? undefined, owner: resolved.owner, service: "mip-erc721", standard: "ERC721" },
         });
       }
 

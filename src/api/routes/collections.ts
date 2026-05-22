@@ -432,6 +432,12 @@ collections.post("/register", async (c) => {
     return c.json({ data: serializeCollection(collection) });
   }
 
+  // Service is required on Collection. If the caller didn't tell us, default
+  // to external-<standard> — if the contract is actually a Medialane service,
+  // the indexer's factory handler will overwrite this when it sees the
+  // corresponding deploy event.
+  const resolvedService =
+    service ?? (standard === "ERC1155" ? "external-erc1155" : "external-erc721");
   const collection = await prisma.collection.create({
     data: {
       chain: "STARKNET",
@@ -439,7 +445,7 @@ collections.post("/register", async (c) => {
       startBlock,
       metadataStatus: "PENDING",
       standard: standard ?? "UNKNOWN",
-      ...(service ? { service } : {}),
+      service: resolvedService,
     },
   });
 
@@ -461,6 +467,11 @@ collections.post("/", authMiddleware, async (c) => {
 
   const contractAddress = normalizeAddress(body.contractAddress);
 
+  // Service is required on Collection. Caller may pass it explicitly; otherwise
+  // default to external-<standard>. Factory handlers overwrite as needed.
+  const adminStandard = body.standard ?? "UNKNOWN";
+  const adminService =
+    body.service ?? (adminStandard === "ERC1155" ? "external-erc1155" : "external-erc721");
   const col = await prisma.collection.upsert({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
     create: {
@@ -472,7 +483,8 @@ collections.post("/", authMiddleware, async (c) => {
       image: body.image ?? null,
       baseUri: body.baseUri ?? null,
       owner: body.owner ? normalizeAddress(body.owner) : null,
-      standard: body.standard ?? "UNKNOWN",
+      standard: adminStandard,
+      service: adminService,
       startBlock,
     },
     update: {

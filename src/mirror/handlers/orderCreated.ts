@@ -121,13 +121,18 @@ export async function handleOrderCreated(
   }
 
   if (nftContract && nftTokenId) {
-    // Collection must be upserted before Token due to FK constraint
+    // Collection must be upserted before Token due to FK constraint.
+    // Standard comes from the order side that carries the NFT.
+    const nftStandard = isListing ? details.offerItemType : details.considerationItemType;
+    const defaultService = nftStandard === "ERC1155" ? "external-erc1155" : "external-erc721";
     await tx.collection.upsert({
       where: { chain_contractAddress: { chain, contractAddress: nftContract } },
       create: {
         chain,
         contractAddress: nftContract,
         startBlock: event.blockNumber,
+        service: defaultService,
+        standard: nftStandard as "ERC721" | "ERC1155",
       },
       update: {},
     });

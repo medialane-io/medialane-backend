@@ -186,15 +186,18 @@ admin.post("/collections", async (c) => {
     chain: z.string().optional().default("STARKNET"),
     startBlock: z.number().optional().default(0),
     standard: z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
-    // service: caller chooses. Explicit `null` marks the collection as external.
-    // Omit to leave service untouched on existing rows / default to null on create.
-    service: z.string().nullable().optional(),
+    // Caller may pass a service ID; otherwise we default to external-<standard>.
+    service: z.string().optional(),
   });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
   const { contractAddress: rawAddr, chain, startBlock, standard, service } = parsed.data;
   const contractAddress = normalizeAddress(rawAddr);
+
+  // service is required on Collection. Default to external-<standard>.
+  const resolvedService =
+    service ?? (standard === "ERC1155" ? "external-erc1155" : "external-erc721");
 
   const col = await prisma.collection.upsert({
     where: { chain_contractAddress: { chain: chain as any, contractAddress } },
@@ -203,12 +206,12 @@ admin.post("/collections", async (c) => {
       contractAddress,
       metadataStatus: "PENDING",
       startBlock: BigInt(startBlock),
+      service: resolvedService,
       ...(standard ? { standard: standard as any } : {}),
-      ...(service !== undefined ? { service } : {}),
     },
     update: {
       ...(standard ? { standard: standard as any } : {}),
-      ...(service !== undefined ? { service } : {}),
+      ...(service ? { service } : {}),
     },
   });
 

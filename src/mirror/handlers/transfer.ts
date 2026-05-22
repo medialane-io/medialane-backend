@@ -1,4 +1,4 @@
-import { type Chain, type Prisma } from "@prisma/client";
+import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
 import type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch } from "../../types/marketplace.js";
 export type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch };
 import { ZERO_ADDRESS } from "../../config/constants.js";
@@ -57,16 +57,23 @@ async function upsertTokenAndCollection(
   chain: Chain,
   contractAddress: string,
   tokenId: string,
-  blockNumber: bigint
+  blockNumber: bigint,
+  standard: TokenStandard,
 ): Promise<void> {
   await tx.token.upsert({
     where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
     create: { chain, contractAddress, tokenId, metadataStatus: "PENDING" },
     update: {},
   });
+  // Transfer events alone don't tell us if this is a Medialane service or not.
+  // Tag as external-<standard> by default; the corresponding factory handler
+  // (mirror/index.ts CollectionCreated, ip1155Factory.ts CollectionDeployed,
+  // etc.) overwrites service to the correct mip-* / pop-* / drop-* value
+  // when it processes the deploy event.
+  const defaultService = standard === "ERC1155" ? "external-erc1155" : "external-erc721";
   await tx.collection.upsert({
     where: { chain_contractAddress: { chain, contractAddress } },
-    create: { chain, contractAddress, startBlock: blockNumber, metadataStatus: "PENDING" },
+    create: { chain, contractAddress, startBlock: blockNumber, metadataStatus: "PENDING", service: defaultService, standard },
     update: {},
   });
 }
@@ -119,7 +126,7 @@ export async function handleTransfer(
 ): Promise<void> {
   const { contractAddress, tokenId, from, to, blockNumber, txHash, logIndex } = event;
 
-  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber);
+  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC721");
 
   const isNew = await createTransferIfNew(tx, {
     chain,
@@ -153,7 +160,7 @@ export async function handleTransferSingle(
   const { contractAddress, tokenId, from, to, amount, blockNumber, txHash, logIndex } = event;
   const qty = BigInt(amount);
 
-  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber);
+  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
 
   const isNew = await createTransferIfNew(tx, {
     chain,
@@ -191,7 +198,7 @@ export async function handleTransferBatch(
     // Use a derived logIndex to keep the unique constraint stable across batch items
     const itemLogIndex = logIndex * 10000 + i;
 
-    await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber);
+    await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
 
     const isNew = await createTransferIfNew(tx, {
       chain,

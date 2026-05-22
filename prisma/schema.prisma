@@ -226,10 +226,9 @@ model Collection {
   tokens          Token[]
   standard        TokenStandard     @default(UNKNOWN)
   /// Stable Medialane service ID. Open-ended string; values live in the
-  /// @medialane/sdk service registry, NOT a Prisma enum (05-service-model §I).
-  /// null = external collection (01-core-model §I). Dual-written with `source`
-  /// until Phase 2D drops `source`.
-  service         String?
+  /// @medialane/sdk service registry. Always set — external collections
+  /// use 'external-erc721' / 'external-erc1155' instead of null.
+  service         String
   claimedBy       String?
   profile         CollectionProfile?
   deletedAt   DateTime?

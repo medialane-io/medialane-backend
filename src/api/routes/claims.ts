@@ -106,10 +106,17 @@ claims.post(
       return c.json({ verified: false, reason: "owner_check_failed" });
     }
 
-    const collection = await prisma.collection.upsert({
+    // Update-only: a claim records ownership of an already-indexed collection.
+    // If the indexer hasn't seen it yet, surface that rather than inventing a row.
+    const existingCollection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
-      create: { chain: "STARKNET", contractAddress: normContract, claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
-      update: { claimedBy: normWallet },
+    });
+    if (!existingCollection) {
+      return c.json({ verified: false, reason: "collection_not_indexed" });
+    }
+    const collection = await prisma.collection.update({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      data: { claimedBy: normWallet },
     });
 
     await prisma.collectionClaim.create({
@@ -211,10 +218,15 @@ claims.post(
 
     await prisma.claimChallenge.delete({ where: { challenge } });
 
-    const collection = await prisma.collection.upsert({
+    const existingCollection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
-      create: { chain: "STARKNET", contractAddress: normContract, claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
-      update: { claimedBy: normWallet },
+    });
+    if (!existingCollection) {
+      return c.json({ verified: false, reason: "collection_not_indexed" });
+    }
+    const collection = await prisma.collection.update({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      data: { claimedBy: normWallet },
     });
 
     await prisma.collectionClaim.create({
