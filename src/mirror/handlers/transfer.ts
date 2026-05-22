@@ -2,6 +2,7 @@ import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
 import type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch } from "../../types/marketplace.js";
 export type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch };
 import { ZERO_ADDRESS } from "../../config/constants.js";
+import { ensureCollectionFromActivity } from "../../utils/collection.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("handler:transfer");
@@ -65,17 +66,7 @@ async function upsertTokenAndCollection(
     create: { chain, contractAddress, tokenId, metadataStatus: "PENDING" },
     update: {},
   });
-  // Transfer events alone don't tell us if this is a Medialane service or not.
-  // Tag as external-<standard> by default; the corresponding factory handler
-  // (mirror/index.ts CollectionCreated, ip1155Factory.ts CollectionDeployed,
-  // etc.) overwrites service to the correct mip-* / pop-* / drop-* value
-  // when it processes the deploy event.
-  const defaultService = standard === "ERC1155" ? "external-erc1155" : "external-erc721";
-  await tx.collection.upsert({
-    where: { chain_contractAddress: { chain, contractAddress } },
-    create: { chain, contractAddress, startBlock: blockNumber, metadataStatus: "PENDING", service: defaultService, standard },
-    update: {},
-  });
+  await ensureCollectionFromActivity(tx, { chain, contractAddress, standard, blockNumber });
 }
 
 async function createTransferIfNew(

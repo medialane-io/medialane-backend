@@ -13,6 +13,7 @@ import { handleTransfer } from "../src/mirror/handlers/transfer.js";
 import { resolveCollectionCreated } from "../src/mirror/handlers/collectionCreated.js";
 import { saveCursor } from "../src/mirror/cursor.js";
 import { worker } from "../src/orchestrator/worker.js";
+import { upsertCollectionFromFactory } from "../src/utils/collection.js";
 import prisma from "../src/db/client.js";
 import { env } from "../src/config/env.js";
 import { createLogger } from "../src/utils/logger.js";
@@ -68,21 +69,16 @@ async function backfill() {
         const resolved = await resolveCollectionCreated(event);
         if (!resolved) continue;
         // CollectionCreated comes from the MIP registry, so service is mip-erc721.
-        await prisma.collection.upsert({
-          where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
-          create: {
-            chain: CHAIN,
-            contractAddress: resolved.contractAddress,
-            name: resolved.name ?? undefined,
-            symbol: resolved.symbol ?? undefined,
-            baseUri: resolved.baseUri ?? undefined,
-            owner: resolved.owner,
-            startBlock: resolved.startBlock,
-            metadataStatus: "PENDING",
-            service: "mip-erc721",
-            standard: "ERC721",
-          },
-          update: { name: resolved.name ?? undefined, symbol: resolved.symbol ?? undefined, owner: resolved.owner, service: "mip-erc721", standard: "ERC721" },
+        await upsertCollectionFromFactory(prisma, {
+          chain: CHAIN,
+          contractAddress: resolved.contractAddress,
+          service: "mip-erc721",
+          standard: "ERC721",
+          name: resolved.name,
+          symbol: resolved.symbol,
+          baseUri: resolved.baseUri,
+          owner: resolved.owner,
+          startBlock: resolved.startBlock,
         });
       }
 

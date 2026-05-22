@@ -1,6 +1,7 @@
 import { num } from "starknet";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { upsertCollectionFromFactory } from "../../utils/collection.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
@@ -45,22 +46,14 @@ export async function handleDropCreated(event: RawStarknetEvent): Promise<void> 
 
     const startBlock = BigInt(event.block_number ?? 0);
 
-    await prisma.collection.upsert({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: collectionAddress } },
-      create: {
-        chain: "STARKNET",
-        contractAddress: collectionAddress,
-        collectionId: dropId,
-        owner: organizer,
-        startBlock,
-        service: "drop-collection",
-        metadataStatus: "PENDING",
-      },
-      update: {
-        collectionId: dropId,
-        owner: organizer,
-        service: "drop-collection",
-      },
+    await upsertCollectionFromFactory(prisma, {
+      chain: "STARKNET",
+      contractAddress: collectionAddress,
+      service: "drop-collection",
+      standard: "ERC721",
+      collectionId: dropId,
+      owner: organizer,
+      startBlock,
     });
 
     worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: collectionAddress });

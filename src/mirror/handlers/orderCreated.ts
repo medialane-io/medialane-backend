@@ -3,6 +3,7 @@ import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "../../config/abis.js";
 import { MARKETPLACE_721_CONTRACT } from "../../config/constants.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
+import { ensureCollectionFromActivity } from "../../utils/collection.js";
 import { getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
 import type { ParsedOrderCreated, OnChainOrderDetails } from "../../types/marketplace.js";
@@ -123,18 +124,12 @@ export async function handleOrderCreated(
   if (nftContract && nftTokenId) {
     // Collection must be upserted before Token due to FK constraint.
     // Standard comes from the order side that carries the NFT.
-    const nftStandard = isListing ? details.offerItemType : details.considerationItemType;
-    const defaultService = nftStandard === "ERC1155" ? "external-erc1155" : "external-erc721";
-    await tx.collection.upsert({
-      where: { chain_contractAddress: { chain, contractAddress: nftContract } },
-      create: {
-        chain,
-        contractAddress: nftContract,
-        startBlock: event.blockNumber,
-        service: defaultService,
-        standard: nftStandard as "ERC721" | "ERC1155",
-      },
-      update: {},
+    const nftStandard = (isListing ? details.offerItemType : details.considerationItemType) as "ERC721" | "ERC1155";
+    await ensureCollectionFromActivity(tx, {
+      chain,
+      contractAddress: nftContract,
+      standard: nftStandard,
+      blockNumber: event.blockNumber,
     });
 
     await tx.token.upsert({

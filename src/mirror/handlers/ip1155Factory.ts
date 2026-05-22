@@ -1,6 +1,7 @@
 import { num } from "starknet";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { upsertCollectionFromFactory } from "../../utils/collection.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
@@ -76,28 +77,16 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
     const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(dataFelts, afterName);
     const { value: baseUri } = decodeByteArray(dataFelts, afterSymbol);
 
-    await prisma.collection.upsert({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: collectionAddress } },
-      create: {
-        chain: "STARKNET",
-        contractAddress: collectionAddress,
-        name: name || null,
-        symbol: symbol || null,
-        baseUri: baseUri || null,
-        owner,
-        startBlock,
-        service: "mip-erc1155",
-        standard: "ERC1155",
-        metadataStatus: "PENDING",
-      },
-      update: {
-        name: name || undefined,
-        symbol: symbol || undefined,
-        baseUri: baseUri || undefined,
-        owner,
-        service: "mip-erc1155",
-        standard: "ERC1155",
-      },
+    await upsertCollectionFromFactory(prisma, {
+      chain: "STARKNET",
+      contractAddress: collectionAddress,
+      service: "mip-erc1155",
+      standard: "ERC1155",
+      name: name || null,
+      symbol: symbol || null,
+      baseUri: baseUri || null,
+      owner,
+      startBlock,
     });
 
     worker.enqueue({

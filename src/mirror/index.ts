@@ -10,6 +10,7 @@ import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
+import { upsertCollectionFromFactory } from "../utils/collection.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
 import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
@@ -296,28 +297,17 @@ async function tick(tickId: string): Promise<number> {
 
     // Upsert collection first (always safe), then enqueue job separately so a
     // transient job-table failure cannot roll back the collection record.
-    await prisma.collection.upsert({
-      where: { chain_contractAddress: { chain: CHAIN, contractAddress: resolved.contractAddress } },
-      create: {
-        chain: CHAIN,
-        contractAddress: resolved.contractAddress,
-        collectionId: event.collectionId,
-        name: resolved.name ?? undefined,
-        symbol: resolved.symbol ?? undefined,
-        baseUri: resolved.baseUri ?? undefined,
-        owner: resolved.owner,
-        startBlock: resolved.startBlock,
-        service: "mip-erc721",
-        metadataStatus: "PENDING",
-      },
-      update: {
-        // Don't overwrite admin-set values
-        collectionId: event.collectionId,
-        name: resolved.name ?? undefined,
-        symbol: resolved.symbol ?? undefined,
-        owner: resolved.owner,
-        service: "mip-erc721",
-      },
+    await upsertCollectionFromFactory(prisma, {
+      chain: CHAIN,
+      contractAddress: resolved.contractAddress,
+      service: "mip-erc721",
+      standard: "ERC721",
+      collectionId: event.collectionId,
+      name: resolved.name,
+      symbol: resolved.symbol,
+      baseUri: resolved.baseUri,
+      owner: resolved.owner,
+      startBlock: resolved.startBlock,
     });
 
     worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: CHAIN, contractAddress: resolved.contractAddress });
