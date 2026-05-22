@@ -4,8 +4,7 @@ import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEv
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated } from "./handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "./handlers/orderCreated1155.js";
-import { handleOrderFulfilled } from "./handlers/orderFulfilled.js";
-import { handleOrderFulfilled1155 } from "./handlers/orderFulfilled1155.js";
+import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
@@ -270,7 +269,8 @@ async function tick(tickId: string): Promise<number> {
           const offerer   = normalizeAddress(rawEvent.keys[2]);
           const blockNumber = BigInt(rawEvent.block_number);
           if (selector === SEL_FULFILLED) {
-            const { isFinalFill } = await handleOrderFulfilled1155(rawEvent, tx, CHAIN, logIndex);
+            const parsed = parseRawOrderFulfilled1155(rawEvent, logIndex);
+            const { isFinalFill } = await handleOrderFulfilled(parsed, tx, CHAIN);
             if (isFinalFill) await cleanupGhostListings(orderHash, tx, CHAIN);
             fulfilledOrCancelledHashes.push(orderHash);
           } else {

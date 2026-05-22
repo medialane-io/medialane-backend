@@ -19,8 +19,7 @@ import { verifyMarketplaceTx, verifyTransactionSucceeded, checkOnChainOrderCance
 import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, MARKETPLACE_1155_CONTRACT, getTokenByAddress } from "../../config/constants.js";
 import { handleOrderCreated } from "../../mirror/handlers/orderCreated.js";
 import { handleOrderCreated1155 } from "../../mirror/handlers/orderCreated1155.js";
-import { handleOrderFulfilled } from "../../mirror/handlers/orderFulfilled.js";
-import { handleOrderFulfilled1155 } from "../../mirror/handlers/orderFulfilled1155.js";
+import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "../../mirror/handlers/orderFulfilled.js";
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../mirror/parser.js";
 import { runTransferFollowups } from "../../orchestrator/transferFollowup.js";
@@ -734,12 +733,9 @@ async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
             parsedEvent.txHash === normalizeHash(event.transaction_hash) &&
             parsedEvent.orderHash === num.toHex(event.keys[1])
         );
-        await handleOrderFulfilled1155(
-          event,
-          tx,
-          "STARKNET",
-          parsed?.type === "OrderFulfilled" ? parsed.logIndex : 0
-        );
+        const logIndex = parsed?.type === "OrderFulfilled" ? parsed.logIndex : 0;
+        const parsedFulfilled = parseRawOrderFulfilled1155(event, logIndex);
+        await handleOrderFulfilled(parsedFulfilled, tx, "STARKNET");
       }
     }
 

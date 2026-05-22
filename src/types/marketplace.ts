@@ -58,6 +58,10 @@ export interface ParsedOrderFulfilled {
   blockNumber: bigint;
   txHash: string;
   logIndex: number;
+  /** ERC-1155 only - units bought in this fill. Defaults to "1" for ERC-721. */
+  quantity?: string;
+  /** ERC-1155 only - units still available after this fill. "0" means the order is fully fulfilled. */
+  remainingAmount?: string;
 }
 
 export interface ParsedOrderCancelled {
