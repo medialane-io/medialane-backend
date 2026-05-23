@@ -264,6 +264,31 @@ The legacy `User` table has been replaced by a four-table model (PRs medialane-b
 - Cross-chain `WalletAttestation` (year-2 per `07 §IV`). Schema is shaped to accept it without migration.
 - Drop legacy `User` and `CreatorProfile` (Phase 2 of the plan). The new code no longer reads them; deletion is a future cleanup.
 
+### Collection invariants (added 2026-05-22 / 2026-05-23)
+
+Structural guarantees that the source-of-null bug class (silent `service: null` writes from claims / admin / orchestrator paths that mis-classified 108 production collections) cannot recur:
+
+- **`Collection.service` is `NOT NULL`** (migration `20260522180000_collection_service_not_null`). Postgres rejects any null write — the DB is the wall, not a convention.
+- **`TokenStandard.UNKNOWN` removed** (migration `20260523000000_drop_tokenstandard_unknown`). Standard is either `ERC721` or `ERC1155`; no phantom-state defensive code allowed.
+- **Single creation path** — `utils/collection.ts` exports two helpers (`upsertCollectionFromFactory` and `ensureCollectionFromActivity`). All indexer factory handlers + the orderCreated + transfer handlers go through one of them. Other paths (claims, metadata fetch) are now update-only and refuse to invent rows.
+- **`service` values typed against `ServiceId` from `@medialane/sdk`** (≥0.20.0). Typos like `pop_protocol` fail at compile time. Runtime `assertRegisteredService()` in the helper catches dynamic values from request bodies.
+
+#### Service IDs (canonical, registered in SDK `services/registry.ts`)
+
+| `service` value | Meaning |
+|---|---|
+| `mip-erc721` | Per-creator ERC-721 deployed via MIP-Collections-ERC721 registry |
+| `mip-erc1155` | Per-creator ERC-1155 deployed via IP-Programmable-ERC1155 factory |
+| `ip-erc721` | Shared genesis ERC-721 contract |
+| `pop-protocol` | Soulbound proof-of-presence (POP factory) |
+| `drop-collection` | Timed-window collection drop (Drop factory) |
+| `external-erc721` | Any ERC-721 contract not deployed via a Medialane service |
+| `external-erc1155` | Any ERC-1155 contract not deployed via a Medialane service |
+| `medialane-marketplace-erc721` | Marketplace venue (orders only) |
+| `medialane-marketplace-erc1155` | Marketplace venue (orders only) |
+
+Legacy collections from prior contract redeployments are tagged `external-*` (the platform can no longer mint to them via the current factories, so they're operationally equivalent to true externals). When a future contract version ships, the corresponding existing rows get re-tagged `external-*` in the redeploy SQL.
+
 ### Rewards & Ranking System (added 2026-05-12)
 
 50-level DAO-managed XP system. All weights are in DB tables — adjustable via admin API without code deploys.
@@ -453,7 +478,7 @@ Required:
 | `PINATA_GATEWAY` | Pinata gateway hostname |
 | `API_SECRET_KEY` | Min 16 chars, admin auth |
 
-Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK` (default: `9130000` — updated for v0.8.0 immutable contracts), `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_CONTRACT_MAINNET`, `MARKETPLACE_1155_CONTRACT_MAINNET`, `COLLECTION_CONTRACT_MAINNET`, `POP_FACTORY_ADDRESS`, `POP_START_BLOCK`, `DROP_FACTORY_ADDRESS`, `DROP_START_BLOCK`
+Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK` (default: `9196722`), `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_721_CONTRACT_MAINNET`, `MARKETPLACE_1155_CONTRACT_MAINNET`, `COLLECTION_721_CONTRACT_MAINNET`, `COLLECTION_721_START_BLOCK` (default: `10046166`), `COLLECTION_1155_CONTRACT_MAINNET`, `POP_FACTORY_ADDRESS`, `POP_START_BLOCK`, `DROP_FACTORY_ADDRESS`, `DROP_START_BLOCK`
 
 **Collection Drop Railway env vars (add to Railway):**
 ```
@@ -463,11 +488,16 @@ DROP_START_BLOCK=8341335
 
 **Current immutable contract defaults (no Railway override needed unless testing):**
 ```
-MARKETPLACE_CONTRACT_MAINNET=0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6
+MARKETPLACE_721_CONTRACT_MAINNET=0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6
 MARKETPLACE_1155_CONTRACT_MAINNET=0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99
+COLLECTION_721_CONTRACT_MAINNET=0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2  # MIP v0.3.0
+COLLECTION_721_START_BLOCK=10046166
+COLLECTION_1155_CONTRACT_MAINNET=0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131  # v0.2.0
 COMMENTS_CONTRACT_ADDRESS=<deployed NFTComments instance — NOT 0x024f97…62799 (undeployed)>
 INDEXER_START_BLOCK=9196722
 ```
+
+> Env vars renamed 2026-05-22: `COLLECTION_START_BLOCK` → `COLLECTION_721_START_BLOCK`, dropped unused `ERC1155_FACTORY_START_BLOCK`.
 
 Local values: use `.env.local` — never put secrets in this file.
 
@@ -493,7 +523,8 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 - Marketplace ERC-721 (current): `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6`
 - **Marketplace ERC-1155 (Medialane1155V2, current)**: `0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99`
-- Collection (ERC-721): `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b`
+- **MIP IPCollection registry (ERC-721) v0.3.0** (deployed 2026-05-22): `0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2`
+- **IP-Programmable-ERC1155-Collections factory v0.2.0** (deployed 2026-05-22): `0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131`
 - NFTComments: set via `COMMENTS_CONTRACT_ADDRESS` env (the deployed instance) — **not** `0x024f97…62799` (undeployed; caused the 2026-05-17 comments outage)
 - Indexer start block: `9196722`
 - SNIP-12 domain ERC-721: `{ name: "Medialane", version: "1", revision: "1" }`
