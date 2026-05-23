@@ -144,6 +144,8 @@ export interface OnChainOrderDetails {
   considerationRecipient: string;
   startTime: bigint;
   endTime: bigint;
+  /** ERC-1155 only - units still available. Absent for ERC-721 (always single-fill). */
+  remainingAmount?: string;
   status: "active" | "fulfilled" | "cancelled";
   fulfiller: string | null;
 }

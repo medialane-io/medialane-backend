@@ -126,3 +126,18 @@ export function feltToHex(felt: string | bigint): string {
     return "0x0";
   }
 }
+
+/** Decode a Cairo felt252 short string into its ASCII representation. */
+export function decodeShortstring(felt: unknown): string {
+  try {
+    let n = BigInt(String(felt));
+    const bytes: number[] = [];
+    while (n > 0n) {
+      bytes.unshift(Number(n & 0xffn));
+      n >>= 8n;
+    }
+    return Buffer.from(bytes).toString("ascii");
+  } catch {
+    return String(felt);
+  }
+}
