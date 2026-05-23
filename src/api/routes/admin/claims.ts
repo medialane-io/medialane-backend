@@ -70,21 +70,20 @@ admin.patch("/claims/:id", async (c) => {
     const normContract = normalizeAddress(claim.contractAddress);
     const normWallet = claim.claimantAddress ? normalizeAddress(claim.claimantAddress) : null;
 
+    // Update-only — Collection rows are owned by the indexer (and the
+    // ensureCollectionFromActivity / factory-handler paths). If the
+    // indexer hasn't seen this contract yet, surface that instead of
+    // inventing a row with no standard / no real startBlock.
     const existing = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
     });
-
     if (!existing) {
-      await prisma.collection.create({
-        data: { chain: "STARKNET", contractAddress: normContract, service: service ?? null, claimedBy: normWallet, metadataStatus: "PENDING", startBlock: BigInt(0) },
-      });
-      worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: normContract });
-    } else {
-      await prisma.collection.update({
-        where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
-        data: { claimedBy: normWallet, ...(service ? { service } : {}) },
-      });
+      return c.json({ error: "Collection not yet indexed" }, 404);
     }
+    await prisma.collection.update({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      data: { claimedBy: normWallet, ...(service ? { service } : {}) },
+    });
   }
 
   return c.json({ claim: updated });

@@ -98,12 +98,11 @@ export async function handleCollectionMetadataFetch(payload: {
     select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, service: true, standard: true, baseUri: true, description: true },
   });
 
-  // Skip if already fully resolved. Re-run if standard is still UNKNOWN (detection may
-  // have previously used wrong EVM interface IDs) or image is missing for event-sourced collections.
+  // Skip if already fully resolved. Re-run if image is missing for event-sourced
+  // collections that should have one resolved from baseUri metadata.
   const alreadyComplete =
     existing?.metadataStatus === "FETCHED" &&
     existing?.owner !== null &&
-    existing?.standard !== "UNKNOWN" &&
     (existing?.service !== "mip-erc1155" || existing?.image !== null) &&
     (existing?.service !== "mip-erc721" || existing?.image !== null);
 
@@ -226,7 +225,14 @@ export async function handleCollectionMetadataFetch(payload: {
       if (raw) onChainOwner = normalizeAddress(raw.toString());
     } catch { /* contract may not expose owner() */ }
 
-    const standard = await detectTokenStandard(contractAddress);
+    // Re-detect standard only if it could change. detectTokenStandard returns
+    // null when SRC5 doesn't respond — in that case, keep the existing
+    // standard (set by the indexer factory / transfer handler when the row
+    // was first created).
+    const detected = await detectTokenStandard(contractAddress);
+    const standard = existing?.service
+      ? resolveStandardByService(existing.service, detected ?? existing.standard)
+      : detected ?? existing!.standard;
 
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
@@ -237,7 +243,7 @@ export async function handleCollectionMetadataFetch(payload: {
         description: collectionMetadata.description ?? description ?? undefined,
         image: collectionMetadata.image ?? existing?.image ?? image ?? undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
-        standard: resolveStandardByService(existing?.service, standard),
+        standard,
         metadataStatus: "FETCHED",
       },
     });
@@ -312,9 +318,11 @@ function resolveStandardByService(
 /**
  * Detect whether a contract is ERC-721 or ERC-1155 via SRC5 supportsInterface().
  * Tries Starknet OZ SRC5 IDs first, then EVM ERC-165 IDs for bridged contracts.
- * Falls back to UNKNOWN if the contract doesn't expose the function or matches no known ID.
+ * Returns null when the contract doesn't expose supportsInterface or matches no
+ * known ID — callers should refuse to create the row in that case rather than
+ * inventing a fake standard.
  */
-export async function detectTokenStandard(contractAddress: string): Promise<TokenStandard> {
+export async function detectTokenStandard(contractAddress: string): Promise<TokenStandard | null> {
   for (const fn of ["supports_interface", "supportsInterface"]) {
     try {
       for (const id of ERC1155_PROBE_IDS) {
@@ -331,14 +339,13 @@ export async function detectTokenStandard(contractAddress: string): Promise<Toke
         });
         if (result === true || result === 1n || String(result) === "1") return "ERC721";
       }
-      // Contract responded but matched no known interface ID
-      return "UNKNOWN";
+      return null;
     } catch {
       // Try the other function name variant
     }
   }
 
-  return "UNKNOWN";
+  return null;
 }
 
 async function fetchCollectionOnChainInfo(

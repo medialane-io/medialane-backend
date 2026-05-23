@@ -102,7 +102,7 @@ function resolveCollectionFromReceipt(
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155", "UNKNOWN"]);
+const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155"]);
 
 // GET /v1/collections
 collections.get("/", async (c) => {
@@ -432,10 +432,12 @@ collections.post("/register", async (c) => {
     return c.json({ data: serializeCollection(collection) });
   }
 
-  // Service is required on Collection. If the caller didn't tell us, default
-  // to external-<standard> — if the contract is actually a Medialane service,
-  // the indexer's factory handler will overwrite this when it sees the
-  // corresponding deploy event.
+  // standard is required to create a Collection — caller must specify ERC721
+  // or ERC1155. If not, refuse rather than guess (was silently defaulting to
+  // UNKNOWN before, which has been dropped from the enum).
+  if (!standard) {
+    return c.json({ error: "standard is required (ERC721 or ERC1155)" }, 400);
+  }
   const resolvedService =
     service ?? (standard === "ERC1155" ? "external-erc1155" : "external-erc721");
   const collection = await prisma.collection.create({
@@ -444,7 +446,7 @@ collections.post("/register", async (c) => {
       contractAddress,
       startBlock,
       metadataStatus: "PENDING",
-      standard: standard ?? "UNKNOWN",
+      standard: standard as "ERC721" | "ERC1155",
       service: resolvedService,
     },
   });
@@ -467,9 +469,11 @@ collections.post("/", authMiddleware, async (c) => {
 
   const contractAddress = normalizeAddress(body.contractAddress);
 
-  // Service is required on Collection. Caller may pass it explicitly; otherwise
-  // default to external-<standard>. Factory handlers overwrite as needed.
-  const adminStandard = body.standard ?? "UNKNOWN";
+  // standard is required to create — caller must specify ERC721 or ERC1155.
+  if (body.standard !== "ERC721" && body.standard !== "ERC1155") {
+    return c.json({ error: "standard is required (ERC721 or ERC1155)" }, 400);
+  }
+  const adminStandard = body.standard as "ERC721" | "ERC1155";
   const adminService =
     body.service ?? (adminStandard === "ERC1155" ? "external-erc1155" : "external-erc721");
   const col = await prisma.collection.upsert({
@@ -494,7 +498,7 @@ collections.post("/", authMiddleware, async (c) => {
       image: body.image ?? undefined,
       baseUri: body.baseUri ?? undefined,
       owner: body.owner ? normalizeAddress(body.owner) : undefined,
-      standard: body.standard ?? undefined,
+      standard: adminStandard,
     },
   });
 
@@ -516,7 +520,7 @@ function serializeCollection(c: any) {
     owner: c.owner ?? null,
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
-    standard: c.standard ?? "UNKNOWN",
+    standard: c.standard,
     isFeatured: c.isFeatured,
     isHidden: c.isHidden,
     service: c.service ?? null,

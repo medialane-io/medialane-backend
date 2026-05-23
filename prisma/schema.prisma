@@ -17,7 +17,6 @@ enum Chain {
 enum TokenStandard {
   ERC721
   ERC1155
-  UNKNOWN
 }
 
 enum ReportTargetType {
@@ -224,7 +223,7 @@ model Collection {
   holderCount     Int            @default(0)
   totalSupply     Int            @default(0)
   tokens          Token[]
-  standard        TokenStandard     @default(UNKNOWN)
+  standard        TokenStandard
   /// Stable Medialane service ID. Open-ended string; values live in the
   /// @medialane/sdk service registry. Always set — external collections
   /// use 'external-erc721' / 'external-erc1155' instead of null.

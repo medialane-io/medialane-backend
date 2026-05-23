@@ -184,7 +184,9 @@ admin.post("/collections", async (c) => {
     contractAddress: z.string().min(1),
     chain: z.string().optional().default("STARKNET"),
     startBlock: z.number().optional().default(0),
-    standard: z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
+    // Standard is required for create — every collection has a real ABI surface,
+    // there's no longer an UNKNOWN fallback.
+    standard: z.enum(["ERC721", "ERC1155"]),
     // Caller may pass a service ID; otherwise we default to external-<standard>.
     service: z.string().optional(),
   });
@@ -206,10 +208,10 @@ admin.post("/collections", async (c) => {
       metadataStatus: "PENDING",
       startBlock: BigInt(startBlock),
       service: resolvedService,
-      ...(standard ? { standard: standard as any } : {}),
+      standard,
     },
     update: {
-      ...(standard ? { standard: standard as any } : {}),
+      standard,
       ...(service ? { service } : {}),
     },
   });
@@ -237,7 +239,7 @@ admin.patch("/collections/:contract", async (c) => {
     owner:        z.string().optional(),
     collectionId: z.string().optional(),
     service:      z.string().optional(),
-    standard:     z.enum(["ERC721", "ERC1155", "UNKNOWN"]).optional(),
+    standard:     z.enum(["ERC721", "ERC1155"]).optional(),
   });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
@@ -422,7 +424,6 @@ admin.post("/collections/backfill-metadata", async (c) => {
         { metadataStatus: "FAILED" },
         { name: null },
         { owner: null },
-        { standard: "UNKNOWN" },
       ],
     },
     select: { chain: true, contractAddress: true, metadataStatus: true, name: true },
