@@ -1,3 +1,16 @@
+/**
+ * User-identity authentication - layered on top of apiKeyAuth for routes that
+ * need to know *which user* is making the request, not just *which tenant*.
+ *
+ * Accepts a Bearer token in `Authorization: Bearer <token>` and identifies
+ * the caller via one of two providers:
+ *   - Clerk JWT (for medialane-io users authenticated via Clerk)
+ *   - SIWS (Sign-In With Starknet) token (for medialane-dapp users)
+ *
+ * The verified identity (wallet address + provider) is stamped onto the Hono
+ * context as `identity` for the route handler to read. Apply after
+ * apiKeyAuth - never as the sole auth layer.
+ */
 import type { Context, Next } from "hono";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";

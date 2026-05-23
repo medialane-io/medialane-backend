@@ -1,3 +1,18 @@
+/**
+ * Tenant API key authentication - the base layer for all /v1/* routes.
+ *
+ * Accepts either header (in this priority order):
+ *   x-api-key: ml_live_...
+ *   Authorization: Bearer ml_live_...
+ *
+ * `x-api-key` is checked first so routes that also need a Clerk JWT
+ * (e.g. PATCH /v1/creators/:wallet/profile) can put the JWT in the
+ * Authorization header without it being mis-treated as the API key.
+ *
+ * Looks up the key by hash, rejects when status !== ACTIVE on either the
+ * key or its parent tenant, and stamps `apiKeyId` + `tenant` onto the
+ * Hono context for downstream middleware (rateLimit, tierGate, etc.).
+ */
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
