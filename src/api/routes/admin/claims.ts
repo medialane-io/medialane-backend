@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { authMiddleware } from "../../middleware/auth.js";
+import { authMiddleware } from "../../middleware/adminSecretAuth.js";
 import prisma from "../../../db/client.js";
 import { generateApiKey } from "../../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../../orchestrator/metadata.js";

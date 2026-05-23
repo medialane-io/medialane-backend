@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import type { RawCollectionRow, RawCountRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
-import { authMiddleware } from "../middleware/auth.js";
+import { authMiddleware } from "../middleware/adminSecretAuth.js";
 import { env } from "../../config/env.js";
 import { serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
