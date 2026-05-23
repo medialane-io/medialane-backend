@@ -1,13 +1,14 @@
 import { type Chain, type Prisma, type PrismaClient, type TokenStandard } from "@prisma/client";
-import { getService } from "@medialane/sdk";
+import { getService, type ServiceId } from "@medialane/sdk";
 import { normalizeAddress } from "./starknet.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
 /**
- * Validates a service identifier against the SDK service registry.
- * Throws if the ID isn't registered -prevents typos like "pop_protocol"
- * (underscore instead of hyphen) from being silently written to the DB.
+ * Runtime guard against unregistered service IDs. The compile-time `ServiceId`
+ * type on the helper params catches typos already; this throw catches the
+ * remaining case where a value flows in dynamically (e.g. from a request body
+ * after schema validation).
  */
 function assertRegisteredService(service: string): void {
   if (!getService(service)) {
@@ -31,7 +32,7 @@ export async function upsertCollectionFromFactory(
   params: {
     chain: Chain;
     contractAddress: string;
-    service: string;
+    service: ServiceId;
     standard: TokenStandard;
     name?: string | null;
     symbol?: string | null;
