@@ -1,6 +1,6 @@
 import { Contract, hash, num } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
-import { IPMarketplaceABI } from "../../config/abis.js";
+import { IPMarketplaceABI } from "@medialane/sdk";
 import { env } from "../../config/env.js";
 import {
   MARKETPLACE_721_CONTRACT,
