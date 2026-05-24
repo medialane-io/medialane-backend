@@ -34,23 +34,25 @@ export function generateAccountPublicId(): string {
 }
 
 /**
- * Adds a role to Account.roles only if not already present.
- * Roles is a PostgreSQL enum array; Prisma's `set` would replace it,
- * so we read-modify-write to preserve existing roles.
+ * Adds a role to Account.roles atomically. Race-safe under concurrent calls.
+ *
+ * Why raw SQL: Prisma's `roles: { set: [...account.roles, role] }` requires
+ * a read-then-write — two concurrent calls both read `[A]`, both write
+ * `[A, B]` vs `[A, C]`, last writer wins and one role is lost. A single
+ * `UPDATE ... SET roles = array_append(roles, $1) WHERE NOT (roles @> ...)`
+ * statement is atomic and idempotent (the WHERE guard makes a repeat call
+ * a no-op).
  */
 export async function addAccountRole(
   accountId: string,
   role: "CREATOR" | "COLLECTOR" | "ORGANIZATION" | "AGENT" | "PARTNER",
 ): Promise<void> {
-  const account = await prisma.account.findUniqueOrThrow({
-    where: { id: accountId },
-    select: { roles: true },
-  });
-  if (account.roles.includes(role)) return;
-  await prisma.account.update({
-    where: { id: accountId },
-    data: { roles: { set: [...account.roles, role] } },
-  });
+  await prisma.$executeRaw`
+    UPDATE "Account"
+    SET roles = array_append(roles, ${role}::"AccountRole")
+    WHERE id = ${accountId}
+      AND NOT (roles @> ARRAY[${role}::"AccountRole"])
+  `;
 }
 
 /**

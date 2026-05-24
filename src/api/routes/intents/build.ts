@@ -355,55 +355,84 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
     const { fulfiller, orderHashes } = parsed.data;
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-    const results = [];
+    const normalizedFulfiller = normalizeAddress(fulfiller);
+    const tenantId = c.get("tenant")?.id ?? null;
 
-    for (const orderHash of orderHashes) {
-      try {
-        // Guard: if the order isn't indexed yet we cannot safely determine ERC721 vs ERC1155
-        // routing and would silently submit ERC1155 orders to the ERC721 contract.
-        const dbOrder = await prisma.order.findFirst({
-          where: { chain: "STARKNET", orderHash },
-          select: { id: true },
-        });
-        if (!dbOrder) {
-          results.push({
+    // 1) Batch existence check — one query instead of N findFirst calls. Guard:
+    //    if the order isn't indexed yet we cannot safely determine ERC721 vs
+    //    ERC1155 routing and would silently submit ERC1155 orders to the
+    //    ERC721 contract.
+    const indexed = await prisma.order.findMany({
+      where: { chain: "STARKNET", orderHash: { in: orderHashes } },
+      select: { orderHash: true },
+    });
+    const indexedSet = new Set(indexed.map((o) => o.orderHash));
+
+    // 2) Build typed data + calls in parallel. Build failures land in `results`
+    //    as per-order errors without aborting the batch.
+    type Built =
+      | { ok: true; orderHash: string; typedData: unknown; calls: unknown }
+      | { ok: false; orderHash: string; error: string };
+
+    const builds: Built[] = await Promise.all(
+      orderHashes.map(async (orderHash): Promise<Built> => {
+        if (!indexedSet.has(orderHash)) {
+          return {
+            ok: false,
             orderHash,
             error: "Order not found in index — cannot determine token standard for checkout",
-          });
-          continue;
+          };
         }
-
-        const { typedData, calls } = await buildFulfillOrderIntent({
-          fulfiller: normalizeAddress(fulfiller),
-          orderHash,
-        });
-
-        const intent = await prisma.transactionIntent.create({
-          data: {
-            type: "FULFILL_ORDER",
-            requester: normalizeAddress(fulfiller),
-            tenantId: c.get("tenant")?.id ?? null,
-            typedData: typedData as unknown as PrismaTypes.InputJsonValue,
-            calls: calls as PrismaTypes.InputJsonValue,
+        try {
+          const { typedData, calls } = await buildFulfillOrderIntent({
+            fulfiller: normalizedFulfiller,
             orderHash,
-            expiresAt,
-          },
-        });
+          });
+          return { ok: true, orderHash, typedData, calls };
+        } catch (err) {
+          return {
+            ok: false,
+            orderHash,
+            error: err instanceof Error ? err.message : "Failed to create intent",
+          };
+        }
+      })
+    );
 
-        results.push({
-          id: intent.id,
-          orderHash,
-          typedData,
-          calls,
-          expiresAt: expiresAt.toISOString(),
-        });
-      } catch (err) {
-        results.push({
-          orderHash,
-          error: err instanceof Error ? err.message : "Failed to create intent",
-        });
-      }
-    }
+    // 3) Bulk-insert successful builds in one round trip via createManyAndReturn
+    //    (Prisma 5.14+), preserving generated ids so we can echo them back.
+    const successful = builds.filter((b): b is Extract<Built, { ok: true }> => b.ok);
+    const insertedIntents = successful.length
+      ? await prisma.transactionIntent.createManyAndReturn({
+          data: successful.map((b) => ({
+            type: "FULFILL_ORDER" as const,
+            requester: normalizedFulfiller,
+            tenantId,
+            typedData: b.typedData as PrismaTypes.InputJsonValue,
+            calls: b.calls as PrismaTypes.InputJsonValue,
+            orderHash: b.orderHash,
+            expiresAt,
+          })),
+          select: { id: true, orderHash: true },
+        })
+      : [];
+
+    // 4) Assemble response in input order. createManyAndReturn preserves the
+    //    input order on Postgres but we look up by orderHash anyway to be
+    //    defensive.
+    const idByHash = new Map(insertedIntents.map((row) => [row.orderHash, row.id]));
+    const builtByHash = new Map(successful.map((b) => [b.orderHash, b]));
+    const results = builds.map((b) => {
+      if (!b.ok) return { orderHash: b.orderHash, error: b.error };
+      const built = builtByHash.get(b.orderHash);
+      return {
+        id: idByHash.get(b.orderHash),
+        orderHash: b.orderHash,
+        typedData: built?.typedData,
+        calls: built?.calls,
+        expiresAt: expiresAt.toISOString(),
+      };
+    });
 
     return c.json({ data: results }, 201);
   });
