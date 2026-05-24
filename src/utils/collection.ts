@@ -1,6 +1,33 @@
 import { type Chain, type Prisma, type PrismaClient, type TokenStandard } from "@prisma/client";
-import { getService, type ServiceId } from "@medialane/sdk";
+import { getService, listServices, type ServiceId } from "@medialane/sdk";
 import { normalizeAddress } from "./starknet.js";
+
+/**
+ * Resolve a marketplace contract address to its `ServiceDefinition` via the SDK
+ * registry — the single source of truth for "what venue is this".
+ *
+ * Architecture: `01-core-model §X`, `05-service-model §V` forbid string-comparing
+ * `event.from_address` to a hard-coded constant to decide ERC-721 vs ERC-1155
+ * routing. Callers parsing raw on-chain events should pass `event.from_address`
+ * here and read `.standard` off the returned definition. When a new marketplace
+ * (auction, bulk-order, coin-trader) ships, register it in
+ * `@medialane/sdk` services/registry.ts and every call site routes correctly
+ * with zero edits.
+ *
+ * Returns `undefined` for addresses that aren't a registered marketplace venue.
+ */
+export function getServiceByMarketplaceAddress(
+  address: string | null | undefined,
+): ReturnType<typeof getService> {
+  if (!address) return undefined;
+  const normalized = normalizeAddress(address);
+  return listServices().find(
+    (svc) =>
+      svc.id.startsWith("medialane-marketplace-") &&
+      svc.onchain?.factoryAddress != null &&
+      normalizeAddress(svc.onchain.factoryAddress) === normalized,
+  );
+}
 
 type Db = PrismaClient | Prisma.TransactionClient;
 

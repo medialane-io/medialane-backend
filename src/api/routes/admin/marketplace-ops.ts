@@ -16,7 +16,8 @@ import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from 
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../../utils/txVerifier.js";
-import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress } from "../../../config/constants.js";
+import { ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress } from "../../../config/constants.js";
+import { getServiceByMarketplaceAddress } from "../../../utils/collection.js";
 import { num } from "starknet";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
 
@@ -89,8 +90,8 @@ admin.post("/marketplace/tx/:txHash/hydrate", async (c) => {
   await prisma.$transaction(async (tx) => {
     for (const event of createdEvents) {
       const orderHash = num.toHex(event.keys[1]);
-      const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
-      if (is1155) {
+      const venue = getServiceByMarketplaceAddress(event.from_address);
+      if (venue?.standard === "ERC1155") {
         await handleOrderCreated1155(event, tx, "STARKNET");
       } else {
         await handleOrderCreated(

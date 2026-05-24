@@ -16,7 +16,8 @@ import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { buildPopulatedCalls } from "../../orchestrator/submit.js";
 import { verifyMarketplaceTx, verifyTransactionSucceeded, checkOnChainOrderCancelled, fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../utils/txVerifier.js";
-import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, MARKETPLACE_1155_CONTRACT, getTokenByAddress } from "../../config/constants.js";
+import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, getTokenByAddress } from "../../config/constants.js";
+import { getServiceByMarketplaceAddress } from "../../utils/collection.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../mirror/handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "../../mirror/handlers/orderFulfilled.js";
 import { dispatchTransfer } from "../../mirror/handlers/transfer.js";
@@ -687,8 +688,8 @@ async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string[]> {
   await prisma.$transaction(async (tx) => {
     for (const event of createdEvents) {
       const orderHash = num.toHex(event.keys[1]);
-      const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
-      if (is1155) {
+      const venue = getServiceByMarketplaceAddress(event.from_address);
+      if (venue?.standard === "ERC1155") {
         await handleOrderCreated1155(event, tx, "STARKNET");
         hydratedOrderHashes.push(orderHash);
         continue;
@@ -724,8 +725,8 @@ async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
 
   await prisma.$transaction(async (tx) => {
     for (const event of rawFulfilledEvents) {
-      const is1155 = event.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT);
-      if (is1155) {
+      const venue = getServiceByMarketplaceAddress(event.from_address);
+      if (venue?.standard === "ERC1155") {
         const parsed = parsedEvents.find(
           (parsedEvent) =>
             parsedEvent.type === "OrderFulfilled" &&
@@ -742,7 +743,7 @@ async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
       if (event.type === "OrderFulfilled") {
         const is1155 = rawFulfilledEvents.some(
           (raw) =>
-            raw.from_address === normalizeAddress(MARKETPLACE_1155_CONTRACT) &&
+            getServiceByMarketplaceAddress(raw.from_address)?.standard === "ERC1155" &&
             normalizeAddress(raw.keys[1]) === normalizeAddress(event.orderHash)
         );
         if (!is1155) {

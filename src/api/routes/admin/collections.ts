@@ -16,7 +16,7 @@ import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from 
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../../utils/txVerifier.js";
-import { MARKETPLACE_1155_CONTRACT, ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress } from "../../../config/constants.js";
+import { ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress } from "../../../config/constants.js";
 import { num } from "starknet";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
 

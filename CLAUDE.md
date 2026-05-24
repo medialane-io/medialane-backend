@@ -48,14 +48,30 @@ Starknet RPC → Mirror (Indexer) → PostgreSQL ← Orchestrator
 - `IndexerCursor` singleton tracks `lastBlock`. `reset-cursor` moves it back (does not delete data)
 
 ### Orchestrator (`src/orchestrator/`)
-- Polls `Job` table every 2s, optimistic-lock claiming, exponential backoff, max 3 attempts
 
-| Job | What it does |
-|---|---|
-| `METADATA_FETCH` | Calls `token_uri` on ERC-721, resolves URI via `src/discovery/` (Pinata → Cloudflare → ipfs.io), stores on `Token` |
-| `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection` |
-| `COLLECTION_METADATA_FETCH` | Fetches collection metadata: calls `name()`/`symbol()`/`base_uri()` on-chain; recovers `image`/`description`/`owner` from `CREATE_COLLECTION` intent `typedData` (matched by name); falls back to on-chain `owner()` call. Uses **upsert** — can create new collection records from scratch |
-| `METADATA_PIN` | Not yet implemented (Pinata free plan doesn't support `pin_by_cid`) |
+Two distinct queue mechanisms, intentionally — keep them straight when editing:
+
+**In-memory worker** (`worker.ts`, `InMemoryWorker`). Enqueued directly by the indexer (`worker.enqueue(...)`). State lives in the process; restart drops the queue. Safe because every job type sets a durable DB flag the indexer can re-derive from:
+
+| Job | What it does | Durability on restart |
+|---|---|---|
+| `METADATA_FETCH` | Calls `token_uri` on ERC-721/`uri` on ERC-1155, resolves URI via `src/discovery/` (Pinata → Cloudflare → ipfs.io), stores on `Token` | `Token.metadataStatus = PENDING` persists; `startupRecovery.recoverPendingWork()` re-enqueues on boot; `metadataRetryLoop` re-queues `FAILED` on a schedule |
+| `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection` | Idempotent; next indexer tick that touches the collection re-enqueues it |
+| `COLLECTION_METADATA_FETCH` | Fetches collection metadata: calls `name()`/`symbol()`/`base_uri()` on-chain; recovers `image`/`description`/`owner` from `CREATE_COLLECTION` intent `typedData` (matched by name); falls back to on-chain `owner()` call. Uses **upsert** — can create new collection records from scratch | `Collection.metadataStatus = PENDING` persists; recovered the same way |
+
+In-process retry: max 3 attempts, linear backoff (`RETRY_BASE_MS * attempts`). Cross-restart retry: the recovery layer above.
+
+**Persistent loops** (`orchestrator/index.ts` starts these as long-running tasks):
+
+| Loop | Backing table | Behavior |
+|---|---|---|
+| `startWebhookDeliveryLoop` | `WebhookDelivery` | Polls every 10s, max 5 attempts, sets `isTerminal=true` when exhausted. **Durable across restarts.** |
+| `startMetadataRetryLoop` | `Token` | Periodically scans for `metadataStatus=FAILED` and re-enqueues into the in-memory worker |
+| `startReaper` | `TransactionIntent` | Sweeps expired `PENDING` intents → `EXPIRED` |
+
+> **METADATA_PIN** is referenced in older docs as a job type — not implemented (Pinata free plan doesn't support `pin_by_cid`).
+
+> **Historical note:** earlier README/RUNBOOK drafts described a unified `Job` table polled every 2s for all job types with optimistic-lock claiming. That model was never fully built — only webhook delivery uses `Job`-style persistence. Don't trust older docs; trust the source files cited above.
 
 ### HTTP API (`src/api/`)
 - Hono on `PORT` (default 3000)

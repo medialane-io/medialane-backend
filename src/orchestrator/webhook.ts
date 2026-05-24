@@ -2,6 +2,7 @@ import { createHmac } from "crypto";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
+import { isPrivateOrInsecureUrl } from "../utils/ssrf.js";
 
 const log = createLogger("orchestrator:webhook");
 
@@ -30,6 +31,26 @@ export async function processDelivery(deliveryId: string): Promise<void> {
     await prisma.webhookDelivery.update({
       where: { id: deliveryId },
       data: { isTerminal: true },
+    });
+    return;
+  }
+
+  // Re-validate the URL at delivery time. portal.ts checks `isPrivateOrInsecureUrl` at
+  // create-time, but DNS resolution at delivery time can land on a private IP (DNS
+  // rebinding). Re-checking the URL string catches the "endpoint owner edited DNS to
+  // point at internal infra after registration" case; full DNS-pinning would also need
+  // to validate the resolved IP at fetch time.
+  if (isPrivateOrInsecureUrl(delivery.endpoint.url)) {
+    log.warn(
+      { deliveryId, endpointId: delivery.endpoint.id, url: delivery.endpoint.url },
+      "Webhook URL fails SSRF re-validation at delivery time — terminating delivery",
+    );
+    await prisma.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: {
+        isTerminal: true,
+        responseBody: "URL fails SSRF re-validation at delivery time",
+      },
     });
     return;
   }
