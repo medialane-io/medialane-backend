@@ -24,6 +24,7 @@ const log = createLogger("middleware:apiKeyAuth");
 
 const KEY_SELECT = {
   id: true,
+  prefix: true,
   status: true,
   monthlyRequestCount: true,
   monthlyResetAt: true,
@@ -54,12 +55,28 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   });
 
   // Backward-compatible fallback: if HMAC_KEY is set and primary lookup missed,
-  // try plain SHA-256 to support keys that were hashed before HMAC was introduced.
+  // try plain SHA-256 to support keys that were hashed before HMAC was introduced
+  // (any ApiKey row created before 2026-04-04 — see commit 261ed90).
+  //
+  // The warn-level log on a hit lets us track which legacy keys are still in
+  // active use. Plan: once these logs are silent for ≥30d AND all pre-HMAC keys
+  // have been rotated or revoked, drop the fallback path entirely (audit P2-4).
   if (!apiKey && env.HMAC_KEY) {
     apiKey = await prisma.apiKey.findUnique({
       where: { keyHash: hashApiKeyPlain(raw) },
       select: KEY_SELECT,
     });
+    if (apiKey) {
+      log.warn(
+        {
+          keyId: apiKey.id,
+          keyPrefix: apiKey.prefix,
+          tenantId: apiKey.tenant.id,
+          tenantName: apiKey.tenant.name,
+        },
+        "apiKeyAuth: pre-HMAC key authenticated via plain-SHA-256 fallback — rotate this key to drop the fallback path",
+      );
+    }
   }
 
   if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
