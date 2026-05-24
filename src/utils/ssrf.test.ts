@@ -35,6 +35,25 @@ describe("isPrivateOrInsecureUrl — should ACCEPT (false)", () => {
   });
 });
 
+describe("isPrivateOrInsecureUrl — integer/hex IPv4 encodings (P2-2)", () => {
+  test.each([
+    "https://2130706433/x",         // decimal → 127.0.0.1
+    "https://0x7f000001/x",         // hex → 127.0.0.1
+    "https://017700000001/x",       // octal → 127.0.0.1
+    "https://3232235521/x",         // decimal → 192.168.0.1
+    "https://0xa9fea9fe/x",         // hex → 169.254.169.254 (AWS IMDS!)
+  ])("rejects encoded private %s", (url) => {
+    expect(isPrivateOrInsecureUrl(url)).toBe(true);
+  });
+
+  test.each([
+    "https://16843009/x",           // decimal → 1.1.1.1 (public)
+    "https://0x01010101/x",         // hex → 1.1.1.1 (public)
+  ])("still accepts encoded public %s", (url) => {
+    expect(isPrivateOrInsecureUrl(url)).toBe(false);
+  });
+});
+
 describe("isPrivateOrInsecureUrl — requireHttps=false (token URI path)", () => {
   test("allows http:// for token URIs", () => {
     expect(isPrivateOrInsecureUrl("http://example.com", false)).toBe(false);
