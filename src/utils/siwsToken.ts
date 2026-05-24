@@ -49,8 +49,14 @@ export function verifyToken(raw: string): string | null {
     return null;
   }
 
-  if (!data.sub || !data.exp) return null;
-  if (data.exp < Math.floor(Date.now() / 1000)) return null;
+  if (!data.sub || !data.exp || !data.iat) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (data.exp < now) return null;
+  // Reject `iat` in the future. The HMAC binds the payload so only a
+  // holder of SIWS_SECRET could forge this, but the check costs nothing
+  // and removes the value of leaked-key forgeries dated in the future.
+  // Tiny clock-skew tolerance (60s) — issuers and verifiers may drift.
+  if (data.iat > now + 60) return null;
 
   return data.sub;
 }
