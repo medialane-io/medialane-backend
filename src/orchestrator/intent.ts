@@ -1,9 +1,20 @@
-// SNIP-12 typed data builders — verified against Cairo contract types.cairo
+// Intent builders. SNIP-12 typed-data shapes live in @medialane/sdk
+// (src/marketplace/signing.ts) — the protocol's single source of truth.
+// The 2026-04-28 V2 incident was caused by two divergent copies; never
+// re-declare these in this file.
 import type { TypedData } from "starknet";
-import { num, cairo, hash } from "starknet";
+import { cairo, hash, num } from "starknet";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import { env } from "../config/env.js";
+import {
+  buildOrderTypedData,
+  build1155OrderTypedData,
+  buildFulfillmentTypedData,
+  build1155FulfillmentTypedData,
+  buildCancellationTypedData,
+  build1155CancellationTypedData,
+} from "@medialane/sdk";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
@@ -19,82 +30,6 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("intent");
 
-// SNIP-12 type definitions — must exactly match the Cairo StructHash implementations
-// in contracts/Medialane-Protocol/src/core/utils.cairo (ORDER_PARAMETERS_TYPE_HASH, etc.)
-const SNIP12_TYPES = {
-  StarknetDomain: [
-    { name: "name", type: "shortstring" },
-    { name: "version", type: "shortstring" },
-    { name: "chainId", type: "shortstring" },
-    { name: "revision", type: "shortstring" },
-  ],
-  OfferItem: [
-    { name: "item_type", type: "shortstring" },    // encoded as 'ERC721', 'ERC20', etc.
-    { name: "token", type: "ContractAddress" },
-    { name: "identifier_or_criteria", type: "felt" },
-    { name: "start_amount", type: "felt" },
-    { name: "end_amount", type: "felt" },
-  ],
-  ConsiderationItem: [
-    { name: "item_type", type: "shortstring" },
-    { name: "token", type: "ContractAddress" },
-    { name: "identifier_or_criteria", type: "felt" },
-    { name: "start_amount", type: "felt" },
-    { name: "end_amount", type: "felt" },
-    { name: "recipient", type: "ContractAddress" },
-  ],
-  OrderParameters: [
-    { name: "offerer", type: "ContractAddress" },
-    { name: "offer", type: "OfferItem" },
-    { name: "consideration", type: "ConsiderationItem" },
-    { name: "start_time", type: "felt" },
-    { name: "end_time", type: "felt" },
-    { name: "salt", type: "felt" },
-    { name: "nonce", type: "felt" },
-  ],
-};
-
-const FULFILLMENT_TYPES = {
-  StarknetDomain: SNIP12_TYPES.StarknetDomain,
-  OrderFulfillment: [
-    { name: "order_hash", type: "felt" },
-    { name: "fulfiller", type: "ContractAddress" },
-    { name: "nonce", type: "felt" },
-  ],
-};
-
-const CANCELLATION_TYPES = {
-  StarknetDomain: SNIP12_TYPES.StarknetDomain,
-  OrderCancellation: [
-    { name: "order_hash", type: "felt" },
-    { name: "offerer", type: "ContractAddress" },
-    { name: "nonce", type: "felt" },
-  ],
-};
-
-const DOMAIN = { name: "Medialane", version: "1", revision: "1" };
-
-// ─── ERC-1155 Medialane1155 SNIP-12 types ──────────────────────────────────
-// The audited ERC-1155 protocol now mirrors the ERC-721 marketplace shape:
-// OrderParameters contains nested OfferItem and ConsiderationItem structs.
-const SNIP12_TYPES_1155 = { ...SNIP12_TYPES };
-
-const FULFILLMENT_TYPES_1155 = {
-  StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
-  OrderFulfillment: [
-    { name: "order_hash", type: "felt" },
-    { name: "fulfiller", type: "ContractAddress" },
-    { name: "quantity", type: "felt" },
-    { name: "nonce", type: "felt" },
-  ],
-};
-
-const CANCELLATION_TYPES_1155 = {
-  StarknetDomain: SNIP12_TYPES_1155.StarknetDomain,
-  OrderCancellation: [...CANCELLATION_TYPES.OrderCancellation],
-};
-
-const DOMAIN_1155 = { name: "Medialane", version: "2", revision: "1" };
 const NONCES_SELECTOR = hash.getSelectorFromName("nonces");
 const PUBLIC_STARKNET_RPC_FALLBACK = "https://rpc.starknet.lava.build/";
 
@@ -234,12 +169,7 @@ async function buildCreateListing1155Intent(body: CreateListingIntentBody & { am
     nonce: toHex(nonce),
   };
 
-  const typedData: TypedData = {
-    types: SNIP12_TYPES_1155,
-    primaryType: "OrderParameters",
-    domain: { ...DOMAIN_1155, chainId },
-    message: orderParams,
-  };
+  const typedData: TypedData = build1155OrderTypedData(orderParams, chainId);
 
   // set_approval_for_all(marketplace_1155, true) + register_order(flat_order, signature)
   const calls = [
@@ -290,12 +220,7 @@ async function buildCreateListing721Intent(body: CreateListingIntentBody) {
     nonce: toHex(nonce),
   };
 
-  const typedData: TypedData = {
-    types: SNIP12_TYPES,
-    primaryType: "OrderParameters",
-    domain: { ...DOMAIN, chainId },
-    message: orderParams,
-  };
+  const typedData: TypedData = buildOrderTypedData(orderParams, chainId);
 
   // approve(marketplace, tokenId as u256)
   const tokenIdUint256 = cairo.uint256(body.tokenId);
@@ -359,12 +284,9 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
     nonce: toHex(nonce),
   };
 
-  const typedData: TypedData = {
-    types: is1155 ? SNIP12_TYPES_1155 : SNIP12_TYPES,
-    primaryType: "OrderParameters",
-    domain: { ...(is1155 ? DOMAIN_1155 : DOMAIN), chainId },
-    message: orderParams,
-  };
+  const typedData: TypedData = is1155
+    ? build1155OrderTypedData(orderParams, chainId)
+    : buildOrderTypedData(orderParams, chainId);
 
   // approve(marketplace, amount as u256)
   const priceUint256 = cairo.uint256(priceWei);
@@ -420,12 +342,9 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
         nonce: toHex(nonce),
       };
 
-  const typedData: TypedData = {
-    types: is1155 ? FULFILLMENT_TYPES_1155 : FULFILLMENT_TYPES,
-    primaryType: "OrderFulfillment",
-    domain: { ...(is1155 ? DOMAIN_1155 : DOMAIN), chainId },
-    message: fulfillment,
-  };
+  const typedData: TypedData = is1155
+    ? build1155FulfillmentTypedData(fulfillment, chainId)
+    : buildFulfillmentTypedData(fulfillment, chainId);
 
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
@@ -500,12 +419,9 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
     nonce: toHex(nonce),
   };
 
-  const typedData: TypedData = {
-    types: is1155 ? CANCELLATION_TYPES_1155 : CANCELLATION_TYPES,
-    primaryType: "OrderCancellation",
-    domain: { ...(is1155 ? DOMAIN_1155 : DOMAIN), chainId },
-    message: cancelation,
-  };
+  const typedData: TypedData = is1155
+    ? build1155CancellationTypedData(cancelation, chainId)
+    : buildCancellationTypedData(cancelation, chainId);
 
   const calls = [
     {
@@ -657,12 +573,7 @@ export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
     nonce: toHex(nonce),
   };
 
-  const typedData: TypedData = {
-    types: SNIP12_TYPES,
-    primaryType: "OrderParameters",
-    domain: { ...DOMAIN, chainId },
-    message: orderParams,
-  };
+  const typedData: TypedData = buildOrderTypedData(orderParams, chainId);
 
   // approve(marketplace, tokenId as u256)
   const tokenIdUint256 = cairo.uint256(body.tokenId);
