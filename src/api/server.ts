@@ -13,7 +13,7 @@ import orders from "./routes/orders.js";
 import tokens from "./routes/tokens.js";
 import collections from "./routes/collections.js";
 import activities from "./routes/activities.js";
-import intents from "./routes/intents.js";
+import intents from "./routes/intents/index.js";
 import metadata from "./routes/metadata.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
