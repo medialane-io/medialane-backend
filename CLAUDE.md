@@ -226,7 +226,8 @@ Response headers on every `/v1/*` response:
 - **Imports**: `.js` extension in all import paths (ESM bundler resolution).
 - **BigInt**: Starknet amounts + block numbers as `BigInt` in TS; stored as `String` in DB.
 - **Address normalization**: Always `normalizeAddress()` (`src/utils/starknet.ts`) before DB writes AND before DB queries. 64-char lowercase 0x-padded hex. Applied in all route handlers: `GET /v1/tokens/owned/:address`, `GET /v1/orders/user/:address`, `GET /v1/activities/:address`, `GET /v1/collections?owner=`, `GET /v1/collections/:contract`, `GET /v1/collections/:contract/tokens`, all `/admin/collections/*` routes, and `offerer` filter in `GET /v1/orders`. **Never use `.toLowerCase()` alone** — it does not pad short addresses and causes "not found" mismatches.
-- **Logging**: `createLogger(name)` from `src/utils/logger.ts` (pino). Never `console.log`.
+- **Logging**: `createLogger(name)` from `src/utils/logger.ts` (pino). Never `console.log` in long-running code (api / mirror / orchestrator / utils).
+  - **Exception:** one-shot CLI scripts under `src/scripts/` and `scripts/` (`seed-rewards`, `compute-rewards`, `verify-account-model`, `backfill*`, etc.) intentionally use `console.log` — they run with a TTY attached, the output IS the UX, and pino's JSON formatting would obscure it. Don't "consistency-ify" these to pino.
 - **Error shape**: `{ error: string }` — not `{ message }`.
 - **Success shape**: `{ data: T }` for single items; `{ data: T[], meta: { page, limit, total } }` for lists. Exception: search returns `{ data: { tokens, collections }, query }`.
 
