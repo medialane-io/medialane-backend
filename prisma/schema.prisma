@@ -485,6 +485,11 @@ model ApiKey {
   prefix              String
   keyHash             String       @unique
   label               String       @default("")
+  /// Which app this key is provisioned for. Enables per-app traffic
+  /// attribution, blast-radius isolation on leak, and future capability
+  /// scoping (e.g., AGENT-only keys). Nullable for legacy keys created
+  /// before this column existed; new keys should always set it.
+  appSource           AppSource?
   status              ApiKeyStatus @default(ACTIVE)
   lastUsedAt          DateTime?
   monthlyRequestCount Int          @default(0)
@@ -494,6 +499,7 @@ model ApiKey {
 
   @@index([tenantId])
   @@index([status])
+  @@index([appSource])
 }
 
 model WebhookEndpoint {
