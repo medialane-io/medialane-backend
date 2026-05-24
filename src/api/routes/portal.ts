@@ -40,6 +40,7 @@ portal.get("/keys", async (c) => {
       id: true,
       prefix: true,
       label: true,
+      appSource: true,
       status: true,
       lastUsedAt: true,
       createdAt: true,
@@ -52,7 +53,12 @@ portal.get("/keys", async (c) => {
 // ---------------------------------------------------------------------------
 // POST /v1/portal/keys — create a new API key (max 5 keys per tenant)
 // ---------------------------------------------------------------------------
-const createKeySchema = z.object({ label: z.string().max(64).optional() });
+const createKeySchema = z.object({
+  label: z.string().max(64).optional(),
+  /** Which app this key is for — drives per-app rate-limit isolation and
+   *  usage attribution. Omit for generic/SDK consumers. */
+  appSource: z.enum(["MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK"]).optional(),
+});
 
 portal.post("/keys", async (c) => {
   const tenant = c.get("tenant");
@@ -80,6 +86,7 @@ portal.post("/keys", async (c) => {
           prefix: generated.prefix,
           keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
+          appSource: parsed.data.appSource ?? null,
         },
       });
     });
@@ -88,8 +95,8 @@ portal.post("/keys", async (c) => {
     throw err;
   }
 
-  log.info({ keyId: key.id, tenantId: tenant.id }, "Self-service API key created");
-  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: plaintext! } }, 201);
+  log.info({ keyId: key.id, tenantId: tenant.id, appSource: key.appSource }, "Self-service API key created");
+  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, appSource: key.appSource, plaintext: plaintext! } }, 201);
 });
 
 // ---------------------------------------------------------------------------
