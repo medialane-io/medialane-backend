@@ -79,6 +79,10 @@ export const confirmSchema = z.object({
   txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid transaction hash"),
 });
 
+export const signatureSchema = z.object({
+  signature: z.array(z.string()).min(1, "signature array required"),
+});
+
 // Intent types that go through the marketplace contract and need event verification
 export const MARKETPLACE_INTENT_TYPES = new Set([
   "CREATE_LISTING",
