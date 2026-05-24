@@ -14,6 +14,7 @@ import type { AppEnv } from "../../../types/hono.js";
 import {
   log,
   confirmSchema,
+  signatureSchema,
   MARKETPLACE_INTENT_TYPES,
   RECEIPT_HYDRATED_INTENT_TYPES,
   ORDER_CREATING_INTENT_TYPES,
@@ -54,8 +55,9 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const { id } = c.req.param();
     const body = await c.req.json().catch(() => null);
 
-    if (!body?.signature || !Array.isArray(body.signature)) {
-      return c.json({ error: "signature array required" }, 400);
+    const parsedBody = signatureSchema.safeParse(body);
+    if (!parsedBody.success) {
+      return c.json({ error: "Invalid body", details: parsedBody.error.flatten() }, 400);
     }
 
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
@@ -79,12 +81,12 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       intent.type,
       (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
       intent.calls as { contractAddress: string; entrypoint: string; calldata: string[] }[],
-      body.signature
+      parsedBody.data.signature
     );
 
     const updated = await prisma.transactionIntent.update({
       where: { id },
-      data: { signature: body.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
+      data: { signature: parsedBody.data.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
     });
 
     log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
