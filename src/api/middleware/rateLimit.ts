@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import type { TenantPlan } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { createRedisStore } from "./redisRateLimit.js";
@@ -91,14 +92,19 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
         });
         updatedCount = updated.monthlyRequestCount;
       } else {
-        // Atomic conditional increment: only increments if currently under the limit.
-        // updateMany with a WHERE clause acts as an optimistic lock — prevents race condition
-        // where two concurrent requests both read count=49 and both increment past 50.
-        const result = await prisma.apiKey.updateMany({
-          where: { id: apiKey.id, monthlyRequestCount: { lt: FREE_MONTHLY_LIMIT } },
-          data: { monthlyRequestCount: { increment: 1 } },
-        });
-        if (result.count === 0) {
+        // Atomic conditional increment in ONE round trip. Returns the new
+        // count via Postgres RETURNING — prevents the previous double-query
+        // pattern (updateMany then findUnique) and prevents the race where
+        // two concurrent requests both read count=49 and both increment
+        // past 50 (the WHERE guard makes this impossible at the DB level).
+        const rows = await prisma.$queryRaw<{ monthlyRequestCount: number }[]>(Prisma.sql`
+          UPDATE "ApiKey"
+          SET "monthlyRequestCount" = "monthlyRequestCount" + 1
+          WHERE id = ${apiKey.id}
+            AND "monthlyRequestCount" < ${FREE_MONTHLY_LIMIT}
+          RETURNING "monthlyRequestCount"
+        `);
+        if (rows.length === 0) {
           // No rows updated — already at or over the limit
           c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
           c.header("X-RateLimit-Remaining", "0");
@@ -109,11 +115,7 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
             429
           );
         }
-        const fresh = await prisma.apiKey.findUnique({
-          where: { id: apiKey.id },
-          select: { monthlyRequestCount: true },
-        });
-        updatedCount = fresh?.monthlyRequestCount ?? FREE_MONTHLY_LIMIT;
+        updatedCount = rows[0].monthlyRequestCount;
       }
 
       c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
