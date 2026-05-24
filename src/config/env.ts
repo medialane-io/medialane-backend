@@ -31,9 +31,11 @@ const envSchema = z.object({
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
   API_SECRET_KEY: z.string().min(16),
-  // When set, new API keys are hashed with HMAC-SHA256(key, HMAC_KEY) instead of
-  // plain SHA-256. Existing keys stored as plain SHA-256 continue to work (dual-lookup).
-  HMAC_KEY: z.string().default(""),
+  // API keys are hashed with HMAC-SHA256(key, HMAC_KEY) before storage and
+  // lookup. Required — without it the backend cannot authenticate any key.
+  // The legacy plain-SHA-256 fallback was removed 2026-05-24 after all
+  // pre-HMAC keys were rotated (audit P2-4).
+  HMAC_KEY: z.string().min(32, "HMAC_KEY must be at least 32 characters"),
   SIWS_SECRET: z.string().min(32),
   CORS_ORIGINS: z
     .string()

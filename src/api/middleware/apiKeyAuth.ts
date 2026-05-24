@@ -16,8 +16,7 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { hashApiKey, hashApiKeyPlain } from "../../utils/apiKey.js";
-import { env } from "../../config/env.js";
+import { hashApiKey } from "../../utils/apiKey.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("middleware:apiKeyAuth");
@@ -48,36 +47,15 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json({ error: "Missing API key" }, 401);
   }
 
-  // Primary lookup: HMAC-SHA256 hash (or plain SHA-256 when HMAC_KEY is unset)
-  let apiKey = await prisma.apiKey.findUnique({
+  // HMAC-SHA256 lookup — the only path. The legacy plain-SHA-256 fallback
+  // (in place 2026-04-04 → 2026-05-24) was removed once all pre-HMAC keys
+  // were rotated. Audit P2-4. If you're staring at this comment because
+  // someone needs the old format back, see the rotation playbook:
+  // medialane-core/docs/plans/2026-05-24-apikey-per-app-rotation.md
+  const apiKey = await prisma.apiKey.findUnique({
     where: { keyHash: hashApiKey(raw) },
     select: KEY_SELECT,
   });
-
-  // Backward-compatible fallback: if HMAC_KEY is set and primary lookup missed,
-  // try plain SHA-256 to support keys that were hashed before HMAC was introduced
-  // (any ApiKey row created before 2026-04-04 — see commit 261ed90).
-  //
-  // The warn-level log on a hit lets us track which legacy keys are still in
-  // active use. Plan: once these logs are silent for ≥30d AND all pre-HMAC keys
-  // have been rotated or revoked, drop the fallback path entirely (audit P2-4).
-  if (!apiKey && env.HMAC_KEY) {
-    apiKey = await prisma.apiKey.findUnique({
-      where: { keyHash: hashApiKeyPlain(raw) },
-      select: KEY_SELECT,
-    });
-    if (apiKey) {
-      log.warn(
-        {
-          keyId: apiKey.id,
-          keyPrefix: apiKey.prefix,
-          tenantId: apiKey.tenant.id,
-          tenantName: apiKey.tenant.name,
-        },
-        "apiKeyAuth: pre-HMAC key authenticated via plain-SHA-256 fallback — rotate this key to drop the fallback path",
-      );
-    }
-  }
 
   if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
