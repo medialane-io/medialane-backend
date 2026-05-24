@@ -5,8 +5,7 @@ import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
-import { hashApiKey, hashApiKeyPlain } from "../../utils/apiKey.js";
-import { env } from "../../config/env.js";
+import { hashApiKey } from "../../utils/apiKey.js";
 import { Contract, Account } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
@@ -33,10 +32,7 @@ async function xApiKeyAuth(c: any, next: any) {
     monthlyResetAt: true,
     tenant: { select: { id: true, name: true, email: true, plan: true, status: true } },
   };
-  let apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(raw) }, select: KEY_SELECT });
-  if (!apiKey && env.HMAC_KEY) {
-    apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKeyPlain(raw) }, select: KEY_SELECT });
-  }
+  const apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(raw) }, select: KEY_SELECT });
   if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }

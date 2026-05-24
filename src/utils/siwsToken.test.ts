@@ -1,10 +1,10 @@
 // Audit P2-3 — defense-in-depth around SIWS bearer tokens.
 import { describe, expect, test } from "bun:test";
 
-// Hoist env var BEFORE importing the module — siwsToken.ts reads env at
-// module load. Bun's test runner doesn't re-evaluate modules per file
-// but `env` is read lazily inside the hmac() call, so set-and-import works.
+// Hoist env vars BEFORE importing the module — env validation runs at
+// import time and rejects missing required vars (SIWS_SECRET, HMAC_KEY).
 process.env.SIWS_SECRET ??= "test-secret-do-not-use-in-prod-0123456789";
+process.env.HMAC_KEY ??= "test-hmac-key-do-not-use-in-prod-0123456789012345";
 
 const { issueToken, verifyToken } = await import("./siwsToken.js");
 
