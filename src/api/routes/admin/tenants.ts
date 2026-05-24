@@ -29,11 +29,15 @@ export function registerTenantRoutes(admin: Hono) {
 // ---------------------------------------------------------------------------
 // POST /admin/tenants — create tenant + initial API key
 // ---------------------------------------------------------------------------
+const APP_SOURCE = z.enum(["MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK"]);
+
 const createTenantSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   plan: z.enum(["FREE", "PREMIUM"]).default("FREE"),
   keyLabel: z.string().optional(),
+  /** Which app the initial key is for. Omit for generic/SDK consumers. */
+  keyAppSource: APP_SOURCE.optional(),
 });
 
 admin.post("/tenants", async (c) => {
@@ -43,7 +47,7 @@ admin.post("/tenants", async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  const { name, email, plan, keyLabel } = parsed.data;
+  const { name, email, plan, keyLabel, keyAppSource } = parsed.data;
 
   const existing = await prisma.tenant.findUnique({ where: { email } });
   if (existing) {
@@ -58,7 +62,12 @@ admin.post("/tenants", async (c) => {
       email,
       plan,
       apiKeys: {
-        create: { prefix, keyHash, label: keyLabel ?? "default" },
+        create: {
+          prefix,
+          keyHash,
+          label: keyLabel ?? "default",
+          appSource: keyAppSource ?? null,
+        },
       },
     },
     include: { apiKeys: true },
@@ -74,6 +83,7 @@ admin.post("/tenants", async (c) => {
           id: tenant.apiKeys[0].id,
           prefix,
           label: tenant.apiKeys[0].label,
+          appSource: tenant.apiKeys[0].appSource,
           // Plaintext shown ONCE — not stored
           plaintext,
         },
@@ -141,21 +151,31 @@ admin.patch("/tenants/:id", async (c) => {
 // ---------------------------------------------------------------------------
 const createKeySchema = z.object({
   label: z.string().optional(),
+  /** Which app the key is for — drives per-app attribution and isolation. */
+  appSource: APP_SOURCE.optional(),
 });
 
 admin.post("/tenants/:id/keys", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json().catch(() => null);
   const parsed = createKeySchema.safeParse(body ?? {});
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+  }
 
   const tenant = await prisma.tenant.findUnique({ where: { id } });
   if (!tenant) return c.json({ error: "Tenant not found" }, 404);
 
   const { plaintext, prefix, keyHash } = generateApiKey();
-  const label = parsed.success ? (parsed.data.label ?? "") : "";
 
   const apiKey = await prisma.apiKey.create({
-    data: { tenantId: id, prefix, keyHash, label },
+    data: {
+      tenantId: id,
+      prefix,
+      keyHash,
+      label: parsed.data.label ?? "",
+      appSource: parsed.data.appSource ?? null,
+    },
   });
 
   return c.json(
@@ -164,11 +184,38 @@ admin.post("/tenants/:id/keys", async (c) => {
         id: apiKey.id,
         prefix,
         label: apiKey.label,
+        appSource: apiKey.appSource,
         plaintext, // shown ONCE
       },
     },
     201
   );
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/tenants/:id/keys — list keys for a tenant (includes appSource)
+// ---------------------------------------------------------------------------
+admin.get("/tenants/:id/keys", async (c) => {
+  const { id } = c.req.param();
+  const tenant = await prisma.tenant.findUnique({ where: { id } });
+  if (!tenant) return c.json({ error: "Tenant not found" }, 404);
+
+  const keys = await prisma.apiKey.findMany({
+    where: { tenantId: id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      prefix: true,
+      label: true,
+      appSource: true,
+      status: true,
+      lastUsedAt: true,
+      monthlyRequestCount: true,
+      createdAt: true,
+    },
+  });
+
+  return c.json({ data: keys });
 });
 
 // ---------------------------------------------------------------------------
