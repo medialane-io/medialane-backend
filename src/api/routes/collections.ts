@@ -189,15 +189,41 @@ collections.get("/by-slug/:slug", async (c) => {
 
   if (!profile) return c.json({ error: "Collection not found" }, 404);
 
+  // SECURITY: gatedContentUrl + gatedContentType are holder-only; fetch
+  // them via GET /v1/collections/:contract/gated-content (which verifies
+  // on-chain token ownership). They MUST NOT appear in the public
+  // by-slug response. Whitelist-by-select makes "did I leak it" a
+  // grep on this query rather than a runtime audit.
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: profile.chain, contractAddress: profile.contractAddress } },
-    include: { profile: true },
+    include: {
+      profile: {
+        select: {
+          id: true,
+          contractAddress: true,
+          chain: true,
+          displayName: true,
+          description: true,
+          image: true,
+          bannerImage: true,
+          websiteUrl: true,
+          twitterUrl: true,
+          discordUrl: true,
+          telegramUrl: true,
+          gatedContentTitle: true,
+          hasGatedContent: true,
+          slug: true,
+          updatedBy: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+    },
   });
 
   if (!col || col.deletedAt) return c.json({ error: "Collection not found" }, 404);
 
-  const { gatedContentUrl: _url, gatedContentType: _type, ...safeProfile } = col.profile as any;
-  return c.json({ data: { ...serializeCollection(col), profile: safeProfile } });
+  return c.json({ data: { ...serializeCollection(col), profile: col.profile } });
 });
 
 // GET /v1/collections/:contract
