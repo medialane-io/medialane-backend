@@ -171,10 +171,12 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           },
         });
 
-        await tx.order.update({
-          where: { chain_orderHash: { chain: "STARKNET", orderHash: originalOrderHash } },
-          data: { status: "COUNTER_OFFERED" },
-        });
+        // The parent bid stays `status: ACTIVE`. Its "has been countered"
+        // affordance is computed at read time via `hasActiveCounterOffer`
+        // (serialize.ts:counterOfferFlags). Counter-offers are linked orders,
+        // not a third lifecycle state on the parent — 01-core-model §V.
+        // Removed the legacy `tx.order.update({ status: "COUNTER_OFFERED" })`
+        // write on 2026-05-25 (audit P0-1 Phase B).
 
         return created;
       });

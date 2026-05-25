@@ -75,7 +75,6 @@ enum OrderStatus {
   FULFILLED
   CANCELLED
   EXPIRED
-  COUNTER_OFFERED
 }
 
 model Order {
