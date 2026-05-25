@@ -63,14 +63,53 @@ export function serializeToken(
   };
 }
 
+/**
+ * Compute `hasActiveCounterOffer` for a set of orders in one DB query.
+ *
+ * Counter-offers are child orders that carry `parentOrderHash` pointing at
+ * the original bid. The parent bid's `status` stays `ACTIVE` even while
+ * a counter is outstanding — the relationship lives in the join, not in
+ * a third lifecycle state (audit P0-1; `01-core-model §V`).
+ *
+ * Returns a Set of bid `orderHash` values that have ≥1 active child counter.
+ * Pass the result through to `serializeOrder` per row so the UI can render
+ * the "this bid has a counter outstanding" affordance.
+ */
+export async function counterOfferFlags(
+  prisma: import("@prisma/client").PrismaClient,
+  orders: { orderHash: string; offerItemType?: string | null }[],
+): Promise<Set<string>> {
+  // Only ERC-20 offers (bids) can be countered — keeps the IN list small.
+  const bidHashes = orders
+    .filter((o) => o.offerItemType === "ERC20")
+    .map((o) => o.orderHash);
+  if (bidHashes.length === 0) return new Set();
+  const rows = await prisma.order.findMany({
+    where: {
+      parentOrderHash: { in: bidHashes },
+      status: "ACTIVE",
+    },
+    select: { parentOrderHash: true },
+  });
+  return new Set(rows.flatMap((r) => (r.parentOrderHash ? [r.parentOrderHash] : [])));
+}
+
 export function serializeOrder(
   o: any,
-  tokenData?: { name: string | null; image: string | null; description: string | null } | null
+  tokenData?: { name: string | null; image: string | null; description: string | null } | null,
+  hasActiveCounterOffer?: boolean,
 ) {
   return {
     id: o.id,
     chain: o.chain,
     orderHash: o.orderHash,
+    /** Counter-offers point at their parent bid via this field. Null for top-level orders. */
+    parentOrderHash: o.parentOrderHash ?? null,
+    /** Set by `/v1/orders/user/:address` (and any list endpoint that opts in) — true when
+     *  this is an ERC-20 bid AND at least one ACTIVE counter exists with parentOrderHash = orderHash.
+     *  The frontend uses this to render the "your bid was countered" affordance without depending
+     *  on a `COUNTER_OFFERED` status (audit P0-1). Undefined on endpoints that don't compute it. */
+    hasActiveCounterOffer: hasActiveCounterOffer ?? undefined,
     offerer: o.offerer,
     offer: {
       itemType: o.offerItemType,
