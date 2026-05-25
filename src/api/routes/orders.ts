@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
-import { serializeOrder, batchTokenMeta } from "../utils/serialize.js";
+import { serializeOrder, batchTokenMeta, counterOfferFlags } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 
@@ -153,7 +153,8 @@ orders.get("/:orderHash", async (c) => {
     where: { chain_orderHash: { chain: "STARKNET", orderHash } },
   });
   if (!order) return c.json({ error: "Order not found" }, 404);
-  return c.json({ data: serializeOrder(order) });
+  const counterFlags = await counterOfferFlags(prisma, [order]);
+  return c.json({ data: serializeOrder(order, undefined, counterFlags.has(order.orderHash)) });
 });
 
 // GET /v1/orders/token/:contract/:tokenId
@@ -254,8 +255,20 @@ orders.get("/user/:address", async (c) => {
     prisma.order.count({ where: { chain: "STARKNET", offerer: normalizeAddress(address) } }),
   ]);
 
-  const tokenMeta = await batchTokenMeta(data);
-  return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))), meta: { page, limit, total } });
+  const [tokenMeta, counterFlags] = await Promise.all([
+    batchTokenMeta(data),
+    counterOfferFlags(prisma, data),
+  ]);
+  return c.json({
+    data: data.map((o) =>
+      serializeOrder(
+        o,
+        tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`),
+        counterFlags.has(o.orderHash),
+      ),
+    ),
+    meta: { page, limit, total },
+  });
 });
 
 export default orders;
