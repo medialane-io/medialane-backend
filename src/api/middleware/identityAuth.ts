@@ -15,6 +15,9 @@ import type { Context, Next } from "hono";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { env } from "../../config/env.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("middleware:identityAuth");
 
 // Lazily initialised — only created on the first Clerk JWT request.
 // SIWS callers (the majority) never pay the Clerk SDK initialisation cost.
@@ -71,7 +74,16 @@ export async function identityAuth(c: Context, next: Next) {
     }
     c.set("walletAddress", normalizeAddress(rawWallet));
     c.set("clerkUserId", payload.sub);
-  } catch {
+  } catch (err) {
+    // Log the underlying error so the next "Invalid or expired session token"
+    // incident can be diagnosed from Railway logs without code spelunking. The
+    // 401 surfaces as a single user-facing message; the *reason* (JWT expired,
+    // CLERK_SECRET_KEY misconfigured, Clerk API outage, JWKS network failure,
+    // user.publicMetadata.publicKey unset) lives here.
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err), path: c.req.path },
+      "Clerk JWT verification failed"
+    );
     return c.json({ error: "Invalid or expired session token" }, 401);
   }
 
