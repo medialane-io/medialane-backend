@@ -897,3 +897,20 @@ model ServiceContract {
   @@index([serviceId])
   @@index([chain, active])
 }
+
+// Airdrop signup form captures (medialane.io /airdrop). Replaces the
+// console.log stub that was in the io app — every form submission was
+// being lost to stdout before this table existed.
+model AirdropSignup {
+  id        String   @id @default(cuid())
+  email     String   @unique // one signup per email; resubmits update name/role
+  name      String
+  role      String   // creator | collector | developer | other (validated at route layer)
+  ipAddress String?  // x-real-ip from the BFF, for fraud analysis
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([createdAt])
+}
