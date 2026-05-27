@@ -37,6 +37,12 @@ const registerBodySchema = z.object({
 const meBodySchema = z.object({
   walletType: walletTypeEnum.optional(),
   appSource: appSourceEnum.optional(),
+  // 07-identity §I: the Wallet identifier is (chain, address). Accepting
+  // `chain` from the client lets callers explicitly assert the chain
+  // they're registering — currently always STARKNET, but locking the
+  // shape in v1 is what keeps the year-2 multichain path unblocked.
+  // Optional and defaults to STARKNET so older clients keep working.
+  chain: chainEnum.optional(),
 });
 
 function pickProvider(walletType: WalletType, appSource: AppSource): IdentityProvider {
@@ -100,9 +106,21 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   }
   const walletType: WalletType = parsed.data.walletType ?? "UNKNOWN";
   const appSource: AppSource = parsed.data.appSource ?? "MEDIALANE_IO";
+  const chain: Chain = parsed.data.chain ?? "STARKNET";
+
+  // identityAuth only issues tokens for Starknet wallets in v1 (Clerk JWT
+  // carries a ChipiPay Starknet address; SIWS proves a Starknet signature).
+  // Accepting a non-STARKNET chain from the body would mis-register a
+  // Starknet-derived address under another chain. When SIWE / SIWB land
+  // and identityAuth issues tokens for other chains, this guard relaxes.
+  if (chain !== "STARKNET") {
+    return c.json({
+      error: "Only STARKNET is supported on /v1/users/me in v1 — cross-chain registration arrives with SIWE/SIWB",
+    }, 400);
+  }
 
   await ensureAccountForWallet({
-    chain: "STARKNET",
+    chain,
     address: walletAddress,
     walletType,
     appSource,
