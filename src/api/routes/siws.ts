@@ -5,7 +5,10 @@ import { randomBytes } from "crypto";
 import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
+import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
+
+const log = createLogger("routes:siws");
 
 const siws = new Hono<AppEnv>();
 
@@ -80,8 +83,24 @@ siws.post(
       const isValid = await callRpc((provider) =>
         provider.verifyMessageInStarknet(typedData, normalizedSignature, wallet)
       );
-      if (!isValid) return c.json({ error: "invalid_signature" }, 401);
-    } catch {
+      if (!isValid) {
+        // Wallet contract's is_valid_signature returned false. Logged so we
+        // can distinguish "wallet rejected the signed payload" from "RPC
+        // throw" in the catch below.
+        log.warn(
+          { wallet, sigLength: normalizedSignature.length },
+          "SIWS verify: on-chain is_valid_signature returned false",
+        );
+        return c.json({ error: "invalid_signature" }, 401);
+      }
+    } catch (err) {
+      // Don't swallow the real error — log it so we can diagnose. The 401
+      // toward the client stays the same (we don't leak why); the log is
+      // the only place this error surfaces.
+      log.error(
+        { err, wallet, sigLength: signature.length },
+        "SIWS verify: verifyMessageInStarknet threw",
+      );
       return c.json({ error: "invalid_signature" }, 401);
     }
 
