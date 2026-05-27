@@ -94,9 +94,26 @@ siws.post(
         return c.json({ error: "invalid_signature" }, 401);
       }
     } catch (err) {
-      // Don't swallow the real error — log it so we can diagnose. The 401
-      // toward the client stays the same (we don't leak why); the log is
-      // the only place this error surfaces.
+      const msg = err instanceof Error ? err.message : String(err);
+
+      // Smart-wallet accounts on Starknet are counterfactual until the first
+      // transaction deploys them. is_valid_signature can't run against a
+      // non-existent contract — the RPC surfaces this as "Contract not found"
+      // (code 20). Surface a specific, user-actionable error code so the UI
+      // can tell the user to deploy first, rather than the generic
+      // "invalid signature" which sounds like a key issue.
+      if (msg.includes("Contract not found")) {
+        log.warn(
+          { wallet },
+          "SIWS verify: wallet contract not deployed (counterfactual account)",
+        );
+        return c.json({
+          error: "account_not_deployed",
+          message: "Check if your wallet is deployed on Starknet.",
+        }, 400);
+      }
+
+      // Other RPC / verification errors — log fully and keep the generic 401.
       log.error(
         { err, wallet, sigLength: signature.length },
         "SIWS verify: verifyMessageInStarknet threw",
