@@ -2,16 +2,83 @@ import { timingSafeEqual } from "crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
+import { cairo } from "starknet";
 import prisma from "../../db/client.js";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
 import {
   ensureAccountForWallet,
   resolveAccountIdFromWallet,
   addAccountRole,
 } from "../../utils/account.js";
+import { createLogger } from "../../utils/logger.js";
 import { env } from "../../config/env.js";
 import type { AppEnv } from "../../types/hono.js";
+
+const log = createLogger("routes:profiles");
+
+/**
+ * On-chain holder verification for gated-content authorization.
+ *
+ * The architecture (07-identity §V) is explicit: authorization for
+ * protocol-bearing access (gated content is one) must come from on-chain
+ * state, not the indexer's DB cache. The DB can be stale — a missed
+ * Transfer event would lock out a legitimate holder. This was a real
+ * historical incident; do not regress to a DB read here.
+ *
+ * Returns:
+ *   - `true`  — chain confirms the wallet holds ≥1 token in the collection
+ *   - `false` — chain confirms the wallet holds 0 tokens
+ * Throws on RPC failure; the caller must surface 503, never silently
+ * fall back to the DB (that would re-introduce the bug).
+ */
+async function verifyOnChainHolder(
+  contractAddress: string,
+  owner: string,
+  standard: "ERC721" | "ERC1155",
+  knownTokenIds?: string[],
+): Promise<boolean> {
+  if (standard === "ERC721") {
+    // OZ Cairo ERC-721: balance_of(account) → u256
+    const res = await callRpc((provider) => provider.callContract({
+      contractAddress,
+      entrypoint: "balance_of",
+      calldata: [owner],
+    }));
+    // Returns [low, high]; non-zero on either limb means holder.
+    return res.length >= 2 && (BigInt(res[0] ?? "0x0") !== 0n || BigInt(res[1] ?? "0x0") !== 0n);
+  }
+
+  // ERC-1155: no single "owns any token in collection" call exists.
+  // Query balance_of_batch over the token IDs the indexer has seen for
+  // this collection. Cap to bound the RPC call; in practice gated-content
+  // collections are small editions, not 10k drops.
+  if (!knownTokenIds || knownTokenIds.length === 0) return false;
+  const ids = knownTokenIds.slice(0, 100);
+  const accounts = new Array<string>(ids.length).fill(owner);
+  const idCalldata: string[] = [];
+  for (const id of ids) {
+    const u = cairo.uint256(id);
+    idCalldata.push(u.low.toString(), u.high.toString());
+  }
+  // balance_of_batch(accounts: Span<ContractAddress>, ids: Span<u256>) → Span<u256>
+  const res = await callRpc((provider) => provider.callContract({
+    contractAddress,
+    entrypoint: "balance_of_batch",
+    calldata: [
+      accounts.length.toString(), ...accounts,
+      ids.length.toString(), ...idCalldata,
+    ],
+  }));
+  // res[0] = array length, then pairs of [low, high] for each balance.
+  const len = Number(BigInt(res[0] ?? "0x0"));
+  for (let i = 0; i < len; i++) {
+    const low = BigInt(res[1 + i * 2] ?? "0x0");
+    const high = BigInt(res[2 + i * 2] ?? "0x0");
+    if (low !== 0n || high !== 0n) return true;
+  }
+  return false;
+}
 
 const profiles = new Hono<AppEnv>();
 
@@ -150,13 +217,46 @@ profiles.get(
     const contract = normalizeAddress(c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;
 
-    // Check if this wallet holds at least one token in the collection (ERC-721 or ERC-1155)
-    const ownedToken = await prisma.tokenBalance.findFirst({
-      where: { chain: "STARKNET", contractAddress: contract, owner: walletAddress, amount: { not: "0" } },
-      select: { id: true },
+    // Resolve standard from the indexer so we know which on-chain call to
+    // make. The standard itself is a structural fact (NOT NULL since the
+    // 2026-05-22 migration), so a missing Collection row means we have
+    // not indexed this contract at all — refuse to authorize.
+    const collection = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+      select: { standard: true },
     });
+    if (!collection) {
+      return c.json({ error: "Collection not indexed" }, 404);
+    }
+    if (collection.standard !== "ERC721" && collection.standard !== "ERC1155") {
+      return c.json({ error: "Unsupported collection standard for gated content" }, 400);
+    }
 
-    if (!ownedToken) {
+    // For ERC-1155 we need the token IDs to query balance_of_batch — pull
+    // them from the indexer. The DB is used here as a *hint* (which ids
+    // to check), not as authority (the chain answers whether the wallet
+    // holds them).
+    let knownTokenIds: string[] | undefined;
+    if (collection.standard === "ERC1155") {
+      const tokens = await prisma.token.findMany({
+        where: { chain: "STARKNET", contractAddress: contract },
+        select: { tokenId: true },
+        take: 100,
+      });
+      knownTokenIds = tokens.map((t) => t.tokenId);
+    }
+
+    // Authorization: on-chain ownership check. Per 07-identity §V, this
+    // is the load-bearing step; do not fall back to the DB on RPC error.
+    let isHolder: boolean;
+    try {
+      isHolder = await verifyOnChainHolder(contract, walletAddress, collection.standard, knownTokenIds);
+    } catch (err) {
+      log.warn({ err, contract, walletAddress }, "Gated-content on-chain check failed");
+      return c.json({ error: "Could not verify ownership on-chain, please retry" }, 503);
+    }
+
+    if (!isHolder) {
       return c.json({ error: "Not a holder of this collection" }, 403);
     }
 
