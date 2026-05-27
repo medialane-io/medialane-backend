@@ -101,12 +101,14 @@ PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error:
 
 ## Rate Limiting (`src/api/middleware/rateLimit.ts`)
 
-**Keyed by API key ID** (not IP). In-memory store — resets on restart, not shared across instances.
+**Keyed by API key ID** (not IP).
 
 | Plan | Limit | Window | How tracked |
 |---|---|---|---|
-| FREE | 50 requests | per calendar month | DB count on `UsageLog` (portal routes excluded) |
-| PREMIUM | 3,000 requests | per minute | In-memory `InMemoryRateLimitStore` |
+| FREE | 50 requests | per calendar month | Atomic Postgres `UPDATE … WHERE count < limit RETURNING` on `ApiKey.monthlyRequestCount`. DB-backed, multi-instance safe. |
+| PREMIUM | 3,000 requests | per minute | `RedisRateLimitStore` when `REDIS_URL` is set (multi-instance safe); otherwise falls back to `InMemoryRateLimitStore` (per-process, single-replica only). Store selected in `src/api/middleware/rateLimit.ts:56`. |
+
+> **Multi-replica deploys MUST set `REDIS_URL`.** Without it the PREMIUM counter is per-process — N replicas means N× the documented limit and FREE-vs-PREMIUM headers drift. The FREE path is already multi-instance safe via the DB.
 
 Response headers on every `/v1/*` response:
 - `X-RateLimit-Limit` — 50 (FREE) or 3000 (PREMIUM)
