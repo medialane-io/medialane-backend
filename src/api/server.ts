@@ -31,7 +31,6 @@ import pop from "./routes/pop.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
 import { rewards, adminRewards } from "./routes/rewards.js";
-import airdrop from "./routes/airdrop.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -81,7 +80,6 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/pop", pop);
   app.route("/v1/drop", drop);
   app.route("/v1/rewards", rewards);
-  app.route("/v1/airdrop", airdrop);
 
   // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));
