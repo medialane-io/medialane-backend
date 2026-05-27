@@ -339,7 +339,17 @@ Legacy collections from prior contract redeployments are tagged `external-*` (th
 
 - `GET /v1/collections/:contract/profile` — public; returns `hasGatedContent` + `gatedContentTitle` only. **Never returns `gatedContentUrl`.**
 - `PATCH /v1/collections/:contract/profile` — accepts `gatedContentTitle`, `gatedContentUrl`, `gatedContentType` (enum values: `VIDEO | STREAM | AUDIO | DOCUMENT | LINK`).
-- `GET /v1/collections/:contract/gated-content` — requires Clerk JWT + tenant API key; verifies caller holds a token from this collection on-chain; returns `{ title, url, type }` to holders; 403 for non-holders.
+- `GET /v1/collections/:contract/gated-content` — Clerk JWT + tenant API key; **authorization comes from on-chain `balance_of` (ERC-721) or `balance_of_batch` over indexed token IDs (ERC-1155)** — NOT from `TokenBalance` cache. This was changed 2026-05-27 (PR #45) to satisfy `07-identity §V` (the indexer is a cache, not an authority — a missed Transfer would lock out a real holder). RPC failure returns **503**, never falls back to the DB. Returns `{ title, url, type }` to holders; 403 for non-holders; 404 if collection not indexed yet.
+
+### SIWS — counterfactual smart-wallet handling (added 2026-05-27)
+
+`POST /v1/auth/siws/verify` distinguishes "wallet contract not deployed" from generic invalid-signature. Starknet smart wallets (Ready / Argent, Braavos) are counterfactual until the first tx — they can receive tokens at a computed address but `is_valid_signature` has no contract to call. The verify route catches the resulting "Contract not found" RPC error and returns **400** with `{ error: "account_not_deployed", message: "Check if your wallet is deployed on Starknet." }`. Other RPC failures keep the existing 401 + `log.error` shape. Pair with medialane-dapp PR #29 which surfaces the friendly message in the upload toast.
+
+> **Diagnostic logging in routes that wrap RPC calls is mandatory** — silent `catch {}` blocks make incidents like this one untraceable. The SIWS verify route's earlier `catch {}` (pre-PR #47) hid 4 days of failures before we spotted it. New routes that wrap `verifyMessageInStarknet` / `callContract` / similar must log the real error in the catch path.
+
+### `/v1/users/me` accepts optional `chain` (added 2026-05-27)
+
+`meBodySchema` now accepts `{ walletType?, appSource?, chain? }`. v1 only allows `STARKNET` — `identityAuth` only issues tokens for Starknet wallets (Clerk JWT → ChipiPay Starknet address; SIWS → Starknet signature), so accepting a non-`STARKNET` chain would mis-register a Starknet-derived address. The route returns 400 for any other value. Guard relaxes naturally when SIWE / SIWB land. SDK 0.25.0 + medialane-io call sites pass `chain: "STARKNET"` explicitly to lock the year-2-correct shape into v1.
 
 ### CollectionCreated event indexing (added 2026-03-08)
 The mirror now polls the collection registry for `CollectionCreated` events on every tick (alongside marketplace and Transfer events). When detected:
