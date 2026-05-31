@@ -3,6 +3,7 @@ import {
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
+  COUNTER_INCREMENTED_SELECTOR,
   TRANSFER_SELECTOR,
   TRANSFER_SINGLE_SELECTOR,
   TRANSFER_BATCH_SELECTOR,
@@ -13,6 +14,7 @@ import type {
   ParsedOrderCreated,
   ParsedOrderFulfilled,
   ParsedOrderCancelled,
+  ParsedCounterIncremented,
   ParsedTransfer,
   ParsedTransferSingle,
   ParsedTransferBatch,
@@ -34,6 +36,7 @@ const SEL_TRANSFER             = num.toHex(TRANSFER_SELECTOR);
 const SEL_TRANSFER_SINGLE      = num.toHex(TRANSFER_SINGLE_SELECTOR);
 const SEL_TRANSFER_BATCH       = num.toHex(TRANSFER_BATCH_SELECTOR);
 const SEL_COLLECTION_CREATED   = num.toHex(COLLECTION_CREATED_SELECTOR);
+const SEL_COUNTER_INCREMENTED  = num.toHex(COUNTER_INCREMENTED_SELECTOR);
 
 export function parseEvent(
   event: RawStarknetEvent,
@@ -79,6 +82,18 @@ export function parseEvent(
         txHash,
         logIndex,
       } satisfies ParsedOrderCancelled;
+    }
+
+    if (selector === SEL_COUNTER_INCREMENTED) {
+      // CounterIncremented { offerer #key, new_counter } → keys[1], data[0]
+      return {
+        type: "CounterIncremented",
+        offerer: normalizeAddress(keys[1]),
+        newCounter: BigInt(event.data[0]).toString(),
+        blockNumber,
+        txHash,
+        logIndex,
+      } satisfies ParsedCounterIncremented;
     }
 
     if (selector === SEL_TRANSFER) {

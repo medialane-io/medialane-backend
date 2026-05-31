@@ -210,22 +210,24 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         }
       }
 
-      const { typedData, calls } = await buildFulfillOrderIntent(parsed.data);
+      const { calls } = await buildFulfillOrderIntent(parsed.data);
       const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 
+      // Unsigned fulfilment — calls are fully populated; create SIGNED (like mint).
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "FULFILL_ORDER",
           requester: normalizeAddress(parsed.data.fulfiller),
           tenantId: c.get("tenant")?.id ?? null,
-          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
+          typedData: {},
           calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
           orderHash: parsed.data.orderHash,
           expiresAt,
         },
       });
 
-      return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build fulfill intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -373,7 +375,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     // 2) Build typed data + calls in parallel. Build failures land in `results`
     //    as per-order errors without aborting the batch.
     type Built =
-      | { ok: true; orderHash: string; typedData: unknown; calls: unknown }
+      | { ok: true; orderHash: string; calls: unknown }
       | { ok: false; orderHash: string; error: string };
 
     const builds: Built[] = await Promise.all(
@@ -386,11 +388,11 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           };
         }
         try {
-          const { typedData, calls } = await buildFulfillOrderIntent({
+          const { calls } = await buildFulfillOrderIntent({
             fulfiller: normalizedFulfiller,
             orderHash,
           });
-          return { ok: true, orderHash, typedData, calls };
+          return { ok: true, orderHash, calls };
         } catch (err) {
           return {
             ok: false,
@@ -410,8 +412,9 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
             type: "FULFILL_ORDER" as const,
             requester: normalizedFulfiller,
             tenantId,
-            typedData: b.typedData as PrismaTypes.InputJsonValue,
+            typedData: {},
             calls: b.calls as PrismaTypes.InputJsonValue,
+            status: "SIGNED" as const,
             orderHash: b.orderHash,
             expiresAt,
           })),
@@ -430,7 +433,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return {
         id: idByHash.get(b.orderHash),
         orderHash: b.orderHash,
-        typedData: built?.typedData,
         calls: built?.calls,
         expiresAt: expiresAt.toISOString(),
       };

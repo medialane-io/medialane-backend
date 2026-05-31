@@ -9,10 +9,10 @@ const envSchema = z.object({
   CLERK_SECRET_KEY: z.string().default(""),
   MARKETPLACE_721_CONTRACT_MAINNET: z
     .string()
-    .default("0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6"),
+    .default("0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e"),
   MARKETPLACE_1155_CONTRACT_MAINNET: z
     .string()
-    .default("0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99"),
+    .default("0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077"),
   COLLECTION_721_CONTRACT_MAINNET: z
     .string()
     .default("0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2"),

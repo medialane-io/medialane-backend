@@ -10,8 +10,6 @@ import { env } from "../config/env.js";
 import {
   buildOrderTypedData,
   build1155OrderTypedData,
-  buildFulfillmentTypedData,
-  build1155FulfillmentTypedData,
   buildCancellationTypedData,
   build1155CancellationTypedData,
 } from "@medialane/sdk";
@@ -30,11 +28,12 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("intent");
 
-const NONCES_SELECTOR = hash.getSelectorFromName("nonces");
+const GET_COUNTER_SELECTOR = hash.getSelectorFromName("get_counter");
+const ROYALTY_INFO_SELECTOR = hash.getSelectorFromName("royalty_info");
 const PUBLIC_STARKNET_RPC_FALLBACK = "https://rpc.starknet.lava.build/";
 
-async function fetchNonce1155(address: string): Promise<string> {
-  return fetchNonceFromContract(MARKETPLACE_1155_CONTRACT, address);
+async function fetchCounter1155(address: string): Promise<string> {
+  return fetchCounterFromContract(MARKETPLACE_1155_CONTRACT, address);
 }
 
 function toHex(value: string | number | bigint): string {
@@ -49,31 +48,35 @@ function toHex(value: string | number | bigint): string {
   return "0x" + BigInt(value).toString(16);
 }
 
-async function fetchNonce(address: string): Promise<string> {
-  return fetchNonceFromContract(MARKETPLACE_721_CONTRACT, address);
+async function fetchCounter(address: string): Promise<string> {
+  return fetchCounterFromContract(MARKETPLACE_721_CONTRACT, address);
 }
 
-async function fetchNonceFromContract(contractAddress: string, address: string): Promise<string> {
-  const urls = Array.from(new Set([
-    env.ALCHEMY_RPC_URL,
-    env.STARKNET_RPC_FALLBACK_URL,
-    PUBLIC_STARKNET_RPC_FALLBACK,
-  ].filter(Boolean) as string[]));
+async function fetchCounterFromContract(contractAddress: string, address: string): Promise<string> {
+  const urls = rpcUrls();
   let lastError: Error | null = null;
 
   for (const url of urls) {
     try {
-      return await fetchNonceFromRpc(url, contractAddress, address);
+      return await fetchCounterFromRpc(url, contractAddress, address);
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      log.warn({ err: lastError, rpcUrl: sanitizeRpcUrl(url) }, "Nonce RPC failed — trying fallback");
+      log.warn({ err: lastError, rpcUrl: sanitizeRpcUrl(url) }, "Counter RPC failed — trying fallback");
     }
   }
 
-  throw lastError ?? new Error("Nonce RPC failed");
+  throw lastError ?? new Error("Counter RPC failed");
 }
 
-async function fetchNonceFromRpc(rpcUrl: string, contractAddress: string, address: string): Promise<string> {
+function rpcUrls(): string[] {
+  return Array.from(new Set([
+    env.ALCHEMY_RPC_URL,
+    env.STARKNET_RPC_FALLBACK_URL,
+    PUBLIC_STARKNET_RPC_FALLBACK,
+  ].filter(Boolean) as string[]));
+}
+
+async function fetchCounterFromRpc(rpcUrl: string, contractAddress: string, address: string): Promise<string> {
   const res = await fetch(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -83,7 +86,7 @@ async function fetchNonceFromRpc(rpcUrl: string, contractAddress: string, addres
       params: {
         request: {
           contract_address: contractAddress,
-          entry_point_selector: NONCES_SELECTOR,
+          entry_point_selector: GET_COUNTER_SELECTOR,
           calldata: [normalizeAddress(address)],
         },
         block_id: "latest",
@@ -97,14 +100,54 @@ async function fetchNonceFromRpc(rpcUrl: string, contractAddress: string, addres
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error(`Nonce RPC returned non-JSON response (${res.status})`);
+    throw new Error(`Counter RPC returned non-JSON response (${res.status})`);
   }
 
   if (!res.ok || json.error || !json.result?.[0]) {
-    throw new Error(json.error?.message ?? `Nonce RPC failed (${res.status})`);
+    throw new Error(json.error?.message ?? `Counter RPC failed (${res.status})`);
   }
 
   return BigInt(json.result[0]).toString();
+}
+
+/**
+ * Signed EIP-2981 royalty cap (bps) for an NFT, read live via
+ * royalty_info(tokenId, 10000) — the returned amount equals the bps at
+ * salePrice 10000. Any non-2981 NFT or RPC failure yields "0" (no royalty —
+ * never over-pay). Mirrors the SDK's resolveRoyaltyMaxBps.
+ */
+async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise<string> {
+  const id = cairo.uint256(tokenId);
+  const calldata = [id.low.toString(), id.high.toString(), "10000", "0"];
+  for (const url of rpcUrls()) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "starknet_call",
+          params: {
+            request: {
+              contract_address: normalizeAddress(nftContract),
+              entry_point_selector: ROYALTY_INFO_SELECTOR,
+              calldata,
+            },
+            block_id: "latest",
+          },
+          id: 1,
+        }),
+      });
+      const json = (await res.json()) as { result?: string[]; error?: unknown };
+      // result = [receiver, amount.low, amount.high]; amount == bps at salePrice 10000
+      if (res.ok && !json.error && json.result?.[1] !== undefined) {
+        return BigInt(json.result[1]).toString();
+      }
+    } catch {
+      // try next endpoint
+    }
+  }
+  return "0";
 }
 
 function sanitizeRpcUrl(url: string): string {
@@ -117,7 +160,8 @@ function sanitizeRpcUrl(url: string): string {
 }
 
 function generateSalt(): string {
-  const bytes = new Uint8Array(8);
+  // 248-bit: salt is the sole order-hash uniqueness source now that nonce is gone.
+  const bytes = new Uint8Array(31);
   crypto.getRandomValues(bytes);
   return "0x" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -144,29 +188,30 @@ async function buildCreateListing1155Intent(body: CreateListingIntentBody & { am
 
   const amount = BigInt(body.amount);
   if (amount < 1n) throw new Error("amount must be at least 1");
-  const nonce = await fetchNonce1155(body.offerer);
+  const counter = await fetchCounter1155(body.offerer);
+  const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
 
   const orderParams = {
     offerer: toHex(body.offerer),
+    marketplace: toHex(MARKETPLACE_1155_CONTRACT),
     offer: {
       item_type: "ERC1155",
       token: toHex(body.nftContract),
       identifier_or_criteria: toHex(body.tokenId),
-      start_amount: toHex(amount),
-      end_amount: toHex(amount),
+      amount: toHex(amount),
     },
     consideration: {
       item_type: "ERC20",
       token: toHex(body.currency),
       identifier_or_criteria: toHex("0"),
-      start_amount: toHex(priceWei),
-      end_amount: toHex(priceWei),
+      amount: toHex(priceWei),
       recipient: toHex(body.offerer),
     },
+    royalty_max_bps: toHex(royaltyMaxBps),
     start_time: toHex(Math.floor(Date.now() / 1000) + 30),
     end_time: toHex(body.endTime),
     salt: toHex(salt),
-    nonce: toHex(nonce),
+    counter: toHex(counter),
   };
 
   const typedData: TypedData = build1155OrderTypedData(orderParams, chainId);
@@ -195,29 +240,30 @@ async function buildCreateListing721Intent(body: CreateListingIntentBody) {
   const priceWei = parseAmount(body.price, token.decimals);
   const chainId = getChainId();
   const salt = body.salt ?? generateSalt();
-  const nonce = await fetchNonce(body.offerer);
+  const counter = await fetchCounter(body.offerer);
+  const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
 
   const orderParams = {
     offerer: toHex(body.offerer),
+    marketplace: toHex(MARKETPLACE_721_CONTRACT),
     offer: {
       item_type: "ERC721",               // shortstring — matches ItemType::ERC721.into() in Cairo
       token: toHex(body.nftContract),    // ContractAddress
       identifier_or_criteria: toHex(body.tokenId),
-      start_amount: toHex("1"),
-      end_amount: toHex("1"),
+      amount: toHex("1"),
     },
     consideration: {
       item_type: "ERC20",               // shortstring — matches ItemType::ERC20.into() in Cairo
       token: toHex(body.currency),      // ContractAddress
       identifier_or_criteria: toHex("0"),
-      start_amount: toHex(priceWei),
-      end_amount: toHex(priceWei),
+      amount: toHex(priceWei),
       recipient: toHex(body.offerer),   // ContractAddress
     },
+    royalty_max_bps: toHex(royaltyMaxBps),
     start_time: toHex(Math.floor(Date.now() / 1000) + 30), // 30s buffer — enough for tx inclusion on Starknet (~6s blocks)
     end_time: toHex(body.endTime),
     salt: toHex(salt),
-    nonce: toHex(nonce),
+    counter: toHex(counter),
   };
 
   const typedData: TypedData = buildOrderTypedData(orderParams, chainId);
@@ -254,7 +300,8 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   const priceWei = parseAmount(body.price, token.decimals);
 
   const is1155 = body.tokenStandard === "ERC1155";
-  const nonce = is1155 ? await fetchNonce1155(body.offerer) : await fetchNonce(body.offerer);
+  const counter = is1155 ? await fetchCounter1155(body.offerer) : await fetchCounter(body.offerer);
+  const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
   const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
@@ -263,25 +310,25 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
 
   const orderParams = {
     offerer: toHex(body.offerer),
+    marketplace: toHex(marketplaceContract),
     offer: {
       item_type: "ERC20",
       token: toHex(body.currency),
       identifier_or_criteria: toHex("0"),
-      start_amount: toHex(priceWei),
-      end_amount: toHex(priceWei),
+      amount: toHex(priceWei),
     },
     consideration: {
       item_type: is1155 ? "ERC1155" : "ERC721",
       token: toHex(body.nftContract),
       identifier_or_criteria: toHex(body.tokenId),
-      start_amount: toHex(quantity),
-      end_amount: toHex(quantity),
+      amount: toHex(quantity),
       recipient: toHex(body.offerer),
     },
+    royalty_max_bps: toHex(royaltyMaxBps),
     start_time: toHex(Math.floor(Date.now() / 1000) + 30), // 30s buffer — enough for tx inclusion on Starknet (~6s blocks)
     end_time: toHex(body.endTime),
     salt: toHex(salt),
-    nonce: toHex(nonce),
+    counter: toHex(counter),
   };
 
   const typedData: TypedData = is1155
@@ -307,8 +354,6 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
 }
 
 export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
-  const chainId = getChainId();
-
   // Fetch order to determine ERC-721 vs ERC-1155 contract routing.
   // tokenStandard hint from the caller takes precedence — used when the order
   // is not yet in the DB (e.g. listing was created before the indexer caught up).
@@ -322,29 +367,9 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
     order?.considerationItemType === "ERC1155";
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
 
-  const nonce = is1155
-    ? await fetchNonce1155(body.fulfiller)
-    : await fetchNonce(body.fulfiller);
-
-  // For ERC-1155: quantity is buyer's chosen units; defaults to 1.
+  // Fulfilment is unsigned — the caller IS the fulfiller (audit F3). No SNIP-12,
+  // no nonce. For ERC-1155 the buyer's chosen unit quantity defaults to 1.
   const quantity1155 = is1155 ? BigInt(body.quantity ?? "1") : 1n;
-
-  const fulfillment = is1155
-    ? {
-        order_hash: toHex(body.orderHash),
-        fulfiller: toHex(body.fulfiller),
-        quantity: toHex(quantity1155),
-        nonce: toHex(nonce),
-      }
-    : {
-        order_hash: toHex(body.orderHash),
-        fulfiller: toHex(body.fulfiller),
-        nonce: toHex(nonce),
-      };
-
-  const typedData: TypedData = is1155
-    ? build1155FulfillmentTypedData(fulfillment, chainId)
-    : buildFulfillmentTypedData(fulfillment, chainId);
 
   const calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] = [];
 
@@ -388,10 +413,13 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   calls.push({
     contractAddress: marketplaceContract,
     entrypoint: "fulfill_order",
-    calldata: [],
+    // 721: fulfill_order(order_hash); 1155: fulfill_order(order_hash, quantity)
+    calldata: is1155
+      ? [toHex(body.orderHash), toHex(quantity1155)]
+      : [toHex(body.orderHash)],
   });
 
-  return { typedData, calls, fulfillment };
+  return { calls };
 }
 
 export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
@@ -409,14 +437,9 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
     order?.considerationItemType === "ERC1155";
   const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
 
-  const nonce = is1155
-    ? await fetchNonce1155(body.offerer)
-    : await fetchNonce(body.offerer);
-
   const cancelation = {
     order_hash: toHex(body.orderHash),
     offerer: toHex(body.offerer),
-    nonce: toHex(nonce),
   };
 
   const typedData: TypedData = is1155
@@ -544,7 +567,8 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
  * (not human-readable), and the currency comes from the original bid's offerToken.
  */
 export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
-  const nonce = await fetchNonce(body.sellerAddress);
+  const counter = await fetchCounter(body.sellerAddress);
+  const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
   const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
   const priceWei = BigInt(body.priceRaw);
@@ -552,25 +576,25 @@ export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
 
   const orderParams = {
     offerer: toHex(body.sellerAddress),
+    marketplace: toHex(MARKETPLACE_721_CONTRACT),
     offer: {
       item_type: "ERC721",
       token: toHex(body.nftContract),
       identifier_or_criteria: toHex(body.tokenId),
-      start_amount: toHex("1"),
-      end_amount: toHex("1"),
+      amount: toHex("1"),
     },
     consideration: {
       item_type: "ERC20",
       token: toHex(body.currencyAddress),
       identifier_or_criteria: toHex("0"),
-      start_amount: toHex(priceWei),
-      end_amount: toHex(priceWei),
+      amount: toHex(priceWei),
       recipient: toHex(body.sellerAddress),
     },
+    royalty_max_bps: toHex(royaltyMaxBps),
     start_time: toHex(Math.floor(Date.now() / 1000) + 30),
     end_time: toHex(endTime),
     salt: toHex(salt),
-    nonce: toHex(nonce),
+    counter: toHex(counter),
   };
 
   const typedData: TypedData = buildOrderTypedData(orderParams, chainId);

@@ -69,7 +69,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: "Intent not found" }, 404);
     }
 
-    if (intent.type === "MINT" || intent.type === "CREATE_COLLECTION") {
+    if (intent.type === "MINT" || intent.type === "CREATE_COLLECTION" || intent.type === "FULFILL_ORDER") {
       return c.json({ error: "Intent type does not require a signature" }, 400);
     }
     if (intent.status !== "PENDING") {

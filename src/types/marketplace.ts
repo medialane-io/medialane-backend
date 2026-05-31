@@ -4,8 +4,7 @@ export interface OfferItem {
   item_type: string;
   token: string;
   identifier_or_criteria: string;
-  start_amount: string;
-  end_amount: string;
+  amount: string;
 }
 
 export interface ConsiderationItem extends OfferItem {
@@ -14,24 +13,21 @@ export interface ConsiderationItem extends OfferItem {
 
 export interface OrderParameters {
   offerer: string;
+  marketplace: string;
   offer: OfferItem;
   consideration: ConsiderationItem;
+  royalty_max_bps: string;
   start_time: string;
   end_time: string;
   salt: string;
-  nonce: string;
+  counter: string;
 }
 
-export type Fulfillment = {
-  order_hash: string;
-  fulfiller: string;
-  nonce: string;
-};
+// Fulfillment removed — fulfill is unsigned (caller is the fulfiller).
 
 export type Cancelation = {
   order_hash: string;
   offerer: string;
-  nonce: string;
 };
 
 export interface Order {
@@ -68,6 +64,15 @@ export interface ParsedOrderCancelled {
   type: "OrderCancelled";
   orderHash: string;
   offerer: string;
+  blockNumber: bigint;
+  txHash: string;
+  logIndex: number;
+}
+
+export interface ParsedCounterIncremented {
+  type: "CounterIncremented";
+  offerer: string;
+  newCounter: string;
   blockNumber: bigint;
   txHash: string;
   logIndex: number;
@@ -122,6 +127,7 @@ export type ParsedEvent =
   | ParsedOrderCreated
   | ParsedOrderFulfilled
   | ParsedOrderCancelled
+  | ParsedCounterIncremented
   | ParsedTransfer
   | ParsedTransferSingle
   | ParsedTransferBatch
@@ -134,18 +140,16 @@ export interface OnChainOrderDetails {
   offerItemType: string;
   offerToken: string;
   offerIdentifier: string;
-  offerStartAmount: string;
-  offerEndAmount: string;
+  offerAmount: string;
   considerationItemType: string;
   considerationToken: string;
   considerationIdentifier: string;
-  considerationStartAmount: string;
-  considerationEndAmount: string;
+  considerationAmount: string;
   considerationRecipient: string;
+  royaltyMaxBps: string;
   startTime: bigint;
   endTime: bigint;
   /** ERC-1155 only - units still available. Absent for ERC-721 (always single-fill). */
   remainingAmount?: string;
   status: "active" | "fulfilled" | "cancelled";
-  fulfiller: string | null;
 }

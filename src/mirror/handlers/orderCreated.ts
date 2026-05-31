@@ -44,7 +44,7 @@ async function applyOrderCreated(
   const isListing = details.offerItemType === "ERC721" || details.offerItemType === "ERC1155";
   const isBid = details.considerationItemType === "ERC721" || details.considerationItemType === "ERC1155";
   const priceTokenAddress = isBid ? details.offerToken : details.considerationToken;
-  const priceRaw = isBid ? details.offerStartAmount : details.considerationStartAmount;
+  const priceRaw = isBid ? details.offerAmount : details.considerationAmount;
   const token = getTokenByAddress(priceTokenAddress);
   const priceFormatted = token ? formatAmount(priceRaw, token.decimals) : priceRaw;
   const currencySymbol = token?.symbol ?? null;
@@ -59,6 +59,13 @@ async function applyOrderCreated(
     ? details.considerationIdentifier
     : null;
 
+  // 05-service-model §V: the indexer tags the venue's stable service id; the raw
+  // address is an explorer-link helper only, never a behaviour discriminator.
+  const marketplaceService =
+    normalizeAddress(marketplaceContract) === normalizeAddress(MARKETPLACE_1155_CONTRACT)
+      ? "medialane-marketplace-erc1155"
+      : "medialane-marketplace-erc721";
+
   await tx.order.upsert({
     where: { chain_orderHash: { chain, orderHash } },
     create: {
@@ -68,13 +75,14 @@ async function applyOrderCreated(
       offerItemType: details.offerItemType,
       offerToken: details.offerToken,
       offerIdentifier: details.offerIdentifier,
-      offerStartAmount: details.offerStartAmount,
-      offerEndAmount: details.offerEndAmount,
+      // Redesigned schema has a single `amount`; mirror it into start/end columns.
+      offerStartAmount: details.offerAmount,
+      offerEndAmount: details.offerAmount,
       considerationItemType: details.considerationItemType,
       considerationToken: details.considerationToken,
       considerationIdentifier: details.considerationIdentifier,
-      considerationStartAmount: details.considerationStartAmount,
-      considerationEndAmount: details.considerationEndAmount,
+      considerationStartAmount: details.considerationAmount,
+      considerationEndAmount: details.considerationAmount,
       considerationRecipient: details.considerationRecipient,
       startTime: details.startTime,
       endTime: details.endTime,
@@ -87,6 +95,7 @@ async function applyOrderCreated(
       priceFormatted,
       currencySymbol,
       marketplaceContract: normalizeAddress(marketplaceContract),
+      marketplaceService,
       ...(details.remainingAmount !== undefined ? { remainingAmount: details.remainingAmount } : {}),
     },
     update: {
@@ -215,36 +224,23 @@ function parseOrderDetails721(raw: any): OnChainOrderDetails {
   if (statusVariant === "Filled") status = "fulfilled";
   if (statusVariant === "Cancelled") status = "cancelled";
 
-  // starknet.js v6 CairoOption — .Some is undefined (not absent) for None variants
-  const fulfillerOption = raw.fulfiller;
-  let fulfiller: string | null = null;
-  const fulfillerSome: unknown =
-    typeof fulfillerOption?.isSome === "function"
-      ? fulfillerOption.isSome()
-        ? fulfillerOption.unwrap()
-        : undefined
-      : fulfillerOption?.Some;
-  if (fulfillerSome !== undefined && fulfillerSome !== null) {
-    fulfiller = normalizeAddress(String(fulfillerSome));
-  }
-
+  // The redesigned OrderDetails has no `fulfiller` field — the OrderFulfilled
+  // event carries it. Single `amount` per leg; royalty cap is signed.
   return {
     offerer: normalizeAddress(raw.offerer.toString()),
     offerItemType: decodeShortstring(raw.offer.item_type),
     offerToken: normalizeAddress(raw.offer.token.toString()),
     offerIdentifier: raw.offer.identifier_or_criteria.toString(),
-    offerStartAmount: raw.offer.start_amount.toString(),
-    offerEndAmount: raw.offer.end_amount.toString(),
+    offerAmount: raw.offer.amount.toString(),
     considerationItemType: decodeShortstring(raw.consideration.item_type),
     considerationToken: normalizeAddress(raw.consideration.token.toString()),
     considerationIdentifier: raw.consideration.identifier_or_criteria.toString(),
-    considerationStartAmount: raw.consideration.start_amount.toString(),
-    considerationEndAmount: raw.consideration.end_amount.toString(),
+    considerationAmount: raw.consideration.amount.toString(),
     considerationRecipient: normalizeAddress(raw.consideration.recipient.toString()),
+    royaltyMaxBps: raw.royalty_max_bps.toString(),
     startTime: BigInt(raw.start_time.toString()),
     endTime: BigInt(raw.end_time.toString()),
     status,
-    fulfiller,
   };
 }
 
@@ -314,7 +310,7 @@ async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDet
       });
 
       const json = await res.json() as { result?: string[]; error?: unknown };
-      if (json.result && json.result.length >= 17) {
+      if (json.result && json.result.length >= 15) {
         return decodeOrderDetails1155(json.result);
       }
       lastError = json.error ?? new Error(`Empty / short RPC response from ${url}`);
@@ -329,26 +325,26 @@ async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDet
 }
 
 function decodeOrderDetails1155(raw: string[]): OnChainOrderDetails {
+  // Redesigned flat felt layout:
+  // 0 offerer | 1 offer.item_type | 2 offer.token | 3 offer.id | 4 offer.amount |
+  // 5 cons.item_type | 6 cons.token | 7 cons.id | 8 cons.amount | 9 cons.recipient |
+  // 10 royalty_max_bps | 11 start_time | 12 end_time | 13 order_status | 14 remaining_amount
   return {
     offerer: normalizeAddress(raw[0]),
     offerItemType: decodeShortstring(raw[1]),
     offerToken: normalizeAddress(raw[2]),
     offerIdentifier: BigInt(raw[3]).toString(),
-    offerStartAmount: BigInt(raw[4]).toString(),
-    offerEndAmount: BigInt(raw[5]).toString(),
-    considerationItemType: decodeShortstring(raw[6]),
-    considerationToken: normalizeAddress(raw[7]),
-    considerationIdentifier: BigInt(raw[8]).toString(),
-    considerationStartAmount: BigInt(raw[9]).toString(),
-    considerationEndAmount: BigInt(raw[10]).toString(),
-    considerationRecipient: normalizeAddress(raw[11]),
-    startTime: BigInt(raw[12]),
-    endTime: BigInt(raw[13]),
-    remainingAmount: BigInt(raw[16]).toString(),
-    // Status + fulfiller are not exposed by the 1155 marketplace's
-    // get_order_details — default to active/null; fulfillment events
-    // update these fields when they arrive.
+    offerAmount: BigInt(raw[4]).toString(),
+    considerationItemType: decodeShortstring(raw[5]),
+    considerationToken: normalizeAddress(raw[6]),
+    considerationIdentifier: BigInt(raw[7]).toString(),
+    considerationAmount: BigInt(raw[8]).toString(),
+    considerationRecipient: normalizeAddress(raw[9]),
+    royaltyMaxBps: BigInt(raw[10]).toString(),
+    startTime: BigInt(raw[11]),
+    endTime: BigInt(raw[12]),
+    // raw[13] = order_status enum index; status is tracked via fulfillment/cancel events
+    remainingAmount: BigInt(raw[14]).toString(),
     status: "active",
-    fulfiller: null,
   };
 }
