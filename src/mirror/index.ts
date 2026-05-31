@@ -5,6 +5,7 @@ import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
+import { handleCounterIncremented } from "./handlers/counterIncremented.js";
 import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
@@ -17,7 +18,7 @@ import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR } from "../config/constants.js";
+import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -235,6 +236,9 @@ async function tick(tickId: string): Promise<number> {
             await handleOrderCancelled(event, tx, CHAIN);
             fulfilledOrCancelledHashes.push(event.orderHash);
             break;
+          case "CounterIncremented":
+            await handleCounterIncremented(event, tx, CHAIN);
+            break;
           case "Transfer":
           case "TransferSingle":
           case "TransferBatch":
@@ -251,6 +255,7 @@ async function tick(tickId: string): Promise<number> {
       const SEL_CREATED   = num.toHex(ORDER_CREATED_SELECTOR);
       const SEL_FULFILLED = num.toHex(ORDER_FULFILLED_SELECTOR);
       const SEL_CANCELLED = num.toHex(ORDER_CANCELLED_SELECTOR);
+      const SEL_COUNTER   = num.toHex(COUNTER_INCREMENTED_SELECTOR);
       // Per-tx log counter for 1155 events — matches the ERC-721 parser's txCounters
       // so logIndex values stay consistent if handlers ever use them for idempotency.
       const txCounters1155 = new Map<string, number>();
@@ -279,6 +284,18 @@ async function tick(tickId: string): Promise<number> {
             );
             fulfilledOrCancelledHashes.push(orderHash);
           }
+        } else if (selector === SEL_COUNTER) {
+          await handleCounterIncremented(
+            {
+              type: "CounterIncremented",
+              offerer: normalizeAddress(rawEvent.keys[1]),
+              newCounter: BigInt(rawEvent.data[0]).toString(),
+              blockNumber: BigInt(rawEvent.block_number),
+              txHash: evTxHash,
+              logIndex,
+            },
+            tx, CHAIN
+          );
         }
       }
 

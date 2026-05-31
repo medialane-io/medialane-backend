@@ -6,6 +6,7 @@ import {
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
+  COUNTER_INCREMENTED_SELECTOR,
   TRANSFER_SELECTOR,
   TRANSFER_SINGLE_SELECTOR,
   TRANSFER_BATCH_SELECTOR,
@@ -76,6 +77,7 @@ export async function pollEvents(
       num.toHex(ORDER_CREATED_SELECTOR),
       num.toHex(ORDER_FULFILLED_SELECTOR),
       num.toHex(ORDER_CANCELLED_SELECTOR),
+      num.toHex(COUNTER_INCREMENTED_SELECTOR),
     ]],
     maxPages: 100,
   });
@@ -99,6 +101,7 @@ export async function pollEvents1155(
       num.toHex(ORDER_CREATED_SELECTOR),
       num.toHex(ORDER_FULFILLED_SELECTOR),
       num.toHex(ORDER_CANCELLED_SELECTOR),
+      num.toHex(COUNTER_INCREMENTED_SELECTOR),
     ]],
     maxPages: 100,
   });
