@@ -57,7 +57,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         },
       });
 
-      return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build listing intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -91,7 +91,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         },
       });
 
-      return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build offer intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -181,7 +181,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         return created;
       });
 
-      return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       if ((err as any)?.code === "COUNTER_ALREADY_EXISTS") {
         return c.json({ error: "A counter-offer already exists for this order" }, 400);
@@ -227,7 +227,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         },
       });
 
-      return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build fulfill intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -268,7 +268,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         },
       });
 
-      return c.json({ data: { id: intent.id, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build cancel intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -300,7 +300,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         },
       });
 
-      return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build mint intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -342,7 +342,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         },
       });
 
-      return c.json({ data: { id: intent.id, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build create-collection intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -433,6 +433,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return {
         id: idByHash.get(b.orderHash),
         orderHash: b.orderHash,
+        requiresSignature: false as const,
         calls: built?.calls,
         expiresAt: expiresAt.toISOString(),
       };
