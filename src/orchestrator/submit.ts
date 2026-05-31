@@ -42,52 +42,38 @@ export function buildPopulatedCalls(
   if (intentType === "CREATE_LISTING" || intentType === "MAKE_OFFER" || intentType === "COUNTER_OFFER") {
     // ERC-721 and audited ERC-1155 both use nested OrderParameters:
     // register_order(order: Order, signature: Span<felt252>)
+    // Field order MUST match the Cairo OrderParameters struct exactly (redesigned
+    // venues): offerer, marketplace, offer{item_type,token,id,amount},
+    // consideration{...,amount,recipient}, royalty_max_bps, start_time, end_time,
+    // salt, counter. Single `amount` per leg; no end_amount; nonce → counter.
     const o = message.offer as Message;
     const cns = message.consideration as Message;
     last.calldata = [
       toFelt(message.offerer),
+      toFelt(message.marketplace),
       toFelt(o.item_type),
       toFelt(o.token),
       toFelt(o.identifier_or_criteria),
-      toFelt(o.start_amount),
-      toFelt(o.end_amount),
+      toFelt(o.amount),
       toFelt(cns.item_type),
       toFelt(cns.token),
       toFelt(cns.identifier_or_criteria),
-      toFelt(cns.start_amount),
-      toFelt(cns.end_amount),
+      toFelt(cns.amount),
       toFelt(cns.recipient),
+      toFelt(message.royalty_max_bps),
       toFelt(message.start_time),
       toFelt(message.end_time),
       toFelt(message.salt),
-      toFelt(message.nonce),
+      toFelt(message.counter),
       ...sigCalldata,
     ];
-  } else if (intentType === "FULFILL_ORDER") {
-    // ERC-1155 OrderFulfillment has quantity between fulfiller and nonce
-    if ("quantity" in message) {
-      last.calldata = [
-        toFelt(message.order_hash),
-        toFelt(message.fulfiller),
-        toFelt(message.quantity),
-        toFelt(message.nonce),
-        ...sigCalldata,
-      ];
-    } else {
-      // ERC-721: no quantity field
-      last.calldata = [
-        toFelt(message.order_hash),
-        toFelt(message.fulfiller),
-        toFelt(message.nonce),
-        ...sigCalldata,
-      ];
-    }
+    // FULFILL_ORDER is no longer signed (caller is the fulfiller) — its calldata
+    // is populated at intent-build time, so it never reaches buildPopulatedCalls.
   } else if (intentType === "CANCEL_ORDER") {
-    // cancel_order(cancellation: OrderCancellation, signature: Span<felt252>)
+    // cancel_order(cancellation: OrderCancellation, signature: Span<felt252>) — no nonce
     last.calldata = [
       toFelt(message.order_hash),
       toFelt(message.offerer),
-      toFelt(message.nonce),
       ...sigCalldata,
     ];
   }
