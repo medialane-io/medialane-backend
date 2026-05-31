@@ -47,13 +47,15 @@ console.log(`  ...on NEW venues (must be 0) : ${activeOnNew}`);
 console.log(`Will DELETE (ACTIVE, no fills): ${toDelete}`);
 console.log(`Will KEEP                     : all history (FULFILLED/CANCELLED/EXPIRED + any order with fills)`);
 
+console.log(`Will EXPIRE (ACTIVE, w/ fills): ${activeWithFills}  (keeps OrderFill provenance)`);
+
 if (activeOnNew > 0) {
   console.log("\nRefusing: ACTIVE orders exist on the NEW venues. Investigate before purging.");
   await prisma.$disconnect();
   process.exit(1);
 }
-if (toDelete === 0) {
-  console.log("\nNothing to delete.");
+if (activeTotal === 0) {
+  console.log("\nNothing to do.");
   await prisma.$disconnect();
   process.exit(0);
 }
@@ -64,11 +66,17 @@ if (DRY_RUN) {
 }
 
 console.log("\nDeleting stale ACTIVE orders (no fills)...");
-const { count } = await prisma.order.deleteMany({
+const { count: deleted } = await prisma.order.deleteMany({
   where: { status: "ACTIVE", fills: { none: {} } },
 });
+console.log("Expiring stale ACTIVE orders that carry fill history...");
+const { count: expired } = await prisma.order.updateMany({
+  where: { status: "ACTIVE", fills: { some: {} } },
+  data: { status: "EXPIRED" },
+});
 const remaining = await prisma.order.count();
-console.log(`\nDeleted ${count} stale active orders`);
-console.log(`  Orders remaining (history): ${remaining}`);
+const stillActive = await prisma.order.count({ where: { status: "ACTIVE" } });
+console.log(`\nDeleted ${deleted} stale active orders; expired ${expired} partially-filled ones`);
+console.log(`  Orders remaining (history): ${remaining}  |  still ACTIVE: ${stillActive}`);
 
 await prisma.$disconnect();
