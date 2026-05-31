@@ -112,6 +112,13 @@ export function buildWebhookPayload(event: ParsedEvent): {
         eventType: "TRANSFER",
         payload: { ...base, collectionId: event.collectionId, owner: event.owner },
       };
+    case "CounterIncremented":
+      // Bulk-cancel: the offerer's open orders are invalidated en masse. No single
+      // orderHash; reuse ORDER_CANCELLED with offerer + newCounter (no new enum value).
+      return {
+        eventType: "ORDER_CANCELLED",
+        payload: { ...base, offerer: event.offerer, newCounter: event.newCounter, bulk: true },
+      };
     default: {
       // Exhaustiveness guard: a new ParsedEvent variant must add a case here.
       // Never return undefined — the caller destructures the result unguarded.
