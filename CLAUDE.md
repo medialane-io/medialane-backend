@@ -394,6 +394,8 @@ conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
 Apply this pattern to **every** `$queryRaw` that compares against an enum column. All three occurrences in `src/api/routes/orders.ts` use the cast.
 
 ### Intents
+- **`requiresSignature` on every create-intent response (added 2026-05-31)**: each `POST /v1/intents/*` build route returns `requiresSignature: boolean` in `data` — `true` for listing/offer/cancel/counter (created `PENDING`, SNIP-12), `false` for fulfill/mint/create-collection/checkout (created `SIGNED`, prebuilt calls). Lets clients (SDK `ApiIntentCreated` union 0.27.0; io `runIntent`) stop inferring signed-vs-unsigned from `typedData` presence. Additive + backward-compatible.
+- **Fulfilment is unsigned (0.26.0 redesigned venues)**: `buildFulfillOrderIntent` returns fully-populated `calls` (approve + `fulfill_order(orderHash[, qty])` + fee on the listing branch), no `typedData`; the intent is created `SIGNED`. The caller IS the fulfiller.
 - TTL: 24 hours. `PENDING → SIGNED` (on signature submit) or `PENDING → EXPIRED` (on GET read after TTL)
 - `PATCH /:id/signature` → `buildPopulatedCalls()` injects signature into stored calldata, returns updated intent
 - **MINT / CREATE_COLLECTION**: no SNIP-12 signing required — created directly as `SIGNED` with fully-populated calldata. `PATCH /:id/signature` returns 400 for these types.
