@@ -21,6 +21,13 @@ const breaker = new CircuitBreaker();
 let _primary: RpcProvider | null = null;
 let _fallback: RpcProvider | null = null;
 
+// Public Starknet mainnet fallback (RPC spec 0.8.1, no API key). Defaults to
+// lava.build so the circuit breaker ALWAYS has somewhere to fail over when
+// Alchemy returns its intermittent 503 / -32001 "Unable to complete request"
+// — even when STARKNET_RPC_FALLBACK_URL is unset. Same endpoint already used
+// as a fallback in txVerifier + orderCreated handlers.
+const FALLBACK_RPC_URL = env.STARKNET_RPC_FALLBACK_URL || "https://rpc.starknet.lava.build/";
+
 function getPrimary(): RpcProvider {
   if (!_primary) {
     _primary = new RpcProvider({
@@ -32,11 +39,10 @@ function getPrimary(): RpcProvider {
   return _primary;
 }
 
-function getFallback(): RpcProvider | null {
-  if (!env.STARKNET_RPC_FALLBACK_URL) return null;
+function getFallback(): RpcProvider {
   if (!_fallback) {
     _fallback = new RpcProvider({
-      nodeUrl: env.STARKNET_RPC_FALLBACK_URL,
+      nodeUrl: FALLBACK_RPC_URL,
       blockIdentifier: "latest",
       fetch: timedFetch as typeof fetch,
     } as any);
@@ -46,22 +52,15 @@ function getFallback(): RpcProvider | null {
 
 /**
  * Returns the appropriate RpcProvider based on circuit-breaker state.
- * - CLOSED: primary
- * - OPEN (within cool-down) + fallback configured: fallback
- * - OPEN (within cool-down) + no fallback: primary (degraded)
- * - HALF (probe window): primary
+ * - CLOSED / HALF (probe window): primary
+ * - OPEN (within cool-down): fallback (always configured — see FALLBACK_RPC_URL)
  *
  * Callers that want automatic failure tracking should use `callRpc()` instead.
  */
 export function createProvider(): RpcProvider {
   if (breaker.shouldUsePrimary()) return getPrimary();
-  const fb = getFallback();
-  if (fb) {
-    log.debug("Circuit breaker OPEN — using fallback RPC");
-    return fb;
-  }
-  // No fallback configured — use primary regardless
-  return getPrimary();
+  log.debug("Circuit breaker OPEN — using fallback RPC");
+  return getFallback();
 }
 
 /**
@@ -70,7 +69,7 @@ export function createProvider(): RpcProvider {
  */
 export async function callRpc<T>(fn: (provider: RpcProvider) => Promise<T>): Promise<T> {
   const usePrimary = breaker.shouldUsePrimary();
-  const provider = usePrimary ? getPrimary() : (getFallback() ?? getPrimary());
+  const provider = usePrimary ? getPrimary() : getFallback();
   try {
     const result = await fn(provider);
     if (usePrimary) breaker.recordSuccess();
@@ -78,12 +77,9 @@ export async function callRpc<T>(fn: (provider: RpcProvider) => Promise<T>): Pro
   } catch (err) {
     if (usePrimary) {
       breaker.recordFailure();
-      // One automatic retry on fallback if available
-      const fb = getFallback();
-      if (fb) {
-        log.warn("Primary RPC failed — retrying on fallback");
-        return fn(fb);
-      }
+      // One automatic retry on the fallback endpoint.
+      log.warn("Primary RPC failed — retrying on fallback");
+      return fn(getFallback());
     }
     throw err;
   }
