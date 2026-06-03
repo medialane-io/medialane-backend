@@ -1,4 +1,5 @@
 import { hash } from "starknet";
+import { PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
 import { env } from "../config/env.js";
 import { normalizeAddress, normalizeHash } from "./starknet.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
@@ -18,7 +19,6 @@ const VALID_MARKETPLACE_CONTRACTS = new Set([
   normalizeAddress(MARKETPLACE_721_CONTRACT),
   normalizeAddress(MARKETPLACE_1155_CONTRACT),
 ]);
-const LAVA_RPC_URL = "https://rpc.starknet.lava.build/";
 
 export type VerifyResult =
   | { status: "CONFIRMED" }
@@ -242,7 +242,7 @@ function receiptRpcUrls(): string[] {
   return Array.from(new Set([
     env.ALCHEMY_RPC_URL,
     env.STARKNET_RPC_FALLBACK_URL,
-    LAVA_RPC_URL,
+    ...PUBLIC_RPC_FALLBACKS,
   ].filter((url): url is string => Boolean(url))));
 }
 

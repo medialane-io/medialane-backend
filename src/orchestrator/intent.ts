@@ -12,6 +12,7 @@ import {
   build1155OrderTypedData,
   buildCancellationTypedData,
   build1155CancellationTypedData,
+  PUBLIC_RPC_FALLBACKS,
 } from "@medialane/sdk";
 import type {
   CreateListingIntentBody,
@@ -30,7 +31,6 @@ const log = createLogger("intent");
 
 const GET_COUNTER_SELECTOR = hash.getSelectorFromName("get_counter");
 const ROYALTY_INFO_SELECTOR = hash.getSelectorFromName("royalty_info");
-const PUBLIC_STARKNET_RPC_FALLBACK = "https://rpc.starknet.lava.build/";
 
 async function fetchCounter1155(address: string): Promise<string> {
   return fetchCounterFromContract(MARKETPLACE_1155_CONTRACT, address);
@@ -72,7 +72,7 @@ function rpcUrls(): string[] {
   return Array.from(new Set([
     env.ALCHEMY_RPC_URL,
     env.STARKNET_RPC_FALLBACK_URL,
-    PUBLIC_STARKNET_RPC_FALLBACK,
+    ...PUBLIC_RPC_FALLBACKS,
   ].filter(Boolean) as string[]));
 }
 

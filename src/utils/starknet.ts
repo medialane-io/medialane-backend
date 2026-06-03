@@ -1,4 +1,5 @@
 import { RpcProvider, num } from "starknet";
+import { PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
 import { env } from "../config/env.js";
 import { CircuitBreaker } from "./circuitBreaker.js";
 import { createLogger } from "./logger.js";
@@ -26,7 +27,7 @@ let _fallback: RpcProvider | null = null;
 // Alchemy returns its intermittent 503 / -32001 "Unable to complete request"
 // — even when STARKNET_RPC_FALLBACK_URL is unset. Same endpoint already used
 // as a fallback in txVerifier + orderCreated handlers.
-const FALLBACK_RPC_URL = env.STARKNET_RPC_FALLBACK_URL || "https://rpc.starknet.lava.build/";
+const FALLBACK_RPC_URL = env.STARKNET_RPC_FALLBACK_URL || PUBLIC_RPC_FALLBACKS[0];
 
 function getPrimary(): RpcProvider {
   if (!_primary) {

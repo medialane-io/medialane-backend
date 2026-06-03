@@ -1,6 +1,6 @@
 import { Contract, hash, num } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
-import { IPMarketplaceABI } from "@medialane/sdk";
+import { IPMarketplaceABI, PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
 import { env } from "../../config/env.js";
 import {
   MARKETPLACE_721_CONTRACT,
@@ -247,7 +247,6 @@ function parseOrderDetails721(raw: any): OnChainOrderDetails {
 // ── ERC-1155 entry ─────────────────────────────────────────────────────────────
 
 const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
-const LAVA_RPC_URL = "https://rpc.starknet.lava.build/";
 
 export async function handleOrderCreated1155(
   event: RawStarknetEvent,
@@ -285,7 +284,7 @@ async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDet
   const urls = Array.from(new Set([
     env.ALCHEMY_RPC_URL,
     env.STARKNET_RPC_FALLBACK_URL,
-    LAVA_RPC_URL,
+    ...PUBLIC_RPC_FALLBACKS,
   ].filter((url): url is string => Boolean(url))));
   let lastError: unknown;
 
