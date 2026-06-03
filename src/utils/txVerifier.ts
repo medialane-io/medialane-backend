@@ -1,6 +1,5 @@
 import { hash } from "starknet";
-import { PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
-import { env } from "../config/env.js";
+import { postRpc } from "./rpcFetch.js";
 import { normalizeAddress, normalizeHash } from "./starknet.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
 import { createLogger } from "./logger.js";
@@ -195,38 +194,15 @@ export async function fetchReceiptEvents(txHash: string): Promise<RawStarknetEve
 }
 
 async function fetchReceipt(txHash: string): Promise<{ result?: Record<string, unknown>; error?: unknown }> {
-  const urls = receiptRpcUrls();
-  let lastError: unknown;
-
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "starknet_getTransactionReceipt",
-          params: { transaction_hash: txHash },
-          id: 1,
-        }),
-      });
-
-      const json = await res.json() as { result?: Record<string, unknown>; error?: unknown };
-      if (json.result) return json;
-      if (json.error) {
-        lastError = json.error;
-        log.warn({ txHash, rpcUrl: redactRpcUrl(url), rpcError: json.error }, "Receipt RPC returned an error, trying next endpoint");
-        continue;
-      }
-      lastError = new Error(`Empty RPC response from ${url}`);
-    } catch (err) {
-      lastError = err;
-      log.warn({ err, txHash, rpcUrl: redactRpcUrl(url) }, "Receipt RPC failed, trying next endpoint");
-    }
-  }
-
-  if (lastError) throw lastError;
-  return {};
+  return postRpc<Record<string, unknown>>(
+    {
+      jsonrpc: "2.0",
+      method: "starknet_getTransactionReceipt",
+      params: { transaction_hash: txHash },
+      id: 1,
+    },
+    { txHash },
+  );
 }
 
 function safeNormalizeAddress(address?: string): string {
@@ -235,23 +211,6 @@ function safeNormalizeAddress(address?: string): string {
     return normalizeAddress(address);
   } catch {
     return address;
-  }
-}
-
-function receiptRpcUrls(): string[] {
-  return Array.from(new Set([
-    env.ALCHEMY_RPC_URL,
-    env.STARKNET_RPC_FALLBACK_URL,
-    ...PUBLIC_RPC_FALLBACKS,
-  ].filter((url): url is string => Boolean(url))));
-}
-
-function redactRpcUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname.split("/").slice(0, 4).join("/")}`;
-  } catch {
-    return "invalid-rpc-url";
   }
 }
 
@@ -269,10 +228,8 @@ export async function checkOnChainOrderCancelled(orderHash: string, is1155: bool
   const statusIndex = is1155 ? ORDER_STATUS_INDEX.erc1155 : ORDER_STATUS_INDEX.erc721;
 
   try {
-    const res = await fetch(env.ALCHEMY_RPC_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const { result } = await postRpc<string[]>(
+      {
         jsonrpc: "2.0",
         method: "starknet_call",
         params: {
@@ -284,15 +241,13 @@ export async function checkOnChainOrderCancelled(orderHash: string, is1155: bool
           block_id: "latest",
         },
         id: 1,
-      }),
-    });
-
-    const json = await res.json() as { result?: string[]; error?: unknown };
-    if (!json.result || json.result.length <= statusIndex) return false;
+      },
+      { orderHash },
+    );
+    if (!result || result.length <= statusIndex) return false;
 
     // Cairo OrderStatus enum: 0=None, 1=Created, 2=Filled, 3=Cancelled
-    const statusVal = Number(BigInt(json.result[statusIndex]));
-    return statusVal === 3; // Cancelled
+    return Number(BigInt(result[statusIndex])) === 3; // Cancelled
   } catch (err) {
     log.warn({ err, orderHash }, "checkOnChainOrderCancelled: RPC call failed");
     return false;

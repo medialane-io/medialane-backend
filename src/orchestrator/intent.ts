@@ -6,13 +6,12 @@ import type { TypedData } from "starknet";
 import { cairo, hash, num } from "starknet";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
 import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
-import { env } from "../config/env.js";
+import { postRpc } from "../utils/rpcFetch.js";
 import {
   buildOrderTypedData,
   build1155OrderTypedData,
   buildCancellationTypedData,
   build1155CancellationTypedData,
-  PUBLIC_RPC_FALLBACKS,
 } from "@medialane/sdk";
 import type {
   CreateListingIntentBody,
@@ -53,34 +52,8 @@ async function fetchCounter(address: string): Promise<string> {
 }
 
 async function fetchCounterFromContract(contractAddress: string, address: string): Promise<string> {
-  const urls = rpcUrls();
-  let lastError: Error | null = null;
-
-  for (const url of urls) {
-    try {
-      return await fetchCounterFromRpc(url, contractAddress, address);
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      log.warn({ err: lastError, rpcUrl: sanitizeRpcUrl(url) }, "Counter RPC failed — trying fallback");
-    }
-  }
-
-  throw lastError ?? new Error("Counter RPC failed");
-}
-
-function rpcUrls(): string[] {
-  return Array.from(new Set([
-    env.ALCHEMY_RPC_URL,
-    env.STARKNET_RPC_FALLBACK_URL,
-    ...PUBLIC_RPC_FALLBACKS,
-  ].filter(Boolean) as string[]));
-}
-
-async function fetchCounterFromRpc(rpcUrl: string, contractAddress: string, address: string): Promise<string> {
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const { result } = await postRpc<string[]>(
+    {
       jsonrpc: "2.0",
       method: "starknet_call",
       params: {
@@ -92,22 +65,11 @@ async function fetchCounterFromRpc(rpcUrl: string, contractAddress: string, addr
         block_id: "latest",
       },
       id: 1,
-    }),
-  });
-
-  const text = await res.text();
-  let json: { result?: string[]; error?: { message?: string } };
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new Error(`Counter RPC returned non-JSON response (${res.status})`);
-  }
-
-  if (!res.ok || json.error || !json.result?.[0]) {
-    throw new Error(json.error?.message ?? `Counter RPC failed (${res.status})`);
-  }
-
-  return BigInt(json.result[0]).toString();
+    },
+    { contractAddress },
+  );
+  if (!result?.[0]) throw new Error("Counter RPC returned no result");
+  return BigInt(result[0]).toString();
 }
 
 /**
@@ -119,45 +81,31 @@ async function fetchCounterFromRpc(rpcUrl: string, contractAddress: string, addr
 async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise<string> {
   const id = cairo.uint256(tokenId);
   const calldata = [id.low.toString(), id.high.toString(), "10000", "0"];
-  for (const url of rpcUrls()) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "starknet_call",
-          params: {
-            request: {
-              contract_address: normalizeAddress(nftContract),
-              entry_point_selector: ROYALTY_INFO_SELECTOR,
-              calldata,
-            },
-            block_id: "latest",
+  try {
+    const { result } = await postRpc<string[]>(
+      {
+        jsonrpc: "2.0",
+        method: "starknet_call",
+        params: {
+          request: {
+            contract_address: normalizeAddress(nftContract),
+            entry_point_selector: ROYALTY_INFO_SELECTOR,
+            calldata,
           },
-          id: 1,
-        }),
-      });
-      const json = (await res.json()) as { result?: string[]; error?: unknown };
-      // result = [receiver, amount.low, amount.high]; amount == bps at salePrice 10000
-      if (res.ok && !json.error && json.result?.[1] !== undefined) {
-        return BigInt(json.result[1]).toString();
-      }
-    } catch {
-      // try next endpoint
-    }
+          block_id: "latest",
+        },
+        id: 1,
+      },
+      { nftContract },
+    );
+    // result = [receiver, amount.low, amount.high]; amount == bps at salePrice 10000
+    if (result?.[1] !== undefined) return BigInt(result[1]).toString();
+  } catch {
+    // non-2981 NFT or RPC failure — fall through to "0" (never over-pay)
   }
   return "0";
 }
 
-function sanitizeRpcUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return "invalid-rpc-url";
-  }
-}
 
 function generateSalt(): string {
   // 248-bit: salt is the sole order-hash uniqueness source now that nonce is gone.

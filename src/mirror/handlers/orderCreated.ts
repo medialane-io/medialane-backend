@@ -1,7 +1,7 @@
 import { Contract, hash, num } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
-import { IPMarketplaceABI, PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
-import { env } from "../../config/env.js";
+import { IPMarketplaceABI } from "@medialane/sdk";
+import { postRpc } from "../../utils/rpcFetch.js";
 import {
   MARKETPLACE_721_CONTRACT,
   MARKETPLACE_1155_CONTRACT,
@@ -281,46 +281,26 @@ export async function handleOrderCreated1155(
 }
 
 async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDetails> {
-  const urls = Array.from(new Set([
-    env.ALCHEMY_RPC_URL,
-    env.STARKNET_RPC_FALLBACK_URL,
-    ...PUBLIC_RPC_FALLBACKS,
-  ].filter((url): url is string => Boolean(url))));
-  let lastError: unknown;
-
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "starknet_call",
-          params: {
-            request: {
-              contract_address: MARKETPLACE_1155_CONTRACT,
-              entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
-              calldata: [orderHash],
-            },
-            block_id: "latest",
-          },
-          id: 1,
-        }),
-      });
-
-      const json = await res.json() as { result?: string[]; error?: unknown };
-      if (json.result && json.result.length >= 15) {
-        return decodeOrderDetails1155(json.result);
-      }
-      lastError = json.error ?? new Error(`Empty / short RPC response from ${url}`);
-      log.warn({ orderHash, rpcError: json.error }, "ERC-1155 get_order_details RPC error — trying next endpoint");
-    } catch (err) {
-      lastError = err;
-      log.warn({ err, orderHash }, "ERC-1155 get_order_details RPC failed — trying next endpoint");
-    }
+  const { result } = await postRpc<string[]>(
+    {
+      jsonrpc: "2.0",
+      method: "starknet_call",
+      params: {
+        request: {
+          contract_address: MARKETPLACE_1155_CONTRACT,
+          entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
+          calldata: [orderHash],
+        },
+        block_id: "latest",
+      },
+      id: 1,
+    },
+    { orderHash },
+  );
+  if (!result || result.length < 15) {
+    throw new Error(`get_order_details returned an unexpected response for order ${orderHash}`);
   }
-
-  throw lastError instanceof Error ? lastError : new Error(`get_order_details failed: ${JSON.stringify(lastError)}`);
+  return decodeOrderDetails1155(result);
 }
 
 function decodeOrderDetails1155(raw: string[]): OnChainOrderDetails {
