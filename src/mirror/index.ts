@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
@@ -13,6 +13,7 @@ import { upsertCollectionFromFactory } from "../utils/collection.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
 import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
+import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
@@ -105,7 +106,7 @@ async function tick(tickId: string): Promise<number> {
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
   // Poll marketplace events, ERC-1155 marketplace events, CollectionCreated events, etc. in parallel.
-  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents] = await Promise.all([
+  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents, rawCreatorCoinFactoryEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollEvents1155(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
@@ -113,6 +114,7 @@ async function tick(tickId: string): Promise<number> {
     pollPopFactoryEvents(fromBlock, toBlock),
     pollDropFactoryEvents(fromBlock, toBlock),
     pollERC1155FactoryEvents(fromBlock, toBlock),
+    pollCreatorCoinFactoryEvents(fromBlock, toBlock),
   ]);
 
   // Poll Transfer events on a separate 2-minute schedule.
@@ -367,6 +369,14 @@ async function tick(tickId: string): Promise<number> {
   // Process Drop AllowlistUpdated events (DB writes only, no RPC calls)
   for (const event of rawDropAllowlistEvents) {
     await handleDropAllowlistUpdated(event);
+  }
+
+  // Process Creator Coin factory CreatorCoinCreated events (DB write + metadata job)
+  for (const event of rawCreatorCoinFactoryEvents) {
+    await handleCreatorCoinCreated(event);
+    if (event.data?.[5]) {
+      affectedContracts.add(normalizeAddress(event.data[5]));
+    }
   }
 
   // Process ERC-1155 factory CollectionDeployed events (DB write + metadata job)

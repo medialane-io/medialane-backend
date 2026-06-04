@@ -22,6 +22,10 @@ const envSchema = z.object({
   POP_START_BLOCK: z.coerce.number().default(0),
   DROP_FACTORY_ADDRESS: z.string().default(""),
   DROP_START_BLOCK: z.coerce.number().default(0),
+  CREATOR_COIN_FACTORY_ADDRESS: z
+    .string()
+    .default("0x50fa807b5274079fb19374673d7bab6d2dc3af7e1032ea43eb6e44bcbde4c3c"),
+  CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
   COLLECTION_1155_CONTRACT_MAINNET: z
     .string()
     .default("0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131"),
