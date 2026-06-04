@@ -29,6 +29,8 @@ export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS;
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 export const DROP_FACTORY_CONTRACT = env.DROP_FACTORY_ADDRESS;
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
+export const CREATOR_COIN_FACTORY_CONTRACT = env.CREATOR_COIN_FACTORY_ADDRESS;
+export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
 export const COLLECTION_1155_CONTRACT = env.COLLECTION_1155_CONTRACT_MAINNET;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 

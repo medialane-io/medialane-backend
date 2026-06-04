@@ -19,6 +19,8 @@ import {
   DROP_CREATED_SELECTOR,
   COLLECTION_1155_CONTRACT,
   COLLECTION_DEPLOYED_SELECTOR,
+  CREATOR_COIN_FACTORY_CONTRACT,
+  CREATOR_COIN_CREATED_SELECTOR,
 } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import { num } from "starknet";
@@ -247,6 +249,24 @@ export async function pollERC1155FactoryEvents(
     fromBlock,
     toBlock,
     keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
+  });
+}
+
+/**
+ * Fetch CreatorCoinCreated events from the Creator Coin factory contract.
+ * Returns an empty array when CREATOR_COIN_FACTORY_CONTRACT is not configured.
+ */
+export async function pollCreatorCoinFactoryEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!CREATOR_COIN_FACTORY_CONTRACT) return [];
+
+  return pollContractEvents({
+    address: CREATOR_COIN_FACTORY_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(CREATOR_COIN_CREATED_SELECTOR)]],
   });
 }
 

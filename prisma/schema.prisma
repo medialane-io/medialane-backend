@@ -17,6 +17,7 @@ enum Chain {
 enum TokenStandard {
   ERC721
   ERC1155
+  ERC20
 }
 
 enum ReportTargetType {
