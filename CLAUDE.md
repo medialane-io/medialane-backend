@@ -237,6 +237,26 @@ Response headers on every `/v1/*` response:
 
 ## Critical Design Notes
 
+### RPC resilience (added 2026-06-03)
+
+Alchemy's Starknet endpoint intermittently 503s (`-32001 "Unable to complete
+request"`). Two complementary layers, both falling back to public endpoints
+from `@medialane/sdk`'s `PUBLIC_RPC_FALLBACKS` (lava.build, …) — single source:
+
+- **Circuit-breaker provider** (`src/utils/starknet.ts`): `createProvider()` /
+  `callRpc()` — used by indexer/orchestrator hot paths via the starknet.js
+  `RpcProvider`. `getFallback()` defaults to `PUBLIC_RPC_FALLBACKS[0]` when
+  `STARKNET_RPC_FALLBACK_URL` is unset, so the breaker always has a target.
+- **`postRpc` primitive** (`src/utils/rpcFetch.ts`): `rpcEndpoints()` + `postRpc(body)`
+  — one endpoint list + one rotation loop for the **raw-fetch** JSON-RPC paths.
+  `txVerifier` (receipts, `checkOnChainOrderCancelled`), `orderCreated` (1155
+  order details), and `intent` (counter + royalty reads) all go through it.
+  Rotates until a `result` appears, throws if none; callers keep their own
+  decoding/validation. **Do not re-add per-file `for (const url of urls)` loops** —
+  add new raw RPC calls via `postRpc`.
+
+Full incident + cross-app architecture: `medialane-core/docs/specs/2026-06-03-rpc-resilience-failover.md`.
+
 ### Platform fee + collection-token ownership (added 2026-05-20)
 
 **Platform fee in fulfill intents.** `buildFulfillOrderIntent` (`src/orchestrator/intent.ts`),
