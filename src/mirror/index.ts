@@ -19,7 +19,7 @@ import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
+import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, CREATOR_COIN_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -55,6 +55,11 @@ let _lastPopAllowlistBlock: number | null = null;
 // Tracks the last block up to which Drop allowlist events were fetched.
 let _lastDropAllowlistPollTime = 0;
 let _lastDropAllowlistBlock: number | null = null;
+
+// Tracks the last block up to which Creator Coin factory events were fetched.
+// Slow-poll (default 50s) — few creators, so polling every main tick is wasteful.
+let _lastCreatorCoinPollTime = 0;
+let _lastCreatorCoinBlock: number | null = null;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -106,7 +111,7 @@ async function tick(tickId: string): Promise<number> {
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
   // Poll marketplace events, ERC-1155 marketplace events, CollectionCreated events, etc. in parallel.
-  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents, rawCreatorCoinFactoryEvents] = await Promise.all([
+  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollEvents1155(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
@@ -114,7 +119,6 @@ async function tick(tickId: string): Promise<number> {
     pollPopFactoryEvents(fromBlock, toBlock),
     pollDropFactoryEvents(fromBlock, toBlock),
     pollERC1155FactoryEvents(fromBlock, toBlock),
-    pollCreatorCoinFactoryEvents(fromBlock, toBlock),
   ]);
 
   // Poll Transfer events on a separate 2-minute schedule.
@@ -172,6 +176,20 @@ async function tick(tickId: string): Promise<number> {
     }
     _lastDropAllowlistBlock = toBlock;
     _lastDropAllowlistPollTime = now;
+  }
+
+  // Poll the Creator Coin factory on its own slow schedule (default 50s) — we
+  // don't expect many creators, so polling it every main tick is wasteful. Coins
+  // launched via Medialane can additionally be indexed on-demand so they appear
+  // instantly; this poll is the backstop / catches non-Medialane launches.
+  let rawCreatorCoinFactoryEvents: RawStarknetEvent[] = [];
+  if (CREATOR_COIN_FACTORY_CONTRACT && now - _lastCreatorCoinPollTime >= env.CREATOR_COIN_POLL_INTERVAL_MS) {
+    const ccFromBlock = _lastCreatorCoinBlock != null ? _lastCreatorCoinBlock + 1 : fromBlock;
+    if (ccFromBlock <= toBlock) {
+      rawCreatorCoinFactoryEvents = await pollCreatorCoinFactoryEvents(ccFromBlock, toBlock);
+    }
+    _lastCreatorCoinBlock = toBlock;
+    _lastCreatorCoinPollTime = now;
   }
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];

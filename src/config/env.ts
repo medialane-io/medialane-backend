@@ -30,6 +30,7 @@ const envSchema = z.object({
     .string()
     .default("0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
+  CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(50000),
   COLLECTION_721_START_BLOCK: z.coerce.number().default(10046166),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
@@ -44,7 +45,7 @@ const envSchema = z.object({
   CORS_ORIGINS: z
     .string()
     .default("https://medialane.io,https://www.medialane.io,https://dapp.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
-  INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(6000),
+  INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(10000),
   INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(500),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(120_000),
   CHIPIPAY_API_KEY: z.string().default(""),
