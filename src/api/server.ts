@@ -28,6 +28,7 @@ import { events } from "./routes/events.js";
 import reports from "./routes/reports.js";
 import remixOffers from "./routes/remix-offers.js";
 import pop from "./routes/pop.js";
+import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
 import { rewards, adminRewards } from "./routes/rewards.js";
@@ -70,6 +71,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/tokens", tokens);
   app.route("/v1", profiles);               // profiles before collections (prevents route shadowing)
   app.route("/v1/collections", collections);
+  app.route("/v1/coins", coins);
   app.route("/v1/activities", activities);
   app.route("/v1/intents", intents);
   app.route("/v1/metadata", metadata);
