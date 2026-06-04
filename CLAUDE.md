@@ -257,6 +257,33 @@ from `@medialane/sdk`'s `PUBLIC_RPC_FALLBACKS` (lava.build, …) — single sour
 
 Full incident + cross-app architecture: `medialane-core/docs/specs/2026-06-03-rpc-resilience-failover.md`.
 
+### Creator Coin indexing (added 2026-06-04)
+
+Creator Coins are fixed-supply ERC-20s deployed by the Creator Coin Factory
+(`0x50fa807b…`, an audited fork of unruggable.meme). They index as **`Collection`** rows
+(`standard: ERC20`, `service: creator-coin`) — there are no per-token rows, and **no `Order`
+rows** (trading settles on external Ekubo, not a Medialane venue). Authoritative status:
+`medialane-core/docs/specs/2026-06-04-creator-coin-status.md`.
+
+- **`TokenStandard += ERC20`** — hand-written migration `20260604120000_add_tokenstandard_erc20`
+  (applied to prod). Required before any creator-coin row can be written.
+- **`POST /v1/coins/sync` (`src/api/routes/coins.ts`)** — the **PRIMARY** index path
+  (tenant-authed). Verifies `is_creator_coin(addr)` on the Factory, reads name/symbol
+  (OZ-0.8 ERC-20 felt252), then `upsertCollectionFromFactory(service "creator-coin",
+  standard ERC20)`. Idempotent. The dapp calls this on launch so the coin appears immediately.
+- **Factory poller (backstop)** — `pollCreatorCoinFactoryEvents` (`src/mirror/`) parses
+  `CreatorCoinCreated` on its **own decoupled cadence** (`CREATOR_COIN_POLL_INTERVAL_MS`,
+  default **50s**) with its own block cursor (`_lastCreatorCoinBlock`) — the main mirror loop
+  runs **10s** (`INDEXER_POLL_INTERVAL_MS`, set in Railway env, which OVERRIDES the code
+  default). Env: `CREATOR_COIN_FACTORY_ADDRESS` (default `0x50fa80…`), `CREATOR_COIN_START_BLOCK`
+  (10474544). Forward-indexing only.
+- **Metadata** — the `collectionMetadata` handler has an ERC-20 branch (marks `FETCHED`; no
+  `token_uri`/`base_uri`).
+- **External ERC-20s (unrug/partner) are NOT bulk-indexed.** Default index = our creator
+  coins only. External coins are opt-in via the existing claim (manual admin approval) /
+  admin-add path → `Collection(service: external-erc20)`. unrug's `MemecoinCreated` event is
+  byte-identical to our `CreatorCoinCreated`, so the same decoder works when an admin adds one.
+
 ### Platform fee + collection-token ownership (added 2026-05-20)
 
 **Platform fee in fulfill intents.** `buildFulfillOrderIntent` (`src/orchestrator/intent.ts`),
