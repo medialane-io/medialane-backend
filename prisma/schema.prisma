@@ -267,23 +267,6 @@ model CollectionProfile {
   @@unique([chain, contractAddress])
 }
 
-model CreatorProfile {
-  id             String   @id @default(cuid())
-  walletAddress  String   @unique
-  chain          Chain    @default(STARKNET)
-  displayName    String?
-  bio            String?
-  avatarImage    String?
-  bannerImage    String?
-  websiteUrl     String?
-  twitterUrl     String?
-  discordUrl     String?
-  telegramUrl    String?
-  username       String?  @unique  // approved slug — set by admin on claim approval
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
 model UsernameClaim {
   id            String              @id @default(cuid())
   username      String
@@ -635,20 +618,6 @@ enum IdentityProvider {
   PRIVY
   CHIPIPAY
   EMAIL
-}
-
-model User {
-  walletAddress String     @id
-  chain         Chain      @default(STARKNET)
-  walletType    WalletType @default(UNKNOWN)
-  appSource     AppSource  @default(MEDIALANE_DAPP)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  @@index([chain])
-  @@index([appSource])
-  @@index([walletType])
-  @@index([createdAt])
 }
 
 model Account {

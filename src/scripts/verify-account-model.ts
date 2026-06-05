@@ -37,8 +37,6 @@ async function main() {
     wallets,
     identities,
     profiles,
-    users,
-    creatorProfiles,
     orphanWallets,
     multiAccountWallets,
     scoresLinked,
@@ -50,8 +48,6 @@ async function main() {
     prisma.wallet.count(),
     prisma.identity.count(),
     prisma.accountProfile.count(),
-    prisma.user.count(),
-    prisma.creatorProfile.count(),
     prisma.$queryRaw<
       { c: bigint }[]
     >`SELECT COUNT(*) AS c FROM "Wallet" w WHERE NOT EXISTS (SELECT 1 FROM "Account" a WHERE a.id = w."accountId")`,
@@ -70,7 +66,6 @@ async function main() {
     wallets,
     identities,
     profiles,
-    legacy: { users, creatorProfiles },
     invariants: {
       orphan_wallets_no_account: Number(orphanWallets[0]?.c ?? 0n),
       wallets_with_multiple_accounts: Number(multiAccountWallets[0]?.c ?? 0n),
@@ -85,8 +80,6 @@ async function main() {
   console.log(JSON.stringify(report, null, 2));
 
   const failed: string[] = [];
-  if (accounts < users) failed.push(`accounts (${accounts}) < users (${users})`);
-  if (wallets < users) failed.push(`wallets (${wallets}) < users (${users})`);
   if (report.invariants.orphan_wallets_no_account > 0) failed.push("orphan wallets exist");
   if (report.invariants.wallets_with_multiple_accounts > 0)
     failed.push("same wallet on multiple accounts");

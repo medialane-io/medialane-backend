@@ -106,17 +106,24 @@ async function firstNUsers(n: number): Promise<Set<string>> {
 // ── Event gatherers (one per action type) ─────────────────────────────────────
 
 async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
-  const profiles = await prisma.creatorProfile.findMany({
+  // Profile data lives on AccountProfile (accountId-keyed); the rewards engine
+  // is address-keyed, so resolve each account's wallet address.
+  const profiles = await prisma.accountProfile.findMany({
     where: { OR: [{ bio: { not: null } }, { avatarImage: { not: null } }] },
-    select: { walletAddress: true, createdAt: true },
+    select: {
+      createdAt: true,
+      account: { select: { wallets: { select: { address: true }, take: 1 } } },
+    },
   });
-  return profiles.map((p) => ({
-    address: normalizeAddress(p.walletAddress),
-    actionType: "complete_profile",
-    xp,
-    txHash: null,
-    date: p.createdAt.toISOString().slice(0, 10),
-  }));
+  return profiles
+    .filter((p) => p.account.wallets.length > 0)
+    .map((p) => ({
+      address: normalizeAddress(p.account.wallets[0]!.address),
+      actionType: "complete_profile",
+      xp,
+      txHash: null,
+      date: p.createdAt.toISOString().slice(0, 10),
+    }));
 }
 
 async function gatherMintAsset(xp: number): Promise<RawEvent[]> {
