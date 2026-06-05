@@ -47,12 +47,13 @@ search.get("/", async (c) => {
       LIMIT ${limit}
     `,
     prisma.$queryRaw<{ walletAddress: string; username: string | null; displayName: string | null; bio: string | null; avatarImage: string | null }[]>`
-      SELECT "walletAddress", username, "displayName", bio, "avatarImage"
-      FROM "CreatorProfile"
-      WHERE username IS NOT NULL
+      SELECT w.address AS "walletAddress", ap.username, ap."displayName", ap.bio, ap."avatarImage"
+      FROM "AccountProfile" ap
+      JOIN "Wallet" w ON w."accountId" = ap."accountId"
+      WHERE ap.username IS NOT NULL
         AND (
-          username ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
-          OR "displayName" ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
+          ap.username ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
+          OR ap."displayName" ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
         )
       LIMIT ${limit}
     `,

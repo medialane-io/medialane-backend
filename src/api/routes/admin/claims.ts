@@ -108,7 +108,7 @@ admin.get("/username-claims", async (c) => {
 
 // ---------------------------------------------------------------------------
 // PATCH /admin/username-claims/:id — approve or reject a username claim
-// On approve: sets username on CreatorProfile and rejects any other pending
+// On approve: sets username on the account's AccountProfile and rejects any other pending
 // claims for the same wallet or the same username.
 // ---------------------------------------------------------------------------
 admin.patch("/username-claims/:id", async (c) => {
