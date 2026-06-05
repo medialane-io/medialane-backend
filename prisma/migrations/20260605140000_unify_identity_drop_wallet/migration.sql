@@ -23,6 +23,7 @@ ALTER TYPE "AppSource" RENAME VALUE 'MEDIALANE_DAPP' TO 'MEDIALANE_STARKNET';
 
 -- 2. Move the old columns aside and add the new shape.
 ALTER TABLE "Identity" RENAME COLUMN "provider" TO "_old_provider";   -- IdentityProvider enum
+ALTER TABLE "Identity" ALTER COLUMN "_old_provider" DROP NOT NULL;    -- step-7 inserts don't set it
 ALTER TABLE "Identity" RENAME COLUMN "providerUserId" TO "value";     -- becomes the off-chain identifier
 ALTER TABLE "Identity" ALTER COLUMN "value" DROP NOT NULL;            -- wallet identities have no `value`
 
