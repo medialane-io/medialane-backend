@@ -302,33 +302,28 @@ Previously `balances` was `null` on list responses, so clients (e.g. the io
 collection page) couldn't tell which tokens the viewer owns. One indexed query
 per page.
 
-### Account model (shipped 2026-05-20)
+### Account / Identity model (unified 2026-06-05 — PR #51, branch `feat/identity-cleanup`, NOT yet deployed)
 
-The legacy `User` table has been replaced by a four-table model (PRs medialane-backend#17 and #18). Plan: `medialane-core/docs/plans/2026-05-18-account-model-redesign.md`. Architecture: `medialane-core/docs/architecture/01-core-model.md §II`, `07-identity-model.md`.
+> Supersedes the 2026-05-20 four-table model. `Wallet` and `CreatorProfile` are **removed**; a wallet is now one *kind* of `Identity`. Until PR #51 deploys, prod still runs the old shape — `bun run prod:verify` reflects whichever DB is live. Architecture: `medialane-core/docs/architecture/01-core-model.md §II`, `07-identity-model.md`.
+
+Three tables — `Account` + `Identity[]` + `AccountProfile`. The platform **never enumerates** valid identity types; the app supplies free-form `scheme`/`provider` strings (permissionless / shell-over-on-chain).
 
 **Tables:**
-- `Account` — the logical actor (`publicId`, roles[], `createdAt`). One per human/agent/org/collector. Reputation, badges, scores attach here.
-- `Wallet` — `(chain, address)`, normalized. Unique. Has `walletType`, `isPrimary`. v1: one Wallet per Account; year-2: many.
-- `Identity` — auth-provider record (`provider`, `appSource`, optional `externalId`). One Account may have several (e.g. CLERK + WALLET).
-- `AccountProfile` — off-chain enrichment (`username`, `displayName`, `bio`, social URLs, images). Keyed by `accountId` (unique) so an orphan Profile is structurally impossible.
+- `Account` — the logical actor (`publicId` = AccountID, `type`, `roles[]`). Reputation, badges, scores attach here. **Identity is the AccountID, never a wallet** (07 §II); a wallet is not required.
+- `Identity` — one row per way the account is known. Free-form `scheme` (`"wallet"` | `"clerk"` | `"email"` | …) + optional `provider` label (`"braavos"` | `"clerk"` | …). On-chain identities carry `(chain, address)`; off-chain carry `value` (subject) + `email`. **`email` is an attribute — never unique, never a merge key** (Clerk+ChipiPay vs Privy with the *same email* = distinct accounts, by the user's choice of auth). `@@unique([chain,address])` + `@@unique([scheme,value])`.
+- `AccountProfile` — the face: `username` (unique), `displayName`, `bio`, socials, images. Keyed by `accountId` (unique). **`username` stays here, never on `Identity`** — so a wallet can rotate/unlink without dragging the handle (07 §VII).
 
 **Helpers (`src/utils/account.ts`):**
-- `resolveAccountIdFromWallet(chain, address)` — read; returns `accountId | null`.
-- `ensureAccountForWallet({chain, address, walletType, appSource, identityProvider?})` — idempotent upsert; returns `{ accountId, walletId }`. Every code path that creates a Profile, awards a badge, or links a reward MUST resolve the Account through this helper first, never via raw `prisma.account.create`.
+- `resolveAccountIdFromWallet(chain, address)` — read; finds the `scheme="wallet"` Identity; returns `accountId | null`.
+- `ensureAccountForWallet({chain, address, provider?, appSource, email?})` — idempotent upsert; returns `{ accountId, created }`. Creates Account + wallet Identity (+ a `clerk` Identity for `MEDIALANE_IO`) + empty AccountProfile in one tx. Every path that creates a Profile / awards a badge / links a reward MUST go through this, never raw `prisma.account.create`.
 
-**Invariants enforced in code (verified by `bun run verify-accounts`):**
-- `orphan_wallets_no_account = 0` — every Wallet has an Account (Prisma FK).
-- `wallets_with_multiple_accounts = 0` — `(chain, address)` is unique on Wallet.
-- `AccountProfile.accountId` is the unique key, so every Profile has an Account by definition.
+**AppSource:** value `MEDIALANE_DAPP` renamed → `MEDIALANE_STARKNET` (multichain: the "dapp" is the Starknet app; future `solana.medialane.io` → `MEDIALANE_SOLANA`). `src/utils/appSource.ts` accepts `MEDIALANE_DAPP` as a **transition alias** (normalized to STARKNET) so the live dapp keeps registering; remove once dapp + SDK ship the new value.
 
-**Rewards link (commit 7d9eb62):** `UserScore`, `UserBadge`, `PointEvent` now carry an optional `accountId`. Backfill populated 19/508 scores, 35/544 badges (the remaining ~489 are activity-only addresses that never onboarded — Tier-2, deferred). `compute-rewards.ts` writes the linkage when the wallet maps to a known Account.
+**Invariants (`bun run verify-accounts`):** every `scheme="wallet"` Identity has `(chain,address)`; `(chain,address)` unique; `AccountProfile.accountId` unique.
 
-**Production state (2026-05-20 after backfill):** 61 Accounts, 61 Wallets, 59 Identities, 61 AccountProfiles, 0 orphan wallets. Run `bun run prod:verify` any time to refresh these numbers; output includes a `connection` field naming the DB.
+**Migration** `20260605140000_unify_identity_drop_wallet` — hand-written, data-preserving; reshapes against the authoritative `Wallet` table (old Identity rows label io wallets inconsistently) before `DROP TABLE "Wallet"` + `DROP TYPE WalletType, IdentityProvider`. **Verified on a prod-backup restore** (84 wallets → 84 wallet identities, zero loss, 0 dups/orphans).
 
-**Deferred (not blocked):**
-- Tier-2 backfill: provision Accounts for the ~449 activity-only addresses (`UserScore` rows with no matching wallet).
-- Cross-chain `WalletAttestation` (year-2 per `07 §IV`). Schema is shaped to accept it without migration.
-- Drop legacy `User` and `CreatorProfile` (Phase 2 of the plan). The new code no longer reads them; deletion is a future cleanup.
+**Pending follow-ups:** SDK (send `MEDIALANE_STARKNET` + reflect new identity shape); deploy PR #51 (re-run the backup-restore test in staging first); sync `07-identity-model.md`. Cross-chain attestation (one `AccountID`, many `(chain,address)`) is shaped-for but not built (07 §IV).
 
 ### Collection invariants (added 2026-05-22 / 2026-05-23)
 
