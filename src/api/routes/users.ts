@@ -14,11 +14,11 @@ import { IDENTITY_SCHEME } from "../../utils/identity.js";
 
 const users = new Hono<AppEnv>();
 
-// walletType is now just a free-form provider label on the wallet Identity; we still
-// validate the known set on input, then lowercase it into Identity.provider.
-const walletTypeEnum = z.enum([
-  "ARGENT", "BRAAVOS", "CARTRIDGE", "PRIVY", "CHIPIPAY", "INJECTED", "UNKNOWN",
-]);
+// walletType is a free-form wallet-software label on the wallet Identity — no longer
+// a closed enum (the WalletType enum was dropped in the identity unification, 07 §II,
+// permissionless). We accept any short string and lowercase it into Identity.provider;
+// the platform never gates on it. Apps may send "braavos"/"ready"/"chipipay"/… (any case).
+const walletTypeSchema = z.string().max(64);
 const appSourceEnum = z.enum(APP_SOURCE_INPUT);
 const chainEnum = z.nativeEnum(Chain);
 
@@ -29,13 +29,13 @@ const VALID_APP_SOURCES = new Set<AppSource>([
 
 const registerBodySchema = z.object({
   walletAddress: z.string().min(1, "walletAddress is required"),
-  walletType: walletTypeEnum.optional(),
+  walletType: walletTypeSchema.optional(),
   appSource: appSourceEnum.optional(),
   chain: chainEnum.optional(),
 });
 
 const meBodySchema = z.object({
-  walletType: walletTypeEnum.optional(),
+  walletType: walletTypeSchema.optional(),
   appSource: appSourceEnum.optional(),
   // 07-identity §I: the Wallet identifier is (chain, address). Accepting
   // `chain` from the client lets callers explicitly assert the chain
@@ -78,7 +78,7 @@ users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json
     publicId: account.publicId,
     walletAddress: wallet.address,
     chain: wallet.chain,
-    walletType: wallet.provider,
+    provider: wallet.provider,
     appSource,
     createdAt: account.createdAt,
   });

@@ -302,9 +302,9 @@ Previously `balances` was `null` on list responses, so clients (e.g. the io
 collection page) couldn't tell which tokens the viewer owns. One indexed query
 per page.
 
-### Account / Identity model (unified 2026-06-05 — PR #51, branch `feat/identity-cleanup`, NOT yet deployed)
+### Account / Identity model (unified 2026-06-05 — PR #51, DEPLOYED to prod)
 
-> Supersedes the 2026-05-20 four-table model. `Wallet` and `CreatorProfile` are **removed**; a wallet is now one *kind* of `Identity`. Until PR #51 deploys, prod still runs the old shape — `bun run prod:verify` reflects whichever DB is live. Architecture: `medialane-core/docs/architecture/01-core-model.md §II`, `07-identity-model.md`.
+> Supersedes the 2026-05-20 four-table model. `Wallet` and `CreatorProfile` are **removed**; a wallet is now one *kind* of `Identity`. Deployed 2026-06-05 (migration verified on prod: 84 wallet + 20 clerk identities, 0 orphans). Architecture: `medialane-core/docs/architecture/01-core-model.md §II`, `07-identity-model.md`.
 
 Three tables — `Account` + `Identity[]` + `AccountProfile`. The platform **never enumerates** valid identity types; the app supplies free-form `scheme`/`provider` strings (permissionless / shell-over-on-chain).
 
@@ -317,13 +317,15 @@ Three tables — `Account` + `Identity[]` + `AccountProfile`. The platform **nev
 - `resolveAccountIdFromWallet(chain, address)` — read; finds the `scheme="wallet"` Identity; returns `accountId | null`.
 - `ensureAccountForWallet({chain, address, provider?, appSource, email?})` — idempotent upsert; returns `{ accountId, created }`. Creates Account + wallet Identity (+ a `clerk` Identity for `MEDIALANE_IO`) + empty AccountProfile in one tx. Every path that creates a Profile / awards a badge / links a reward MUST go through this, never raw `prisma.account.create`.
 
-**AppSource:** value `MEDIALANE_DAPP` renamed → `MEDIALANE_STARKNET` (multichain: the "dapp" is the Starknet app; future `solana.medialane.io` → `MEDIALANE_SOLANA`). `src/utils/appSource.ts` accepts `MEDIALANE_DAPP` as a **transition alias** (normalized to STARKNET) so the live dapp keeps registering; remove once dapp + SDK ship the new value.
+**AppSource:** value `MEDIALANE_DAPP` renamed → `MEDIALANE_STARKNET` (multichain: the "dapp" is the Starknet app; future `solana.medialane.io` → `MEDIALANE_SOLANA`). `src/utils/appSource.ts` accepts `MEDIALANE_DAPP` as a **transition alias** (normalized to STARKNET) so any still-cached dapp bundle keeps registering. The dapp + SDK now ship `MEDIALANE_STARKNET`; retire the alias after a transition window (spec `medialane-core/docs/specs/2026-06-05-identity-cleanup-followups.md` item A).
+
+**walletType is free-form (`v0.33` cutover):** `/users/register` + `/users/me` accept `walletType` as any short string (`z.string().max(64)`, was a closed enum) and lowercase it into `Identity.provider` — the platform never gates on it (07 §II). The `/users/register` **response** field is `provider` (was `walletType`; renamed with SDK 0.33). Apps send the lowercase label directly.
 
 **Invariants (`bun run verify-accounts`):** every `scheme="wallet"` Identity has `(chain,address)`; `(chain,address)` unique; `AccountProfile.accountId` unique.
 
 **Migration** `20260605140000_unify_identity_drop_wallet` — hand-written, data-preserving; reshapes against the authoritative `Wallet` table (old Identity rows label io wallets inconsistently) before `DROP TABLE "Wallet"` + `DROP TYPE WalletType, IdentityProvider`. **Verified on a prod-backup restore** (84 wallets → 84 wallet identities, zero loss, 0 dups/orphans).
 
-**Pending follow-ups:** SDK (send `MEDIALANE_STARKNET` + reflect new identity shape); deploy PR #51 (re-run the backup-restore test in staging first); sync `07-identity-model.md`. Cross-chain attestation (one `AccountID`, many `(chain,address)`) is shaped-for but not built (07 §IV).
+**Shipped:** SDK 0.32 (`MEDIALANE_STARKNET`) + 0.33 (walletType→provider) published; PR #51 deployed + prod-verified; dapp + io cut over; `07-identity-model.md` synced. **Remaining (deferred):** retire the `MEDIALANE_DAPP` alias after a transition window (spec item A). Cross-chain attestation (one `AccountID`, many `(chain,address)`) is shaped-for but not built (07 §IV).
 
 ### Collection invariants (added 2026-05-22 / 2026-05-23)
 
