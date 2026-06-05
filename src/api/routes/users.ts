@@ -7,7 +7,8 @@ import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
-import type { WalletType, AppSource, Chain, IdentityProvider } from "@prisma/client";
+import type { WalletType, AppSource, IdentityProvider } from "@prisma/client";
+import { Chain } from "@prisma/client";
 
 const users = new Hono<AppEnv>();
 
@@ -17,9 +18,9 @@ const walletTypeEnum = z.enum([
 const appSourceEnum = z.enum([
   "MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
 ]);
-const chainEnum = z.enum(["STARKNET", "ETHEREUM", "SOLANA", "BITCOIN"]);
+const chainEnum = z.nativeEnum(Chain);
 
-const VALID_CHAINS = new Set<Chain>(["STARKNET", "ETHEREUM", "SOLANA", "BITCOIN"]);
+const VALID_CHAINS = new Set<Chain>(Object.values(Chain));
 const VALID_WALLET_TYPES = new Set<WalletType>([
   "ARGENT", "BRAAVOS", "CARTRIDGE", "PRIVY", "CHIPIPAY", "INJECTED", "UNKNOWN",
 ]);
