@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { IDENTITY_SCHEME } from "../../../utils/identity.js";
 import { z } from "zod";
 import { authMiddleware } from "../../middleware/adminSecretAuth.js";
 import prisma from "../../../db/client.js";
@@ -249,7 +250,7 @@ admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
 
   const [walletUpdate, claimUpdate] = await Promise.all([
     prisma.identity.updateMany({
-      where: { scheme: "wallet", address: oldAddr },
+      where: { scheme: IDENTITY_SCHEME.WALLET, address: oldAddr },
       data: { address: newAddr },
     }),
     prisma.usernameClaim.updateMany({

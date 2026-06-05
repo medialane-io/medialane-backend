@@ -1,4 +1,5 @@
 import prisma from "../db/client.js";
+import { IDENTITY_SCHEME } from "../utils/identity.js";
 
 function connectionLabel(): string {
   const url = process.env.DATABASE_URL;
@@ -45,7 +46,7 @@ async function main() {
     badgesTotal,
   ] = await Promise.all([
     prisma.account.count(),
-    prisma.identity.count({ where: { scheme: "wallet" } }),
+    prisma.identity.count({ where: { scheme: IDENTITY_SCHEME.WALLET } }),
     prisma.identity.count(),
     prisma.accountProfile.count(),
     prisma.$queryRaw<

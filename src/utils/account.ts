@@ -1,5 +1,6 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
+import { IDENTITY_SCHEME } from "./identity.js";
 import type { Chain, AppSource } from "@prisma/client";
 
 /**
@@ -114,7 +115,7 @@ export async function ensureAccountForWallet(params: {
     await tx.identity.create({
       data: {
         accountId: account.id,
-        scheme: "wallet",
+        scheme: IDENTITY_SCHEME.WALLET,
         provider,
         chain: params.chain,
         address,
@@ -131,7 +132,7 @@ export async function ensureAccountForWallet(params: {
       await tx.identity.create({
         data: {
           accountId: account.id,
-          scheme: "clerk",
+          scheme: IDENTITY_SCHEME.CLERK,
           provider: "clerk",
           value: `MEDIALANE_IO:clerk:${address}`,
           appSource: params.appSource,
@@ -159,7 +160,7 @@ async function ensureClerkIdentity(
 ): Promise<void> {
   const value = `MEDIALANE_IO:clerk:${address}`;
   const existing = await prisma.identity.findUnique({
-    where: { scheme_value: { scheme: "clerk", value } },
+    where: { scheme_value: { scheme: IDENTITY_SCHEME.CLERK, value } },
     select: { id: true },
   });
   if (existing) return;
@@ -167,7 +168,7 @@ async function ensureClerkIdentity(
     await prisma.identity.create({
       data: {
         accountId,
-        scheme: "clerk",
+        scheme: IDENTITY_SCHEME.CLERK,
         provider: "clerk",
         value,
         appSource: "MEDIALANE_IO",
