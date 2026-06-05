@@ -13,6 +13,7 @@
  */
 
 import prisma from "../db/client.js";
+import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { Prisma } from "@prisma/client";
 import { normalizeAddress } from "../utils/starknet.js";
 
@@ -112,7 +113,7 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
     where: { OR: [{ bio: { not: null } }, { avatarImage: { not: null } }] },
     select: {
       createdAt: true,
-      account: { select: { identities: { where: { scheme: "wallet" }, select: { address: true }, take: 1 } } },
+      account: { select: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET }, select: { address: true }, take: 1 } } },
     },
   });
   return profiles

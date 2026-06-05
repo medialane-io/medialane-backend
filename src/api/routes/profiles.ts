@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "crypto";
+import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
@@ -305,7 +306,7 @@ profiles.get("/creators", async (c) => {
     prisma.accountProfile.findMany({
       where,
       include: {
-        account: { include: { identities: { where: { scheme: "wallet", isPrimary: true }, take: 1 } } },
+        account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET, isPrimary: true }, take: 1 } } },
       },
       orderBy: { username: "asc" },
       skip: (page - 1) * limit,
@@ -366,7 +367,7 @@ profiles.get("/creators/by-username/:username", async (c) => {
   const profile = await prisma.accountProfile.findUnique({
     where: { username },
     include: {
-      account: { include: { identities: { where: { scheme: "wallet", isPrimary: true }, take: 1 } } },
+      account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET, isPrimary: true }, take: 1 } } },
     },
   });
   if (!profile || !profile.account.identities[0]?.address) {

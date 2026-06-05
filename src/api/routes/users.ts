@@ -10,6 +10,7 @@ import type { AppEnv } from "../../types/hono.js";
 import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
+import { IDENTITY_SCHEME } from "../../utils/identity.js";
 
 const users = new Hono<AppEnv>();
 
@@ -66,7 +67,7 @@ users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json
     where: { id: accountId },
     include: {
       identities: {
-        where: { scheme: "wallet", chain, address: normalizeAddress(body.walletAddress) },
+        where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(body.walletAddress) },
         take: 1,
       },
     },
