@@ -580,18 +580,8 @@ model DropClaimConditions {
 }
 
 
-enum WalletType {
-  ARGENT
-  BRAAVOS
-  CARTRIDGE
-  PRIVY
-  CHIPIPAY
-  INJECTED
-  UNKNOWN
-}
-
 enum AppSource {
-  MEDIALANE_DAPP
+  MEDIALANE_STARKNET
   MEDIALANE_IO
   MEDIALANE_PORTAL
   MEDIALANE_SDK
@@ -612,14 +602,6 @@ enum AccountRole {
   PARTNER
 }
 
-enum IdentityProvider {
-  WALLET
-  CLERK
-  PRIVY
-  CHIPIPAY
-  EMAIL
-}
-
 model Account {
   id        String        @id @default(cuid())
   publicId  String        @unique
@@ -628,7 +610,6 @@ model Account {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  wallets    Wallet[]
   identities Identity[]
   profile    AccountProfile?
 
@@ -636,37 +617,38 @@ model Account {
   @@index([createdAt])
 }
 
-model Wallet {
-  id         String     @id @default(cuid())
+// An identity is one way an Account is known — a wallet, a social/email login, an
+// agent key. The platform never gates the format: the app supplies `scheme` (and
+// optional `provider` label) for whatever it is connecting. Identity is NOT the
+// account's identity — the AccountID is (07-identity §II); identities attach to it.
+model Identity {
+  id         String    @id @default(cuid())
   accountId  String
-  account    Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  chain      Chain      @default(STARKNET)
-  address    String
-  walletType WalletType @default(UNKNOWN)
-  isPrimary  Boolean    @default(false)
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // What this identity is — free-form, app-supplied.
+  scheme     String    // "wallet" | "clerk" | "privy" | "email" | "agent" | …
+  provider   String?   // issuer label: "braavos" | "ready" | "clerk" | …
+
+  // On-chain identifier (wallet / agent key): (chain, address), normalized per chain (07 §I).
+  chain      Chain?
+  address    String?
+
+  // Off-chain identifier (social / email login).
+  value      String?   // provider subject / external id
+  email      String?   // attribute only — NEVER unique, never a merge key (07 §II)
+
+  appSource  AppSource @default(MEDIALANE_STARKNET)
+  isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
-  linkedAt   DateTime   @default(now())
+  createdAt  DateTime  @default(now())
 
   @@unique([chain, address])
+  @@unique([scheme, value])
   @@index([accountId])
-  @@index([walletType])
-}
-
-model Identity {
-  id             String           @id @default(cuid())
-  accountId      String
-  account        Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  provider       IdentityProvider
-  providerUserId String
-  appSource      AppSource        @default(MEDIALANE_DAPP)
-  email          String?
-  verifiedAt     DateTime?
-  createdAt      DateTime         @default(now())
-
-  @@unique([provider, providerUserId])
-  @@index([accountId])
-  @@index([appSource])
+  @@index([address])
   @@index([email])
+  @@index([appSource])
 }
 
 model AccountProfile {

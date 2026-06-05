@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authMiddleware } from "../../middleware/adminSecretAuth.js";
 import prisma from "../../../db/client.js";
 import { generateApiKey } from "../../../utils/apiKey.js";
+import { APP_SOURCE_INPUT, normalizeAppSource } from "../../../utils/appSource.js";
 import { handleMetadataFetch } from "../../../orchestrator/metadata.js";
 import { handleCollectionMetadataFetch } from "../../../orchestrator/collectionMetadata.js";
 import { handleStatsUpdate } from "../../../orchestrator/stats.js";
@@ -29,7 +30,7 @@ export function registerTenantRoutes(admin: Hono) {
 // ---------------------------------------------------------------------------
 // POST /admin/tenants — create tenant + initial API key
 // ---------------------------------------------------------------------------
-const APP_SOURCE = z.enum(["MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK"]);
+const APP_SOURCE = z.enum(APP_SOURCE_INPUT);
 
 const createTenantSchema = z.object({
   name: z.string().min(1),
@@ -66,7 +67,7 @@ admin.post("/tenants", async (c) => {
           prefix,
           keyHash,
           label: keyLabel ?? "default",
-          appSource: keyAppSource ?? null,
+          appSource: keyAppSource ? normalizeAppSource(keyAppSource) : null,
         },
       },
     },
@@ -174,7 +175,7 @@ admin.post("/tenants/:id/keys", async (c) => {
       prefix,
       keyHash,
       label: parsed.data.label ?? "",
-      appSource: parsed.data.appSource ?? null,
+      appSource: parsed.data.appSource ? normalizeAppSource(parsed.data.appSource) : null,
     },
   });
 

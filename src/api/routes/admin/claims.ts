@@ -135,8 +135,7 @@ admin.patch("/username-claims/:id", async (c) => {
     const { accountId } = await ensureAccountForWallet({
       chain: "STARKNET",
       address: claim.walletAddress,
-      walletType: "UNKNOWN",
-      appSource: "MEDIALANE_DAPP",
+      appSource: "MEDIALANE_STARKNET",
     });
     await addAccountRole(accountId, "CREATOR");
     await prisma.accountProfile.upsert({

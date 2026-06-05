@@ -5,6 +5,7 @@ import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
 import prisma from "../../db/client.js";
 import { generateApiKey } from "../../utils/apiKey.js";
+import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 
@@ -57,7 +58,7 @@ const createKeySchema = z.object({
   label: z.string().max(64).optional(),
   /** Which app this key is for — drives per-app rate-limit isolation and
    *  usage attribution. Omit for generic/SDK consumers. */
-  appSource: z.enum(["MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK"]).optional(),
+  appSource: z.enum(APP_SOURCE_INPUT).optional(),
 });
 
 portal.post("/keys", async (c) => {
@@ -86,7 +87,7 @@ portal.post("/keys", async (c) => {
           prefix: generated.prefix,
           keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
-          appSource: parsed.data.appSource ?? null,
+          appSource: parsed.data.appSource ? normalizeAppSource(parsed.data.appSource) : null,
         },
       });
     });

@@ -112,13 +112,13 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
     where: { OR: [{ bio: { not: null } }, { avatarImage: { not: null } }] },
     select: {
       createdAt: true,
-      account: { select: { wallets: { select: { address: true }, take: 1 } } },
+      account: { select: { identities: { where: { scheme: "wallet" }, select: { address: true }, take: 1 } } },
     },
   });
   return profiles
-    .filter((p) => p.account.wallets.length > 0)
+    .filter((p) => p.account.identities[0]?.address)
     .map((p) => ({
-      address: normalizeAddress(p.account.wallets[0]!.address),
+      address: normalizeAddress(p.account.identities[0]!.address!),
       actionType: "complete_profile",
       xp,
       txHash: null,
@@ -767,16 +767,16 @@ async function main() {
   // the wallet is known. Activity-only addresses (no Wallet row) stay null.
   const scoresLinked = await prisma.$executeRaw`
     UPDATE "UserScore" us SET "accountId" = w."accountId"
-    FROM "Wallet" w
-    WHERE w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
+    FROM "Identity" w
+    WHERE w.scheme = 'wallet' AND w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
   `;
   const badgesLinked = await prisma.$executeRaw`
     UPDATE "UserBadge" ub SET "accountId" = w."accountId"
-    FROM "Wallet" w WHERE w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
+    FROM "Identity" w WHERE w.scheme = 'wallet' AND w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
   `;
   const eventsLinked = await prisma.$executeRaw`
     UPDATE "PointEvent" pe SET "accountId" = w."accountId"
-    FROM "Wallet" w WHERE w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
+    FROM "Identity" w WHERE w.scheme = 'wallet' AND w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
   `;
   console.log(`  Linked accountId on ${scoresLinked} UserScore, ${badgesLinked} UserBadge, ${eventsLinked} PointEvent rows`);
 

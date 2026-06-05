@@ -7,25 +7,23 @@ import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
-import type { WalletType, AppSource, IdentityProvider } from "@prisma/client";
+import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
+import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 
 const users = new Hono<AppEnv>();
 
+// walletType is now just a free-form provider label on the wallet Identity; we still
+// validate the known set on input, then lowercase it into Identity.provider.
 const walletTypeEnum = z.enum([
   "ARGENT", "BRAAVOS", "CARTRIDGE", "PRIVY", "CHIPIPAY", "INJECTED", "UNKNOWN",
 ]);
-const appSourceEnum = z.enum([
-  "MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
-]);
+const appSourceEnum = z.enum(APP_SOURCE_INPUT);
 const chainEnum = z.nativeEnum(Chain);
 
 const VALID_CHAINS = new Set<Chain>(Object.values(Chain));
-const VALID_WALLET_TYPES = new Set<WalletType>([
-  "ARGENT", "BRAAVOS", "CARTRIDGE", "PRIVY", "CHIPIPAY", "INJECTED", "UNKNOWN",
-]);
 const VALID_APP_SOURCES = new Set<AppSource>([
-  "MEDIALANE_DAPP", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
+  "MEDIALANE_STARKNET", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
 ]);
 
 const registerBodySchema = z.object({
@@ -46,13 +44,6 @@ const meBodySchema = z.object({
   chain: chainEnum.optional(),
 });
 
-function pickProvider(walletType: WalletType, appSource: AppSource): IdentityProvider {
-  if (walletType === "PRIVY") return "PRIVY";
-  if (walletType === "CHIPIPAY") return "CHIPIPAY";
-  if (appSource === "MEDIALANE_IO") return "CLERK";
-  return "WALLET";
-}
-
 /**
  * POST /v1/users/register
  * Frictionless registration — authenticated by tenant API key.
@@ -60,34 +51,33 @@ function pickProvider(walletType: WalletType, appSource: AppSource): IdentityPro
  */
 users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json", registerBodySchema), async (c) => {
   const body = c.req.valid("json");
-  const walletType: WalletType = body.walletType ?? "UNKNOWN";
-  const appSource: AppSource = body.appSource ?? "MEDIALANE_DAPP";
+  const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
+  const appSource = normalizeAppSource(body.appSource ?? "MEDIALANE_STARKNET");
   const chain: Chain = body.chain ?? "STARKNET";
 
   const { accountId } = await ensureAccountForWallet({
     chain,
     address: body.walletAddress,
-    walletType,
+    provider,
     appSource,
-    identityProvider: pickProvider(walletType, appSource),
   });
 
   const account = await prisma.account.findUniqueOrThrow({
     where: { id: accountId },
     include: {
-      wallets: {
-        where: { chain, address: normalizeAddress(body.walletAddress) },
+      identities: {
+        where: { scheme: "wallet", chain, address: normalizeAddress(body.walletAddress) },
         take: 1,
       },
     },
   });
-  const wallet = account.wallets[0]!;
+  const wallet = account.identities[0]!;
   return c.json({
     accountId: account.id,
     publicId: account.publicId,
     walletAddress: wallet.address,
     chain: wallet.chain,
-    walletType: wallet.walletType,
+    walletType: wallet.provider,
     appSource,
     createdAt: account.createdAt,
   });
@@ -105,8 +95,8 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   if (!parsed.success) {
     return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
   }
-  const walletType: WalletType = parsed.data.walletType ?? "UNKNOWN";
-  const appSource: AppSource = parsed.data.appSource ?? "MEDIALANE_IO";
+  const provider = (parsed.data.walletType ?? "UNKNOWN").toLowerCase();
+  const appSource = normalizeAppSource(parsed.data.appSource ?? "MEDIALANE_IO");
   const chain: Chain = parsed.data.chain ?? "STARKNET";
 
   // identityAuth only issues tokens for Starknet wallets in v1 (Clerk JWT
@@ -123,9 +113,8 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   await ensureAccountForWallet({
     chain,
     address: walletAddress,
-    walletType,
+    provider,
     appSource,
-    identityProvider: pickProvider(walletType, appSource),
   });
 
   return c.json({ walletAddress });
@@ -137,15 +126,15 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
  */
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
-  const wallet = await prisma.wallet.findUnique({
+  const identity = await prisma.identity.findUnique({
     where: { chain_address: { chain: "STARKNET", address: walletAddress } },
     include: { account: true },
   });
-  if (!wallet) return c.json({ error: "User not found" }, 404);
+  if (!identity) return c.json({ error: "User not found" }, 404);
   return c.json({
-    walletAddress: wallet.address,
-    accountId: wallet.account.id,
-    publicId: wallet.account.publicId,
+    walletAddress: identity.address,
+    accountId: identity.account.id,
+    publicId: identity.account.publicId,
   });
 });
 
@@ -154,22 +143,19 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
  * Returns account count with optional filters.
  * Auth: tenant API key. Used for Starknet Foundation grant reporting.
  *
- * Filters delegate to Wallet (chain, walletType) and Identity (appSource) — an Account
- * with any matching Wallet/Identity is counted once, regardless of how many it has.
+ * Filters all delegate to Identity (chain, provider, appSource) — an Account
+ * with any matching Identity is counted once, regardless of how many it has.
  */
 users.get("/count", async (c, next) => apiKeyAuth(c, next), async (c) => {
   const { chain, appSource, walletType, since } = c.req.query();
 
-  const walletWhere: Record<string, unknown> = {};
   const identityWhere: Record<string, unknown> = {};
-  if (chain && VALID_CHAINS.has(chain as Chain)) walletWhere.chain = chain;
-  if (walletType && VALID_WALLET_TYPES.has(walletType as WalletType))
-    walletWhere.walletType = walletType;
-  if (appSource && VALID_APP_SOURCES.has(appSource as AppSource))
-    identityWhere.appSource = appSource;
+  if (chain && VALID_CHAINS.has(chain as Chain)) identityWhere.chain = chain;
+  if (walletType) identityWhere.provider = walletType.toLowerCase();
+  if (appSource && VALID_APP_SOURCES.has(normalizeAppSource(appSource)))
+    identityWhere.appSource = normalizeAppSource(appSource);
 
   const accountWhere: Record<string, unknown> = {};
-  if (Object.keys(walletWhere).length > 0) accountWhere.wallets = { some: walletWhere };
   if (Object.keys(identityWhere).length > 0) accountWhere.identities = { some: identityWhere };
   if (since) {
     const sinceDate = new Date(since);

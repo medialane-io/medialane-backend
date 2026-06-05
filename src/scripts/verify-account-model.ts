@@ -12,7 +12,7 @@ function connectionLabel(): string {
 }
 
 async function preflightSchema() {
-  const required = ["Account", "Wallet", "Identity", "AccountProfile"];
+  const required = ["Account", "Identity", "AccountProfile"];
   const rows = await prisma.$queryRaw<{ table_name: string }[]>`
     SELECT table_name FROM information_schema.tables
     WHERE table_schema = 'public' AND table_name = ANY(${required}::text[])
@@ -45,15 +45,15 @@ async function main() {
     badgesTotal,
   ] = await Promise.all([
     prisma.account.count(),
-    prisma.wallet.count(),
+    prisma.identity.count({ where: { scheme: "wallet" } }),
     prisma.identity.count(),
     prisma.accountProfile.count(),
     prisma.$queryRaw<
       { c: bigint }[]
-    >`SELECT COUNT(*) AS c FROM "Wallet" w WHERE NOT EXISTS (SELECT 1 FROM "Account" a WHERE a.id = w."accountId")`,
+    >`SELECT COUNT(*) AS c FROM "Identity" w WHERE w.scheme = 'wallet' AND NOT EXISTS (SELECT 1 FROM "Account" a WHERE a.id = w."accountId")`,
     prisma.$queryRaw<
       { c: bigint }[]
-    >`SELECT COUNT(*) AS c FROM (SELECT "chain","address",COUNT(DISTINCT "accountId") d FROM "Wallet" GROUP BY 1,2 HAVING COUNT(DISTINCT "accountId") > 1) s`,
+    >`SELECT COUNT(*) AS c FROM (SELECT "chain","address",COUNT(DISTINCT "accountId") d FROM "Identity" WHERE scheme = 'wallet' GROUP BY 1,2 HAVING COUNT(DISTINCT "accountId") > 1) s`,
     prisma.userScore.count({ where: { accountId: { not: null } } }),
     prisma.userScore.count(),
     prisma.userBadge.count({ where: { accountId: { not: null } } }),

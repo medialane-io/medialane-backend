@@ -305,7 +305,7 @@ profiles.get("/creators", async (c) => {
     prisma.accountProfile.findMany({
       where,
       include: {
-        account: { include: { wallets: { where: { isPrimary: true }, take: 1 } } },
+        account: { include: { identities: { where: { scheme: "wallet", isPrimary: true }, take: 1 } } },
       },
       orderBy: { username: "asc" },
       skip: (page - 1) * limit,
@@ -314,9 +314,9 @@ profiles.get("/creators", async (c) => {
   ]);
 
   const creators = profilesPage
-    .filter((p) => p.account.wallets[0])
+    .filter((p) => p.account.identities[0]?.address)
     .map((p) => ({
-      walletAddress: p.account.wallets[0]!.address,
+      walletAddress: p.account.identities[0]!.address!,
       username: p.username,
       displayName: p.displayName,
       bio: p.bio,
@@ -366,14 +366,14 @@ profiles.get("/creators/by-username/:username", async (c) => {
   const profile = await prisma.accountProfile.findUnique({
     where: { username },
     include: {
-      account: { include: { wallets: { where: { isPrimary: true }, take: 1 } } },
+      account: { include: { identities: { where: { scheme: "wallet", isPrimary: true }, take: 1 } } },
     },
   });
-  if (!profile || !profile.account.wallets[0]) {
+  if (!profile || !profile.account.identities[0]?.address) {
     return c.json({ error: "Creator not found" }, 404);
   }
   return c.json({
-    walletAddress: profile.account.wallets[0].address,
+    walletAddress: profile.account.identities[0].address,
     username: profile.username,
     displayName: profile.displayName,
     bio: profile.bio,
@@ -439,8 +439,7 @@ profiles.patch(
     const { accountId } = await ensureAccountForWallet({
       chain: "STARKNET",
       address: wallet,
-      walletType: "UNKNOWN",
-      appSource: "MEDIALANE_DAPP",
+      appSource: "MEDIALANE_STARKNET",
     });
 
     await addAccountRole(accountId, "CREATOR");
