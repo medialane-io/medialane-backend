@@ -1,11 +1,12 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
-import type { Chain, IdentityProvider, AppSource, WalletType } from "@prisma/client";
+import type { Chain, AppSource } from "@prisma/client";
 
 /**
  * Resolves a (chain, address) wallet to its Account.id.
- * Returns null if no Wallet row exists for this address.
+ * Returns null if no wallet Identity exists for this address.
  *
+ * A wallet is one kind of Identity (scheme="wallet"), keyed by its (chain, address).
  * Address is normalized before lookup — callers may pass raw input.
  */
 export async function resolveAccountIdFromWallet(
@@ -13,11 +14,11 @@ export async function resolveAccountIdFromWallet(
   address: string,
 ): Promise<string | null> {
   const normalized = normalizeAddress(address);
-  const wallet = await prisma.wallet.findUnique({
+  const identity = await prisma.identity.findUnique({
     where: { chain_address: { chain, address: normalized } },
     select: { accountId: true },
   });
-  return wallet?.accountId ?? null;
+  return identity?.accountId ?? null;
 }
 
 /**
@@ -56,62 +57,50 @@ export async function addAccountRole(
 }
 
 /**
- * Idempotent: if a Wallet row exists for (chain, address), returns its accountId.
- * Otherwise creates an Account + Wallet + Identity + empty AccountProfile (one transaction)
+ * Idempotent: if a wallet Identity exists for (chain, address), returns its accountId.
+ * Otherwise creates an Account + wallet Identity + empty AccountProfile (one transaction)
  * and returns the new accountId.
  *
- * This is the single entry point the onboarding route uses. Do not call from read-only paths.
+ * This is the single entry point the onboarding routes use. Do not call from read-only paths.
  *
- * If the wallet already exists with walletType=UNKNOWN and a more specific type is provided,
- * the row is upgraded — this is how the onboarding fix lifts the 48 "UNKNOWN" rows out of
- * undifferentiated state over time.
+ * `provider` is the free-form wallet-software label ("braavos" / "ready" / "chipipay" / …) —
+ * it never gates anything (07-identity §II). If the wallet exists with an "unknown" provider
+ * and a specific one is supplied, the label is upgraded.
+ *
+ * A medialane-io account (appSource MEDIALANE_IO) additionally gets a `clerk` Identity that
+ * captures the auth provenance — distinct from the on-chain signer, never conflated (07 §IV).
  */
 export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
-  walletType: WalletType;
+  provider?: string;
   appSource: AppSource;
-  identityProvider?: IdentityProvider;
   email?: string;
-}): Promise<{ accountId: string; walletId: string; created: boolean }> {
+}): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.address);
-  const existing = await prisma.wallet.findUnique({
+  const provider = (params.provider ?? "unknown").toLowerCase();
+  const isSocial = params.appSource === "MEDIALANE_IO";
+
+  const existing = await prisma.identity.findUnique({
     where: { chain_address: { chain: params.chain, address } },
-    select: { id: true, accountId: true, walletType: true },
+    select: { id: true, accountId: true, provider: true },
   });
 
   if (existing) {
-    if (existing.walletType === "UNKNOWN" && params.walletType !== "UNKNOWN") {
-      await prisma.wallet.update({
-        where: { id: existing.id },
-        data: { walletType: params.walletType },
-      });
+    if ((existing.provider === null || existing.provider === "unknown") && provider !== "unknown") {
+      await prisma.identity.update({ where: { id: existing.id }, data: { provider } });
     }
-    // Backfill a CLERK Identity for medialane-io accounts that pre-date the
-    // dual-identity change. Idempotent via the (provider, providerUserId) unique key.
-    if (params.appSource === "MEDIALANE_IO") {
-      await ensureClerkIdentity(existing.accountId, address, params.email);
-    }
-    return { accountId: existing.accountId, walletId: existing.id, created: false };
+    if (isSocial) await ensureClerkIdentity(existing.accountId, address, params.email);
+    return { accountId: existing.accountId, created: false };
   }
 
-  const provider = params.identityProvider ?? "WALLET";
-  const providerUserId =
-    provider === "WALLET"
-      ? `wallet:${params.chain}:${address}`
-      : `${params.appSource}:${address}`;
-
-  const result = await prisma.$transaction(async (tx) => {
+  const accountId = await prisma.$transaction(async (tx) => {
     let account: { id: string } | null = null;
     let lastErr: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         account = await tx.account.create({
-          data: {
-            publicId: generateAccountPublicId(),
-            type: "PERSON",
-            roles: [],
-          },
+          data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
           select: { id: true },
         });
         break;
@@ -121,66 +110,56 @@ export async function ensureAccountForWallet(params: {
     }
     if (!account) throw lastErr ?? new Error("Failed to allocate Account publicId");
 
-    const wallet = await tx.wallet.create({
-      data: {
-        accountId: account.id,
-        chain: params.chain,
-        address,
-        walletType: params.walletType,
-        isPrimary: true,
-      },
-      select: { id: true },
-    });
-
+    // The wallet — the on-chain signer (07 §I): identified by (chain, address).
     await tx.identity.create({
       data: {
         accountId: account.id,
+        scheme: "wallet",
         provider,
-        providerUserId,
+        chain: params.chain,
+        address,
         appSource: params.appSource,
+        isPrimary: true,
         email: params.email ?? null,
       },
     });
 
-    // A medialane-io user authenticates via Clerk AND has a ChipiPay/Privy wallet.
-    // The wallet-provider Identity above captures the wallet provenance; this second
-    // Identity captures the auth provenance. They're distinct facets — see
-    // medialane-core/docs/architecture/07-identity-model.md.
-    if (params.appSource === "MEDIALANE_IO" && provider !== "CLERK") {
+    // medialane-io: a Clerk-authenticated, ChipiPay-signed account. The wallet Identity
+    // above is the on-chain signer; this second Identity is the auth provenance. They're
+    // distinct facets — see medialane-core/docs/architecture/07-identity-model.md §IV.
+    if (isSocial) {
       await tx.identity.create({
         data: {
           accountId: account.id,
-          provider: "CLERK",
-          providerUserId: `MEDIALANE_IO:clerk:${address}`,
+          scheme: "clerk",
+          provider: "clerk",
+          value: `MEDIALANE_IO:clerk:${address}`,
           appSource: params.appSource,
           email: params.email ?? null,
         },
       });
     }
 
-    await tx.accountProfile.create({
-      data: { accountId: account.id },
-    });
-
-    return { accountId: account.id, walletId: wallet.id };
+    await tx.accountProfile.create({ data: { accountId: account.id } });
+    return account.id;
   });
 
-  return { ...result, created: true };
+  return { accountId, created: true };
 }
 
 /**
- * Idempotently ensure a CLERK Identity row exists for this Account. Used to
- * backfill pre-existing medialane-io accounts that were created before the
- * dual-Identity change; safe to call on every login.
+ * Idempotently ensure a `clerk` Identity exists for this Account. Used to backfill
+ * pre-existing medialane-io accounts on login; safe to call every time. Idempotent via
+ * the (scheme, value) unique key.
  */
 async function ensureClerkIdentity(
   accountId: string,
   address: string,
   email?: string,
 ): Promise<void> {
-  const providerUserId = `MEDIALANE_IO:clerk:${address}`;
+  const value = `MEDIALANE_IO:clerk:${address}`;
   const existing = await prisma.identity.findUnique({
-    where: { provider_providerUserId: { provider: "CLERK", providerUserId } },
+    where: { scheme_value: { scheme: "clerk", value } },
     select: { id: true },
   });
   if (existing) return;
@@ -188,8 +167,9 @@ async function ensureClerkIdentity(
     await prisma.identity.create({
       data: {
         accountId,
-        provider: "CLERK",
-        providerUserId,
+        scheme: "clerk",
+        provider: "clerk",
+        value,
         appSource: "MEDIALANE_IO",
         email: email ?? null,
       },

@@ -16,7 +16,7 @@ const rewards = new Hono();
 rewards.get("/:address", async (c) => {
   const address = normalizeAddress(c.req.param("address"));
 
-  const [score, badges, levels, wallet] = await Promise.all([
+  const [score, badges, levels, walletIdentity] = await Promise.all([
     prisma.userScore.findUnique({ where: { address } }),
     prisma.userBadge.findMany({
       where: { address },
@@ -24,13 +24,13 @@ rewards.get("/:address", async (c) => {
       orderBy: { awardedAt: "asc" },
     }),
     prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
-    prisma.wallet.findUnique({
+    prisma.identity.findUnique({
       where: { chain_address: { chain: "STARKNET", address } },
       include: { account: { select: { publicId: true } } },
     }),
   ]);
-  const accountId = wallet?.accountId ?? null;
-  const publicId = wallet?.account?.publicId ?? null;
+  const accountId = walletIdentity?.accountId ?? null;
+  const publicId = walletIdentity?.account?.publicId ?? null;
 
   if (!score) {
     // Return zeroed state for addresses not yet in the system

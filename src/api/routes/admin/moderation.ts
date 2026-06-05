@@ -248,8 +248,8 @@ admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
   const newAddr = normalizeAddress(newRaw);
 
   const [walletUpdate, claimUpdate] = await Promise.all([
-    prisma.wallet.updateMany({
-      where: { address: oldAddr },
+    prisma.identity.updateMany({
+      where: { scheme: "wallet", address: oldAddr },
       data: { address: newAddr },
     }),
     prisma.usernameClaim.updateMany({
