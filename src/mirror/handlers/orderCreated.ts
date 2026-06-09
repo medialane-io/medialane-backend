@@ -14,6 +14,7 @@ import type { ParsedOrderCreated, OnChainOrderDetails } from "../../types/market
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { withRetry } from "../../utils/retry.js";
+import { assertOrderPopulated } from "./orderGuards.js";
 
 const log = createLogger("handler:orderCreated");
 
@@ -184,19 +185,25 @@ export async function handleOrderCreated(
 ): Promise<string | null> {
   let details: OnChainOrderDetails;
   try {
-    const raw = await withRetry(
-      () => callRpc((provider) => {
-        const contract = new Contract(
-          IPMarketplaceABI as any,
-          MARKETPLACE_721_CONTRACT,
-          provider,
-        );
-        return contract.get_order_details(event.orderHash);
-      }),
+    // Parse + emptiness check live INSIDE the retried fn so a lagging-node empty
+    // read (not just an RPC error) triggers backoff + endpoint rotation.
+    details = await withRetry(
+      async () => {
+        const raw = await callRpc((provider) => {
+          const contract = new Contract(
+            IPMarketplaceABI as any,
+            MARKETPLACE_721_CONTRACT,
+            provider,
+          );
+          return contract.get_order_details(event.orderHash);
+        });
+        const parsed = parseOrderDetails721(raw);
+        assertOrderPopulated(parsed, event.orderHash);
+        return parsed;
+      },
       3,   // attempts
       500, // base delay ms (500 → 1000 → 2000)
     );
-    details = parseOrderDetails721(raw);
   } catch (err) {
     log.error(
       { err, orderHash: event.orderHash },
@@ -300,7 +307,9 @@ async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDet
   if (!result || result.length < 15) {
     throw new Error(`get_order_details returned an unexpected response for order ${orderHash}`);
   }
-  return decodeOrderDetails1155(result);
+  const details = decodeOrderDetails1155(result);
+  assertOrderPopulated(details, orderHash);
+  return details;
 }
 
 function decodeOrderDetails1155(raw: string[]): OnChainOrderDetails {
