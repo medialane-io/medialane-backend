@@ -567,7 +567,7 @@ MARKETPLACE_721_CONTRACT_MAINNET=0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f03
 MARKETPLACE_1155_CONTRACT_MAINNET=0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99
 COLLECTION_721_CONTRACT_MAINNET=0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2  # MIP v0.3.0
 COLLECTION_721_START_BLOCK=10046166
-COLLECTION_1155_CONTRACT_MAINNET=0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc  # v0.3.0 (sequential ids); prior v0.2.0 0x067064… already indexed
+COLLECTION_1155_CONTRACT_MAINNET=0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc  # v0.3.0 (sequential ids); retired v0.2.0 collections reclassified external-erc1155 (read-only)
 COMMENTS_CONTRACT_ADDRESS=<deployed NFTComments instance — NOT 0x024f97…62799 (undeployed)>
 INDEXER_START_BLOCK=9196722
 ```
@@ -599,7 +599,7 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 - Marketplace ERC-721 (current): `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6`
 - **Marketplace ERC-1155 (Medialane1155V2, current)**: `0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99`
 - **MIP IPCollection registry (ERC-721) v0.3.0** (deployed 2026-05-22): `0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2`
-- **IP-Programmable-ERC1155-Collections factory v0.3.0** (sequential on-chain edition ids, deployed 2026-06-10): `0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc` — prior v0.2.0 `0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131` already indexed
+- **IP-Programmable-ERC1155-Collections factory v0.3.0** (sequential on-chain edition ids, deployed 2026-06-10): `0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc` — retired v0.2.0 factory `0x067064…` is unsupported: per the protocol-upgrade routine, its collections were reclassified `external-erc1155` (read-only external provenance) on 2026-06-10
 - NFTComments: set via `COMMENTS_CONTRACT_ADDRESS` env (the deployed instance) — **not** `0x024f97…62799` (undeployed; caused the 2026-05-17 comments outage)
 - Indexer start block: `9196722`
 - SNIP-12 domain ERC-721: `{ name: "Medialane", version: "1", revision: "1" }`
