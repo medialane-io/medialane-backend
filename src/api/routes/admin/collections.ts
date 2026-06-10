@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { authMiddleware } from "../../middleware/adminSecretAuth.js";
+import { defaultExternalService } from "./externalService.js";
 import prisma from "../../../db/client.js";
 import { generateApiKey } from "../../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../../orchestrator/metadata.js";
@@ -186,7 +187,7 @@ admin.post("/collections", async (c) => {
     startBlock: z.number().optional().default(0),
     // Standard is required for create — every collection has a real ABI surface,
     // there's no longer an UNKNOWN fallback.
-    standard: z.enum(["ERC721", "ERC1155"]),
+    standard: z.enum(["ERC721", "ERC1155", "ERC20"]),
     // Caller may pass a service ID; otherwise we default to external-<standard>.
     service: z.string().optional(),
   });
@@ -197,8 +198,7 @@ admin.post("/collections", async (c) => {
   const contractAddress = normalizeAddress(rawAddr);
 
   // service is required on Collection. Default to external-<standard>.
-  const resolvedService =
-    service ?? (standard === "ERC1155" ? "external-erc1155" : "external-erc721");
+  const resolvedService = service ?? defaultExternalService(standard);
 
   const col = await prisma.collection.upsert({
     where: { chain_contractAddress: { chain: chain as any, contractAddress } },
