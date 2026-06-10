@@ -14,6 +14,7 @@ import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { callRpc } from "../../utils/starknet.js";
+import { parseStandardFilter } from "./collections.standardFilter.js";
 
 const log = createLogger("routes:collections");
 
@@ -111,6 +112,7 @@ collections.get("/", async (c) => {
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
   const owner     = c.req.query("owner");
   const service   = c.req.query("service");
+  const standardFilter = parseStandardFilter(c.req.query("standard"));
   const hideEmpty = c.req.query("hideEmpty") === "true";
   const sortRaw = c.req.query("sort") ?? "recent";
   const sort: CollectionSort = (COLLECTION_SORT_VALUES as readonly string[]).includes(sortRaw)
@@ -126,6 +128,12 @@ collections.get("/", async (c) => {
     if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
     if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
     if (service)   conditions.push(Prisma.sql`service = ${service}`);
+    if (standardFilter) {
+      // $queryRaw sends params as text; TokenStandard is an enum — cast each value
+      // explicitly or Postgres errors "operator does not exist: TokenStandard = text".
+      const casted = standardFilter.map((s) => Prisma.sql`${s}::"TokenStandard"`);
+      conditions.push(Prisma.sql`standard IN (${Prisma.join(casted)})`);
+    }
     if (hideEmpty) conditions.push(Prisma.sql`"totalSupply" > 0`);
     const whereClause = Prisma.join(conditions, " AND ");
 
@@ -157,6 +165,7 @@ collections.get("/", async (c) => {
   if (isFeatured === "false") where.isFeatured = false;
   if (owner)     where.owner = normalizeAddress(owner);
   if (service)   where.service = service;
+  if (standardFilter) where.standard = { in: standardFilter };
   if (hideEmpty) where.totalSupply = { gt: 0 };
 
   const orderBy =
