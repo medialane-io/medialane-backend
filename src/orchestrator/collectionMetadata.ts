@@ -111,16 +111,39 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  // Creator Coins (ERC-20, service "creator-coin"): name/symbol come from the
-  // CreatorCoinCreated event (set by the factory handler). There is no
-  // token_uri/base_uri to resolve, so just mark FETCHED. Price/liquidity is read
+  // ERC-20 (creator coins + claimed external-erc20): no token_uri/base_uri.
+  // Creator coins get name/symbol from the CreatorCoinCreated event at sync; for
+  // admin-added external coins those are absent, so read felt252 name()/symbol()
+  // (OZ-0.8 — both our coins and unrug coins) when missing. Price/liquidity is read
   // from the coin's Ekubo pool elsewhere, never here.
   if (existing?.service === "creator-coin" || existing?.standard === "ERC20") {
+    let name = existing.name;
+    let symbol = existing.symbol;
+    if (!name || !symbol) {
+      const readFelt = async (entrypoint: string): Promise<string | null> => {
+        try {
+          const res = await callRpc((provider) =>
+            provider.callContract({ contractAddress, entrypoint, calldata: [] })
+          );
+          const decoded = shortString.decodeShortString(res[0] ?? "0x0");
+          return decoded.length > 0 ? decoded : null;
+        } catch {
+          return null;
+        }
+      };
+      if (!name) name = await readFelt("name");
+      if (!symbol) symbol = await readFelt("symbol");
+    }
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
-      data: { metadataStatus: "FETCHED", standard: "ERC20" },
+      data: {
+        metadataStatus: "FETCHED",
+        standard: "ERC20",
+        ...(name ? { name } : {}),
+        ...(symbol ? { symbol } : {}),
+      },
     });
-    log.debug({ chain, contractAddress }, "Creator Coin (ERC20) collection marked FETCHED");
+    log.debug({ chain, contractAddress, name, symbol }, "ERC20 collection metadata resolved");
     return;
   }
 
