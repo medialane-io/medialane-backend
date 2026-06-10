@@ -26,9 +26,13 @@ const envSchema = z.object({
     .string()
     .default("0x50fa807b5274079fb19374673d7bab6d2dc3af7e1032ea43eb6e44bcbde4c3c"),
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
+  // IP-Programmable-ERC1155 factory watched for CollectionDeployed. v0.3.0
+  // (sequential on-chain edition ids) deployed mainnet 2026-06-10. The prior
+  // v0.2.0 factory (0x067064…) is already fully indexed; existing collections'
+  // token indexing is per-collection and unaffected by this switch.
   COLLECTION_1155_CONTRACT_MAINNET: z
     .string()
-    .default("0x067064adcaaed61e17bf50ea802ea6482336126aec5b4d032b4ff8fbb5009131"),
+    .default("0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(50000),
   COLLECTION_721_START_BLOCK: z.coerce.number().default(10046166),
