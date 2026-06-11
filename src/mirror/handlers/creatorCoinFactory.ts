@@ -64,6 +64,12 @@ export async function handleCreatorCoinCreated(event: RawStarknetEvent): Promise
       name,
       symbol,
       owner,
+      // The launcher is the claimer by construction. Trustless: this owner
+      // comes from the factory's CreatorCoinCreated event, never from a
+      // request param. Gates coin profile edits (image/description) — the
+      // on-chain owner() is renounced at launch, so the event is the only
+      // authoritative source.
+      claimedBy: owner,
       startBlock,
     });
 

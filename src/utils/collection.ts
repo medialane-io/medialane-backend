@@ -65,6 +65,8 @@ export async function upsertCollectionFromFactory(
     symbol?: string | null;
     baseUri?: string | null;
     owner?: string | null;
+    /** Set ONLY from trustless sources (on-chain event data) — gates profile edits. */
+    claimedBy?: string | null;
     collectionId?: string | null;
     startBlock: bigint;
   },
@@ -82,6 +84,7 @@ export async function upsertCollectionFromFactory(
       symbol: params.symbol ?? undefined,
       baseUri: params.baseUri ?? undefined,
       owner: params.owner ?? undefined,
+      claimedBy: params.claimedBy ?? undefined,
       collectionId: params.collectionId ?? undefined,
       startBlock: params.startBlock,
       metadataStatus: "PENDING",
@@ -93,6 +96,7 @@ export async function upsertCollectionFromFactory(
       symbol: params.symbol ?? undefined,
       baseUri: params.baseUri ?? undefined,
       owner: params.owner ?? undefined,
+      claimedBy: params.claimedBy ?? undefined,
       collectionId: params.collectionId ?? undefined,
     },
   });
