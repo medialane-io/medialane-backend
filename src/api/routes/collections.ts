@@ -179,7 +179,13 @@ collections.get("/", async (c) => {
       orderBy,
       skip,
       take: limit,
-      include: { profile: { select: { hasGatedContent: true, gatedContentTitle: true } } },
+      include: {
+        profile: {
+          // image/displayName/description: platform-layer identity (coin launch
+          // studio uploads) — list consumers (CoinCard) fall back to profile.image.
+          select: { hasGatedContent: true, gatedContentTitle: true, slug: true, image: true, displayName: true, description: true },
+        },
+      },
     }),
     prisma.collection.count({ where }),
   ]);
@@ -567,7 +573,14 @@ function serializeCollection(c: any) {
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     profile: profile
-      ? { hasGatedContent: profile.hasGatedContent, gatedContentTitle: profile.gatedContentTitle ?? null, slug: profile.slug ?? null }
+      ? {
+          hasGatedContent: profile.hasGatedContent,
+          gatedContentTitle: profile.gatedContentTitle ?? null,
+          slug: profile.slug ?? null,
+          image: profile.image ?? null,
+          displayName: profile.displayName ?? null,
+          description: profile.description ?? null,
+        }
       : null,
   };
 }
