@@ -26,6 +26,11 @@ const envSchema = z.object({
     .string()
     .default("0x50fa807b5274079fb19374673d7bab6d2dc3af7e1032ea43eb6e44bcbde4c3c"),
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
+  // Unruggable (unrug.top) memecoin factory — used to verify external coins via
+  // is_memecoin() before adding them as external-erc20.
+  UNRUG_FACTORY_ADDRESS: z
+    .string()
+    .default("0x01a46467a9246f45c8c340f1f155266a26a71c07bd55d36e8d1c7d0d438a2dbc"),
   // IP-Programmable-ERC1155 factory watched for CollectionDeployed. v0.3.0
   // (sequential on-chain edition ids) deployed mainnet 2026-06-10. The prior
   // v0.2.0 factory (0x067064…) is already fully indexed; existing collections'
