@@ -10,14 +10,25 @@ import { runTransferFollowups } from "../../../orchestrator/transferFollowup.js"
 import { worker } from "../../../orchestrator/worker.js";
 import { createLogger } from "../../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../../utils/mailer.js";
-import { normalizeAddress, normalizeHash } from "../../../utils/starknet.js";
+import { normalizeAddress, normalizeHash, callRpc } from "../../../utils/starknet.js";
+import { upsertCollectionFromFactory } from "../../../utils/collection.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
 import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../../mirror/poller.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../../utils/txVerifier.js";
-import { ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress } from "../../../config/constants.js";
-import { num } from "starknet";
+import { ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress, UNRUG_FACTORY_CONTRACT } from "../../../config/constants.js";
+import { num, shortString } from "starknet";
+
+/** Decode a felt252 short string (OZ 0.8 ERC-20 name/symbol); null on failure. */
+function decodeShortStr(felt: string): string | null {
+  try {
+    const s = shortString.decodeShortString(felt);
+    return s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
 
 import { InMemoryRateLimitStore } from "../../middleware/rateLimit.js";
@@ -221,6 +232,75 @@ admin.post("/collections", async (c) => {
   log.info({ contractAddress, chain }, "Collection registered via admin");
 
   return c.json({ data: { id: col.id, contractAddress, chain, metadataStatus: col.metadataStatus } }, 201);
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/coins/add-external — add an external (unrug/partner) ERC-20 coin.
+//
+// The ERC-20 sibling of POST /v1/coins/sync: `POST /admin/collections` can't
+// register a coin (its `standard` enum is ERC721/ERC1155 only), and
+// `/v1/coins/sync` only accepts Medialane-factory Creator Coins. This verifies
+// the address via the Unruggable factory's `is_memecoin`, reads name/symbol
+// on-chain, and upserts a Collection(ERC20, "external-erc20") so it renders as a
+// coin. Idempotent. Admin-gated.
+//
+// Body: { contractAddress: string, owner?: string, startBlock?: number }
+// ---------------------------------------------------------------------------
+admin.post("/coins/add-external", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = z
+    .object({
+      contractAddress: z.string().min(3),
+      owner: z.string().optional(),
+      startBlock: z.number().optional(),
+    })
+    .safeParse(body);
+  if (!parsed.success) return c.json({ error: "contractAddress required" }, 400);
+
+  if (!UNRUG_FACTORY_CONTRACT) return c.json({ error: "Unrug factory not configured" }, 503);
+  const contractAddress = normalizeAddress(parsed.data.contractAddress);
+
+  try {
+    // Gate: only genuine Unruggable-launched memecoins.
+    const verify = await callRpc((p) =>
+      p.callContract({ contractAddress: UNRUG_FACTORY_CONTRACT, entrypoint: "is_memecoin", calldata: [contractAddress] })
+    );
+    const isMemecoin = verify.length > 0 && BigInt(verify[0] ?? "0x0") !== 0n;
+    if (!isMemecoin) {
+      return c.json({ error: "Address is not an unrug memecoin (is_memecoin = false)" }, 400);
+    }
+
+    // ERC-20 metadata (OZ 0.8 → felt252 short strings).
+    const [nameRes, symbolRes] = await Promise.all([
+      callRpc((p) => p.callContract({ contractAddress, entrypoint: "name", calldata: [] })),
+      callRpc((p) => p.callContract({ contractAddress, entrypoint: "symbol", calldata: [] })),
+    ]);
+    const name = decodeShortStr(nameRes[0] ?? "0x0");
+    const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
+
+    await upsertCollectionFromFactory(prisma, {
+      chain: "STARKNET",
+      contractAddress,
+      service: "external-erc20",
+      standard: "ERC20",
+      name,
+      symbol,
+      owner: parsed.data.owner ? normalizeAddress(parsed.data.owner) : null,
+      startBlock: BigInt(parsed.data.startBlock ?? 0),
+    });
+
+    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
+
+    const col = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+      select: { contractAddress: true, service: true, standard: true, name: true, symbol: true, owner: true, metadataStatus: true },
+    });
+    log.info({ contractAddress, name, symbol }, "External coin added via admin");
+    return c.json({ data: col ?? { contractAddress, service: "external-erc20", standard: "ERC20", name, symbol } }, 201);
+  } catch (err) {
+    log.error({ err, contractAddress }, "external coin add failed");
+    return c.json({ error: toErrorMessage(err) }, 500);
+  }
 });
 
 // ---------------------------------------------------------------------------
