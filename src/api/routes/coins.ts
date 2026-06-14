@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
 import type { Coin } from "@prisma/client";
@@ -7,11 +8,12 @@ import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
 import { upsertCoin } from "../../utils/coin.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:coins");
-const coins = new Hono();
+const coins = new Hono<AppEnv>();
 
 /** Coin.startBlock is BigInt — stringify it for JSON responses. */
 function serializeCoin(coin: Coin) {
@@ -68,13 +70,15 @@ coins.post("/sync", async (c) => {
       return c.json({ error: "Address is not a Creator Coin (is_creator_coin = false)" }, 400);
     }
 
-    // ERC-20 metadata (OZ 0.8 → felt252 short strings).
-    const [nameRes, symbolRes] = await Promise.all([
+    // ERC-20 metadata (OZ 0.8 → felt252 short strings; decimals → u8).
+    const [nameRes, symbolRes, decRes] = await Promise.all([
       callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "name", calldata: [] })),
       callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "symbol", calldata: [] })),
+      callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "decimals", calldata: [] })),
     ]);
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
+    const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
@@ -82,6 +86,7 @@ coins.post("/sync", async (c) => {
       service: "creator-coin",
       name,
       symbol,
+      decimals,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(env.CREATOR_COIN_START_BLOCK),
     });
@@ -118,6 +123,40 @@ coins.get("/:contract", async (c) => {
   });
   if (!coin) return c.json({ error: "Coin not found" }, 404);
   return c.json({ data: serializeCoin(coin) });
+});
+
+// PATCH /v1/coins/:contract — creator-authed coin profile (image, description).
+// Mirrors collection-profile editing: identityAuth (Clerk JWT / SIWS) + ownership.
+// The creator is `coin.creator` (trustless — from the factory event), never a body param.
+coins.patch("/:contract", identityAuth, async (c) => {
+  const contract = normalizeAddress("STARKNET", c.req.param("contract") ?? "");
+  const jwtWallet = c.get("walletAddress") as string;
+  const parsed = z
+    .object({
+      // ipfs:// or https:// — the apps' upload pipeline produces the URI; we don't
+      // constrain the scheme here, just bound the length.
+      image: z.string().max(400).nullable().optional(),
+      description: z.string().max(500).nullable().optional(),
+    })
+    .safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: "Invalid body" }, 400);
+
+  const coin = await prisma.coin.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+  });
+  if (!coin) return c.json({ error: "Coin not found" }, 404);
+  if (!coin.creator || normalizeAddress("STARKNET", coin.creator) !== jwtWallet) {
+    return c.json({ error: "Only the coin creator can edit this coin" }, 403);
+  }
+
+  const updated = await prisma.coin.update({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    data: {
+      ...(parsed.data.image !== undefined ? { image: parsed.data.image } : {}),
+      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+    },
+  });
+  return c.json({ data: serializeCoin(updated) });
 });
 
 export default coins;
