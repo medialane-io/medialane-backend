@@ -34,7 +34,7 @@ describe("normalizeAddress", () => {
   });
 
   test("throws on non-hex input — guards against silent corruption", () => {
-    expect(() => normalizeAddress("STARKNET", "banana")).toThrow("Invalid Starknet address");
+    expect(() => normalizeAddress("STARKNET", "banana")).toThrow("Invalid STARKNET address");
   });
 
   // Note: empty string is normalized to the zero address (BigInt("") === 0n).
@@ -50,6 +50,6 @@ describe("normalizeHash", () => {
   });
 
   test("throws on invalid hash", () => {
-    expect(() => normalizeHash("not-a-hash")).toThrow("Invalid Starknet hash");
+    expect(() => normalizeHash("not-a-hash")).toThrow("Invalid hash");
   });
 });

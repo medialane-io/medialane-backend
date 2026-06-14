@@ -3,8 +3,9 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import prisma from "../../db/client.js";
-import { normalizeAddress, callRpc } from "../../utils/starknet.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
+import { verifyWalletSignature } from "../../auth/verify.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -78,53 +79,38 @@ siws.post(
     }
 
     const typedData = buildTypedData(wallet, nonce);
-    try {
-      const normalizedSignature = signature.map((value) => BigInt(value).toString());
-      const isValid = await callRpc((provider) =>
-        provider.verifyMessageInStarknet(typedData, normalizedSignature, wallet)
-      );
-      if (!isValid) {
-        // Wallet contract's is_valid_signature returned false. Logged so we
-        // can distinguish "wallet rejected the signed payload" from "RPC
-        // throw" in the catch below.
-        log.warn(
-          { wallet, sigLength: normalizedSignature.length },
-          "SIWS verify: on-chain is_valid_signature returned false",
-        );
-        return c.json({ error: "invalid_signature" }, 401);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
 
-      // Smart-wallet accounts on Starknet are counterfactual until the first
-      // transaction deploys them. is_valid_signature can't run against a
-      // non-existent contract — the RPC surfaces this as "Contract not found"
-      // (code 20). Surface a specific, user-actionable error code so the UI
-      // can tell the user to deploy first, rather than the generic
-      // "invalid signature" which sounds like a key issue.
-      if (msg.includes("Contract not found")) {
-        log.warn(
-          { wallet },
-          "SIWS verify: wallet contract not deployed (counterfactual account)",
-        );
+    // SIWS is the Starknet sign-in; verification goes through the chain-dispatch
+    // seam (spec §3.4) so a future SIWE/SIWB sibling reuses it unchanged.
+    let result;
+    try {
+      result = await verifyWalletSignature({ chain: "STARKNET", address: wallet, typedData, signature });
+    } catch (err) {
+      // Unexpected RPC / verification failure — log fully, keep the generic 401.
+      log.error(
+        { err, wallet, sigLength: signature.length },
+        "SIWS verify: signature verification threw",
+      );
+      return c.json({ error: "invalid_signature" }, 401);
+    }
+
+    if (!result.ok) {
+      if (result.reason === "not_deployed") {
+        // Counterfactual smart wallet — surface a deploy-first hint, not "invalid".
+        log.warn({ wallet }, "SIWS verify: wallet contract not deployed (counterfactual account)");
         return c.json({
           error: "account_not_deployed",
           message: "Check if your wallet is deployed on Starknet.",
         }, 400);
       }
-
-      // Other RPC / verification errors — log fully and keep the generic 401.
-      log.error(
-        { err, wallet, sigLength: signature.length },
-        "SIWS verify: verifyMessageInStarknet threw",
-      );
+      log.warn({ wallet }, "SIWS verify: on-chain is_valid_signature returned false");
       return c.json({ error: "invalid_signature" }, 401);
     }
 
     // Single-use: delete nonce after successful verification
     await prisma.siwsNonce.delete({ where: { nonce } });
 
-    return c.json({ token: issueToken(wallet) });
+    return c.json({ token: issueToken("STARKNET", wallet) });
   }
 );
 
