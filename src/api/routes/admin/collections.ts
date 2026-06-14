@@ -271,13 +271,16 @@ admin.post("/coins/add-external", async (c) => {
       return c.json({ error: "Address is not an unrug memecoin (is_memecoin = false)" }, 400);
     }
 
-    // ERC-20 metadata (OZ 0.8 → felt252 short strings).
-    const [nameRes, symbolRes] = await Promise.all([
+    // ERC-20 metadata (OZ 0.8 → felt252 short strings; decimals → u8). External
+    // coins can have non-18 decimals, so read it rather than assume.
+    const [nameRes, symbolRes, decRes] = await Promise.all([
       callRpc((p) => p.callContract({ contractAddress, entrypoint: "name", calldata: [] })),
       callRpc((p) => p.callContract({ contractAddress, entrypoint: "symbol", calldata: [] })),
+      callRpc((p) => p.callContract({ contractAddress, entrypoint: "decimals", calldata: [] })),
     ]);
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
+    const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
@@ -285,6 +288,7 @@ admin.post("/coins/add-external", async (c) => {
       service: "external-erc20",
       name,
       symbol,
+      decimals,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(parsed.data.startBlock ?? 0),
     });
