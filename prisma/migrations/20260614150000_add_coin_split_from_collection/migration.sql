@@ -14,6 +14,7 @@ CREATE TABLE "Coin" (
   "symbol"          TEXT,
   "decimals"        INTEGER NOT NULL DEFAULT 18,
   "totalSupply"     TEXT,
+  "description"     TEXT,
   "image"           TEXT,
   "creator"         TEXT,
   "startBlock"      BIGINT NOT NULL,
@@ -27,9 +28,9 @@ CREATE INDEX "Coin_chain_service_idx" ON "Coin"("chain","service");
 CREATE INDEX "Coin_chain_isHidden_idx" ON "Coin"("chain","isHidden");
 
 -- Copy existing ERC-20 Collection rows into Coin (creator carried from claimedBy).
-INSERT INTO "Coin" ("id","chain","contractAddress","standard","service","name","symbol","decimals","totalSupply","image","creator","startBlock","isHidden","createdAt","updatedAt")
+INSERT INTO "Coin" ("id","chain","contractAddress","standard","service","name","symbol","decimals","totalSupply","description","image","creator","startBlock","isHidden","createdAt","updatedAt")
 SELECT "id","chain","contractAddress",'ERC20',"service","name","symbol",18,
-       NULLIF("totalSupply",0)::text,"image","claimedBy","startBlock","isHidden","createdAt",CURRENT_TIMESTAMP
+       NULLIF("totalSupply",0)::text,"description","image","claimedBy","startBlock","isHidden","createdAt",CURRENT_TIMESTAMP
 FROM "Collection" WHERE "standard"='ERC20';
 
 -- Remove any stray NFT-shaped rows for those ERC-20 contracts (defensive; expected 0).

@@ -256,6 +256,7 @@ model Coin {
   symbol          String?
   decimals        Int           @default(18)
   totalSupply     String?       // fungible supply (decimal string) — NOT an item count
+  description     String?
   image           String?
   creator         String?       // launcher/creator wallet where known (trustless: from event)
   startBlock      BigInt

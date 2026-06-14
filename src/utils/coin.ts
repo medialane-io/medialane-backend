@@ -21,6 +21,7 @@ export async function upsertCoin(
     symbol?: string | null;
     decimals?: number | null;
     totalSupply?: string | null;
+    description?: string | null;
     image?: string | null;
     creator?: string | null;
     startBlock: bigint;
@@ -42,6 +43,7 @@ export async function upsertCoin(
       symbol: params.symbol ?? undefined,
       decimals: params.decimals ?? 18,
       totalSupply: params.totalSupply ?? undefined,
+      description: params.description ?? undefined,
       image: params.image ?? undefined,
       creator: params.creator ?? undefined,
       startBlock: params.startBlock,
@@ -52,6 +54,7 @@ export async function upsertCoin(
       symbol: params.symbol ?? undefined,
       decimals: params.decimals ?? undefined,
       totalSupply: params.totalSupply ?? undefined,
+      description: params.description ?? undefined,
       image: params.image ?? undefined,
       creator: params.creator ?? undefined,
     },
