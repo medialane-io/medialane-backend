@@ -111,18 +111,8 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  // Creator Coins (ERC-20, service "creator-coin"): name/symbol come from the
-  // CreatorCoinCreated event (set by the factory handler). There is no
-  // token_uri/base_uri to resolve, so just mark FETCHED. Price/liquidity is read
-  // from the coin's Ekubo pool elsewhere, never here.
-  if (existing?.service === "creator-coin" || existing?.standard === "ERC20") {
-    await prisma.collection.update({
-      where: { chain_contractAddress: { chain, contractAddress } },
-      data: { metadataStatus: "FETCHED", standard: "ERC20" },
-    });
-    log.debug({ chain, contractAddress }, "Creator Coin (ERC20) collection marked FETCHED");
-    return;
-  }
+  // Coins (ERC-20) are no longer Collection rows (2026-06-14 coin split) — they
+  // live in the Coin table and never enter this collection-metadata path.
 
   // ERC1155 collections (Medialane-deployed or external): name, symbol, and base_uri
   // are decoded by the indexer for mip-erc1155, and read on-chain for externals.
