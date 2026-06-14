@@ -67,8 +67,8 @@ admin.patch("/claims/:id", async (c) => {
   });
 
   if (status === "APPROVED") {
-    const normContract = normalizeAddress(claim.contractAddress);
-    const normWallet = claim.claimantAddress ? normalizeAddress(claim.claimantAddress) : null;
+    const normContract = normalizeAddress("STARKNET", claim.contractAddress);
+    const normWallet = claim.claimantAddress ? normalizeAddress("STARKNET", claim.claimantAddress) : null;
 
     // Update-only — Collection rows are owned by the indexer (and the
     // ensureCollectionFromActivity / factory-handler paths). If the

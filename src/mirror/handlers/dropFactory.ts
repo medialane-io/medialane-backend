@@ -36,8 +36,8 @@ export async function handleDropCreated(event: RawStarknetEvent): Promise<void> 
     const dropIdLow = BigInt(keys[1]);
     const dropIdHigh = BigInt(keys[2]);
     const dropId = ((dropIdHigh << 128n) | dropIdLow).toString();
-    const organizer = normalizeAddress(keys[3]);
-    const collectionAddress = normalizeAddress(data[0]);
+    const organizer = normalizeAddress("STARKNET", keys[3]);
+    const collectionAddress = normalizeAddress("STARKNET", data[0]);
 
     if (collectionAddress === ZERO_ADDRESS) {
       log.warn({ txHash, dropId }, "DropCreated has zero collection_address, skipping");
@@ -90,8 +90,8 @@ export async function handleDropAllowlistUpdated(event: RawStarknetEvent): Promi
       return;
     }
 
-    const collectionAddress = normalizeAddress(event.from_address);
-    const walletAddress = normalizeAddress(keys[1]);
+    const collectionAddress = normalizeAddress("STARKNET", event.from_address);
+    const walletAddress = normalizeAddress("STARKNET", keys[1]);
     const allowed = BigInt(data[0]) !== 0n;
 
     await prisma.popAllowlist.upsert({

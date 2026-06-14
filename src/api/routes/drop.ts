@@ -14,8 +14,8 @@ const drop = new Hono<AppEnv>();
 // Returns how many tokens the wallet has minted from a drop collection,
 // plus the total minted across all wallets.
 drop.get("/mint-status/:collection/:wallet", async (c) => {
-  const collection = normalizeAddress(c.req.param("collection"));
-  const wallet = normalizeAddress(c.req.param("wallet"));
+  const collection = normalizeAddress("STARKNET", c.req.param("collection"));
+  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
 
   const [mintedByWallet, totalMinted] = await Promise.all([
     prisma.tokenBalance.count({
@@ -53,7 +53,7 @@ drop.post("/conditions", async (c, next) => requireClerkJwt(c, next), async (c) 
   }
   const data = parsed.data;
 
-  const collectionAddress = normalizeAddress(data.collectionAddress);
+  const collectionAddress = normalizeAddress("STARKNET", data.collectionAddress);
   const callerWallet = c.get("walletAddress") as string | undefined;
 
   // Ownership check: caller must match the collection owner or claimedBy wallet
@@ -67,15 +67,15 @@ drop.post("/conditions", async (c, next) => requireClerkJwt(c, next), async (c) 
   }
 
   const ownerMatch = collection.owner && callerWallet &&
-    normalizeAddress(collection.owner) === callerWallet;
+    normalizeAddress("STARKNET", collection.owner) === callerWallet;
   const claimedByMatch = collection.claimedBy && callerWallet &&
-    normalizeAddress(collection.claimedBy) === callerWallet;
+    normalizeAddress("STARKNET", collection.claimedBy) === callerWallet;
 
   if (!ownerMatch && !claimedByMatch) {
     return c.json({ error: "Not authorized to set conditions for this collection" }, 403);
   }
 
-  const paymentToken = data.paymentToken === "0x0" ? "0x0" : normalizeAddress(data.paymentToken);
+  const paymentToken = data.paymentToken === "0x0" ? "0x0" : normalizeAddress("STARKNET", data.paymentToken);
 
   const conditions = await prisma.dropClaimConditions.upsert({
     where: { chain_collectionAddress: { chain: "STARKNET", collectionAddress } },
@@ -115,7 +115,7 @@ drop.post("/conditions", async (c, next) => requireClerkJwt(c, next), async (c) 
 // GET /v1/drop/:contract/info
 // Returns collection metadata merged with claim conditions.
 drop.get("/:contract/info", async (c) => {
-  const contractAddress = normalizeAddress(c.req.param("contract"));
+  const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
 
   const [collection, conditions] = await Promise.all([
     prisma.collection.findUnique({

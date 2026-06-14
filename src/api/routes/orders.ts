@@ -27,7 +27,7 @@ function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
   if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
   if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
   if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(offerer)}`);
+  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress("STARKNET", offerer)}`);
   if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
   if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
   conditions.push(Prisma.sql`NOT EXISTS (
@@ -127,7 +127,7 @@ orders.get("/counter-offers", async (c) => {
 
   const where: Record<string, unknown> = { chain: "STARKNET", parentOrderHash: { not: null } };
   if (originalOrderHash) where.parentOrderHash = originalOrderHash;
-  if (sellerAddress) where.offerer = normalizeAddress(sellerAddress);
+  if (sellerAddress) where.offerer = normalizeAddress("STARKNET", sellerAddress);
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
@@ -160,7 +160,7 @@ orders.get("/:orderHash", async (c) => {
 // GET /v1/orders/token/:contract/:tokenId
 orders.get("/token/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
-  const normalizedContract = normalizeAddress(contract);
+  const normalizedContract = normalizeAddress("STARKNET", contract);
 
   const [hiddenToken, hiddenCollection] = await Promise.all([
     prisma.token.findFirst({
@@ -194,7 +194,7 @@ orders.get("/received/:address", async (c) => {
   const { address } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-  const normalizedAddress = normalizeAddress(address);
+  const normalizedAddress = normalizeAddress("STARKNET", address);
   const offset = (page - 1) * limit;
 
   const [data, countRows] = await Promise.all([
@@ -247,12 +247,12 @@ orders.get("/user/:address", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
-      where: { chain: "STARKNET", offerer: normalizeAddress(address) },
+      where: { chain: "STARKNET", offerer: normalizeAddress("STARKNET", address) },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where: { chain: "STARKNET", offerer: normalizeAddress(address) } }),
+    prisma.order.count({ where: { chain: "STARKNET", offerer: normalizeAddress("STARKNET", address) } }),
   ]);
 
   const [tokenMeta, counterFlags] = await Promise.all([

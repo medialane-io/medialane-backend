@@ -47,7 +47,7 @@ coins.post("/sync", async (c) => {
   if (!CREATOR_COIN_FACTORY_CONTRACT) {
     return c.json({ error: "Creator Coin factory not configured" }, 503);
   }
-  const coinAddress = normalizeAddress(parsed.data.coinAddress);
+  const coinAddress = normalizeAddress("STARKNET", parsed.data.coinAddress);
 
   try {
     // Gate: only genuine Factory-deployed Creator Coins.
@@ -78,7 +78,7 @@ coins.post("/sync", async (c) => {
       standard: "ERC20",
       name,
       symbol,
-      owner: parsed.data.owner ? normalizeAddress(parsed.data.owner) : null,
+      owner: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(env.CREATOR_COIN_START_BLOCK),
     });
 

@@ -88,10 +88,10 @@ reports.post(
     const reporterWallet = c.get("walletAddress") as string;
 
     const targetContract = body.targetContract
-      ? normalizeAddress(body.targetContract)
+      ? normalizeAddress("STARKNET", body.targetContract)
       : undefined;
     const targetAddress = body.targetAddress
-      ? normalizeAddress(body.targetAddress)
+      ? normalizeAddress("STARKNET", body.targetAddress)
       : undefined;
 
     const keyError = validateTargetKey(body.targetType, body.targetKey, {

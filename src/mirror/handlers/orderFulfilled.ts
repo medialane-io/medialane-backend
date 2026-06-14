@@ -95,8 +95,8 @@ export function parseRawOrderFulfilled1155(
   return {
     type: "OrderFulfilled",
     orderHash: num.toHex(rawEvent.keys[1]),
-    offerer: normalizeAddress(rawEvent.keys[2]),
-    fulfiller: normalizeAddress(rawEvent.keys[3]),
+    offerer: normalizeAddress("STARKNET", rawEvent.keys[2]),
+    fulfiller: normalizeAddress("STARKNET", rawEvent.keys[3]),
     blockNumber: BigInt(rawEvent.block_number),
     txHash: rawEvent.transaction_hash ?? "",
     logIndex,

@@ -3,9 +3,9 @@ import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
-import { cairo } from "starknet";
 import prisma from "../../db/client.js";
-import { callRpc, normalizeAddress } from "../../utils/starknet.js";
+import { normalizeAddress } from "../../utils/starknet.js";
+import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
 import {
   ensureAccountForWallet,
@@ -18,68 +18,9 @@ import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:profiles");
 
-/**
- * On-chain holder verification for gated-content authorization.
- *
- * The architecture (07-identity §V) is explicit: authorization for
- * protocol-bearing access (gated content is one) must come from on-chain
- * state, not the indexer's DB cache. The DB can be stale — a missed
- * Transfer event would lock out a legitimate holder. This was a real
- * historical incident; do not regress to a DB read here.
- *
- * Returns:
- *   - `true`  — chain confirms the wallet holds ≥1 token in the collection
- *   - `false` — chain confirms the wallet holds 0 tokens
- * Throws on RPC failure; the caller must surface 503, never silently
- * fall back to the DB (that would re-introduce the bug).
- */
-async function verifyOnChainHolder(
-  contractAddress: string,
-  owner: string,
-  standard: "ERC721" | "ERC1155",
-  knownTokenIds?: string[],
-): Promise<boolean> {
-  if (standard === "ERC721") {
-    // OZ Cairo ERC-721: balance_of(account) → u256
-    const res = await callRpc((provider) => provider.callContract({
-      contractAddress,
-      entrypoint: "balance_of",
-      calldata: [owner],
-    }));
-    // Returns [low, high]; non-zero on either limb means holder.
-    return res.length >= 2 && (BigInt(res[0] ?? "0x0") !== 0n || BigInt(res[1] ?? "0x0") !== 0n);
-  }
-
-  // ERC-1155: no single "owns any token in collection" call exists.
-  // Query balance_of_batch over the token IDs the indexer has seen for
-  // this collection. Cap to bound the RPC call; in practice gated-content
-  // collections are small editions, not 10k drops.
-  if (!knownTokenIds || knownTokenIds.length === 0) return false;
-  const ids = knownTokenIds.slice(0, 100);
-  const accounts = new Array<string>(ids.length).fill(owner);
-  const idCalldata: string[] = [];
-  for (const id of ids) {
-    const u = cairo.uint256(id);
-    idCalldata.push(u.low.toString(), u.high.toString());
-  }
-  // balance_of_batch(accounts: Span<ContractAddress>, ids: Span<u256>) → Span<u256>
-  const res = await callRpc((provider) => provider.callContract({
-    contractAddress,
-    entrypoint: "balance_of_batch",
-    calldata: [
-      accounts.length.toString(), ...accounts,
-      ids.length.toString(), ...idCalldata,
-    ],
-  }));
-  // res[0] = array length, then pairs of [low, high] for each balance.
-  const len = Number(BigInt(res[0] ?? "0x0"));
-  for (let i = 0; i < len; i++) {
-    const low = BigInt(res[1 + i * 2] ?? "0x0");
-    const high = BigInt(res[2 + i * 2] ?? "0x0");
-    if (low !== 0n || high !== 0n) return true;
-  }
-  return false;
-}
+// Gated-content holder verification (07-identity §V — on-chain authority, never
+// the DB cache) now lives behind the single chain-read dispatch: `holdsToken`
+// in src/chainRead. Imported above.
 
 const profiles = new Hono<AppEnv>();
 
@@ -121,7 +62,7 @@ const creatorProfileSchema = z.object({
 // ─── Collection Profile (public read, Clerk JWT or admin key for write) ──────
 
 profiles.get("/collections/:contract/profile", async (c) => {
-  const contract = normalizeAddress(c.req.param("contract"));
+  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
 
   // Verify collection exists first
   const collection = await prisma.collection.findUnique({
@@ -161,7 +102,7 @@ profiles.patch(
   },
   zValidator("json", collectionProfileSchema),
   async (c) => {
-    const contract = normalizeAddress(c.req.param("contract"));
+    const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const data = c.req.valid("json");
     const isAdmin = c.get("isAdmin");
 
@@ -172,7 +113,7 @@ profiles.patch(
 
     if (!isAdmin) {
       const jwtWallet = c.get("walletAddress") as string;
-      if (!collection.claimedBy || normalizeAddress(collection.claimedBy) !== jwtWallet) {
+      if (!collection.claimedBy || normalizeAddress("STARKNET", collection.claimedBy) !== jwtWallet) {
         return c.json({ error: "Not authorized to edit this collection. Collections with no claimer can only be updated via admin API key." }, 403);
       }
     }
@@ -215,7 +156,7 @@ profiles.get(
   "/collections/:contract/gated-content",
   async (c, next) => requireClerkJwt(c, next),
   async (c) => {
-    const contract = normalizeAddress(c.req.param("contract"));
+    const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;
 
     // Resolve standard from the indexer so we know which on-chain call to
@@ -251,7 +192,10 @@ profiles.get(
     // is the load-bearing step; do not fall back to the DB on RPC error.
     let isHolder: boolean;
     try {
-      isHolder = await verifyOnChainHolder(contract, walletAddress, collection.standard, knownTokenIds);
+      // Routed through the single chain-read dispatch (spec §3.3). Starknet
+      // today; multichain gated content threads collection.chain when the
+      // read-side capability lands.
+      isHolder = await holdsToken("STARKNET", contract, walletAddress, collection.standard, knownTokenIds);
     } catch (err) {
       log.warn({ err, contract, walletAddress }, "Gated-content on-chain check failed");
       return c.json({ error: "Could not verify ownership on-chain, please retry" }, 503);
@@ -390,7 +334,7 @@ profiles.get("/creators/by-username/:username", async (c) => {
 // ─── Creator Hidden Indicator (public read) ──────────────────────────────────
 
 profiles.get("/creators/:wallet/hidden", async (c) => {
-  const normalizedAddress = normalizeAddress(c.req.param("wallet"));
+  const normalizedAddress = normalizeAddress("STARKNET", c.req.param("wallet"));
   const row = await prisma.hiddenCreator.findUnique({
     where: { chain_address: { chain: "STARKNET", address: normalizedAddress } },
   });
@@ -400,7 +344,7 @@ profiles.get("/creators/:wallet/hidden", async (c) => {
 // ─── Creator Profile (public read, Clerk JWT for write) ─────────────────────
 
 profiles.get("/creators/:wallet/profile", async (c) => {
-  const wallet = normalizeAddress(c.req.param("wallet"));
+  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
   const accountId = await resolveAccountIdFromWallet("STARKNET", wallet);
   if (!accountId) return c.json(null);
   const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
@@ -427,7 +371,7 @@ profiles.patch(
   identityAuth,
   zValidator("json", creatorProfileSchema),
   async (c) => {
-    const wallet = normalizeAddress(c.req.param("wallet"));
+    const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
     const jwtWallet = c.get("walletAddress") as string;
     const data = c.req.valid("json");
 

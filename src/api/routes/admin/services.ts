@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { Chain } from "@prisma/client";
 import prisma from "../../../db/client.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { createLogger } from "../../../utils/logger.js";
@@ -21,7 +22,7 @@ const SERVICE_CATALOG = [
 
 const CreateSchema = z.object({
   serviceId: z.string().min(1),
-  chain: z.string().min(1),
+  chain: z.nativeEnum(Chain),
   contractAddress: z.string().min(1),
   startBlock: z.string().min(1),
   notes: z.string().optional(),
@@ -68,7 +69,9 @@ export function registerServicesRoutes(admin: Hono) {
         data: {
           serviceId,
           chain,
-          contractAddress: normalizeAddress(contractAddress),
+          // ServiceContract is the operational per-chain registry — normalize
+          // the address for the chain it's registered on, not always Starknet.
+          contractAddress: normalizeAddress(chain, contractAddress),
           startBlock,
           notes,
         },

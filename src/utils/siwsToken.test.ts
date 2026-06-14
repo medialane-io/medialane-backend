@@ -11,9 +11,9 @@ const { issueToken, verifyToken } = await import("./siwsToken.js");
 describe("siwsToken — happy path", () => {
   test("roundtrips a wallet address", () => {
     const wallet = "0xdeadbeef";
-    const token = issueToken(wallet);
+    const token = issueToken("STARKNET", wallet);
     expect(token.startsWith("siws_")).toBe(true);
-    expect(verifyToken(token)).toBe(wallet);
+    expect(verifyToken(token)).toEqual({ address: wallet, chain: "STARKNET" });
   });
 });
 
@@ -27,7 +27,7 @@ describe("siwsToken — rejections", () => {
   });
 
   test("rejects a token with a tampered payload", () => {
-    const token = issueToken("0xabc");
+    const token = issueToken("STARKNET", "0xabc");
     // Flip a char in the payload portion (between siws_ and .)
     const dot = token.lastIndexOf(".");
     const tampered = token.slice(0, 5) + "X" + token.slice(6, dot) + token.slice(dot);
@@ -37,7 +37,7 @@ describe("siwsToken — rejections", () => {
   test("rejects a token signed with the wrong key", () => {
     // We can't reach inside without changing env mid-test; instead, simulate
     // by mutating the signature half.
-    const token = issueToken("0xabc");
+    const token = issueToken("STARKNET", "0xabc");
     const dot = token.lastIndexOf(".");
     const bogusSig = "0".repeat(64);
     expect(verifyToken(token.slice(0, dot + 1) + bogusSig)).toBeNull();

@@ -60,7 +60,7 @@ async function fetchCounterFromContract(contractAddress: string, address: string
         request: {
           contract_address: contractAddress,
           entry_point_selector: GET_COUNTER_SELECTOR,
-          calldata: [normalizeAddress(address)],
+          calldata: [normalizeAddress("STARKNET", address)],
         },
         block_id: "latest",
       },
@@ -88,7 +88,7 @@ async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise
         method: "starknet_call",
         params: {
           request: {
-            contract_address: normalizeAddress(nftContract),
+            contract_address: normalizeAddress("STARKNET", nftContract),
             entry_point_selector: ROYALTY_INFO_SELECTOR,
             calldata,
           },
@@ -115,7 +115,7 @@ function generateSalt(): string {
 }
 
 function resolveCollectionContract(override?: string): string {
-  return override ? normalizeAddress(override) : COLLECTION_721_CONTRACT;
+  return override ? normalizeAddress("STARKNET", override) : COLLECTION_721_CONTRACT;
 }
 
 /** Convert a human-readable amount (e.g. "1.5") to raw token units as BigInt. */
@@ -448,7 +448,7 @@ function encodeByteArray(str: string): string[] {
 export async function buildMintIntent(body: MintIntentBody) {
   const contract = resolveCollectionContract(body.collectionContract);
   const id = cairo.uint256(body.collectionId);
-  const owner = normalizeAddress(body.owner);
+  const owner = normalizeAddress("STARKNET", body.owner);
 
   // Validate that the owner address is actually the collection owner on-chain.
   const ownershipResult = await callRpc((provider) => provider.callContract({
@@ -463,7 +463,7 @@ export async function buildMintIntent(body: MintIntentBody) {
   const calldata = [
     id.low.toString(),
     id.high.toString(),
-    normalizeAddress(body.recipient),
+    normalizeAddress("STARKNET", body.recipient),
     ...encodeByteArray(body.tokenUri),
   ];
   return { calls: [{ contractAddress: contract, entrypoint: "mint", calldata }] };

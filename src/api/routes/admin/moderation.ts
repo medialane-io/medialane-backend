@@ -245,8 +245,8 @@ admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
   const newRaw = body.newAddress as string | undefined;
   if (!newRaw) return c.json({ error: "newAddress required" }, 400);
 
-  const oldAddr = normalizeAddress(oldRaw);
-  const newAddr = normalizeAddress(newRaw);
+  const oldAddr = normalizeAddress("STARKNET", oldRaw);
+  const newAddr = normalizeAddress("STARKNET", newRaw);
 
   const [walletUpdate, claimUpdate] = await Promise.all([
     prisma.identity.updateMany({
@@ -277,8 +277,8 @@ admin.get("/comments", async (c) => {
   const where: Record<string, unknown> = {};
   if (hidden === "true") where.isHidden = true;
   if (hidden === "false") where.isHidden = false;
-  if (author) where.author = normalizeAddress(author);
-  if (contract) where.contractAddress = normalizeAddress(contract);
+  if (author) where.author = normalizeAddress("STARKNET", author);
+  if (contract) where.contractAddress = normalizeAddress("STARKNET", contract);
 
   const [comments, total] = await Promise.all([
     prisma.comment.findMany({
@@ -337,7 +337,7 @@ admin.patch("/remix-offers/:id", async (c) => {
 
   const updated = await prisma.remixOffer.update({
     where: { id },
-    data: { creatorAddress: normalizeAddress(body.creatorAddress) },
+    data: { creatorAddress: normalizeAddress("STARKNET", body.creatorAddress) },
   });
 
   return c.json({ data: { id: updated.id, creatorAddress: updated.creatorAddress } });

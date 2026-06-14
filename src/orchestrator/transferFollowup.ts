@@ -18,7 +18,7 @@ export async function runTransferFollowups(
   events: NftTransferEvent[],
   chain: Chain
 ): Promise<TransferFollowupResult> {
-  const contracts = Array.from(new Set(events.map((event) => normalizeAddress(event.contractAddress))));
+  const contracts = Array.from(new Set(events.map((event) => normalizeAddress("STARKNET", event.contractAddress))));
   if (contracts.length === 0) {
     return { contracts: [], metadataJobs: 0, collectionMetadataJobs: 0, statsUpdated: 0 };
   }

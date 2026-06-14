@@ -15,8 +15,8 @@ const RETRY_DELAYS_MS = [0, 3000, 5000, 7000, 10_000];
 // Built once at module load — both marketplace contracts are static constants.
 // An event from either address counts as a confirmed marketplace operation.
 const VALID_MARKETPLACE_CONTRACTS = new Set([
-  normalizeAddress(MARKETPLACE_721_CONTRACT),
-  normalizeAddress(MARKETPLACE_1155_CONTRACT),
+  normalizeAddress("STARKNET", MARKETPLACE_721_CONTRACT),
+  normalizeAddress("STARKNET", MARKETPLACE_1155_CONTRACT),
 ]);
 
 export type VerifyResult =
@@ -208,7 +208,7 @@ async function fetchReceipt(txHash: string): Promise<{ result?: Record<string, u
 function safeNormalizeAddress(address?: string): string {
   if (!address) return "";
   try {
-    return normalizeAddress(address);
+    return normalizeAddress("STARKNET", address);
   } catch {
     return address;
   }

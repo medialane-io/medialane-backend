@@ -55,9 +55,12 @@ export async function identityAuth(c: Context, next: Next) {
 
   // ── Path 2: SIWS token ─────────────────────────────────────────────────────
   if (token.startsWith("siws_")) {
-    const wallet = verifySiwsToken(token);
-    if (!wallet) return c.json({ error: "Invalid or expired SIWS token" }, 401);
-    c.set("walletAddress", wallet);
+    const id = verifySiwsToken(token);
+    if (!id) return c.json({ error: "Invalid or expired SIWS token" }, 401);
+    // Identity is (chain, address) — the token carries both (spec §3.4). Today
+    // every caller is Starknet; routes resolve accounts as STARKNET until they
+    // consume id.chain, so we stamp the address (behavior unchanged).
+    c.set("walletAddress", id.address);
     return next();
   }
 
@@ -72,7 +75,7 @@ export async function identityAuth(c: Context, next: Next) {
     if (!rawWallet) {
       return c.json({ error: "No wallet associated with this account" }, 403);
     }
-    c.set("walletAddress", normalizeAddress(rawWallet));
+    c.set("walletAddress", normalizeAddress("STARKNET", rawWallet));
     c.set("clerkUserId", payload.sub);
   } catch (err) {
     // Log the underlying error so the next "Invalid or expired session token"

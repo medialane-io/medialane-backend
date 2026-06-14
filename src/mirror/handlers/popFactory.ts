@@ -37,8 +37,8 @@ export async function handlePopCollectionCreated(event: RawStarknetEvent): Promi
     const collectionIdLow = BigInt(keys[1]);
     const collectionIdHigh = BigInt(keys[2]);
     const collectionId = ((collectionIdHigh << 128n) | collectionIdLow).toString();
-    const organizer = normalizeAddress(keys[3]);
-    const collectionAddress = normalizeAddress(data[0]);
+    const organizer = normalizeAddress("STARKNET", keys[3]);
+    const collectionAddress = normalizeAddress("STARKNET", data[0]);
 
     if (collectionAddress === ZERO_ADDRESS) {
       log.warn({ txHash, collectionId }, "POP CollectionCreated has zero collection_address, skipping");
@@ -90,8 +90,8 @@ export async function handlePopAllowlistUpdated(event: RawStarknetEvent): Promis
       return;
     }
 
-    const collectionAddress = normalizeAddress(event.from_address);
-    const walletAddress = normalizeAddress(keys[1]);
+    const collectionAddress = normalizeAddress("STARKNET", event.from_address);
+    const walletAddress = normalizeAddress("STARKNET", keys[1]);
     const allowed = BigInt(data[0]) !== 0n;
 
     await prisma.popAllowlist.upsert({

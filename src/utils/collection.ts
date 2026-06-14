@@ -20,12 +20,14 @@ export function getServiceByMarketplaceAddress(
   address: string | null | undefined,
 ): ReturnType<typeof getService> {
   if (!address) return undefined;
-  const normalized = normalizeAddress(address);
+  // Marketplace venues resolved here are Starknet today; when a venue ships on
+  // another chain, take a chain param and read svc.onchain?.[chain].
+  const normalized = normalizeAddress("STARKNET", address);
   return listServices().find(
     (svc) =>
       svc.id.startsWith("medialane-marketplace-") &&
-      svc.onchain?.factoryAddress != null &&
-      normalizeAddress(svc.onchain.factoryAddress) === normalized,
+      svc.onchain?.STARKNET?.factoryAddress != null &&
+      normalizeAddress("STARKNET", svc.onchain.STARKNET.factoryAddress) === normalized,
   );
 }
 
@@ -72,7 +74,7 @@ export async function upsertCollectionFromFactory(
   },
 ): Promise<void> {
   assertRegisteredService(params.service);
-  const addr = normalizeAddress(params.contractAddress);
+  const addr = normalizeAddress(params.chain, params.contractAddress);
   await db.collection.upsert({
     where: { chain_contractAddress: { chain: params.chain, contractAddress: addr } },
     create: {
@@ -121,7 +123,7 @@ export async function ensureCollectionFromActivity(
     blockNumber: bigint;
   },
 ): Promise<void> {
-  const addr = normalizeAddress(params.contractAddress);
+  const addr = normalizeAddress(params.chain, params.contractAddress);
   const defaultService =
     params.standard === "ERC1155" ? "external-erc1155" : "external-erc721";
   await db.collection.upsert({

@@ -5,6 +5,17 @@ const envSchema = z.object({
   STARKNET_NETWORK: z.enum(["mainnet", "sepolia"]).default("mainnet"),
   ALCHEMY_RPC_URL: z.string().url(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
+  // Chain-named coordinates (preferred — spec 2026-06-13 §3.1). The old
+  // ALCHEMY_RPC_URL / *_MAINNET vars still read as fallbacks (below), so
+  // existing Railway env keeps working until updated. Only Starknet is
+  // populated today; other chains add their own group here when they land.
+  // NOTE: ALCHEMY_RPC_URL stays the Starknet RPC fallback + capped circuit
+  // breaker (feedback_alchemy_cap_is_intentional) — do not remove it.
+  STARKNET_RPC_URL: z.string().url().optional(),
+  STARKNET_MARKETPLACE_721: z.string().optional(),
+  STARKNET_MARKETPLACE_1155: z.string().optional(),
+  STARKNET_COLLECTION_721: z.string().optional(),
+  STARKNET_COLLECTION_1155: z.string().optional(),
   VOYAGER_API_KEY: z.string().default(""),
   CLERK_SECRET_KEY: z.string().default(""),
   MARKETPLACE_721_CONTRACT_MAINNET: z

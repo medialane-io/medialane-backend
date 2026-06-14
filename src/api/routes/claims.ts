@@ -6,7 +6,8 @@ import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
 import { hashApiKey } from "../../utils/apiKey.js";
-import { Contract, Account } from "starknet";
+import { Account } from "starknet";
+import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
 import { worker } from "../../orchestrator/worker.js";
@@ -57,8 +58,8 @@ claims.post(
   async (c) => {
     const { contractAddress, walletAddress } = c.req.valid("json");
     const jwtWallet = c.get("walletAddress") as string;
-    const normContract = normalizeAddress(contractAddress);
-    const normWallet = normalizeAddress(walletAddress);
+    const normContract = normalizeAddress("STARKNET", contractAddress);
+    const normWallet = normalizeAddress("STARKNET", walletAddress);
 
     if (jwtWallet !== normWallet) {
       return c.json({ error: "Wallet address does not match authenticated session" }, 403);
@@ -82,19 +83,10 @@ claims.post(
       return c.json({ verified: true, collection: sc });
     }
 
-    // Attempt on-chain owner() call
+    // On-chain owner() via the single chain-read dispatch (spec §3.3).
     try {
-      const ownerResult = await callRpc((provider) => {
-        const contract = new Contract(
-          [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
-          normContract,
-          provider
-        );
-        return contract.owner();
-      });
-      const onChainOwner = normalizeAddress(String(ownerResult));
-      const ZERO = normalizeAddress("0x0");
-
+      const onChainOwner = await getCollectionOwner("STARKNET", normContract);
+      const ZERO = normalizeAddress("STARKNET", "0x0");
       if (onChainOwner === ZERO || onChainOwner !== normWallet) {
         return c.json({ verified: false, reason: "owner_mismatch" });
       }
@@ -136,8 +128,8 @@ claims.post(
   zValidator("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
   async (c) => {
     const { contractAddress, walletAddress } = c.req.valid("json");
-    const normContract = normalizeAddress(contractAddress);
-    const normWallet = normalizeAddress(walletAddress);
+    const normContract = normalizeAddress("STARKNET", contractAddress);
+    const normWallet = normalizeAddress("STARKNET", walletAddress);
 
     // Enforce 20-challenge cap per wallet (evict oldest)
     const count = await prisma.claimChallenge.count({ where: { walletAddress: normWallet } });
@@ -171,8 +163,8 @@ claims.post(
   })),
   async (c) => {
     const { contractAddress, walletAddress, challenge, signature } = c.req.valid("json");
-    const normContract = normalizeAddress(contractAddress);
-    const normWallet = normalizeAddress(walletAddress);
+    const normContract = normalizeAddress("STARKNET", contractAddress);
+    const normWallet = normalizeAddress("STARKNET", walletAddress);
 
     const record = await prisma.claimChallenge.findUnique({ where: { challenge } });
     if (!record || record.expiresAt < new Date()) {
@@ -249,8 +241,8 @@ claims.post(
   })),
   async (c) => {
     const { contractAddress, walletAddress, email, notes } = c.req.valid("json");
-    const normContract = normalizeAddress(contractAddress);
-    const normWallet = walletAddress ? normalizeAddress(walletAddress) : null;
+    const normContract = normalizeAddress("STARKNET", contractAddress);
+    const normWallet = walletAddress ? normalizeAddress("STARKNET", walletAddress) : null;
 
     // Rate limit: 10 requests per minute per tenant
     const tenantId = c.get("tenant")?.id ?? "unknown";

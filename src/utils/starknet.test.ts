@@ -7,7 +7,7 @@ import { normalizeAddress, normalizeHash } from "./starknet.js";
 
 describe("normalizeAddress", () => {
   test("pads a short address to 64 chars", () => {
-    expect(normalizeAddress("0x1")).toBe(
+    expect(normalizeAddress("STARKNET", "0x1")).toBe(
       "0x0000000000000000000000000000000000000000000000000000000000000001",
     );
   });
@@ -15,26 +15,26 @@ describe("normalizeAddress", () => {
   test("accepts and normalizes a fully-padded address", () => {
     const padded =
       "0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2";
-    expect(normalizeAddress(padded)).toBe(padded);
+    expect(normalizeAddress("STARKNET", padded)).toBe(padded);
   });
 
   test("lowercases uppercase hex", () => {
-    expect(normalizeAddress("0xABCD")).toBe(
+    expect(normalizeAddress("STARKNET", "0xABCD")).toBe(
       "0x000000000000000000000000000000000000000000000000000000000000abcd",
     );
   });
 
   test("idempotent on already-normalized input", () => {
-    const addr = normalizeAddress("0xdead");
-    expect(normalizeAddress(addr)).toBe(addr);
+    const addr = normalizeAddress("STARKNET", "0xdead");
+    expect(normalizeAddress("STARKNET", addr)).toBe(addr);
   });
 
   test("accepts decimal-string input (BigInt path)", () => {
-    expect(normalizeAddress("1")).toBe(normalizeAddress("0x1"));
+    expect(normalizeAddress("STARKNET", "1")).toBe(normalizeAddress("STARKNET", "0x1"));
   });
 
   test("throws on non-hex input — guards against silent corruption", () => {
-    expect(() => normalizeAddress("banana")).toThrow("Invalid Starknet address");
+    expect(() => normalizeAddress("STARKNET", "banana")).toThrow("Invalid STARKNET address");
   });
 
   // Note: empty string is normalized to the zero address (BigInt("") === 0n).
@@ -50,6 +50,6 @@ describe("normalizeHash", () => {
   });
 
   test("throws on invalid hash", () => {
-    expect(() => normalizeHash("not-a-hash")).toThrow("Invalid Starknet hash");
+    expect(() => normalizeHash("not-a-hash")).toThrow("Invalid hash");
   });
 });

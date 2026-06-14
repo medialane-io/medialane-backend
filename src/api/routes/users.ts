@@ -67,7 +67,7 @@ users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json
     where: { id: accountId },
     include: {
       identities: {
-        where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(body.walletAddress) },
+        where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress("STARKNET", body.walletAddress) },
         take: 1,
       },
     },

@@ -324,6 +324,7 @@ model CollectionClaim {
 
 model ClaimChallenge {
   id               String   @id @default(cuid())
+  chain            Chain    @default(STARKNET)
   contractAddress  String
   walletAddress    String
   challenge        String   @unique
@@ -335,6 +336,7 @@ model ClaimChallenge {
 
 model SiwsNonce {
   id            String   @id @default(cuid())
+  chain         Chain    @default(STARKNET)
   walletAddress String
   nonce         String   @unique
   expiresAt     DateTime
@@ -670,7 +672,7 @@ model AccountProfile {
 
 model Comment {
   id              String   @id @default(cuid())
-  chain           String   @default("starknet")
+  chain           Chain    @default(STARKNET)
   contractAddress String
   tokenId         String
   author          String
@@ -840,7 +842,7 @@ model RemixOffer {
 model ServiceContract {
   id              String   @id @default(cuid())
   serviceId       String
-  chain           String
+  chain           Chain
   contractAddress String
   startBlock      String
   active          Boolean  @default(true)

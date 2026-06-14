@@ -44,10 +44,10 @@ export async function handleCreatorCoinCreated(event: RawStarknetEvent): Promise
       return;
     }
 
-    const owner = normalizeAddress(data[0]);
+    const owner = normalizeAddress("STARKNET", data[0]);
     const name = decodeShortStr(data[1]);
     const symbol = decodeShortStr(data[2]);
-    const coinAddress = normalizeAddress(data[5]);
+    const coinAddress = normalizeAddress("STARKNET", data[5]);
 
     if (coinAddress === ZERO_ADDRESS) {
       log.warn({ txHash }, "CreatorCoinCreated has zero coin address, skipping");

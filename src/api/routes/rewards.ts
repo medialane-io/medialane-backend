@@ -14,7 +14,7 @@ const rewards = new Hono();
 
 // GET /v1/rewards/:address — score + level + badges for one address
 rewards.get("/:address", async (c) => {
-  const address = normalizeAddress(c.req.param("address"));
+  const address = normalizeAddress("STARKNET", c.req.param("address"));
 
   const [score, badges, levels, walletIdentity] = await Promise.all([
     prisma.userScore.findUnique({ where: { address } }),
@@ -128,7 +128,7 @@ rewards.get("/", async (c) => {
 
 // GET /v1/rewards/:address/events — point history for an address
 rewards.get("/:address/events", async (c) => {
-  const address = normalizeAddress(c.req.param("address"));
+  const address = normalizeAddress("STARKNET", c.req.param("address"));
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") ?? "20", 10)));
   const skip = (page - 1) * limit;
@@ -264,7 +264,7 @@ adminRewards.patch("/badges/:key", async (c) => {
 
 // POST /admin/rewards/badges/:address — manually award a badge
 adminRewards.post("/badges/:address", async (c) => {
-  const address = normalizeAddress(c.req.param("address"));
+  const address = normalizeAddress("STARKNET", c.req.param("address"));
   const body = await c.req.json().catch(() => null);
   const parsed = z.object({ badgeKey: z.string(), txHash: z.string().optional() }).safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid body" }, 400);
