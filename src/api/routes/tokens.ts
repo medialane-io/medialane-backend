@@ -198,7 +198,7 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
 
   const [comments, total] = await Promise.all([
     prisma.comment.findMany({
-      where: { chain: "starknet", contractAddress: contract, tokenId, isHidden: false },
+      where: { chain: "STARKNET", contractAddress: contract, tokenId, isHidden: false },
       orderBy: { blockTimestamp: "desc" },
       skip,
       take: limit,
@@ -215,7 +215,7 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
       },
     }),
     prisma.comment.count({
-      where: { chain: "starknet", contractAddress: contract, tokenId, isHidden: false },
+      where: { chain: "STARKNET", contractAddress: contract, tokenId, isHidden: false },
     }),
   ]);
 

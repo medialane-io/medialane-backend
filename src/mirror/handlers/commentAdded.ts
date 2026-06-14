@@ -99,7 +99,7 @@ export async function handleCommentAdded(
     await prisma.comment.upsert({
       where: { txHash_logIndex: { txHash, logIndex } },
       create: {
-        chain: "starknet",
+        chain: "STARKNET",
         contractAddress: nftContract,
         tokenId,
         author,
