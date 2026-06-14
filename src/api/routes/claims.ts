@@ -6,7 +6,8 @@ import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
 import { hashApiKey } from "../../utils/apiKey.js";
-import { Contract, Account } from "starknet";
+import { Account } from "starknet";
+import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
 import { worker } from "../../orchestrator/worker.js";
@@ -82,19 +83,10 @@ claims.post(
       return c.json({ verified: true, collection: sc });
     }
 
-    // Attempt on-chain owner() call
+    // On-chain owner() via the single chain-read dispatch (spec §3.3).
     try {
-      const ownerResult = await callRpc((provider) => {
-        const contract = new Contract(
-          [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
-          normContract,
-          provider
-        );
-        return contract.owner();
-      });
-      const onChainOwner = normalizeAddress("STARKNET", String(ownerResult));
+      const onChainOwner = await getCollectionOwner("STARKNET", normContract);
       const ZERO = normalizeAddress("STARKNET", "0x0");
-
       if (onChainOwner === ZERO || onChainOwner !== normWallet) {
         return c.json({ verified: false, reason: "owner_mismatch" });
       }
