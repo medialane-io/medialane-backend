@@ -242,6 +242,33 @@ model Collection {
   @@index([chain, service])
 }
 
+// Fungible coins (ERC-20 today; SPL/etc. later). Distinct from Collection:
+// a coin is a single fungible asset — no tokenIds, no per-token rows, no Orders.
+// Price/liquidity is read live from Ekubo, never stored. Storage is chosen by
+// fungibility (spec 2026-06-14-coin-collection-split-design).
+model Coin {
+  id              String        @id @default(cuid())
+  chain           Chain         @default(STARKNET)
+  contractAddress String
+  standard        TokenStandard @default(ERC20)
+  service         String        // "creator-coin" | "external-erc20"
+  name            String?
+  symbol          String?
+  decimals        Int           @default(18)
+  totalSupply     String?       // fungible supply (decimal string) — NOT an item count
+  description     String?
+  image           String?
+  creator         String?       // launcher/creator wallet where known (trustless: from event)
+  startBlock      BigInt
+  isHidden        Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([chain, contractAddress])
+  @@index([chain, service])
+  @@index([chain, isHidden])
+}
+
 model CollectionProfile {
   id               String     @id @default(cuid())
   collection       Collection @relation(fields: [chain, contractAddress], references: [chain, contractAddress])

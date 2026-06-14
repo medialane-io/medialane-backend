@@ -1,6 +1,7 @@
-/** Token standards a Collection row may carry. ERC20 = creator coins / memecoins
- *  (the DB column holds it even though the SDK ApiCollection union omits it). */
-const KNOWN_STANDARDS = new Set(["ERC721", "ERC1155", "ERC20"]);
+/** Token standards a Collection row may carry. Collection is NFT-only since the
+ *  2026-06-14 coin split — fungible coins live in the Coin table, served by
+ *  /v1/coins, never here. */
+const KNOWN_STANDARDS = new Set(["ERC721", "ERC1155"]);
 
 /**
  * Parse the `standard` query param (single value or CSV) into a validated,

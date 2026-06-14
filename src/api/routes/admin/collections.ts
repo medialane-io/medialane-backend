@@ -12,6 +12,7 @@ import { createLogger } from "../../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../../utils/mailer.js";
 import { normalizeAddress, normalizeHash, callRpc } from "../../../utils/starknet.js";
 import { upsertCollectionFromFactory } from "../../../utils/collection.js";
+import { upsertCoin } from "../../../utils/coin.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
 import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../../mirror/poller.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
@@ -241,8 +242,8 @@ admin.post("/collections", async (c) => {
 // register a coin (its `standard` enum is ERC721/ERC1155 only), and
 // `/v1/coins/sync` only accepts Medialane-factory Creator Coins. This verifies
 // the address via the Unruggable factory's `is_memecoin`, reads name/symbol
-// on-chain, and upserts a Collection(ERC20, "external-erc20") so it renders as a
-// coin. Idempotent. Admin-gated.
+// on-chain, and upserts a Coin(service "external-erc20"). Idempotent. Admin-gated.
+// (Coins live in the Coin table since the 2026-06-14 split — never Collection.)
 //
 // Body: { contractAddress: string, owner?: string, startBlock?: number }
 // ---------------------------------------------------------------------------
@@ -278,25 +279,25 @@ admin.post("/coins/add-external", async (c) => {
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
 
-    await upsertCollectionFromFactory(prisma, {
+    await upsertCoin(prisma, {
       chain: "STARKNET",
       contractAddress,
       service: "external-erc20",
-      standard: "ERC20",
       name,
       symbol,
-      owner: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
+      creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(parsed.data.startBlock ?? 0),
     });
 
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
-
-    const col = await prisma.collection.findUnique({
+    const coin = await prisma.coin.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
-      select: { contractAddress: true, service: true, standard: true, name: true, symbol: true, owner: true, metadataStatus: true },
     });
     log.info({ contractAddress, name, symbol }, "External coin added via admin");
-    return c.json({ data: col ?? { contractAddress, service: "external-erc20", standard: "ERC20", name, symbol } }, 201);
+    return c.json({
+      data: coin
+        ? { ...coin, startBlock: coin.startBlock.toString() }
+        : { contractAddress, service: "external-erc20", standard: "ERC20", name, symbol },
+    }, 201);
   } catch (err) {
     log.error({ err, contractAddress }, "external coin add failed");
     return c.json({ error: toErrorMessage(err) }, 500);

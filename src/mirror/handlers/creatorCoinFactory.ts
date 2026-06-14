@@ -1,9 +1,8 @@
 import { num, shortString } from "starknet";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { upsertCollectionFromFactory } from "../../utils/collection.js";
+import { upsertCoin } from "../../utils/coin.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
-import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 
@@ -56,27 +55,19 @@ export async function handleCreatorCoinCreated(event: RawStarknetEvent): Promise
 
     const startBlock = BigInt(event.block_number ?? 0);
 
-    await upsertCollectionFromFactory(prisma, {
+    await upsertCoin(prisma, {
       chain: "STARKNET",
       contractAddress: coinAddress,
       service: "creator-coin",
-      standard: "ERC20",
       name,
       symbol,
-      owner,
-      // The launcher is the claimer by construction. Trustless: this owner
-      // comes from the factory's CreatorCoinCreated event, never from a
-      // request param. Gates coin profile edits (image/description) — the
-      // on-chain owner() is renounced at launch, so the event is the only
-      // authoritative source.
-      claimedBy: owner,
+      // Trustless: `creator` comes from the factory's CreatorCoinCreated event,
+      // never a request param (on-chain owner() is renounced at launch).
+      creator: owner,
       startBlock,
     });
 
-    // ERC-20 has no token_uri/base_uri; the metadata handler's creator-coin
-    // branch just marks the row FETCHED (name/symbol came from this event).
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: coinAddress });
-
+    // No metadata-fetch job — name/symbol came from the event; coins have no token_uri.
     log.info({ coinAddress, owner, name, symbol }, "Creator Coin indexed");
   } catch (err) {
     log.error({ err, txHash }, "handleCreatorCoinCreated failed");
