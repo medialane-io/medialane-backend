@@ -1,10 +1,41 @@
 import { hash } from "starknet";
+import type { Chain } from "@prisma/client";
 import { env } from "./env.js";
 
-// Contract addresses
-export const MARKETPLACE_721_CONTRACT = env.MARKETPLACE_721_CONTRACT_MAINNET;
-export const MARKETPLACE_1155_CONTRACT = env.MARKETPLACE_1155_CONTRACT_MAINNET;
-export const COLLECTION_721_CONTRACT = env.COLLECTION_721_CONTRACT_MAINNET;
+// Per-chain coordinates (spec 2026-06-13 §3.1). The backend reads several
+// chains, so it keeps env-driven coordinates grouped per chain rather than a
+// single chain-scoped SDK client. Only STARKNET is populated today; adding a
+// chain adds an entry here. Each field prefers the chain-named env var and
+// falls back to the legacy flat var so existing Railway env keeps working.
+interface BackendChainCoords {
+  rpcUrl: string;
+  marketplace721: string;
+  marketplace1155: string;
+  collection721: string;
+  collection1155: string;
+}
+
+export const CHAIN_COORDS: Partial<Record<Chain, BackendChainCoords>> = {
+  STARKNET: {
+    rpcUrl: env.STARKNET_RPC_URL ?? env.ALCHEMY_RPC_URL,
+    marketplace721: env.STARKNET_MARKETPLACE_721 ?? env.MARKETPLACE_721_CONTRACT_MAINNET,
+    marketplace1155: env.STARKNET_MARKETPLACE_1155 ?? env.MARKETPLACE_1155_CONTRACT_MAINNET,
+    collection721: env.STARKNET_COLLECTION_721 ?? env.COLLECTION_721_CONTRACT_MAINNET,
+    collection1155: env.STARKNET_COLLECTION_1155 ?? env.COLLECTION_1155_CONTRACT_MAINNET,
+  },
+};
+
+export function chainCoords(chain: Chain): BackendChainCoords {
+  const c = CHAIN_COORDS[chain];
+  if (!c) throw new Error(`No coordinates configured for chain "${chain}"`);
+  return c;
+}
+
+// Contract addresses — Starknet flat exports derive from the per-chain map so
+// there is one source. The Starknet mirror/handlers use these names.
+export const MARKETPLACE_721_CONTRACT = chainCoords("STARKNET").marketplace721;
+export const MARKETPLACE_1155_CONTRACT = chainCoords("STARKNET").marketplace1155;
+export const COLLECTION_721_CONTRACT = chainCoords("STARKNET").collection721;
 
 // Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
@@ -32,7 +63,7 @@ export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
 export const CREATOR_COIN_FACTORY_CONTRACT = env.CREATOR_COIN_FACTORY_ADDRESS;
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
-export const COLLECTION_1155_CONTRACT = env.COLLECTION_1155_CONTRACT_MAINNET;
+export const COLLECTION_1155_CONTRACT = chainCoords("STARKNET").collection1155;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 
 // Token catalogue + lookup come from @medialane/sdk (single source of truth).
