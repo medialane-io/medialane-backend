@@ -35,7 +35,7 @@ export function decodeCollectionCreatedEvent(
   if (!keys || keys.length < 3 || !data || data.length < 1) return null;
   return {
     collectionId: (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString(),
-    owner: normalizeAddress(data[0]),
+    owner: normalizeAddress("STARKNET", data[0]),
   };
 }
 
@@ -105,14 +105,14 @@ export async function resolveCollectionCreated(
       return null;
     }
 
-    const contractAddress = normalizeAddress(ipNftRaw);
+    const contractAddress = normalizeAddress("STARKNET", ipNftRaw);
 
     if (contractAddress === "0x" + "0".repeat(64)) {
       log.warn({ collectionId }, "ip_nft is zero address, skipping");
       return null;
     }
 
-    const resolvedOwner = ownerRaw ? normalizeAddress(ownerRaw) : owner;
+    const resolvedOwner = ownerRaw ? normalizeAddress("STARKNET", ownerRaw) : owner;
 
     log.info({ collectionId, contractAddress, owner: resolvedOwner, name }, "CollectionCreated resolved");
 

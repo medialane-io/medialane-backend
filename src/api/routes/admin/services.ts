@@ -68,7 +68,7 @@ export function registerServicesRoutes(admin: Hono) {
         data: {
           serviceId,
           chain,
-          contractAddress: normalizeAddress(contractAddress),
+          contractAddress: normalizeAddress("STARKNET", contractAddress),
           startBlock,
           notes,
         },

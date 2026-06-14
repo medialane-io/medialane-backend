@@ -191,7 +191,7 @@ activities.get("/:address", async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
   const skip = (page - 1) * limit;
-  const addr = normalizeAddress(address);
+  const addr = normalizeAddress("STARKNET", address);
 
   // Two cheap indexed lookups — skip full hidden-list fetch when nothing is hidden
   const [anyHiddenCollection, anyHiddenToken] = await Promise.all([

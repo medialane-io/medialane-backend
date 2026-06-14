@@ -62,8 +62,8 @@ export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): P
       return;
     }
 
-    const collectionAddress = normalizeAddress(keys[1]);
-    const owner = normalizeAddress(keys[2]);
+    const collectionAddress = normalizeAddress("STARKNET", keys[1]);
+    const owner = normalizeAddress("STARKNET", keys[2]);
 
     if (collectionAddress === ZERO_ADDRESS) {
       log.warn({ txHash }, "CollectionDeployed has zero collection_address, skipping");

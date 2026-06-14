@@ -49,7 +49,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "CREATE_LISTING",
-          requester: normalizeAddress(parsed.data.offerer),
+          requester: normalizeAddress("STARKNET", parsed.data.offerer),
           tenantId: c.get("tenant")?.id ?? null,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
@@ -83,7 +83,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "MAKE_OFFER",
-          requester: normalizeAddress(parsed.data.offerer),
+          requester: normalizeAddress("STARKNET", parsed.data.offerer),
           tenantId: c.get("tenant")?.id ?? null,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
@@ -107,7 +107,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
 
     const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed.data;
-    const normalizedSeller = normalizeAddress(sellerAddress);
+    const normalizedSeller = normalizeAddress("STARKNET", sellerAddress);
 
     // 1. Validate original order: must be active + a bid (ERC20 offer)
     const originalOrder = await prisma.order.findFirst({
@@ -128,7 +128,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
 
     // 2. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
-    if (normalizedSeller !== normalizeAddress(originalOrder.considerationRecipient)) {
+    if (normalizedSeller !== normalizeAddress("STARKNET", originalOrder.considerationRecipient)) {
       return c.json({ error: "sellerAddress does not match order recipient" }, 400);
     }
 
@@ -217,7 +217,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "FULFILL_ORDER",
-          requester: normalizeAddress(parsed.data.fulfiller),
+          requester: normalizeAddress("STARKNET", parsed.data.fulfiller),
           tenantId: c.get("tenant")?.id ?? null,
           typedData: {},
           calls: calls as PrismaTypes.InputJsonValue,
@@ -259,7 +259,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "CANCEL_ORDER",
-          requester: normalizeAddress(parsed.data.offerer),
+          requester: normalizeAddress("STARKNET", parsed.data.offerer),
           tenantId: c.get("tenant")?.id ?? null,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
@@ -291,7 +291,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "MINT",
-          requester: normalizeAddress(parsed.data.owner),
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
           tenantId: c.get("tenant")?.id ?? null,
           typedData: {},
           calls: calls as PrismaTypes.InputJsonValue,
@@ -328,13 +328,13 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "CREATE_COLLECTION",
-          requester: normalizeAddress(parsed.data.owner),
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
           tenantId: c.get("tenant")?.id ?? null,
           typedData: {
             name: parsed.data.name,
             description: parsed.data.description ?? null,
             image: parsed.data.image ?? null,
-            owner: normalizeAddress(parsed.data.owner),
+            owner: normalizeAddress("STARKNET", parsed.data.owner),
           },
           calls: calls as PrismaTypes.InputJsonValue,
           status: "SIGNED",
@@ -359,7 +359,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
     const { fulfiller, orderHashes } = parsed.data;
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-    const normalizedFulfiller = normalizeAddress(fulfiller);
+    const normalizedFulfiller = normalizeAddress("STARKNET", fulfiller);
     const tenantId = c.get("tenant")?.id ?? null;
 
     // 1) Batch existence check — one query instead of N findFirst calls. Guard:

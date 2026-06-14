@@ -153,7 +153,7 @@ export async function handleCollectionMetadataFetch(payload: {
           const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
           return (ownerContract as any).owner();
         });
-        if (rawOwner) onchainOwner = normalizeAddress(rawOwner.toString());
+        if (rawOwner) onchainOwner = normalizeAddress("STARKNET", rawOwner.toString());
       } catch {
         // Some ERC1155 deployments may omit owner(); keep the existing value.
       }
@@ -235,7 +235,7 @@ export async function handleCollectionMetadataFetch(payload: {
         const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
         return (ownerContract as any).owner();
       });
-      if (raw) onChainOwner = normalizeAddress(raw.toString());
+      if (raw) onChainOwner = normalizeAddress("STARKNET", raw.toString());
     } catch { /* contract may not expose owner() */ }
 
     // Re-detect standard only if it could change. detectTokenStandard returns

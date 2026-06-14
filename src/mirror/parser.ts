@@ -47,14 +47,14 @@ export function parseEvent(
   const blockNumber = BigInt(event.block_number);
   const { from_address } = event;
   const txHash = normalizeHash(event.transaction_hash);
-  const contractAddress = normalizeAddress(from_address);
+  const contractAddress = normalizeAddress("STARKNET", from_address);
 
   try {
     if (selector === SEL_ORDER_CREATED) {
       return {
         type: "OrderCreated",
         orderHash: keys[1],
-        offerer: normalizeAddress(keys[2]),
+        offerer: normalizeAddress("STARKNET", keys[2]),
         blockNumber,
         txHash,
         logIndex,
@@ -65,8 +65,8 @@ export function parseEvent(
       return {
         type: "OrderFulfilled",
         orderHash: keys[1],
-        offerer: normalizeAddress(keys[2]),
-        fulfiller: normalizeAddress(keys[3]),
+        offerer: normalizeAddress("STARKNET", keys[2]),
+        fulfiller: normalizeAddress("STARKNET", keys[3]),
         blockNumber,
         txHash,
         logIndex,
@@ -77,7 +77,7 @@ export function parseEvent(
       return {
         type: "OrderCancelled",
         orderHash: keys[1],
-        offerer: normalizeAddress(keys[2]),
+        offerer: normalizeAddress("STARKNET", keys[2]),
         blockNumber,
         txHash,
         logIndex,
@@ -88,7 +88,7 @@ export function parseEvent(
       // CounterIncremented { offerer #key, new_counter } → keys[1], data[0]
       return {
         type: "CounterIncremented",
-        offerer: normalizeAddress(keys[1]),
+        offerer: normalizeAddress("STARKNET", keys[1]),
         newCounter: BigInt(event.data[0]).toString(),
         blockNumber,
         txHash,
@@ -102,8 +102,8 @@ export function parseEvent(
         return {
           type: "Transfer",
           contractAddress,
-          from: normalizeAddress(keys[1]),
-          to: normalizeAddress(keys[2]),
+          from: normalizeAddress("STARKNET", keys[1]),
+          to: normalizeAddress("STARKNET", keys[2]),
           tokenId: u256ToBigInt(keys[3], keys[4]).toString(),
           blockNumber,
           txHash,
@@ -115,8 +115,8 @@ export function parseEvent(
         return {
           type: "Transfer",
           contractAddress,
-          from: normalizeAddress(keys[1]),
-          to: normalizeAddress(keys[2]),
+          from: normalizeAddress("STARKNET", keys[1]),
+          to: normalizeAddress("STARKNET", keys[2]),
           tokenId: BigInt(keys[3]).toString(),
           blockNumber,
           txHash,
@@ -128,8 +128,8 @@ export function parseEvent(
         return {
           type: "Transfer",
           contractAddress,
-          from: normalizeAddress(keys[1]),
-          to: normalizeAddress(keys[2]),
+          from: normalizeAddress("STARKNET", keys[1]),
+          to: normalizeAddress("STARKNET", keys[2]),
           tokenId: u256ToBigInt(event.data[0], event.data[1]).toString(),
           blockNumber,
           txHash,
@@ -142,8 +142,8 @@ export function parseEvent(
         return {
           type: "Transfer",
           contractAddress,
-          from: normalizeAddress(event.data[0]),
-          to: normalizeAddress(event.data[1]),
+          from: normalizeAddress("STARKNET", event.data[0]),
+          to: normalizeAddress("STARKNET", event.data[1]),
           tokenId: u256ToBigInt(event.data[2], event.data[3]).toString(),
           blockNumber,
           txHash,
@@ -160,9 +160,9 @@ export function parseEvent(
         return {
           type: "TransferSingle",
           contractAddress,
-          operator: normalizeAddress(keys[1]),
-          from: normalizeAddress(keys[2]),
-          to: normalizeAddress(keys[3]),
+          operator: normalizeAddress("STARKNET", keys[1]),
+          from: normalizeAddress("STARKNET", keys[2]),
+          to: normalizeAddress("STARKNET", keys[3]),
           tokenId: u256ToBigInt(event.data[0], event.data[1]).toString(),
           amount: u256ToBigInt(event.data[2], event.data[3]).toString(),
           blockNumber,
@@ -201,9 +201,9 @@ export function parseEvent(
         return {
           type: "TransferBatch",
           contractAddress,
-          operator: normalizeAddress(keys[1]),
-          from: normalizeAddress(keys[2]),
-          to: normalizeAddress(keys[3]),
+          operator: normalizeAddress("STARKNET", keys[1]),
+          from: normalizeAddress("STARKNET", keys[2]),
+          to: normalizeAddress("STARKNET", keys[3]),
           transfers,
           blockNumber,
           txHash,

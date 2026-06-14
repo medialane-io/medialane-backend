@@ -59,7 +59,7 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
 function safeNormalizeAddress(value: unknown): string | null {
   if (typeof value !== "string") return null;
   try {
-    return normalizeAddress(value);
+    return normalizeAddress("STARKNET", value);
   } catch {
     return null;
   }
@@ -126,7 +126,7 @@ collections.get("/", async (c) => {
     const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`, Prisma.sql`"isHidden" = false`];
     if (isFeatured === "true")  conditions.push(Prisma.sql`"isFeatured" = true`);
     if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
-    if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress(owner)}`);
+    if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress("STARKNET", owner)}`);
     if (service)   conditions.push(Prisma.sql`service = ${service}`);
     if (standardFilter) {
       // $queryRaw sends params as text; TokenStandard is an enum — cast each value
@@ -163,7 +163,7 @@ collections.get("/", async (c) => {
   const where: any = { chain: "STARKNET", isHidden: false };
   if (isFeatured === "true")  where.isFeatured = true;
   if (isFeatured === "false") where.isFeatured = false;
-  if (owner)     where.owner = normalizeAddress(owner);
+  if (owner)     where.owner = normalizeAddress("STARKNET", owner);
   if (service)   where.service = service;
   if (standardFilter) where.standard = { in: standardFilter };
   if (hideEmpty) where.totalSupply = { gt: 0 };
@@ -246,7 +246,7 @@ collections.get("/:contract", async (c) => {
   const { contract } = c.req.param();
   const include = c.req.query("include");
   const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress("STARKNET", contract) } },
     ...(include === "profile" ? { include: { profile: true } } : {}),
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
@@ -275,7 +275,7 @@ collections.get("/:contract/tokens", async (c) => {
   const { contract } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
-  const addr = normalizeAddress(contract);
+  const addr = normalizeAddress("STARKNET", contract);
 
   const collection = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress: addr } },
@@ -346,12 +346,12 @@ collections.post("/sync-tx", async (c) => {
     const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
-    const registryAddress = normalizeAddress(COLLECTION_721_CONTRACT);
+    const registryAddress = normalizeAddress("STARKNET", COLLECTION_721_CONTRACT);
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>
         e.from_address &&
-        normalizeAddress(e.from_address) === registryAddress &&
+        normalizeAddress("STARKNET", e.from_address) === registryAddress &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
     );
 
@@ -446,7 +446,7 @@ collections.post("/register", async (c) => {
     return c.json({ error: "contractAddress is required" }, 400);
   }
 
-  const contractAddress = normalizeAddress(body.contractAddress);
+  const contractAddress = normalizeAddress("STARKNET", body.contractAddress);
   const startBlock = typeof body.startBlock === "number" ? BigInt(body.startBlock) : BigInt(0);
   const standard =
     typeof body.standard === "string" && VALID_COLLECTION_STANDARDS.has(body.standard)
@@ -508,7 +508,7 @@ collections.post("/", authMiddleware, async (c) => {
     ? BigInt(body.startBlock)
     : BigInt(env.INDEXER_START_BLOCK);
 
-  const contractAddress = normalizeAddress(body.contractAddress);
+  const contractAddress = normalizeAddress("STARKNET", body.contractAddress);
 
   // standard is required to create — caller must specify ERC721 or ERC1155.
   if (body.standard !== "ERC721" && body.standard !== "ERC1155") {
@@ -527,7 +527,7 @@ collections.post("/", authMiddleware, async (c) => {
       description: body.description ?? null,
       image: body.image ?? null,
       baseUri: body.baseUri ?? null,
-      owner: body.owner ? normalizeAddress(body.owner) : null,
+      owner: body.owner ? normalizeAddress("STARKNET", body.owner) : null,
       standard: adminStandard,
       service: adminService,
       startBlock,
@@ -538,7 +538,7 @@ collections.post("/", authMiddleware, async (c) => {
       description: body.description ?? undefined,
       image: body.image ?? undefined,
       baseUri: body.baseUri ?? undefined,
-      owner: body.owner ? normalizeAddress(body.owner) : undefined,
+      owner: body.owner ? normalizeAddress("STARKNET", body.owner) : undefined,
       standard: adminStandard,
     },
   });

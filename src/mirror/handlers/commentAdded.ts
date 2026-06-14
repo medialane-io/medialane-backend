@@ -57,11 +57,11 @@ export async function handleCommentAdded(
   logIndex: number
 ): Promise<void> {
   try {
-    const nftContract = normalizeAddress(event.keys[1]);
+    const nftContract = normalizeAddress("STARKNET", event.keys[1]);
     const tokenIdLow = BigInt(event.keys[2]);
     const tokenIdHigh = BigInt(event.keys[3]);
     const tokenId = ((tokenIdHigh << 128n) | tokenIdLow).toString();
-    const author = normalizeAddress(event.keys[4]);
+    const author = normalizeAddress("STARKNET", event.keys[4]);
 
     // Only index comments for tokens that exist on the platform
     const tokenExists = await prisma.token.findUnique({

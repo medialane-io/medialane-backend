@@ -199,7 +199,7 @@ remixOffers.post(
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
-    const originalContract = normalizeAddress(body.originalContract);
+    const originalContract = normalizeAddress("STARKNET", body.originalContract);
     const originalTokenId = body.originalTokenId;
 
     // Look up current holder via TokenBalance
@@ -213,7 +213,7 @@ remixOffers.post(
       where: { contractAddress: originalContract, tokenId: originalTokenId, amount: { not: "0" } },
       select: { owner: true },
     });
-    const creatorAddress = holderBalance ? normalizeAddress(holderBalance.owner) : "";
+    const creatorAddress = holderBalance ? normalizeAddress("STARKNET", holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
 
     // Owner cannot offer on their own token
@@ -245,7 +245,7 @@ remixOffers.post(
             requesterAddress,
             message: body.message,
             proposedPrice: body.proposedPrice,
-            proposedCurrency: body.proposedCurrency ? normalizeAddress(body.proposedCurrency) : "",
+            proposedCurrency: body.proposedCurrency ? normalizeAddress("STARKNET", body.proposedCurrency) : "",
             licenseType: body.licenseType,
             commercial: body.commercial,
             derivatives: body.derivatives,
@@ -278,7 +278,7 @@ remixOffers.post(
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
-    const originalContract = normalizeAddress(body.originalContract);
+    const originalContract = normalizeAddress("STARKNET", body.originalContract);
     const originalTokenId = body.originalTokenId;
 
     const [token, holderBalance] = await Promise.all([
@@ -300,7 +300,7 @@ remixOffers.post(
     if (!licenseResult.ok) return c.json({ error: licenseResult.error }, licenseResult.status);
     const { terms } = licenseResult;
 
-    const creatorAddress = holderBalance ? normalizeAddress(holderBalance.owner) : "";
+    const creatorAddress = holderBalance ? normalizeAddress("STARKNET", holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
     if (requesterAddress === creatorAddress) {
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
@@ -357,7 +357,7 @@ remixOffers.post(
     const body = c.req.valid("json");
     const walletAddress = c.get("walletAddress") as string;
 
-    const originalContract = normalizeAddress(body.originalContract);
+    const originalContract = normalizeAddress("STARKNET", body.originalContract);
     const originalTokenId = body.originalTokenId;
 
     // Verify caller owns the original token
@@ -387,7 +387,7 @@ remixOffers.post(
         commercial: body.commercial,
         derivatives: body.derivatives,
         royaltyPct: body.royaltyPct,
-        remixContract: normalizeAddress(body.remixContract),
+        remixContract: normalizeAddress("STARKNET", body.remixContract),
         remixTokenId: body.remixTokenId,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year sentinel
       },
@@ -422,9 +422,9 @@ remixOffers.post(
       where: { id },
       data: {
         status: "APPROVED",
-        remixContract: normalizeAddress(body.remixContract),
+        remixContract: normalizeAddress("STARKNET", body.remixContract),
         remixTokenId: body.remixTokenId,
-        approvedCollection: normalizeAddress(body.approvedCollection),
+        approvedCollection: normalizeAddress("STARKNET", body.approvedCollection),
         orderHash: body.orderHash,
       },
     });

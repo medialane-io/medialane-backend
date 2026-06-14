@@ -66,7 +66,7 @@ collectionSlugClaims.post(
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;
     const { contractAddress, slug: rawSlug, notifyEmail } = c.req.valid("json");
-    const normContract = normalizeAddress(contractAddress);
+    const normContract = normalizeAddress("STARKNET", contractAddress);
     const slug = rawSlug.toLowerCase().trim();
 
     const validationError = validateSlug(slug);
@@ -80,8 +80,8 @@ collectionSlugClaims.post(
     if (!collection) return c.json({ error: "Collection not found." }, 404);
 
     const isOwner =
-      (collection.owner && normalizeAddress(collection.owner) === jwtWallet) ||
-      (collection.claimedBy && normalizeAddress(collection.claimedBy) === jwtWallet);
+      (collection.owner && normalizeAddress("STARKNET", collection.owner) === jwtWallet) ||
+      (collection.claimedBy && normalizeAddress("STARKNET", collection.claimedBy) === jwtWallet);
     if (!isOwner) return c.json({ error: "Only the collection owner can claim a slug." }, 403);
 
     // Collection already has an approved slug

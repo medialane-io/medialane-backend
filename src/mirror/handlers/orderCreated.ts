@@ -63,7 +63,7 @@ async function applyOrderCreated(
   // 05-service-model §V: the indexer tags the venue's stable service id; the raw
   // address is an explorer-link helper only, never a behaviour discriminator.
   const marketplaceService =
-    normalizeAddress(marketplaceContract) === normalizeAddress(MARKETPLACE_1155_CONTRACT)
+    normalizeAddress("STARKNET", marketplaceContract) === normalizeAddress("STARKNET", MARKETPLACE_1155_CONTRACT)
       ? "medialane-marketplace-erc1155"
       : "medialane-marketplace-erc721";
 
@@ -95,7 +95,7 @@ async function applyOrderCreated(
       priceRaw,
       priceFormatted,
       currencySymbol,
-      marketplaceContract: normalizeAddress(marketplaceContract),
+      marketplaceContract: normalizeAddress("STARKNET", marketplaceContract),
       marketplaceService,
       ...(details.remainingAmount !== undefined ? { remainingAmount: details.remainingAmount } : {}),
     },
@@ -234,16 +234,16 @@ function parseOrderDetails721(raw: any): OnChainOrderDetails {
   // The redesigned OrderDetails has no `fulfiller` field — the OrderFulfilled
   // event carries it. Single `amount` per leg; royalty cap is signed.
   return {
-    offerer: normalizeAddress(raw.offerer.toString()),
+    offerer: normalizeAddress("STARKNET", raw.offerer.toString()),
     offerItemType: decodeShortstring(raw.offer.item_type),
-    offerToken: normalizeAddress(raw.offer.token.toString()),
+    offerToken: normalizeAddress("STARKNET", raw.offer.token.toString()),
     offerIdentifier: raw.offer.identifier_or_criteria.toString(),
     offerAmount: raw.offer.amount.toString(),
     considerationItemType: decodeShortstring(raw.consideration.item_type),
-    considerationToken: normalizeAddress(raw.consideration.token.toString()),
+    considerationToken: normalizeAddress("STARKNET", raw.consideration.token.toString()),
     considerationIdentifier: raw.consideration.identifier_or_criteria.toString(),
     considerationAmount: raw.consideration.amount.toString(),
-    considerationRecipient: normalizeAddress(raw.consideration.recipient.toString()),
+    considerationRecipient: normalizeAddress("STARKNET", raw.consideration.recipient.toString()),
     royaltyMaxBps: raw.royalty_max_bps.toString(),
     startTime: BigInt(raw.start_time.toString()),
     endTime: BigInt(raw.end_time.toString()),
@@ -318,16 +318,16 @@ function decodeOrderDetails1155(raw: string[]): OnChainOrderDetails {
   // 5 cons.item_type | 6 cons.token | 7 cons.id | 8 cons.amount | 9 cons.recipient |
   // 10 royalty_max_bps | 11 start_time | 12 end_time | 13 order_status | 14 remaining_amount
   return {
-    offerer: normalizeAddress(raw[0]),
+    offerer: normalizeAddress("STARKNET", raw[0]),
     offerItemType: decodeShortstring(raw[1]),
-    offerToken: normalizeAddress(raw[2]),
+    offerToken: normalizeAddress("STARKNET", raw[2]),
     offerIdentifier: BigInt(raw[3]).toString(),
     offerAmount: BigInt(raw[4]).toString(),
     considerationItemType: decodeShortstring(raw[5]),
-    considerationToken: normalizeAddress(raw[6]),
+    considerationToken: normalizeAddress("STARKNET", raw[6]),
     considerationIdentifier: BigInt(raw[7]).toString(),
     considerationAmount: BigInt(raw[8]).toString(),
-    considerationRecipient: normalizeAddress(raw[9]),
+    considerationRecipient: normalizeAddress("STARKNET", raw[9]),
     royaltyMaxBps: BigInt(raw[10]).toString(),
     startTime: BigInt(raw[11]),
     endTime: BigInt(raw[12]),

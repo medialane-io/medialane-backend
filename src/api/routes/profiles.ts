@@ -121,7 +121,7 @@ const creatorProfileSchema = z.object({
 // ─── Collection Profile (public read, Clerk JWT or admin key for write) ──────
 
 profiles.get("/collections/:contract/profile", async (c) => {
-  const contract = normalizeAddress(c.req.param("contract"));
+  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
 
   // Verify collection exists first
   const collection = await prisma.collection.findUnique({
@@ -161,7 +161,7 @@ profiles.patch(
   },
   zValidator("json", collectionProfileSchema),
   async (c) => {
-    const contract = normalizeAddress(c.req.param("contract"));
+    const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const data = c.req.valid("json");
     const isAdmin = c.get("isAdmin");
 
@@ -172,7 +172,7 @@ profiles.patch(
 
     if (!isAdmin) {
       const jwtWallet = c.get("walletAddress") as string;
-      if (!collection.claimedBy || normalizeAddress(collection.claimedBy) !== jwtWallet) {
+      if (!collection.claimedBy || normalizeAddress("STARKNET", collection.claimedBy) !== jwtWallet) {
         return c.json({ error: "Not authorized to edit this collection. Collections with no claimer can only be updated via admin API key." }, 403);
       }
     }
@@ -215,7 +215,7 @@ profiles.get(
   "/collections/:contract/gated-content",
   async (c, next) => requireClerkJwt(c, next),
   async (c) => {
-    const contract = normalizeAddress(c.req.param("contract"));
+    const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;
 
     // Resolve standard from the indexer so we know which on-chain call to
@@ -390,7 +390,7 @@ profiles.get("/creators/by-username/:username", async (c) => {
 // ─── Creator Hidden Indicator (public read) ──────────────────────────────────
 
 profiles.get("/creators/:wallet/hidden", async (c) => {
-  const normalizedAddress = normalizeAddress(c.req.param("wallet"));
+  const normalizedAddress = normalizeAddress("STARKNET", c.req.param("wallet"));
   const row = await prisma.hiddenCreator.findUnique({
     where: { chain_address: { chain: "STARKNET", address: normalizedAddress } },
   });
@@ -400,7 +400,7 @@ profiles.get("/creators/:wallet/hidden", async (c) => {
 // ─── Creator Profile (public read, Clerk JWT for write) ─────────────────────
 
 profiles.get("/creators/:wallet/profile", async (c) => {
-  const wallet = normalizeAddress(c.req.param("wallet"));
+  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
   const accountId = await resolveAccountIdFromWallet("STARKNET", wallet);
   if (!accountId) return c.json(null);
   const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
@@ -427,7 +427,7 @@ profiles.patch(
   identityAuth,
   zValidator("json", creatorProfileSchema),
   async (c) => {
-    const wallet = normalizeAddress(c.req.param("wallet"));
+    const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
     const jwtWallet = c.get("walletAddress") as string;
     const data = c.req.valid("json");
 

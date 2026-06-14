@@ -13,8 +13,8 @@ const pop = new Hono<AppEnv>();
 // isEligible: wallet is in the allowlist with allowed=true
 // hasClaimed:  wallet currently owns a token from this collection (soulbound — owner = original recipient)
 pop.get("/eligibility/:collection/:wallet", async (c) => {
-  const collection = normalizeAddress(c.req.param("collection"));
-  const wallet = normalizeAddress(c.req.param("wallet"));
+  const collection = normalizeAddress("STARKNET", c.req.param("collection"));
+  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
 
   const [allowlistEntry, token] = await Promise.all([
     prisma.popAllowlist.findUnique({
@@ -45,7 +45,7 @@ pop.get("/eligibility/:collection/:wallet", async (c) => {
 // GET /v1/pop/eligibility/:collection — batch eligibility check
 // Query param: ?wallets=0x1,0x2,0x3 (comma-separated, max 100)
 pop.get("/eligibility/:collection", async (c) => {
-  const collection = normalizeAddress(c.req.param("collection"));
+  const collection = normalizeAddress("STARKNET", c.req.param("collection"));
   const walletsParam = c.req.query("wallets");
 
   if (!walletsParam) {
@@ -56,7 +56,7 @@ pop.get("/eligibility/:collection", async (c) => {
   if (rawWallets.length > 100) {
     return c.json({ error: "Max 100 wallets per batch request" }, 400);
   }
-  const wallets = rawWallets.map(normalizeAddress);
+  const wallets = rawWallets.map((w) => normalizeAddress("STARKNET", w));
 
   if (wallets.length === 0) {
     return c.json({ error: "No valid wallet addresses provided" }, 400);

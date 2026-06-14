@@ -98,7 +98,7 @@ admin.post("/marketplace/tx/:txHash/hydrate", async (c) => {
           {
             type: "OrderCreated",
             orderHash,
-            offerer: normalizeAddress(event.keys[2]),
+            offerer: normalizeAddress("STARKNET", event.keys[2]),
             blockNumber: BigInt(event.block_number),
             txHash: event.transaction_hash,
             logIndex: 0,
@@ -203,7 +203,7 @@ admin.post("/pop/allowlist", async (c) => {
     return c.json({ error: `addresses[] exceeds maximum batch size of ${MAX_BATCH}` }, 400);
   }
 
-  const normalizedCollection = normalizeAddress(collectionAddress);
+  const normalizedCollection = normalizeAddress("STARKNET", collectionAddress);
 
   let inserted = 0;
   const CHUNK = 500;
@@ -213,7 +213,7 @@ admin.post("/pop/allowlist", async (c) => {
       data: chunk.map((addr) => ({
         chain: "STARKNET" as const,
         collectionAddress: normalizedCollection,
-        walletAddress: normalizeAddress(addr),
+        walletAddress: normalizeAddress("STARKNET", addr),
         allowed: true,
       })),
       skipDuplicates: true,
@@ -226,7 +226,7 @@ admin.post("/pop/allowlist", async (c) => {
     where: {
       chain: "STARKNET",
       collectionAddress: normalizedCollection,
-      walletAddress: { in: (addresses as string[]).map((a) => normalizeAddress(a)) },
+      walletAddress: { in: (addresses as string[]).map((a) => normalizeAddress("STARKNET", a)) },
       allowed: false,
     },
     data: { allowed: true },
@@ -246,8 +246,8 @@ admin.delete("/pop/allowlist", async (c) => {
     return c.json({ error: "collectionAddress and addresses[] are required" }, 400);
   }
 
-  const normalizedCollection = normalizeAddress(collectionAddress);
-  const normalizedAddresses = (addresses as string[]).map((a) => normalizeAddress(a));
+  const normalizedCollection = normalizeAddress("STARKNET", collectionAddress);
+  const normalizedAddresses = (addresses as string[]).map((a) => normalizeAddress("STARKNET", a));
 
   const result = await prisma.popAllowlist.updateMany({
     where: {

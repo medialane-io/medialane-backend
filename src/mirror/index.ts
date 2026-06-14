@@ -290,7 +290,7 @@ async function tick(tickId: string): Promise<number> {
         } else if (selector === SEL_FULFILLED || selector === SEL_CANCELLED) {
           // Fulfilled/Cancelled only need orderHash → re-use existing ERC-721 handlers
           const orderHash = num.toHex(rawEvent.keys[1]);
-          const offerer   = normalizeAddress(rawEvent.keys[2]);
+          const offerer   = normalizeAddress("STARKNET", rawEvent.keys[2]);
           const blockNumber = BigInt(rawEvent.block_number);
           if (selector === SEL_FULFILLED) {
             const parsed = parseRawOrderFulfilled1155(rawEvent, logIndex);
@@ -308,7 +308,7 @@ async function tick(tickId: string): Promise<number> {
           await handleCounterIncremented(
             {
               type: "CounterIncremented",
-              offerer: normalizeAddress(rawEvent.keys[1]),
+              offerer: normalizeAddress("STARKNET", rawEvent.keys[1]),
               newCounter: BigInt(rawEvent.data[0]).toString(),
               blockNumber: BigInt(rawEvent.block_number),
               txHash: evTxHash,
@@ -367,7 +367,7 @@ async function tick(tickId: string): Promise<number> {
   for (const event of rawPopFactoryEvents) {
     await handlePopCollectionCreated(event);
     if (event.data?.[0]) {
-      affectedContracts.add(normalizeAddress(event.data[0]));
+      affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
     }
   }
 
@@ -380,7 +380,7 @@ async function tick(tickId: string): Promise<number> {
   for (const event of rawDropFactoryEvents) {
     await handleDropCreated(event);
     if (event.data?.[0]) {
-      affectedContracts.add(normalizeAddress(event.data[0]));
+      affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
     }
   }
 
@@ -393,7 +393,7 @@ async function tick(tickId: string): Promise<number> {
   for (const event of rawCreatorCoinFactoryEvents) {
     await handleCreatorCoinCreated(event);
     if (event.data?.[5]) {
-      affectedContracts.add(normalizeAddress(event.data[5]));
+      affectedContracts.add(normalizeAddress("STARKNET", event.data[5]));
     }
   }
 
@@ -401,7 +401,7 @@ async function tick(tickId: string): Promise<number> {
   for (const event of rawERC1155FactoryEvents) {
     await handleIP1155CollectionDeployed(event);
     if (event.keys?.[1]) {
-      affectedContracts.add(normalizeAddress(event.keys[1]));
+      affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
     }
   }
 

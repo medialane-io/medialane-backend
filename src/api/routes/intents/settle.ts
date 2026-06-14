@@ -164,7 +164,7 @@ export async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string
         {
           type: "OrderCreated",
           orderHash,
-          offerer: normalizeAddress(event.keys[2]),
+          offerer: normalizeAddress("STARKNET", event.keys[2]),
           blockNumber: BigInt(event.block_number),
           txHash: event.transaction_hash,
           logIndex: 0,
@@ -209,7 +209,7 @@ export async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
         const is1155 = rawFulfilledEvents.some(
           (raw) =>
             getServiceByMarketplaceAddress(raw.from_address)?.standard === "ERC1155" &&
-            normalizeAddress(raw.keys[1]) === normalizeAddress(event.orderHash)
+            normalizeAddress("STARKNET", raw.keys[1]) === normalizeAddress("STARKNET", event.orderHash)
         );
         if (!is1155) {
           await handleOrderFulfilled(event, tx, "STARKNET");

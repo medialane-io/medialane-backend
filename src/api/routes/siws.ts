@@ -46,7 +46,7 @@ siws.post(
   zValidator("json", z.object({ walletAddress: z.string().min(1) })),
   async (c) => {
     const { walletAddress } = c.req.valid("json");
-    const wallet = normalizeAddress(walletAddress);
+    const wallet = normalizeAddress("STARKNET", walletAddress);
     const nonce = randomBytes(15).toString("hex"); // 30 chars — fits in shortstring
     const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
 
@@ -66,7 +66,7 @@ siws.post(
   })),
   async (c) => {
     const { walletAddress, nonce, signature } = c.req.valid("json");
-    const wallet = normalizeAddress(walletAddress);
+    const wallet = normalizeAddress("STARKNET", walletAddress);
 
     const record = await prisma.siwsNonce.findUnique({ where: { nonce } });
     if (!record || record.expiresAt < new Date()) {

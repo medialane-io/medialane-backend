@@ -14,7 +14,7 @@ export async function resolveAccountIdFromWallet(
   chain: Chain,
   address: string,
 ): Promise<string | null> {
-  const normalized = normalizeAddress(address);
+  const normalized = normalizeAddress(chain, address);
   const identity = await prisma.identity.findUnique({
     where: { chain_address: { chain, address: normalized } },
     select: { accountId: true },
@@ -78,7 +78,7 @@ export async function ensureAccountForWallet(params: {
   appSource: AppSource;
   email?: string;
 }): Promise<{ accountId: string; created: boolean }> {
-  const address = normalizeAddress(params.address);
+  const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
   const isSocial = params.appSource === "MEDIALANE_IO";
 

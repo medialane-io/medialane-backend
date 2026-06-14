@@ -101,7 +101,7 @@ async function firstNUsers(n: number): Promise<Set<string>> {
     ORDER BY earliest ASC
     LIMIT ${n}
   `;
-  return new Set(rows.map((r) => normalizeAddress(r.address)));
+  return new Set(rows.map((r) => normalizeAddress("STARKNET", r.address)));
 }
 
 // ── Event gatherers (one per action type) ─────────────────────────────────────
@@ -119,7 +119,7 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
   return profiles
     .filter((p) => p.account.identities[0]?.address)
     .map((p) => ({
-      address: normalizeAddress(p.account.identities[0]!.address!),
+      address: normalizeAddress("STARKNET", p.account.identities[0]!.address!),
       actionType: "complete_profile",
       xp,
       txHash: null,
@@ -134,7 +134,7 @@ async function gatherMintAsset(xp: number): Promise<RawEvent[]> {
     select: { toAddress: true, txHash: true, createdAt: true },
   });
   return mints.map((m) => ({
-    address: normalizeAddress(m.toAddress),
+    address: normalizeAddress("STARKNET", m.toAddress),
     actionType: "mint_asset",
     xp,
     txHash: m.txHash,
@@ -150,7 +150,7 @@ async function gatherCreateCollection(xp: number): Promise<RawEvent[]> {
   return collections
     .filter((c) => c.owner)
     .map((c) => ({
-      address: normalizeAddress(c.owner!),
+      address: normalizeAddress("STARKNET", c.owner!),
       actionType: "create_collection",
       xp,
       txHash: null,
@@ -190,7 +190,7 @@ async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
     const col = ownerMap.get(contract);
     if (!col?.owner) continue;
     events.push({
-      address: normalizeAddress(col.owner),
+      address: normalizeAddress("STARKNET", col.owner),
       actionType: "launch_launchpad",
       xp,
       txHash: null,
@@ -207,7 +207,7 @@ async function gatherCreateRemix(xp: number): Promise<RawEvent[]> {
     select: { requesterAddress: true, createdAt: true, id: true },
   });
   return remixes.map((r) => ({
-    address: normalizeAddress(r.requesterAddress!),
+    address: normalizeAddress("STARKNET", r.requesterAddress!),
     actionType: "create_remix",
     xp,
     txHash: null,
@@ -234,7 +234,7 @@ async function gatherListAsset(xp: number, minValueUsdc: number | null): Promise
       return val >= minValueUsdc;
     })
     .map((o) => ({
-      address: normalizeAddress(o.offerer),
+      address: normalizeAddress("STARKNET", o.offerer),
       actionType: "list_asset",
       xp,
       txHash: null,
@@ -259,7 +259,7 @@ async function gatherBuyAsset(xp: number, minValueUsdc: number | null): Promise<
       return parseFloat(f.priceRaw) >= minValueUsdc;
     })
     .map((f) => ({
-      address: normalizeAddress(f.fulfiller),
+      address: normalizeAddress("STARKNET", f.fulfiller),
       actionType: "buy_asset",
       xp,
       txHash: f.txHash,
@@ -283,7 +283,7 @@ async function gatherMakeOffer(xp: number, minValueUsdc: number | null): Promise
       return parseFloat(o.priceRaw) >= minValueUsdc;
     })
     .map((o) => ({
-      address: normalizeAddress(o.offerer),
+      address: normalizeAddress("STARKNET", o.offerer),
       actionType: "make_offer",
       xp,
       txHash: null,
@@ -299,7 +299,7 @@ async function gatherCounterOffer(xp: number): Promise<RawEvent[]> {
     select: { offerer: true, createdAt: true, orderHash: true },
   });
   return counters.map((o) => ({
-    address: normalizeAddress(o.offerer),
+    address: normalizeAddress("STARKNET", o.offerer),
     actionType: "counter_offer",
     xp,
     txHash: null,
@@ -325,7 +325,7 @@ async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<R
     // Seller = consideration recipient (receives ERC-20 payment)
     if (f.order.considerationRecipient) {
       events.push({
-        address: normalizeAddress(f.order.considerationRecipient),
+        address: normalizeAddress("STARKNET", f.order.considerationRecipient),
         actionType: "offer_accepted_seller",
         xp: sellerXp,
         txHash: f.txHash,
@@ -334,7 +334,7 @@ async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<R
     }
     // Buyer = the original offerer whose bid was accepted
     events.push({
-      address: normalizeAddress(f.order.offerer),
+      address: normalizeAddress("STARKNET", f.order.offerer),
       actionType: "offer_accepted_buyer",
       xp: buyerXp,
       txHash: f.txHash,
@@ -358,7 +358,7 @@ async function gatherClaimPop(xp: number): Promise<RawEvent[]> {
   });
 
   return transfers.map((t) => ({
-    address: normalizeAddress(t.toAddress),
+    address: normalizeAddress("STARKNET", t.toAddress),
     actionType: "claim_pop",
     xp,
     txHash: t.txHash,
@@ -379,7 +379,7 @@ async function gatherClaimDrop(xp: number): Promise<RawEvent[]> {
   });
 
   return transfers.map((t) => ({
-    address: normalizeAddress(t.toAddress),
+    address: normalizeAddress("STARKNET", t.toAddress),
     actionType: "claim_drop",
     xp,
     txHash: t.txHash,
@@ -393,7 +393,7 @@ async function gatherComments(xp: number): Promise<RawEvent[]> {
     select: { author: true, txHash: true, createdAt: true },
   });
   return comments.map((c) => ({
-    address: normalizeAddress(c.author),
+    address: normalizeAddress("STARKNET", c.author),
     actionType: "comment",
     xp,
     txHash: c.txHash ?? null,
@@ -475,7 +475,7 @@ async function computeBadges(
   });
   for (const row of collectionsByOwner) {
     if (!row.owner) continue;
-    const addr = normalizeAddress(row.owner);
+    const addr = normalizeAddress("STARKNET", row.owner);
     if (row._count.id >= 1) award(addr, "first_drop");
   }
 
@@ -492,7 +492,7 @@ async function computeBadges(
         where: { contractAddress: drop.collectionAddress },
         select: { owner: true },
       });
-      if (col?.owner) award(normalizeAddress(col.owner), "sold_out");
+      if (col?.owner) award(normalizeAddress("STARKNET", col.owner), "sold_out");
     }
   }
 
@@ -503,7 +503,7 @@ async function computeBadges(
     distinct: ["creatorAddress"],
   });
   for (const r of remixedCreators) {
-    award(normalizeAddress(r.creatorAddress), "remixed");
+    award(normalizeAddress("STARKNET", r.creatorAddress), "remixed");
   }
 
   // Platinum — 1000 USDC in total sales
@@ -515,7 +515,7 @@ async function computeBadges(
   for (const s of sales) {
     const seller = s.order?.considerationRecipient;
     if (!seller) continue;
-    const addr = normalizeAddress(seller);
+    const addr = normalizeAddress("STARKNET", seller);
     const val = parseFloat(s.priceRaw ?? "0");
     salesByAddress.set(addr, (salesByAddress.get(addr) ?? 0) + val);
   }
@@ -530,7 +530,7 @@ async function computeBadges(
     where: { isHidden: false },
   });
   for (const row of commentCounts) {
-    if (row._count.id >= 50) award(normalizeAddress(row.author), "voice");
+    if (row._count.id >= 50) award(normalizeAddress("STARKNET", row.author), "voice");
   }
 
   // Connector — referred 10 active users (not tracked yet, skip)
@@ -543,7 +543,7 @@ async function computeBadges(
   });
   const distinctAssetsByOfferer = new Map<string, Set<string>>();
   for (const row of offersByOfferer) {
-    const addr = normalizeAddress(row.offerer);
+    const addr = normalizeAddress("STARKNET", row.offerer);
     const set = distinctAssetsByOfferer.get(addr) ?? new Set();
     if (row.nftTokenId) set.add(row.nftTokenId);
     distinctAssetsByOfferer.set(addr, set);
@@ -561,7 +561,7 @@ async function computeBadges(
   const creatorsByCollector = new Map<string, Set<string>>();
   const contractOwnerMap = new Map<string, string | null>();
   for (const t of tokenOwnerships) {
-    const addr = normalizeAddress(t.toAddress);
+    const addr = normalizeAddress("STARKNET", t.toAddress);
     if (!contractOwnerMap.has(t.contractAddress)) {
       // Will be populated below
       contractOwnerMap.set(t.contractAddress, null);

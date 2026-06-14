@@ -44,7 +44,7 @@ export function registerCollectionRoutes(admin: Hono) {
 // ---------------------------------------------------------------------------
 admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   const { contract, tokenId } = c.req.param();
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
 
   // Guard: only refresh tokens from registered collections to prevent
   // arbitrary on-chain RPC calls for unregistered contracts.
@@ -71,7 +71,7 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
   const { contract, tokenId } = c.req.param();
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
 
   const result = await prisma.$transaction(async (tx) => {
     const transfers = await tx.transfer.findMany({
@@ -205,7 +205,7 @@ admin.post("/collections", async (c) => {
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
   const { contractAddress: rawAddr, chain, startBlock, standard, service } = parsed.data;
-  const contractAddress = normalizeAddress(rawAddr);
+  const contractAddress = normalizeAddress("STARKNET", rawAddr);
 
   // service is required on Collection. Default to external-<standard>.
   const resolvedService =
@@ -258,7 +258,7 @@ admin.post("/coins/add-external", async (c) => {
   if (!parsed.success) return c.json({ error: "contractAddress required" }, 400);
 
   if (!UNRUG_FACTORY_CONTRACT) return c.json({ error: "Unrug factory not configured" }, 503);
-  const contractAddress = normalizeAddress(parsed.data.contractAddress);
+  const contractAddress = normalizeAddress("STARKNET", parsed.data.contractAddress);
 
   try {
     // Gate: only genuine Unruggable-launched memecoins.
@@ -285,7 +285,7 @@ admin.post("/coins/add-external", async (c) => {
       standard: "ERC20",
       name,
       symbol,
-      owner: parsed.data.owner ? normalizeAddress(parsed.data.owner) : null,
+      owner: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(parsed.data.startBlock ?? 0),
     });
 
@@ -325,16 +325,16 @@ admin.patch("/collections/:contract", async (c) => {
   if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
 
   const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress("STARKNET", contract) } },
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
 
   const updateData = {
     ...parsed.data,
-    ...(parsed.data.owner ? { owner: normalizeAddress(parsed.data.owner) } : {}),
+    ...(parsed.data.owner ? { owner: normalizeAddress("STARKNET", parsed.data.owner) } : {}),
   };
   const updated = await prisma.collection.update({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress(contract) } },
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress("STARKNET", contract) } },
     data: updateData,
   });
 
@@ -346,7 +346,7 @@ admin.patch("/collections/:contract", async (c) => {
 // ---------------------------------------------------------------------------
 admin.delete("/collections/:contract", async (c) => {
   const { contract } = c.req.param();
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
 
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
@@ -371,7 +371,7 @@ admin.delete("/collections/:contract", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/collections/:contract/refresh", async (c) => {
   const { contract } = c.req.param();
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
   try {
     // Reset status so the alreadyComplete guard in handleCollectionMetadataFetch
     // does not short-circuit — makes this endpoint a true force-refresh.
@@ -395,7 +395,7 @@ admin.post("/collections/:contract/refresh", async (c) => {
 // ---------------------------------------------------------------------------
 admin.post("/collections/:contract/stats-refresh", async (c) => {
   const { contract } = c.req.param();
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
   try {
     await handleStatsUpdate({ chain: "STARKNET", contractAddress });
     const col = await prisma.collection.findUnique({
@@ -415,7 +415,7 @@ admin.post("/collections/:contract/stats-refresh", async (c) => {
 // Use this when a collection was registered after its mints already happened.
 admin.post("/collections/:contract/backfill-transfers", async (c) => {
   const { contract } = c.req.param();
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
 
   try {
     const body = await c.req.json().catch(() => ({}));

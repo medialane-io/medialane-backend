@@ -109,7 +109,7 @@ tokens.get("/batch", async (c) => {
       const contract = p.slice(0, colonIdx);
       const tokenId = p.slice(colonIdx + 1);
       return contract && tokenId
-        ? { contractAddress: normalizeAddress(contract), tokenId }
+        ? { contractAddress: normalizeAddress("STARKNET", contract), tokenId }
         : null;
     })
     .filter((x): x is { contractAddress: string; tokenId: string } => x !== null);
@@ -137,7 +137,7 @@ tokens.get("/owned/:address", async (c) => {
   const { address } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
-  const owner = normalizeAddress(address);
+  const owner = normalizeAddress("STARKNET", address);
 
   // Query via TokenBalance (works for ERC-721 and ERC-1155 — amount > 0 = current holder)
   const [balanceRows, total] = await Promise.all([
@@ -190,7 +190,7 @@ tokens.get("/owned/:address", async (c) => {
 // GET /v1/tokens/:contract/:tokenId/comments
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/:contract/:tokenId/comments", async (c) => {
-  const contract = normalizeAddress(c.req.param("contract"));
+  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
@@ -232,7 +232,7 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
 // GET /v1/tokens/:contract/:tokenId/remixes — public list of minted remixes
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/:contract/:tokenId/remixes", async (c) => {
-  const contract = normalizeAddress(c.req.param("contract"));
+  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
   const limit = Math.min(50, Math.max(1, parseInt(c.req.query("limit") ?? "20", 10)));
@@ -274,7 +274,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
   const waitParam = c.req.query("wait");
   const wait = waitParam === "true" || waitParam === "1";
-  const contractAddress = normalizeAddress(contract);
+  const contractAddress = normalizeAddress("STARKNET", contract);
 
   let token = await prisma.token.findUnique({
     where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
@@ -337,7 +337,7 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
   const { contract, tokenId } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
-  const contractLower = normalizeAddress(contract);
+  const contractLower = normalizeAddress("STARKNET", contract);
 
   const [transfers, orders, fills] = await Promise.all([
     prisma.transfer.findMany({
