@@ -1,17 +1,22 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { shortString } from "starknet";
+import type { Coin } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
-import { upsertCollectionFromFactory } from "../../utils/collection.js";
-import { worker } from "../../orchestrator/worker.js";
+import { upsertCoin } from "../../utils/coin.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:coins");
 const coins = new Hono();
+
+/** Coin.startBlock is BigInt — stringify it for JSON responses. */
+function serializeCoin(coin: Coin) {
+  return { ...coin, startBlock: coin.startBlock.toString() };
+}
 
 /** Decode a felt252 short string (OZ 0.8 ERC-20 name/symbol); null on failure. */
 function decodeShortStr(felt: string): string | null {
@@ -71,30 +76,48 @@ coins.post("/sync", async (c) => {
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
 
-    await upsertCollectionFromFactory(prisma, {
+    await upsertCoin(prisma, {
       chain: "STARKNET",
       contractAddress: coinAddress,
       service: "creator-coin",
-      standard: "ERC20",
       name,
       symbol,
-      owner: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
+      creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(env.CREATOR_COIN_START_BLOCK),
     });
 
-    // ERC-20 branch in COLLECTION_METADATA_FETCH just marks FETCHED (no token_uri).
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: coinAddress });
-
-    const col = await prisma.collection.findUnique({
+    const coin = await prisma.coin.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: coinAddress } },
-      select: { contractAddress: true, service: true, standard: true, name: true, symbol: true, owner: true, metadataStatus: true },
     });
     log.info({ coinAddress, name, symbol }, "Creator Coin synced on demand");
-    return c.json({ data: col ?? { contractAddress: coinAddress, service: "creator-coin", standard: "ERC20", name, symbol } }, 201);
+    return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, service: "creator-coin", standard: "ERC20", name, symbol } }, 201);
   } catch (err) {
     log.error({ err, coinAddress }, "coin sync failed");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
+});
+
+// GET /v1/coins — paginated coin list; ?service=creator-coin|external-erc20, ?page, ?limit
+coins.get("/", async (c) => {
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
+  const service = c.req.query("service");
+  const where = { chain: "STARKNET" as const, isHidden: false, ...(service ? { service } : {}) };
+  const [rows, total] = await Promise.all([
+    prisma.coin.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.coin.count({ where }),
+  ]);
+  return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total } });
+});
+
+// GET /v1/coins/:contract — single coin
+coins.get("/:contract", async (c) => {
+  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+  const coin = await prisma.coin.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+  });
+  if (!coin) return c.json({ error: "Coin not found" }, 404);
+  return c.json({ data: serializeCoin(coin) });
 });
 
 export default coins;
