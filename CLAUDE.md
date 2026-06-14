@@ -227,7 +227,7 @@ Response headers on every `/v1/*` response:
 - **Path alias**: `@/*` → `src/*` (`tsconfig.json`).
 - **Imports**: `.js` extension in all import paths (ESM bundler resolution).
 - **BigInt**: Starknet amounts + block numbers as `BigInt` in TS; stored as `String` in DB.
-- **Address normalization**: Always `normalizeAddress()` (`src/utils/starknet.ts`) before DB writes AND before DB queries. 64-char lowercase 0x-padded hex. Applied in all route handlers: `GET /v1/tokens/owned/:address`, `GET /v1/orders/user/:address`, `GET /v1/activities/:address`, `GET /v1/collections?owner=`, `GET /v1/collections/:contract`, `GET /v1/collections/:contract/tokens`, all `/admin/collections/*` routes, and `offerer` filter in `GET /v1/orders`. **Never use `.toLowerCase()` alone** — it does not pad short addresses and causes "not found" mismatches.
+- **Address normalization**: Always `normalizeAddress(chain, address)` (`src/utils/starknet.ts`, re-exported from `@medialane/sdk` — single source) before DB writes AND before DB queries. **Chain-dispatched (v0.37.0 / multichain readiness):** Starknet pads to 64-char lowercase 0x-hex; EVM uses EIP-55 checksum; Solana base58; Bitcoin throws. Pass the **in-scope chain** where you have it (mirror handlers, account/collection utils via `params.chain`); pass the literal `"STARKNET"` in the Starknet adapter (mirror parser) and Starknet-bound routes/scripts. **Never use `.toLowerCase()` alone** — it does not pad short Starknet addresses and causes "not found" mismatches. `normalizeHash(hash)` stays single-arg (Starknet felt).
 - **Logging**: `createLogger(name)` from `src/utils/logger.ts` (pino). Never `console.log` in long-running code (api / mirror / orchestrator / utils).
   - **Exception:** one-shot CLI scripts under `src/scripts/` and `scripts/` (`seed-rewards`, `compute-rewards`, `verify-account-model`, `backfill*`, etc.) intentionally use `console.log` — they run with a TTY attached, the output IS the UX, and pino's JSON formatting would obscure it. Don't "consistency-ify" these to pino.
 - **Error shape**: `{ error: string }` — not `{ message }`.
@@ -236,6 +236,17 @@ Response headers on every `/v1/*` response:
 ---
 
 ## Critical Design Notes
+
+### Multichain readiness (added 2026-06-14, shipped to prod)
+
+`chain` is a first-class axis end-to-end (spec `medialane-core/docs/specs/2026-06-13-multichain-readiness-design.md`). Starknet is the only live chain; the seams below make adding Base/Ethereum/Solana a localized change (the **litmus test**: a new chain touches only a coordinates entry + one codec/read/verify case — identity, the Starknet path, and other chains untouched). Non-Starknet assets enter **read-only via claim/admin curation**, never bulk-indexed.
+
+- **Coordinates** — `src/config/constants.ts` `CHAIN_COORDS[chain]` + `chainCoords(chain)` (per-chain RPC/contracts; Starknet populated, with legacy `*_MAINNET`/`ALCHEMY_RPC_URL` env fallbacks). The SDK's `coordinates[chain]` registry (`chains.ts`) is the canonical source for service coordinates.
+- **Addressing** — `normalizeAddress(chain, address)` (see Key Conventions).
+- **Chain reads** — `src/chainRead/index.ts`: `holdsToken(chain,…)` (gated-content authority, 07 §V) + `getCollectionOwner(chain,…)` (claim verification) behind ONE dispatch point, Starknet impl only. The Starknet bulk poller (mirror) is the Starknet read adapter and is unchanged; foreign chains use only the on-demand path.
+- **Auth** — `src/auth/verify.ts`: `verifyWalletSignature({chain,…})` dispatch (Starknet SNIP-12 today; SIWS routes through it). The session token (`utils/siwsToken.ts`) carries `(chain, address)`; `verifyToken` returns `{address, chain}` (legacy tokens read as STARKNET).
+- **Schema** — `Comment.chain`, `ServiceContract.chain` are the `Chain` enum; `SiwsNonce`/`ClaimChallenge` carry `chain`. Migrations `20260614120000` (enum) + `20260614130000` (add columns), applied to prod 2026-06-14.
+- **No formal interfaces with a single implementor** — parameterize + dispatch; the polymorphic interface emerges when the EVM/Solana reader/verifier is actually written.
 
 ### RPC resilience (added 2026-06-03)
 
