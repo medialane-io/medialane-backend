@@ -268,20 +268,26 @@ from `@medialane/sdk`'s `PUBLIC_RPC_FALLBACKS` (lava.build, …) — single sour
 
 Full incident + cross-app architecture: `medialane-core/docs/specs/2026-06-03-rpc-resilience-failover.md`.
 
-### Creator Coin indexing (added 2026-06-04)
+### Creator Coin indexing (added 2026-06-04; Coin/Collection split 2026-06-14)
 
 Creator Coins are fixed-supply ERC-20s deployed by the Creator Coin Factory
-(`0x50fa807b…`, an audited fork of unruggable.meme). They index as **`Collection`** rows
-(`standard: ERC20`, `service: creator-coin`) — there are no per-token rows, and **no `Order`
-rows** (trading settles on external Ekubo, not a Medialane venue). Authoritative status:
-`medialane-core/docs/specs/2026-06-04-creator-coin-status.md`.
+(`0x50fa807b…`, an audited fork of unruggable.meme). Since the **2026-06-14 split** they index
+into the **`Coin`** table (their own model — `standard: ERC20`, `service: creator-coin |
+external-erc20`), **NOT `Collection`** (which is now NFT-only). No per-token rows, no `Order`
+rows (trading settles on external Ekubo). Single creation path: **`upsertCoin`** (`utils/coin.ts`).
+Spec: `medialane-core/docs/specs/2026-06-14-coin-collection-split-design.md`; status:
+`2026-06-04-creator-coin-status.md`.
 
-- **`TokenStandard += ERC20`** — hand-written migration `20260604120000_add_tokenstandard_erc20`
-  (applied to prod). Required before any creator-coin row can be written.
+- **`Coin` table** — migration `20260614150000_add_coin_split_from_collection` (CREATE + copy
+  the existing ERC20 `Collection` rows → `Coin` + delete from `Collection`). `TokenStandard`
+  keeps `ERC20` (the `Coin` table uses it).
+- **`GET /v1/coins` + `/v1/coins/:contract`** — list + single coin (the SDK's `getCoins`/`getCoin`).
 - **`POST /v1/coins/sync` (`src/api/routes/coins.ts`)** — the **PRIMARY** index path
-  (tenant-authed). Verifies `is_creator_coin(addr)` on the Factory, reads name/symbol
-  (OZ-0.8 ERC-20 felt252), then `upsertCollectionFromFactory(service "creator-coin",
-  standard ERC20)`. Idempotent. The dapp calls this on launch so the coin appears immediately.
+  (tenant-authed). Verifies `is_creator_coin(addr)` on the Factory, reads name/symbol/decimals
+  (OZ-0.8 ERC-20 felt252), then `upsertCoin(service "creator-coin")`. Idempotent. The dapp calls
+  this on launch so the coin appears immediately.
+- **`PATCH /v1/coins/:contract`** — creator-authed coin profile (image/description); the creator
+  is `coin.creator` (trustless — from the factory event).
 - **Factory poller (backstop)** — `pollCreatorCoinFactoryEvents` (`src/mirror/`) parses
   `CreatorCoinCreated` on its **own decoupled cadence** (`CREATOR_COIN_POLL_INTERVAL_MS`,
   default **50s**) with its own block cursor (`_lastCreatorCoinBlock`) — the main mirror loop
