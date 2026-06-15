@@ -275,8 +275,14 @@ async function fetchCollectionMetadataJson(
 ): Promise<{ description: string | null; image: string | null }> {
   if (!baseUri) return { description: null, image: null };
 
+  // A directory base_uri (Collection Drop: ipfs://<cid>/) holds card metadata at
+  // <dir>/collection.json — the per-token files are integer-named alongside it, so
+  // there is no collision. A flat base_uri points straight at the collection JSON.
+  const isDirectory = baseUri.endsWith("/");
   const cid = baseUri.startsWith("ipfs://") ? baseUri.slice(7) : null;
-  const urls = cid ? IPFS_GATEWAYS.map((gateway) => `${gateway}/${cid}`) : [ipfsToHttp(baseUri)];
+  const urls = cid
+    ? IPFS_GATEWAYS.map((gateway) => `${gateway}/${cid}${isDirectory ? "collection.json" : ""}`)
+    : [isDirectory ? `${ipfsToHttp(baseUri)}collection.json` : ipfsToHttp(baseUri)];
 
   for (const url of urls) {
     if (!url) continue;
