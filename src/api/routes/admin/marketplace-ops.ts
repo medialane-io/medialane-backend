@@ -29,30 +29,37 @@ const log = createLogger("routes:admin");
 
 export function registerMarketplaceOpsRoutes(admin: Hono) {
 // POST /admin/orders/:orderHash/resync — re-fetch order details from chain and fix price
-// Routes to the correct handler based on token standard (ERC-721 vs ERC-1155).
+// Routes by the venue resolved from `marketplaceContract` via the SDK registry
+// (05-service-model §V) — NOT `offerItemType`. A zombie row read empty off a
+// lagging node has `offerItemType = ""`, and a bid has `offerItemType = "ERC20"`,
+// so branching on it mis-routes both to the ERC-721 path (the 2026-06-08
+// incident). Both handlers re-read `get_order_details` on-chain themselves.
 // ---------------------------------------------------------------------------
 admin.post("/orders/:orderHash/resync", async (c) => {
   const orderHash = c.req.param("orderHash");
   const order = await prisma.order.findFirst({ where: { orderHash } });
   if (!order) return c.json({ error: "Order not found" }, 404);
 
+  const venue = getServiceByMarketplaceAddress(order.marketplaceContract);
+  if (!venue) {
+    // Unregistered / retired marketplace — the current handlers only query the
+    // live venues, so an on-chain re-read would return zeros. Refuse rather than
+    // silently routing to the wrong handler.
+    return c.json(
+      { error: "Order is on an unregistered or retired marketplace — cannot resync against the current protocol" },
+      422,
+    );
+  }
+
   await prisma.$transaction(async (tx) => {
-    if (order.offerItemType === "ERC1155") {
-      // Reconstruct a minimal RawStarknetEvent from stored order data
-      // so we can re-run the 1155 handler without an RPC call.
+    if (venue.standard === "ERC1155") {
       await handleOrderCreated1155(
         {
           keys: ["0x0", order.orderHash, order.offerer],
-          data: [
-            order.nftContract ?? "",
-            order.nftTokenId ?? "0",
-            order.offerStartAmount ?? "0",
-            order.priceRaw ?? "0",
-            order.considerationToken ?? "",
-          ],
+          data: [],
           block_number: Number(order.createdBlockNumber),
           transaction_hash: order.createdTxHash ?? "",
-          from_address: "",
+          from_address: order.marketplaceContract ?? "",
           block_hash: "",
         },
         tx,

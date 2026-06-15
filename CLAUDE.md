@@ -586,8 +586,8 @@ DROP_START_BLOCK=8341335
 
 **Current immutable contract defaults (no Railway override needed unless testing):**
 ```
-MARKETPLACE_721_CONTRACT_MAINNET=0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6
-MARKETPLACE_1155_CONTRACT_MAINNET=0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99
+MARKETPLACE_721_CONTRACT_MAINNET=0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e
+MARKETPLACE_1155_CONTRACT_MAINNET=0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077
 COLLECTION_721_CONTRACT_MAINNET=0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2  # MIP v0.3.0
 COLLECTION_721_START_BLOCK=10046166
 COLLECTION_1155_CONTRACT_MAINNET=0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc  # v0.3.0 (sequential ids); retired v0.2.0 collections reclassified external-erc1155 (read-only)
@@ -619,8 +619,9 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 ## Key Contracts (mainnet)
 
-- Marketplace ERC-721 (current): `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6`
-- **Marketplace ERC-1155 (Medialane1155V2, current)**: `0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99`
+> **Source of truth for marketplace addresses = SDK `chains.ts` (`coordinates.SN_MAIN`) + prod Railway env, NOT this file.** Earlier drafts listed `0x00f8c…`/`0x02bfa5…` here; those are stale (a pre-redesign venue) and caused a 2026-06 incident where a real ERC-1155 listing was chased against the wrong contract. The values below mirror SDK + prod env — re-check them there before trusting.
+- Marketplace ERC-721 (current): `0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e` (startBlock 10350340)
+- **Marketplace ERC-1155 (current, redesigned venue)**: `0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077` (startBlock 10350855)
 - **MIP IPCollection registry (ERC-721) v0.3.0** (deployed 2026-05-22): `0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2`
 - **IP-Programmable-ERC1155-Collections factory v0.3.0** (sequential on-chain edition ids, deployed 2026-06-10): `0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc` — retired v0.2.0 factory `0x067064…` is unsupported: per the protocol-upgrade routine, its collections were reclassified `external-erc1155` (read-only external provenance) on 2026-06-10
 - NFTComments: set via `COMMENTS_CONTRACT_ADDRESS` env (the deployed instance) — **not** `0x024f97…62799` (undeployed; caused the 2026-05-17 comments outage)
