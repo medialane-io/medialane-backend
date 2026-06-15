@@ -203,6 +203,10 @@ Response headers on every `/v1/*` response:
 | POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all PENDING/FAILED/unnamed/ownerless collections |
 | POST | `/admin/collections/backfill-registry` | Scan ALL `CollectionCreated` events on-chain + upsert every missing collection. Returns `{ inserted, skipped }` |
 | POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection (uses upsert, can create from scratch) |
+| POST | `/admin/coins/add-external` | Add an external (unrug/partner) ERC-20 `Coin`. Verifies `is_memecoin` on the Unrug factory, reads name/symbol/decimals on-chain. Body: `{ contractAddress, owner?, startBlock? }` |
+| GET | `/admin/coins` | List coins (includes hidden — admins see everything). `?service=`, `?search=` (name/symbol insensitive + full address), `page`, `limit`. → `{ coins, total, page, limit }` |
+| PATCH | `/admin/coins/:contract` | Admin edit a `Coin`: `{ name?, symbol?, description?, image?, service?, creator?, isHidden? }`. `isHidden` is the durable removal lever — **no hard delete** (a Coin is a rebuildable on-chain projection) |
+| POST | `/admin/coins/:contract/refresh` | Re-read on-chain ERC-20 metadata (name/symbol/decimals) and upsert. Preserves `isHidden`/`service`/`creator`/`startBlock` |
 | GET | `/admin/collection-slug-claims` | List collection slug claims. `?status=PENDING\|APPROVED\|REJECTED`, `page`, `limit` |
 | PATCH | `/admin/collection-slug-claims/:id` | Approve or reject a slug claim. Body: `{ status: "APPROVED"\|"REJECTED", adminNotes? }`. On approve: writes slug to `CollectionProfile` (upsert) and rejects competing pending claims. |
 | GET | `/admin/comments` | List comments. `?hidden=true\|false`, `?author=address`, `?contract=address`, `page`, `limit` |
@@ -282,6 +286,8 @@ Spec: `medialane-core/docs/specs/2026-06-14-coin-collection-split-design.md`; st
   the existing ERC20 `Collection` rows → `Coin` + delete from `Collection`). `TokenStandard`
   keeps `ERC20` (the `Coin` table uses it).
 - **`GET /v1/coins` + `/v1/coins/:contract`** — list + single coin (the SDK's `getCoins`/`getCoin`).
+  List filters: `?service=`, `?creator=` (the dapp's "my coins" / `/portfolio/coins`), `page`, `limit`.
+  Where-clauses are pure + unit-tested in `src/api/routes/coins.filters.ts`.
 - **`POST /v1/coins/sync` (`src/api/routes/coins.ts`)** — the **PRIMARY** index path
   (tenant-authed). Verifies `is_creator_coin(addr)` on the Factory, reads name/symbol/decimals
   (OZ-0.8 ERC-20 felt252), then `upsertCoin(service "creator-coin")`. Idempotent. The dapp calls
