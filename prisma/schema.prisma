@@ -608,6 +608,27 @@ model DropClaimConditions {
   @@unique([chain, collectionAddress])
 }
 
+// Pending presale -> public transition for a drop. Written at create time when a presale
+// is configured; the scheduled worker fires set_claim_conditions + set_allowlist_enabled
+// at transitionAt. This is a pending-action record, NOT a mirror of current on-chain state.
+model DropPhaseSchedule {
+  id                 String   @id @default(cuid())
+  chain              Chain    @default(STARKNET)
+  collectionAddress  String
+  publicStartTime    BigInt
+  publicEndTime      BigInt
+  publicPrice        String   @default("0")
+  publicPaymentToken String   @default("0x0")
+  publicMaxPerWallet String   @default("1")
+  transitionAt       BigInt
+  status             String   @default("PENDING") // PENDING | DONE | FAILED | CANCELLED
+  attempts           Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([chain, collectionAddress])
+}
+
 
 enum AppSource {
   MEDIALANE_STARKNET
