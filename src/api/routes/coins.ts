@@ -9,6 +9,7 @@ import { CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
 import { upsertCoin } from "../../utils/coin.js";
 import { identityAuth } from "../middleware/identityAuth.js";
+import { buildCoinListWhere } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 
@@ -107,7 +108,8 @@ coins.get("/", async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const service = c.req.query("service");
-  const where = { chain: "STARKNET" as const, isHidden: false, ...(service ? { service } : {}) };
+  const creator = c.req.query("creator") ?? undefined;
+  const where = buildCoinListWhere({ service: service ?? undefined, creator });
   const [rows, total] = await Promise.all([
     prisma.coin.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.coin.count({ where }),
