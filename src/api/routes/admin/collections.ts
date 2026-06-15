@@ -37,6 +37,7 @@ import { toErrorMessage } from "../../../utils/error.js";
 import { getClientIp } from "./_shared.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../../mirror/handlers/collectionCreated.js";
 import { COLLECTION_721_START_BLOCK } from "../../../config/constants.js";
+import { buildAdminCoinWhere } from "../coins.filters.js";
 
 const log = createLogger("routes:admin");
 
@@ -304,6 +305,100 @@ admin.post("/coins/add-external", async (c) => {
     }, 201);
   } catch (err) {
     log.error({ err, contractAddress }, "external coin add failed");
+    return c.json({ error: toErrorMessage(err) }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/coins — list coins (includes hidden; admins see everything).
+// ?service=&search=&page=&limit=. Mirrors GET /admin/collections.
+// ---------------------------------------------------------------------------
+admin.get("/coins", async (c) => {
+  const page = Math.max(1, parseInt(c.req.query("page") ?? "1"));
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") ?? "20")));
+  const where = buildAdminCoinWhere({
+    service: c.req.query("service") || undefined,
+    search: c.req.query("search") || undefined,
+  });
+  const [rows, total] = await Promise.all([
+    prisma.coin.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.coin.count({ where }),
+  ]);
+  const coins = rows.map((coin) => ({ ...coin, startBlock: coin.startBlock.toString() }));
+  return c.json({ coins, total, page, limit });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/coins/:contract — admin edit (broader than the creator route).
+// `isHidden` is the durable removal lever (no hard delete — a Coin is a
+// rebuildable on-chain projection; see spec 2026-06-15).
+// ---------------------------------------------------------------------------
+admin.patch("/coins/:contract", async (c) => {
+  const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
+  const schema = z.object({
+    name:        z.string().optional(),
+    symbol:      z.string().optional(),
+    description: z.string().optional(),
+    image:       z.string().optional(),
+    service:     z.string().optional(),
+    creator:     z.string().optional(),
+    isHidden:    z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+
+  const coin = await prisma.coin.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+  });
+  if (!coin) return c.json({ error: "Coin not found" }, 404);
+
+  const updated = await prisma.coin.update({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+    data: {
+      ...parsed.data,
+      ...(parsed.data.creator ? { creator: normalizeAddress("STARKNET", parsed.data.creator) } : {}),
+    },
+  });
+  log.info({ contractAddress }, "Coin updated via admin");
+  return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, symbol: updated.symbol, isHidden: updated.isHidden } });
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/coins/:contract/refresh — re-read on-chain ERC-20 metadata
+// (name/symbol/decimals) and upsert. upsertCoin's update clause never touches
+// isHidden, so a hidden coin stays hidden across refresh.
+// ---------------------------------------------------------------------------
+admin.post("/coins/:contract/refresh", async (c) => {
+  const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
+  const coin = await prisma.coin.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+  });
+  if (!coin) return c.json({ error: "Coin not found" }, 404);
+
+  try {
+    const [nameRes, symbolRes, decRes] = await Promise.all([
+      callRpc((p) => p.callContract({ contractAddress, entrypoint: "name", calldata: [] })),
+      callRpc((p) => p.callContract({ contractAddress, entrypoint: "symbol", calldata: [] })),
+      callRpc((p) => p.callContract({ contractAddress, entrypoint: "decimals", calldata: [] })),
+    ]);
+    const name = decodeShortStr(nameRes[0] ?? "0x0");
+    const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
+    const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : coin.decimals;
+
+    await upsertCoin(prisma, {
+      chain: "STARKNET",
+      contractAddress,
+      service: coin.service,
+      name,
+      symbol,
+      decimals,
+      creator: coin.creator,
+      startBlock: coin.startBlock,
+    });
+    log.info({ contractAddress, name, symbol, decimals }, "Coin metadata refreshed via admin");
+    return c.json({ data: { name, symbol, decimals } });
+  } catch (err) {
+    log.error({ err, contractAddress }, "coin refresh failed");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
 });
