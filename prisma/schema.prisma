@@ -482,8 +482,10 @@ model Tenant {
   email     String            @unique
   plan      TenantPlan        @default(FREE)
   status    TenantStatus      @default(ACTIVE)
+  creditBalance Int           @default(0)
   apiKeys   ApiKey[]
   webhooks  WebhookEndpoint[]
+  payments  Payment[]
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
 
@@ -878,4 +880,30 @@ model ServiceContract {
 
   @@index([serviceId])
   @@index([chain, active])
+}
+
+/// x402 payment ledger — one row per settled agent payment. The unique
+/// proofNonce makes a replayed payment proof throw on insert, so credits are
+/// never double-granted.
+model Payment {
+  id             String        @id @default(cuid())
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  scheme         String // "starknet-transfer"
+  network        String // "starknet"
+  asset          String // USDC contract
+  amountAtomic   String // paid amount, USDC atomic units (6dp), bigint-safe string
+  creditedAmount Int // credits granted (after MDLN multiplier)
+  mdlnMultiplier Float         @default(1.0)
+  status         PaymentStatus @default(SETTLED)
+  txHash         String
+  proofNonce     String        @unique
+  createdAt      DateTime      @default(now())
+
+  @@index([tenantId])
+}
+
+enum PaymentStatus {
+  SETTLED
+  FAILED
 }
