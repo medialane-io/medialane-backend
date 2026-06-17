@@ -1,21 +1,33 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
-import { costForRequest } from "../../payments/pricing.js";
-import { debitCredits } from "../../payments/credits.js";
-import { buildPaymentRequired, decodePaymentHeader, settlePayment } from "../../payments/x402.js";
+import { costForRequest as defaultCostForRequest } from "../../payments/pricing.js";
+import { debitCredits as defaultDebitCredits } from "../../payments/credits.js";
+import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("middleware:meter");
 const SCHEMES = [new StarknetUsdcScheme()];
 
+/** Injectable collaborators — tests pass stubs instead of mocking modules. */
+export interface MeterDeps {
+  costForRequest: typeof defaultCostForRequest;
+  debitCredits: typeof defaultDebitCredits;
+  settlePayment: typeof defaultSettlePayment;
+}
+
 /**
  * Pay-per-use metering. Placed AFTER apiKeyAuth on /v1/*. Resolves a credit cost
  * for the route (null = unmetered → skip), funds via X-PAYMENT if present, then
  * atomically debits. On insufficient funds returns 402 + x402 paymentRequirements.
  */
-export function meter(): MiddlewareHandler<AppEnv> {
+export function meter(deps: MeterDeps = {
+  costForRequest: defaultCostForRequest,
+  debitCredits: defaultDebitCredits,
+  settlePayment: defaultSettlePayment,
+}): MiddlewareHandler<AppEnv> {
+  const { costForRequest, debitCredits, settlePayment } = deps;
   return async (c, next) => {
     const cost = costForRequest(c.req.method, c.req.path);
     if (cost === null) return next(); // unmetered route

@@ -10,10 +10,42 @@ function u256FromLowHigh(low: string, high: string): bigint {
   return BigInt(low ?? "0x0") + (BigInt(high ?? "0x0") << 128n);
 }
 
-interface StarknetReceipt {
+export interface StarknetReceipt {
   execution_status?: string;
   finality_status?: string;
   events?: Array<{ from_address: string; keys: string[]; data: string[] }>;
+}
+
+/**
+ * Pure verification of a USDC transfer receipt — no RPC, fully testable.
+ * Confirms the tx succeeded and carries a USDC Transfer to the treasury,
+ * returning the amount + payer.
+ */
+export function parseUsdcTransfer(
+  receipt: StarknetReceipt,
+  params: { usdc: string; treasury: string; txHash: string; nonce: string },
+): VerifyResult {
+  if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
+    return { ok: false, reason: "transaction reverted" };
+  }
+  const usdc = normalizeAddress(params.usdc);
+  const treasury = normalizeAddress(params.treasury);
+  for (const ev of receipt.events ?? []) {
+    if (normalizeAddress(ev.from_address) !== usdc) continue;
+    if (ev.keys[0] !== TRANSFER_KEY) continue;
+    // keys: [Transfer, from, to]; data: [amount_low, amount_high].
+    const from = ev.keys[1];
+    const to = ev.keys[2];
+    if (!to || normalizeAddress(to) !== treasury) continue;
+    const amount = u256FromLowHigh(ev.data[0], ev.data[1]);
+    return {
+      ok: true,
+      amountAtomic: amount,
+      payer: from ? normalizeAddress(from) : undefined,
+      proofNonce: `${params.txHash}:${params.nonce}`,
+    };
+  }
+  return { ok: false, reason: "no USDC transfer to treasury found" };
 }
 
 /**
@@ -54,28 +86,11 @@ export class StarknetUsdcScheme implements PaymentScheme {
       return { ok: false, reason: "could not fetch receipt" };
     }
 
-    if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
-      return { ok: false, reason: "transaction reverted" };
-    }
-
-    const usdc = normalizeAddress(x402Config.usdcContract);
-    const treasury = normalizeAddress(x402Config.treasury);
-
-    for (const ev of receipt.events ?? []) {
-      if (normalizeAddress(ev.from_address) !== usdc) continue;
-      if (ev.keys[0] !== TRANSFER_KEY) continue;
-      // keys: [Transfer, from, to]; data: [amount_low, amount_high].
-      const from = ev.keys[1];
-      const to = ev.keys[2];
-      if (!to || normalizeAddress(to) !== treasury) continue;
-      const amount = u256FromLowHigh(ev.data[0], ev.data[1]);
-      return {
-        ok: true,
-        amountAtomic: amount,
-        payer: from ? normalizeAddress(from) : undefined,
-        proofNonce: `${payload.txHash}:${payload.nonce}`,
-      };
-    }
-    return { ok: false, reason: "no USDC transfer to treasury found" };
+    return parseUsdcTransfer(receipt, {
+      usdc: x402Config.usdcContract,
+      treasury: x402Config.treasury,
+      txHash: payload.txHash,
+      nonce: payload.nonce,
+    });
   }
 }

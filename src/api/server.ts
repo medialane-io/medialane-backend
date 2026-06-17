@@ -32,6 +32,8 @@ import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
 import { rewards, adminRewards } from "./routes/rewards.js";
+import { x402Discovery } from "./routes/x402.js";
+import { meter } from "./middleware/meter.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -43,6 +45,9 @@ export function createApp(): Hono<AppEnv> {
 
   // Health stays unauthenticated (monitoring, uptime checks)
   app.route("/health", health);
+
+  // x402 payment discovery — public (agents read pricing before holding a key)
+  app.route("/", x402Discovery);
 
   // Admin routes — internal auth (API_SECRET_KEY) handled inside admin.ts
   app.route("/admin", admin);
@@ -62,6 +67,7 @@ export function createApp(): Hono<AppEnv> {
   // All /v1/* routes require a tenant API key
   app.use("/v1/*", apiKeyAuth);
   app.use("/v1/*", apiKeyRateLimit());
+  app.use("/v1/*", meter()); // pay-per-use credit metering (x402)
 
   // Tenant self-service portal
   app.route("/v1/portal", portal);

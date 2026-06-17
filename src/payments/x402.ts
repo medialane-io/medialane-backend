@@ -1,8 +1,15 @@
 import { Prisma } from "@prisma/client";
 import { x402Config } from "../config/x402.js";
-import { creditTenant } from "./credits.js";
-import { mdlnMultiplier } from "./mdln.js";
+import { creditTenant as defaultCreditTenant } from "./credits.js";
+import { mdlnMultiplier as defaultMdlnMultiplier } from "./mdln.js";
+import type { CreditInput } from "./credits.js";
 import type { PaymentRequirement, PaymentScheme, X402Payload } from "./schemes/types.js";
+
+/** Injectable collaborators — tests pass stubs instead of mocking modules. */
+export interface SettleDeps {
+  creditTenant: (input: CreditInput) => Promise<void>;
+  mdlnMultiplier: (address: string) => Promise<number>;
+}
 
 export interface PaymentRequiredBody {
   x402Version: 1;
@@ -64,6 +71,7 @@ export async function settlePayment(
   scheme: PaymentScheme,
   tenantId: string,
   payload: X402Payload,
+  deps: SettleDeps = { creditTenant: defaultCreditTenant, mdlnMultiplier: defaultMdlnMultiplier },
 ): Promise<SettleResult> {
   const v = await scheme.verify(payload);
   if (!v.ok || v.amountAtomic === undefined || !v.proofNonce) {
@@ -73,11 +81,11 @@ export async function settlePayment(
   const baseCredits = Number(v.amountAtomic / x402Config.usdcAtomicPerCredit);
   // MDLN bonus keyed on the verified on-chain payer. Never blocks settlement
   // (mdlnMultiplier returns 1.0 on any read failure or if MDLN is unconfigured).
-  const multiplier = v.payer ? await mdlnMultiplier(v.payer) : 1.0;
+  const multiplier = v.payer ? await deps.mdlnMultiplier(v.payer) : 1.0;
   const creditedAmount = Math.floor(baseCredits * multiplier);
 
   try {
-    await creditTenant({
+    await deps.creditTenant({
       tenantId,
       amountAtomic: v.amountAtomic,
       creditedAmount,

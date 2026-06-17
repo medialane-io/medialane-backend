@@ -1,13 +1,6 @@
-import { describe, expect, test, mock } from "bun:test";
-
-const credited: unknown[] = [];
-mock.module("./credits.js", () => ({
-  creditTenant: async (input: unknown) => {
-    credited.push(input);
-  },
-  debitCredits: async () => true,
-}));
-mock.module("./mdln.js", () => ({ mdlnMultiplier: async () => 1.2 }));
+import { describe, expect, test } from "bun:test";
+import { encodePaymentHeader, decodePaymentHeader, buildPaymentRequired, settlePayment } from "./x402.js";
+import type { CreditInput } from "./credits.js";
 
 const scheme = {
   scheme: "starknet-transfer",
@@ -25,8 +18,6 @@ const scheme = {
   }),
   verify: async () => ({ ok: true, amountAtomic: 1_000_000n, payer: "0xpayer", proofNonce: "0xtx:n1" }),
 };
-
-const { encodePaymentHeader, decodePaymentHeader, buildPaymentRequired, settlePayment } = await import("./x402.js");
 
 describe("X-PAYMENT header codec", () => {
   test("round-trips", () => {
@@ -49,14 +40,22 @@ describe("buildPaymentRequired", () => {
 
 describe("settlePayment", () => {
   test("verifies, applies MDLN multiplier, and credits", async () => {
-    const res = await settlePayment(scheme, "t1", {
-      scheme: "starknet-transfer",
-      network: "starknet",
-      txHash: "0xtx",
-      nonce: "n1",
-    });
+    const credited: CreditInput[] = [];
+    const deps = {
+      creditTenant: async (input: CreditInput) => {
+        credited.push(input);
+      },
+      mdlnMultiplier: async () => 1.2,
+    };
+    const res = await settlePayment(
+      scheme,
+      "t1",
+      { scheme: "starknet-transfer", network: "starknet", txHash: "0xtx", nonce: "n1" },
+      deps,
+    );
     expect(res.ok).toBe(true);
     expect(res.creditedAmount).toBe(120); // 1_000_000 atomic / 10_000 per credit = 100, * 1.2
     expect(credited).toHaveLength(1);
+    expect(credited[0].mdlnMultiplier).toBe(1.2);
   });
 });

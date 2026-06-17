@@ -16,6 +16,12 @@ const envSchema = z.object({
   STARKNET_MARKETPLACE_1155: z.string().optional(),
   STARKNET_COLLECTION_721: z.string().optional(),
   STARKNET_COLLECTION_1155: z.string().optional(),
+  // x402 agent payments (settlement asset + treasury + MDLN bonus token)
+  STARKNET_USDC_CONTRACT: z
+    .string()
+    .default("0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb"),
+  X402_TREASURY_ADDRESS: z.string().default(""),
+  STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
   CLERK_SECRET_KEY: z.string().default(""),
   MARKETPLACE_721_CONTRACT_MAINNET: z

@@ -1,14 +1,7 @@
-import { describe, expect, test, mock } from "bun:test";
-
-// Mock the chain-read module so importing mdln.ts does NOT pull in env
-// validation / a live RpcProvider — this stays a pure unit test.
-mock.module("../utils/starknet.js", () => ({
-  callRpc: async (fn: (p: unknown) => Promise<unknown>) => fn({}),
-  createProvider: () => ({}),
-  normalizeAddress: (a: string) => a,
-}));
-
-const { multiplierForBalance } = await import("./mdln.js");
+import { describe, expect, test } from "bun:test";
+// env preloaded via bunfig.toml → importing mdln.js (which loads utils/starknet
+// → env) is safe without mocks. We test only the pure tier function.
+import { multiplierForBalance } from "./mdln.js";
 
 describe("multiplierForBalance", () => {
   test("< 500 MDLN → 1.0x", () => expect(multiplierForBalance(0n)).toBe(1.0));
