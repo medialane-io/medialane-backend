@@ -18,10 +18,12 @@ export const MDLN_TIERS: ReadonlyArray<{ minWholeTokens: bigint; multiplier: num
 ];
 
 export const x402Config = {
-  /** USDC token contract on Starknet (atomic settlement asset). */
+  /** USDC token contract on Starknet (atomic settlement asset).
+   *  Circle-native USDC (canonical, per @medialane/sdk coordinates) — NOT the
+   *  legacy bridged USDC.e (0x053c9125…). */
   usdcContract:
     process.env.STARKNET_USDC_CONTRACT ??
-    "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8",
+    "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
   /** Where agents send USDC. Required for x402 to function. */
   treasury: process.env.X402_TREASURY_ADDRESS ?? "",
   /** MDLN token contract (for the bonus multiplier). */

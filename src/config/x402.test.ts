@@ -9,9 +9,9 @@ describe("x402 config", () => {
     expect(MDLN_TIERS[0]).toEqual({ minWholeTokens: 5000n, multiplier: 2.0 });
     expect(MDLN_TIERS.at(-1)).toEqual({ minWholeTokens: 0n, multiplier: 1.0 });
   });
-  test("usdcContract defaults to mainnet USDC", () => {
+  test("usdcContract defaults to Circle-native Starknet USDC", () => {
     expect(x402Config.usdcContract).toMatch(
-      /^0x0?53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8$/,
+      /^0x0?33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb$/,
     );
   });
 });
