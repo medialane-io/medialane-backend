@@ -20,7 +20,11 @@ const envSchema = z.object({
   STARKNET_USDC_CONTRACT: z
     .string()
     .default("0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb"),
-  X402_TREASURY_ADDRESS: z.string().default(""),
+  // Creator's Fund Starknet multisig (x402 USDC settles here — funds the Fund,
+  // matching the platform fee→Creator's-Fund model). Override per env if needed.
+  X402_TREASURY_ADDRESS: z
+    .string()
+    .default("0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223"),
   STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
   CLERK_SECRET_KEY: z.string().default(""),

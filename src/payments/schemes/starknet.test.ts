@@ -24,7 +24,7 @@ describe("parseUsdcTransfer", () => {
     expect(res.ok).toBe(true);
     expect(res.amountAtomic).toBe(1_000_000n);
     expect(res.payer).toBe(normalizeAddress(SENDER));
-    expect(res.proofNonce).toBe("0xtx:n1");
+    expect(res.proofNonce).toBe("0xtx"); // dedup keyed on txHash alone
   });
 
   test("rejects when no transfer to treasury is present", () => {

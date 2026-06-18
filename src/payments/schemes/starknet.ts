@@ -42,7 +42,11 @@ export function parseUsdcTransfer(
       ok: true,
       amountAtomic: amount,
       payer: from ? normalizeAddress(from) : undefined,
-      proofNonce: `${params.txHash}:${params.nonce}`,
+      // Dedup key = the on-chain tx alone, so one USDC transfer credits exactly
+      // once regardless of path (agent X-PAYMENT vs portal fund endpoint). The
+      // 402 `nonce` still binds the challenge but must NOT widen this key.
+      // (v1 assumes one funding transfer per tx.)
+      proofNonce: params.txHash,
     };
   }
   return { ok: false, reason: "no USDC transfer to treasury found" };

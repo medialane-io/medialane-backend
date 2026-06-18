@@ -8,15 +8,23 @@ import { generateApiKey } from "../../utils/apiKey.js";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
+import { settlePayment } from "../../payments/x402.js";
+import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
+const starknetScheme = new StarknetUsdcScheme();
 
 // ---------------------------------------------------------------------------
 // GET /v1/portal/me
 // ---------------------------------------------------------------------------
 portal.get("/me", async (c) => {
   const tenant = c.get("tenant");
+  // creditBalance isn't on the apiKeyAuth tenant select — read it directly.
+  const row = await prisma.tenant.findUnique({
+    where: { id: tenant.id },
+    select: { creditBalance: true },
+  });
   return c.json({
     data: {
       id: tenant.id,
@@ -24,8 +32,53 @@ portal.get("/me", async (c) => {
       email: tenant.email,
       plan: tenant.plan,
       status: tenant.status,
+      creditBalance: row?.creditBalance ?? 0,
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/portal/credits/fund  — human/console top-up
+// Dev sends USDC to the Creator's Fund treasury, then submits the tx hash here.
+// Reuses the x402 Starknet scheme to verify the transfer on-chain and credit.
+// Replay-safe: settlePayment dedups on the tx (Payment.proofNonce = txHash).
+// ---------------------------------------------------------------------------
+portal.post("/credits/fund", async (c) => {
+  const tenant = c.get("tenant");
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ txHash: z.string().min(3) }).safeParse(body);
+  if (!parsed.success) return c.json({ error: "txHash is required" }, 400);
+
+  const result = await settlePayment(starknetScheme, tenant.id, {
+    scheme: starknetScheme.scheme,
+    network: starknetScheme.network,
+    txHash: parsed.data.txHash,
+    nonce: "portal-fund",
+  });
+  if (!result.ok) return c.json({ error: result.reason ?? "Payment verification failed" }, 402);
+  return c.json({ data: { credited: result.creditedAmount ?? 0 } });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/portal/credits/history — settled x402 payments (the credit ledger)
+// ---------------------------------------------------------------------------
+portal.get("/credits/history", async (c) => {
+  const tenant = c.get("tenant");
+  const payments = await prisma.payment.findMany({
+    where: { tenantId: tenant.id },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      amountAtomic: true,
+      creditedAmount: true,
+      mdlnMultiplier: true,
+      txHash: true,
+      status: true,
+      createdAt: true,
+    },
+  });
+  return c.json({ data: payments });
 });
 
 // ---------------------------------------------------------------------------
