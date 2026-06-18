@@ -99,6 +99,20 @@ PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error:
 
 ---
 
+## x402 Agent Payments / Credits (added 2026-06-18)
+
+Pay-per-use metering on the API. The product is metered; first-party apps run on **granted credits**, external agents/devs **pay per call via x402**. Spec: `medialane-core/docs/specs/2026-06-17-x402-agent-payments-design.md`.
+
+- **`meter()` middleware** (`src/api/middleware/meter.ts`) runs on **all `/v1/*`** after `apiKeyAuth`. Resolves a per-route credit cost (`src/payments/pricing.ts`; `/v1/portal` + `/v1/auth` are unmetered), atomically debits `Tenant.creditBalance` (`src/payments/credits.ts`), and returns **HTTP 402** + an x402 `paymentRequirements` body when funds are insufficient. **No free tier** — the first unfunded call returns 402 by design.
+- **x402 funding** (`src/payments/x402.ts` + `src/payments/schemes/starknet.ts`): agent retries with an `X-PAYMENT` header carrying a Starknet USDC transfer's `txHash`. `settlePayment` verifies the transfer on-chain (transfer-and-verify push), credits `usd × CREDITS_PER_USDC × mdlnMultiplier`. **Replay-safe: `Payment.proofNonce = txHash`** — one on-chain transfer credits exactly once across all paths.
+- **Settlement** = **native USDC** `0x033068f6…` on Starknet → the **Creator's Fund** treasury `0x064c5174…`. Config in `src/config/x402.ts` + `env.ts` (`STARKNET_USDC_CONTRACT`, `STARKNET_X402_TREASURY`, `STARKNET_MDLN_CONTRACT` — chain-prefixed for multichain readiness). `x402Config` reads the validated `env` (single source).
+- **Endpoints:** `GET /.well-known/x402` + `GET /v1/pricing` (public discovery, `src/api/routes/x402.ts`); `GET /v1/portal/me` returns `creditBalance`; `POST /v1/portal/credits/fund {txHash}` (console top-up — verifies via the x402 scheme); `GET /v1/portal/credits/history`; `POST /admin/tenants/:id/credits {amount}` (admin grant/adjust).
+- **Per-app tenants:** each first-party app has its **own tenant + key + credit balance** (blast-radius isolation + per-app usage monitoring) — `bun run seed-app-tenants` (`AppSource` now includes `MEDIALANE_DAO`). Emails: dapp=`medialanedapp@gmail.com`, io=`medialaneio@gmail.com`, portal=`medialanexyz@gmail.com`, dao=`medialanedao@gmail.com`.
+- **Schema:** `Tenant.creditBalance` (Int, default 0 → external tenants pay) + append-only `Payment` ledger (unique `proofNonce`). Migrations `20260617000000_x402_credits_and_payments`, `20260618000000_add_appsource_dao`, `20260618120000_zero_overgranted_credits`.
+- **Tests:** dependency-injection (not `mock.module` — it leaks process-globally); `test/env-setup.ts` preload via `bunfig.toml` so env validation passes under `bun test`.
+
+---
+
 ## Rate Limiting (`src/api/middleware/rateLimit.ts`)
 
 **Keyed by API key ID** (not IP).
