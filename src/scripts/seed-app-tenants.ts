@@ -21,10 +21,10 @@ import type { AppSource } from "@prisma/client";
 const CREDIT_FLOOR = 1_000_000;
 
 const APPS: { name: string; email: string; appSource: AppSource }[] = [
-  { name: "medialane-dapp", email: "dapp@apps.medialane.io", appSource: "MEDIALANE_STARKNET" },
-  { name: "medialane-io", email: "io@apps.medialane.io", appSource: "MEDIALANE_IO" },
-  { name: "medialane-portal", email: "portal@apps.medialane.io", appSource: "MEDIALANE_PORTAL" },
-  { name: "medialane-dao", email: "dao@apps.medialane.io", appSource: "MEDIALANE_DAO" },
+  { name: "medialane-dapp", email: "medialanedapp@gmail.com", appSource: "MEDIALANE_STARKNET" },
+  { name: "medialane-io", email: "medialaneio@gmail.com", appSource: "MEDIALANE_IO" },
+  { name: "medialane-portal", email: "medialanexyz@gmail.com", appSource: "MEDIALANE_PORTAL" },
+  { name: "medialane-dao", email: "medialanedao@gmail.com", appSource: "MEDIALANE_DAO" },
 ];
 
 async function main() {
