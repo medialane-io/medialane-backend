@@ -10,8 +10,8 @@
 UPDATE "Tenant"
 SET "creditBalance" = 0
 WHERE "email" NOT IN (
-  'dapp@apps.medialane.io',
-  'io@apps.medialane.io',
-  'portal@apps.medialane.io',
-  'dao@apps.medialane.io'
+  'medialanedapp@gmail.com',
+  'medialaneio@gmail.com',
+  'medialanexyz@gmail.com',
+  'medialanedao@gmail.com'
 );
