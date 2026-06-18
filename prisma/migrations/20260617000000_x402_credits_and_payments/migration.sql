@@ -8,6 +8,11 @@ CREATE TYPE "PaymentStatus" AS ENUM ('SETTLED', 'FAILED');
 -- AlterTable
 ALTER TABLE "Tenant" ADD COLUMN "creditBalance" INTEGER NOT NULL DEFAULT 0;
 
+-- Seed EXISTING tenants so metering doesn't 402 them the moment it goes live
+-- (first-party apps + any current consumers keep working). NEW tenants still
+-- default to 0 → external agents/devs pay via x402. The column default stays 0.
+UPDATE "Tenant" SET "creditBalance" = 1000000;
+
 -- CreateTable
 CREATE TABLE "Payment" (
     "id" TEXT NOT NULL,
