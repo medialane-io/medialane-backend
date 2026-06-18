@@ -148,6 +148,32 @@ admin.patch("/tenants/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/tenants/:id/credits — grant/adjust a tenant's credit balance.
+// Used to fund first-party platform tenants (the dapp/io/etc. run on granted
+// credits, not external payments) and to top up or correct any tenant.
+// `amount` is a signed integer delta; negative deducts (floored at 0).
+// ---------------------------------------------------------------------------
+const grantCreditsSchema = z.object({ amount: z.number().int() });
+
+admin.post("/tenants/:id/credits", async (c) => {
+  const { id } = c.req.param();
+  const parsed = grantCreditsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "Provide an integer `amount`" }, 400);
+
+  const tenant = await prisma.tenant.findUnique({ where: { id }, select: { creditBalance: true } });
+  if (!tenant) return c.json({ error: "Tenant not found" }, 404);
+
+  const next = Math.max(0, tenant.creditBalance + parsed.data.amount);
+  const updated = await prisma.tenant.update({
+    where: { id },
+    data: { creditBalance: next },
+    select: { id: true, creditBalance: true },
+  });
+  log.info({ tenantId: id, delta: parsed.data.amount, balance: updated.creditBalance }, "admin credit grant");
+  return c.json({ data: { id: updated.id, creditBalance: updated.creditBalance } });
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/tenants/:id/keys — create additional key
 // ---------------------------------------------------------------------------
 const createKeySchema = z.object({
