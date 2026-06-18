@@ -16,6 +16,18 @@ const envSchema = z.object({
   STARKNET_MARKETPLACE_1155: z.string().optional(),
   STARKNET_COLLECTION_721: z.string().optional(),
   STARKNET_COLLECTION_1155: z.string().optional(),
+  // x402 agent payments (per-chain: settlement asset + treasury + MDLN bonus
+  // token). Chain-prefixed for multichain readiness — a future Base rail adds
+  // BASE_USDC_CONTRACT / BASE_X402_TREASURY without touching these.
+  STARKNET_USDC_CONTRACT: z
+    .string()
+    .default("0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb"),
+  // Creator's Fund Starknet multisig (x402 USDC settles here — funds the Fund,
+  // matching the platform fee→Creator's-Fund model). Override per env if needed.
+  STARKNET_X402_TREASURY: z
+    .string()
+    .default("0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223"),
+  STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
   CLERK_SECRET_KEY: z.string().default(""),
   MARKETPLACE_721_CONTRACT_MAINNET: z

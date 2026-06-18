@@ -1,0 +1,4 @@
+[test]
+# Preload sets dummy env so modules that validate env at import don't throw
+# during `bun test`. See test/env-setup.ts.
+preload = ["./test/env-setup.ts"]
