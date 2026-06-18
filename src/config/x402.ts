@@ -3,6 +3,8 @@
  * CREDITS_PER_USDC and the MDLN bonus tiers mirror the (now-retired) portal
  * deposit model so pricing is unchanged for callers.
  */
+import { env } from "./env.js";
+
 export const CREDITS_PER_USDC = 100;
 
 /** USDC has 6 decimals on Starknet. */
@@ -21,13 +23,11 @@ export const x402Config = {
   /** USDC token contract on Starknet (atomic settlement asset).
    *  Circle-native USDC (canonical, per @medialane/sdk coordinates) — NOT the
    *  legacy bridged USDC.e (0x053c9125…). */
-  usdcContract:
-    process.env.STARKNET_USDC_CONTRACT ??
-    "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
-  /** Where agents send USDC. Required for x402 to function. */
-  treasury: process.env.X402_TREASURY_ADDRESS ?? "",
+  usdcContract: env.STARKNET_USDC_CONTRACT,
+  /** Where agents send USDC — the Creator's Fund Starknet multisig. */
+  treasury: env.STARKNET_X402_TREASURY,
   /** MDLN token contract (for the bonus multiplier). */
-  mdlnContract: process.env.STARKNET_MDLN_CONTRACT ?? "",
+  mdlnContract: env.STARKNET_MDLN_CONTRACT,
   /** Price (in USDC atomic units, 6dp) of one credit. 1 credit = $0.01. */
   usdcAtomicPerCredit: 10_000n, // 0.01 USDC * 10^6
 } as const;
