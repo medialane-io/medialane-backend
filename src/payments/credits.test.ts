@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { debitCredits, creditTenant, type CreditsDb } from "./credits.js";
+import { debitCredits, creditAccount, type CreditsDb } from "./credits.js";
 
 function stubDb(over: Partial<{ count: number }> = {}): {
   db: CreditsDb;
-  calls: { updateMany: number; paymentCreate: number; tenantUpdate: number; txOps: number };
+  calls: { updateMany: number; paymentCreate: number; accountUpdate: number; txOps: number };
 } {
-  const calls = { updateMany: 0, paymentCreate: 0, tenantUpdate: 0, txOps: 0 };
+  const calls = { updateMany: 0, paymentCreate: 0, accountUpdate: 0, txOps: 0 };
   const db: CreditsDb = {
-    tenant: {
+    account: {
       async updateMany() {
         calls.updateMany++;
         return { count: over.count ?? 1 };
       },
       async update() {
-        calls.tenantUpdate++;
+        calls.accountUpdate++;
         return {};
       },
     },
@@ -34,21 +34,21 @@ function stubDb(over: Partial<{ count: number }> = {}): {
 describe("debitCredits", () => {
   test("returns true when a row is decremented (sufficient balance)", async () => {
     const { db, calls } = stubDb({ count: 1 });
-    expect(await debitCredits("t1", 5, db)).toBe(true);
+    expect(await debitCredits("a1", 5, db)).toBe(true);
     expect(calls.updateMany).toBe(1);
   });
   test("returns false when no row matched (insufficient balance)", async () => {
     const { db } = stubDb({ count: 0 });
-    expect(await debitCredits("t1", 5, db)).toBe(false);
+    expect(await debitCredits("a1", 5, db)).toBe(false);
   });
 });
 
-describe("creditTenant", () => {
+describe("creditAccount", () => {
   test("writes a Payment row and increments the balance in one transaction", async () => {
     const { db, calls } = stubDb();
-    await creditTenant(
+    await creditAccount(
       {
-        tenantId: "t1",
+        accountId: "a1",
         amountAtomic: 1_000_000n,
         creditedAmount: 1200,
         mdlnMultiplier: 1.2,
@@ -61,7 +61,7 @@ describe("creditTenant", () => {
       db,
     );
     expect(calls.paymentCreate).toBe(1);
-    expect(calls.tenantUpdate).toBe(1);
+    expect(calls.accountUpdate).toBe(1);
     expect(calls.txOps).toBe(2);
   });
 });

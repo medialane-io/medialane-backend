@@ -5,7 +5,7 @@ import portal from "./portal.js";
 function app() {
   const a = new Hono();
   a.use("*", async (c, next) => {
-    c.set("tenant", { id: "t1", name: "n", email: "e@x", plan: "PREMIUM", status: "ACTIVE" } as never);
+    c.set("account", { id: "a1", plan: "PREMIUM", status: "ACTIVE", creditBalance: 0 });
     await next();
   });
   a.route("/", portal);
