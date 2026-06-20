@@ -30,6 +30,10 @@ const KEY_SELECT = {
   tenant: {
     select: { id: true, name: true, email: true, plan: true, status: true },
   },
+  // The billing identity (07-identity §III) — credits + plan live here now.
+  account: {
+    select: { id: true, plan: true, status: true, creditBalance: true },
+  },
 } as const;
 
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -57,7 +61,14 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     select: KEY_SELECT,
   });
 
-  if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
+  // Key is valid only if active AND bound to an active Account. The Account is the
+  // billing identity (07 §III) — every key has one post-cutover (deploy-chain
+  // backfill guarantees it). A still-present Tenant link is checked when set, but
+  // is no longer required (account-native keys have none).
+  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.account || apiKey.account.status !== "ACTIVE") {
+    return c.json({ error: "Invalid or revoked API key" }, 401);
+  }
+  if (apiKey.tenant && apiKey.tenant.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
 
@@ -66,8 +77,10 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     .update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } })
     .catch((err) => log.warn({ err }, "Failed to update lastUsedAt"));
 
-  c.set("apiKey", apiKey);
-  c.set("tenant", apiKey.tenant);
+  // account is non-null past the guard above; override the nullable select type.
+  c.set("apiKey", { ...apiKey, account: apiKey.account });
+  c.set("account", apiKey.account);
+  if (apiKey.tenant) c.set("tenant", apiKey.tenant);
 
   await next();
 };

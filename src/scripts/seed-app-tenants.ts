@@ -12,6 +12,16 @@
  * so the plaintext is printed once on creation — capture it into that app's env).
  *
  *   bun run seed-app-tenants
+ *
+ * NOTE (tenant→account cutover): credits + keys are now Account state (07 §III).
+ * The deploy-chain backfill (`backfill-tenant-to-account`) maps each app tenant to
+ * a wallet-less ORGANIZATION Account and re-points its keys/credits — so the app
+ * keys this script already created keep working and bill the Account. This script
+ * still writes Tenant rows (it only mints a key when none exists, so it won't
+ * create un-authenticatable tenant-only keys for already-seeded apps); the
+ * Tenant top-up below no longer feeds billing. Account top-ups go through
+ * `POST /admin/accounts/:id/credits/grant`. Full account-native rewrite of this
+ * script is a Phase D follow-up (when the Tenant model is dropped).
  */
 import prisma from "../db/client.js";
 import { generateApiKey } from "../utils/apiKey.js";

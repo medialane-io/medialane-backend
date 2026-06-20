@@ -1,4 +1,4 @@
-import type { ApiKeyStatus, TenantPlan, TenantStatus } from "@prisma/client";
+import type { ApiKeyStatus, TenantPlan, TenantStatus, Plan, AccountStatus } from "@prisma/client";
 
 /**
  * The exact selected shapes `apiKeyAuth` puts on the context (KEY_SELECT) —
@@ -13,12 +13,24 @@ export type AuthedTenant = {
   plan: TenantPlan;
   status: TenantStatus;
 };
+/**
+ * The billing identity (07-identity §III) — API keys + credits are Account state.
+ * Resolved from `ApiKey.accountId`; the debit target for metering.
+ */
+export type AuthedAccount = {
+  id: string;
+  plan: Plan;
+  status: AccountStatus;
+  creditBalance: number;
+};
 export type AuthedApiKey = {
   id: string;
   status: ApiKeyStatus;
   monthlyRequestCount: number;
   monthlyResetAt: Date;
-  tenant: AuthedTenant;
+  /** Legacy scoping link — null for account-native keys; removed in Phase D. */
+  tenant: AuthedTenant | null;
+  account: AuthedAccount;
 };
 
 /**
@@ -30,7 +42,10 @@ export type AuthedApiKey = {
  */
 export type AppVariables = {
   requestId: string;
-  tenant: AuthedTenant;
+  /** Billing identity (07 §III) — always present on /v1/* after apiKeyAuth. */
+  account: AuthedAccount;
+  /** Legacy scoping (intents/claims). Present for tenant-backed keys; null-safe consumers only. Removed in Phase D. */
+  tenant?: AuthedTenant;
   apiKey: AuthedApiKey;
   walletAddress?: string;
   clerkUserId?: string;

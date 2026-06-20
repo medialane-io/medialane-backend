@@ -4,7 +4,7 @@ import prismaDefault from "../db/client.js";
 // inject a stub instead of globally mocking the db module (which bun's
 // process-global mock.module would leak across test files).
 export interface CreditsDb {
-  tenant: {
+  account: {
     updateMany(args: unknown): Promise<{ count: number }>;
     update(args: unknown): Promise<unknown>;
   };
@@ -13,24 +13,25 @@ export interface CreditsDb {
 }
 
 /**
- * Atomic spend: decrement only if the balance covers `cost`. Returns true if a
- * row was updated (paid), false if insufficient. Concurrency-safe — the WHERE
- * clause makes the check-and-decrement a single DB operation.
+ * Atomic spend against the Account's credit balance (07-identity §III): decrement
+ * only if the balance covers `cost`. Returns true if a row was updated (paid),
+ * false if insufficient. Concurrency-safe — the WHERE clause makes the
+ * check-and-decrement a single DB operation.
  */
 export async function debitCredits(
-  tenantId: string,
+  accountId: string,
   cost: number,
   db: CreditsDb = prismaDefault as unknown as CreditsDb,
 ): Promise<boolean> {
-  const res = await db.tenant.updateMany({
-    where: { id: tenantId, creditBalance: { gte: cost } },
+  const res = await db.account.updateMany({
+    where: { id: accountId, creditBalance: { gte: cost } },
     data: { creditBalance: { decrement: cost } },
   });
   return res.count > 0;
 }
 
 export interface CreditInput {
-  tenantId: string;
+  accountId: string;
   amountAtomic: bigint; // USDC atomic units paid
   creditedAmount: number; // credits granted (post-multiplier)
   mdlnMultiplier: number;
@@ -42,18 +43,18 @@ export interface CreditInput {
 }
 
 /**
- * Record the payment and grant credits atomically. The unique `proofNonce`
- * makes a replayed proof throw on the Payment insert, so credits are never
- * double-granted; callers treat a unique-violation as "already credited".
+ * Record the payment and grant credits to the Account atomically. The unique
+ * `proofNonce` makes a replayed proof throw on the Payment insert, so credits are
+ * never double-granted; callers treat a unique-violation as "already credited".
  */
-export async function creditTenant(
+export async function creditAccount(
   input: CreditInput,
   db: CreditsDb = prismaDefault as unknown as CreditsDb,
 ): Promise<void> {
   await db.$transaction([
     db.payment.create({
       data: {
-        tenantId: input.tenantId,
+        accountId: input.accountId,
         scheme: input.scheme,
         network: input.network,
         asset: input.asset,
@@ -65,8 +66,8 @@ export async function creditTenant(
         proofNonce: input.proofNonce,
       },
     }),
-    db.tenant.update({
-      where: { id: input.tenantId },
+    db.account.update({
+      where: { id: input.accountId },
       data: { creditBalance: { increment: input.creditedAmount } },
     }),
   ]);

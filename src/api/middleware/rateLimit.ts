@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import type { TenantPlan } from "@prisma/client";
+import type { Plan } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
@@ -70,7 +70,7 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
       return;
     }
 
-    const plan: TenantPlan = apiKey.tenant.plan;
+    const plan: Plan = apiKey.account.plan;
 
     if (plan === "FREE") {
       const now = new Date();

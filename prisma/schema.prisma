@@ -495,8 +495,8 @@ model Tenant {
 
 model ApiKey {
   id                  String       @id @default(cuid())
-  tenantId            String
-  tenant              Tenant       @relation(fields: [tenantId], references: [id])
+  tenantId            String?
+  tenant              Tenant?      @relation(fields: [tenantId], references: [id])
   accountId           String?
   account             Account?     @relation(fields: [accountId], references: [id], onDelete: Cascade)
   prefix              String
@@ -522,8 +522,8 @@ model ApiKey {
 
 model WebhookEndpoint {
   id         String                @id @default(cuid())
-  tenantId   String
-  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  tenantId   String?
+  tenant     Tenant?               @relation(fields: [tenantId], references: [id])
   accountId  String?
   account    Account?              @relation(fields: [accountId], references: [id], onDelete: Cascade)
   url        String
@@ -915,8 +915,8 @@ model ServiceContract {
 /// never double-granted.
 model Payment {
   id             String        @id @default(cuid())
-  tenantId       String
-  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  tenantId       String?
+  tenant         Tenant?       @relation(fields: [tenantId], references: [id])
   accountId      String?
   account        Account?      @relation(fields: [accountId], references: [id], onDelete: Cascade)
   scheme         String // "starknet-transfer"

@@ -29,6 +29,7 @@ import { registerClaimRoutes } from "./claims.js";
 import { registerMarketplaceOpsRoutes } from "./marketplace-ops.js";
 import { registerModerationRoutes } from "./moderation.js";
 import { registerServicesRoutes } from "./services.js";
+import { registerAccountRoutes } from "./accounts.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -52,6 +53,7 @@ admin.use("*", async (c, next) => {
 
 // Domain route registrars — same `admin` instance, original registration order.
 registerTenantRoutes(admin);
+registerAccountRoutes(admin);
 registerCollectionRoutes(admin);
 registerClaimRoutes(admin);
 registerMarketplaceOpsRoutes(admin);

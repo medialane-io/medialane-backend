@@ -42,7 +42,7 @@ describe("settlePayment", () => {
   test("verifies, applies MDLN multiplier, and credits", async () => {
     const credited: CreditInput[] = [];
     const deps = {
-      creditTenant: async (input: CreditInput) => {
+      creditAccount: async (input: CreditInput) => {
         credited.push(input);
       },
       mdlnMultiplier: async () => 1.2,
