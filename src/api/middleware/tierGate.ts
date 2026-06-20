@@ -1,25 +1,25 @@
 import type { MiddlewareHandler } from "hono";
-import type { Plan } from "@prisma/client";
+import type { TenantPlan } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
 
-const PLAN_RANK: Record<Plan, number> = {
+const PLAN_RANK: Record<TenantPlan, number> = {
   FREE: 0,
   PREMIUM: 1,
 };
 
 /**
- * Returns middleware that rejects requests from accounts below `minPlan`.
- * Plan is Account state (07-identity §III). Must be placed after apiKeyAuth.
+ * Returns middleware that rejects requests from tenants below `minPlan`.
+ * Must be placed after apiKeyAuth.
  */
-export function requirePlan(minPlan: Plan): MiddlewareHandler<AppEnv> {
+export function requirePlan(minPlan: TenantPlan): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const account = c.get("account");
+    const tenant = c.get("tenant");
 
-    if (!account) {
+    if (!tenant) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    if ((PLAN_RANK[account.plan] ?? 0) < PLAN_RANK[minPlan]) {
+    if ((PLAN_RANK[tenant.plan] ?? 0) < PLAN_RANK[minPlan]) {
       return c.json(
         { error: "Upgrade required", requiredPlan: minPlan },
         403

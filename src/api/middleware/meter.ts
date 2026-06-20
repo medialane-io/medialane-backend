@@ -32,8 +32,8 @@ export function meter(deps: MeterDeps = {
     const cost = costForRequest(c.req.method, c.req.path);
     if (cost === null) return next(); // unmetered route
 
-    const account = c.get("account");
-    if (!account) return c.json({ error: "Unauthorized" }, 401);
+    const tenant = c.get("tenant");
+    if (!tenant) return c.json({ error: "Unauthorized" }, 401);
 
     // If the agent supplied a payment, settle it first so the debit can succeed.
     const header = c.req.header("x-payment");
@@ -41,7 +41,7 @@ export function meter(deps: MeterDeps = {
       const payload = decodePaymentHeader(header);
       const scheme = payload && SCHEMES.find((s) => s.scheme === payload.scheme && s.network === payload.network);
       if (payload && scheme) {
-        const settled = await settlePayment(scheme, account.id, payload);
+        const settled = await settlePayment(scheme, tenant.id, payload);
         if (!settled.ok) {
           c.header("X-Credits-Remaining", "0");
           return c.json(
@@ -61,7 +61,7 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const paid = await debitCredits(account.id, cost);
+    const paid = await debitCredits(tenant.id, cost);
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
@@ -71,7 +71,7 @@ export function meter(deps: MeterDeps = {
     }
 
     c.header("X-Credits-Remaining", "deducted"); // exact remaining is read via /v1/portal/me
-    log.debug({ account: account.id, cost, path: c.req.path }, "metered");
+    log.debug({ tenant: tenant.id, cost, path: c.req.path }, "metered");
     return next();
   };
 }

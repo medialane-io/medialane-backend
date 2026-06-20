@@ -10,6 +10,5 @@
 process.env.DATABASE_URL ??= "postgresql://test:test@localhost:5432/test";
 process.env.ALCHEMY_RPC_URL ??= "https://rpc.test.invalid/v0_8";
 process.env.API_SECRET_KEY ??= "test-api-secret-key-0123456789";
-process.env.PORTAL_SERVICE_SECRET ??= "test-portal-service-secret-0123456789";
 process.env.HMAC_KEY ??= "test-hmac-key-must-be-at-least-32-characters-long";
 process.env.SIWS_SECRET ??= "test-siws-secret-must-be-at-least-32-characters-long";

@@ -1,13 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { x402Config } from "../config/x402.js";
-import { creditAccount as defaultCreditAccount } from "./credits.js";
+import { creditTenant as defaultCreditTenant } from "./credits.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "./mdln.js";
 import type { CreditInput } from "./credits.js";
 import type { PaymentRequirement, PaymentScheme, X402Payload } from "./schemes/types.js";
 
 /** Injectable collaborators — tests pass stubs instead of mocking modules. */
 export interface SettleDeps {
-  creditAccount: (input: CreditInput) => Promise<void>;
+  creditTenant: (input: CreditInput) => Promise<void>;
   mdlnMultiplier: (address: string) => Promise<number>;
 }
 
@@ -69,9 +69,9 @@ export interface SettleResult {
  */
 export async function settlePayment(
   scheme: PaymentScheme,
-  accountId: string,
+  tenantId: string,
   payload: X402Payload,
-  deps: SettleDeps = { creditAccount: defaultCreditAccount, mdlnMultiplier: defaultMdlnMultiplier },
+  deps: SettleDeps = { creditTenant: defaultCreditTenant, mdlnMultiplier: defaultMdlnMultiplier },
 ): Promise<SettleResult> {
   const v = await scheme.verify(payload);
   if (!v.ok || v.amountAtomic === undefined || !v.proofNonce) {
@@ -85,8 +85,8 @@ export async function settlePayment(
   const creditedAmount = Math.floor(baseCredits * multiplier);
 
   try {
-    await deps.creditAccount({
-      accountId,
+    await deps.creditTenant({
+      tenantId,
       amountAtomic: v.amountAtomic,
       creditedAmount,
       mdlnMultiplier: multiplier,

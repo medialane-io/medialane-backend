@@ -16,7 +16,6 @@
     "reset-cursor": "bun run scripts/resetCursor.ts",
     "seed-rewards": "bun run src/scripts/seed-rewards.ts",
     "seed-app-tenants": "bun run src/scripts/seed-app-tenants.ts",
-    "backfill-tenant-to-account": "bun run src/scripts/backfill-tenant-to-account.ts",
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",

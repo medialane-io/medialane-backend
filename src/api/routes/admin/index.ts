@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { adminOrPortalAccountAuth } from "../../middleware/adminSecretAuth.js";
+import { authMiddleware } from "../../middleware/adminSecretAuth.js";
 import prisma from "../../../db/client.js";
 import { generateApiKey } from "../../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../../orchestrator/metadata.js";
@@ -29,7 +29,6 @@ import { registerClaimRoutes } from "./claims.js";
 import { registerMarketplaceOpsRoutes } from "./marketplace-ops.js";
 import { registerModerationRoutes } from "./moderation.js";
 import { registerServicesRoutes } from "./services.js";
-import { registerAccountRoutes } from "./accounts.js";
 
 const log = createLogger("routes:admin");
 const admin = new Hono();
@@ -39,10 +38,8 @@ const adminRateLimitStore = new InMemoryRateLimitStore();
 const ADMIN_RATE_LIMIT = 20;
 const ADMIN_WINDOW_MS = 60_000;
 
-// All admin routes require the admin secret + IP-based rate limit. The account
-// routes (/admin/accounts/*) additionally accept the scoped PORTAL_SERVICE_SECRET;
-// every other admin route still requires the master key.
-admin.use("*", adminOrPortalAccountAuth);
+// All admin routes require the admin secret + IP-based rate limit
+admin.use("*", authMiddleware);
 admin.use("*", async (c, next) => {
   const ip = getClientIp(c);
   const { count, resetAt } = await adminRateLimitStore.increment(`admin:${ip}`, ADMIN_WINDOW_MS);
@@ -55,7 +52,6 @@ admin.use("*", async (c, next) => {
 
 // Domain route registrars — same `admin` instance, original registration order.
 registerTenantRoutes(admin);
-registerAccountRoutes(admin);
 registerCollectionRoutes(admin);
 registerClaimRoutes(admin);
 registerMarketplaceOpsRoutes(admin);

@@ -29,7 +29,7 @@ describe("x402 end-to-end", () => {
 
     const app = new Hono();
     app.use("*", async (c, next) => {
-      c.set("account", { id: "a1", plan: "FREE", status: "ACTIVE", creditBalance: 0 });
+      c.set("tenant", { id: "t1" } as never);
       await next();
     });
     app.use("/v1/*", meter(deps));

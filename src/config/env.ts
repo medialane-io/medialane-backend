@@ -68,11 +68,6 @@ const envSchema = z.object({
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
   API_SECRET_KEY: z.string().min(16),
-  // Account-scoped service secret for the developer portal. Valid ONLY on
-  // /admin/accounts/* (not the full admin surface) — so the portal never holds
-  // the master API_SECRET_KEY. Optional: when unset, the portal falls back to
-  // the master key (the account routes always accept the master too).
-  PORTAL_SERVICE_SECRET: z.string().min(16).optional(),
   // API keys are hashed with HMAC-SHA256(key, HMAC_KEY) before storage and
   // lookup. Required — without it the backend cannot authenticate any key.
   // The legacy plain-SHA-256 fallback was removed 2026-05-24 after all

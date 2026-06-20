@@ -13,43 +13,18 @@ import type { MiddlewareHandler } from "hono";
 import { env } from "../../config/env.js";
 import type { AppEnv } from "../../types/hono.js";
 
-/** Timing-safe equality. Length mismatch is an acceptable early reject (the
- *  secret's length is not itself sensitive). */
-function secretMatches(presented: string, secret: string | undefined): boolean {
-  if (!secret) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   const apiKey = c.req.header("x-api-key") ?? "";
-  if (!secretMatches(apiKey, env.API_SECRET_KEY)) {
+  const secretBuf = Buffer.from(env.API_SECRET_KEY);
+  const keyBuf = Buffer.from(apiKey);
+  // Lengths must match for timingSafeEqual — early reject on mismatch is acceptable
+  // here because the secret length is not itself sensitive information.
+  if (
+    secretBuf.length !== keyBuf.length ||
+    !timingSafeEqual(secretBuf, keyBuf)
+  ) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   c.set("isAdmin", true);
   await next();
-};
-
-/**
- * Admin auth that ALSO accepts the account-scoped `PORTAL_SERVICE_SECRET` — but
- * only on `/admin/accounts/*`. Everywhere else this behaves exactly like
- * `authMiddleware` (master key only). Lets the developer portal hold a key that
- * can manage per-account keys/credits without holding the full admin master key.
- */
-export const adminOrPortalAccountAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const apiKey = c.req.header("x-api-key") ?? "";
-
-  if (secretMatches(apiKey, env.API_SECRET_KEY)) {
-    c.set("isAdmin", true);
-    return next();
-  }
-
-  const isAccountRoute = c.req.path.startsWith("/admin/accounts");
-  if (isAccountRoute && secretMatches(apiKey, env.PORTAL_SERVICE_SECRET)) {
-    // Scoped service caller — NOT a full admin; only the account routes accept it.
-    return next();
-  }
-
-  return c.json({ error: "Unauthorized" }, 401);
 };

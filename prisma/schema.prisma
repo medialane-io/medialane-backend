@@ -495,10 +495,8 @@ model Tenant {
 
 model ApiKey {
   id                  String       @id @default(cuid())
-  tenantId            String?
-  tenant              Tenant?      @relation(fields: [tenantId], references: [id])
-  accountId           String?
-  account             Account?     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tenantId            String
+  tenant              Tenant       @relation(fields: [tenantId], references: [id])
   prefix              String
   keyHash             String       @unique
   label               String       @default("")
@@ -515,17 +513,14 @@ model ApiKey {
   updatedAt           DateTime     @updatedAt
 
   @@index([tenantId])
-  @@index([accountId])
   @@index([status])
   @@index([appSource])
 }
 
 model WebhookEndpoint {
   id         String                @id @default(cuid())
-  tenantId   String?
-  tenant     Tenant?               @relation(fields: [tenantId], references: [id])
-  accountId  String?
-  account    Account?              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tenantId   String
+  tenant     Tenant                @relation(fields: [tenantId], references: [id])
   url        String
   secret     String
   events     WebhookEventType[]
@@ -535,7 +530,6 @@ model WebhookEndpoint {
   updatedAt  DateTime              @updatedAt
 
   @@index([tenantId])
-  @@index([accountId])
   @@index([status])
 }
 
@@ -640,18 +634,6 @@ enum AccountRole {
   PARTNER
 }
 
-// Billing plan + status for an Account (07-identity §III). Replaces TenantPlan/
-// TenantStatus, which are dropped with the Tenant model in the cutover phase.
-enum Plan {
-  FREE
-  PREMIUM
-}
-
-enum AccountStatus {
-  ACTIVE
-  SUSPENDED
-}
-
 model Account {
   id        String        @id @default(cuid())
   publicId  String        @unique
@@ -660,17 +642,8 @@ model Account {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  // Billing/metering state — API keys + credits are platform-layer Account
-  // state (07-identity §III). Collapses the former separate Tenant model.
-  plan          Plan          @default(FREE)
-  status        AccountStatus @default(ACTIVE)
-  creditBalance Int           @default(0)
-
   identities Identity[]
   profile    AccountProfile?
-  apiKeys    ApiKey[]
-  webhooks   WebhookEndpoint[]
-  payments   Payment[]
 
   @@index([type])
   @@index([createdAt])
@@ -915,10 +888,8 @@ model ServiceContract {
 /// never double-granted.
 model Payment {
   id             String        @id @default(cuid())
-  tenantId       String?
-  tenant         Tenant?       @relation(fields: [tenantId], references: [id])
-  accountId      String?
-  account        Account?      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
   scheme         String // "starknet-transfer"
   network        String // "starknet"
   asset          String // USDC contract
@@ -931,7 +902,6 @@ model Payment {
   createdAt      DateTime      @default(now())
 
   @@index([tenantId])
-  @@index([accountId])
 }
 
 enum PaymentStatus {

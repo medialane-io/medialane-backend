@@ -15,7 +15,7 @@ function deps(over: Partial<MeterDeps> = {}): MeterDeps {
 function app(d: MeterDeps) {
   const a = new Hono();
   a.use("*", async (c, next) => {
-    c.set("account", { id: "a1", plan: "FREE", status: "ACTIVE", creditBalance: 100 });
+    c.set("tenant", { id: "t1" } as never);
     await next();
   });
   a.use("/v1/*", meter(d));

@@ -32,18 +32,13 @@ async function xApiKeyAuth(c: any, next: any) {
     monthlyRequestCount: true,
     monthlyResetAt: true,
     tenant: { select: { id: true, name: true, email: true, plan: true, status: true } },
-    account: { select: { id: true, plan: true, status: true, creditBalance: true } },
   };
   const apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(raw) }, select: KEY_SELECT });
-  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.account || apiKey.account.status !== "ACTIVE") {
-    return c.json({ error: "Invalid or revoked API key" }, 401);
-  }
-  if (apiKey.tenant && apiKey.tenant.status !== "ACTIVE") {
+  if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.tenant.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
   c.set("apiKey", apiKey);
-  c.set("account", apiKey.account);
-  if (apiKey.tenant) c.set("tenant", apiKey.tenant);
+  c.set("tenant", apiKey.tenant);
   // Fire-and-forget lastUsedAt update — match apiKeyAuth.ts convention
   prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
   await next();
