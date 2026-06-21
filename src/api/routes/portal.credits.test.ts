@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import type { AppEnv } from "../../types/hono.js";
 import portal from "./portal.js";
 
 function app() {
-  const a = new Hono();
+  const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "a1", plan: "PREMIUM", status: "ACTIVE", creditBalance: 0 });
     await next();
