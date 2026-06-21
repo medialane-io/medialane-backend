@@ -5,7 +5,7 @@
  * Accepts a Bearer token in `Authorization: Bearer <token>` and identifies
  * the caller via one of two providers:
  *   - Clerk JWT (for medialane-io users authenticated via Clerk)
- *   - SIWS (Sign-In With Starknet) token (for medialane-dapp users)
+ *   - SIWS (Sign-In With Starknet) token (for medialane-starknet users)
  *
  * The verified identity (wallet address + provider) is stamped onto the Hono
  * context as `identity` for the route handler to read. Apply after
@@ -41,7 +41,7 @@ function getClerk() {
  *   Sets walletAddress + clerkUserId.
  *
  * Path 2 — SIWS token  (Authorization: Bearer siws_...)
- *   Used by medialane-dapp, medialane-portal, AI agents.
+ *   Used by medialane-starknet, medialane-portal, AI agents.
  *   Verified locally via HMAC — no DB, no RPC call.
  *   Sets walletAddress only.
  */
