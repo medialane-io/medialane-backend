@@ -38,7 +38,7 @@ const envSchema = z.object({
     .default("0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077"),
   COLLECTION_721_CONTRACT_MAINNET: z
     .string()
-    .default("0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2"),
+    .default("0x0558c9b6ea4d403df6d765fb77be55702c572f0a811f037c6c4209fe1e5aeef2"), // MIP v0.4.0
   COMMENTS_CONTRACT_ADDRESS: z.string().default("0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799"),
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_FACTORY_ADDRESS: z.string().default(""),
@@ -63,7 +63,7 @@ const envSchema = z.object({
     .default("0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(50000),
-  COLLECTION_721_START_BLOCK: z.coerce.number().default(10046166),
+  COLLECTION_721_START_BLOCK: z.coerce.number().default(11002817), // MIP v0.4.0 deploy block
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),

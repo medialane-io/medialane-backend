@@ -82,6 +82,8 @@ export interface MintIntentBody {
   collectionId: string;
   recipient: string;
   tokenUri: string;
+  /** EIP-2981 royalty in bps (0–10_000), receiver = creator. Defaults to 0 if omitted. */
+  royaltyBps?: number;
   /** Optional: override the default collection contract address */
   collectionContract?: string;
 }
