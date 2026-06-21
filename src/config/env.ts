@@ -81,7 +81,7 @@ const envSchema = z.object({
   SIWS_SECRET: z.string().min(32),
   CORS_ORIGINS: z
     .string()
-    .default("https://medialane.io,https://www.medialane.io,https://dapp.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
+    .default("https://medialane.io,https://www.medialane.io,https://starknet.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(10000),
   INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(500),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(120_000),

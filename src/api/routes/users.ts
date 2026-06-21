@@ -87,7 +87,7 @@ users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json
 /**
  * POST /v1/users/me
  * Upsert the JWT-authenticated caller's account.
- * Works with both Clerk JWT (medialane-io) and SIWS token (medialane-dapp).
+ * Works with both Clerk JWT (medialane-io) and SIWS token (medialane-starknet).
  */
 users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
