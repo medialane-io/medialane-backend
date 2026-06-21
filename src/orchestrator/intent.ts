@@ -460,11 +460,13 @@ export async function buildMintIntent(body: MintIntentBody) {
     throw new Error(`Address ${body.owner} is not the owner of collection ${body.collectionId}`);
   }
 
+  // mint(collection_id: u256, recipient, token_uri: ByteArray, royalty_bps: u128) — MIP v0.4.0
   const calldata = [
     id.low.toString(),
     id.high.toString(),
     normalizeAddress("STARKNET", body.recipient),
     ...encodeByteArray(body.tokenUri),
+    (body.royaltyBps ?? 0).toString(),
   ];
   return { calls: [{ contractAddress: contract, entrypoint: "mint", calldata }] };
 }

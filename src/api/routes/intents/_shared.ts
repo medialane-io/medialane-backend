@@ -49,6 +49,9 @@ export const mintSchema = z.object({
   collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string"),
   recipient: starknetAddress,
   tokenUri: z.string().min(1),
+  // EIP-2981 royalty (bps, 0–10_000), receiver = creator. Optional for back-compat with
+  // pre-v0.4.0 app bundles (defaults to 0 = no royalty); the app caps input at 50% (5000).
+  royaltyBps: z.number().int().min(0).max(10000).optional().default(0),
   collectionContract: starknetAddress.optional(),
 });
 
