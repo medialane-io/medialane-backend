@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import type { AppEnv } from "../../types/hono.js";
 import { meter, type MeterDeps } from "./meter.js";
 
 // Stub deps — no module mocking, so nothing leaks across test files.
@@ -13,7 +14,7 @@ function deps(over: Partial<MeterDeps> = {}): MeterDeps {
 }
 
 function app(d: MeterDeps) {
-  const a = new Hono();
+  const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "a1", plan: "FREE", status: "ACTIVE", creditBalance: 100 });
     await next();

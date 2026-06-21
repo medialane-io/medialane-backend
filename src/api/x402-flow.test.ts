@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import type { AppEnv } from "../types/hono.js";
 import { meter, type MeterDeps } from "./middleware/meter.js";
 import { encodePaymentHeader } from "../payments/x402.js";
 
@@ -27,7 +28,7 @@ describe("x402 end-to-end", () => {
       },
     };
 
-    const app = new Hono();
+    const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => {
       c.set("account", { id: "a1", plan: "FREE", status: "ACTIVE", creditBalance: 0 });
       await next();

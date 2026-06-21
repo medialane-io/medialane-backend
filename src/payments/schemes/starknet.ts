@@ -28,20 +28,20 @@ export function parseUsdcTransfer(
   if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
     return { ok: false, reason: "transaction reverted" };
   }
-  const usdc = normalizeAddress(params.usdc);
-  const treasury = normalizeAddress(params.treasury);
+  const usdc = normalizeAddress("STARKNET", params.usdc);
+  const treasury = normalizeAddress("STARKNET", params.treasury);
   for (const ev of receipt.events ?? []) {
-    if (normalizeAddress(ev.from_address) !== usdc) continue;
+    if (normalizeAddress("STARKNET", ev.from_address) !== usdc) continue;
     if (ev.keys[0] !== TRANSFER_KEY) continue;
     // keys: [Transfer, from, to]; data: [amount_low, amount_high].
     const from = ev.keys[1];
     const to = ev.keys[2];
-    if (!to || normalizeAddress(to) !== treasury) continue;
+    if (!to || normalizeAddress("STARKNET", to) !== treasury) continue;
     const amount = u256FromLowHigh(ev.data[0], ev.data[1]);
     return {
       ok: true,
       amountAtomic: amount,
-      payer: from ? normalizeAddress(from) : undefined,
+      payer: from ? normalizeAddress("STARKNET", from) : undefined,
       // Dedup key = the on-chain tx alone, so one USDC transfer credits exactly
       // once regardless of path (agent X-PAYMENT vs portal fund endpoint). The
       // 402 `nonce` still binds the challenge but must NOT widen this key.
