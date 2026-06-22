@@ -73,6 +73,11 @@ const envSchema = z.object({
   // the master API_SECRET_KEY. Optional: when unset, the portal falls back to
   // the master key (the account routes always accept the master too).
   PORTAL_SERVICE_SECRET: z.string().min(16).optional(),
+  // Admin allowlist for signed-request auth (adminSignatureAuth): comma-separated
+  // Starknet wallet addresses. Only ever checked AFTER the wallet signature is
+  // verified, so the allowlist is unforgeable. The single seam to later swap for
+  // an on-chain admin role read.
+  ADMIN_ADDRESSES: z.string().optional(),
   // API keys are hashed with HMAC-SHA256(key, HMAC_KEY) before storage and
   // lookup. Required — without it the backend cannot authenticate any key.
   // The legacy plain-SHA-256 fallback was removed 2026-05-24 after all

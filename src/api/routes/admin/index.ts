@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { adminOrPortalAccountAuth } from "../../middleware/adminSecretAuth.js";
+import { adminAuth } from "../../middleware/adminAuth.js";
 import prisma from "../../../db/client.js";
 import { generateApiKey } from "../../../utils/apiKey.js";
 import { handleMetadataFetch } from "../../../orchestrator/metadata.js";
@@ -39,10 +39,11 @@ const adminRateLimitStore = new InMemoryRateLimitStore();
 const ADMIN_RATE_LIMIT = 20;
 const ADMIN_WINDOW_MS = 60_000;
 
-// All admin routes require the admin secret + IP-based rate limit. The account
-// routes (/admin/accounts/*) additionally accept the scoped PORTAL_SERVICE_SECRET;
-// every other admin route still requires the master key.
-admin.use("*", adminOrPortalAccountAuth);
+// All admin routes require admin auth + IP-based rate limit. adminAuth accepts
+// EITHER signed-request auth (x-ml-admin-* headers; browsers/agents) OR the
+// master key / scoped PORTAL_SERVICE_SECRET (CLI/scripts; the latter only on
+// /admin/accounts/*). Server-to-server callers are unchanged.
+admin.use("*", adminAuth);
 admin.use("*", async (c, next) => {
   const ip = getClientIp(c);
   const { count, resetAt } = await adminRateLimitStore.increment(`admin:${ip}`, ADMIN_WINDOW_MS);

@@ -938,3 +938,14 @@ enum PaymentStatus {
   SETTLED
   FAILED
 }
+
+// Single-use nonces for admin signed-request auth (adminSignatureAuth replay
+// guard). Short-lived (bounded by the request timestamp skew window); expired
+// rows are swept opportunistically. See
+// medialane-core/docs/specs/2026-06-22-portal-admin-signed-request-auth-design.md.
+model AdminAuthNonce {
+  nonce     String   @id
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

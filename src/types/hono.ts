@@ -50,6 +50,9 @@ export type AppVariables = {
   walletAddress?: string;
   clerkUserId?: string;
   isAdmin?: boolean;
+  /** Admin wallet from adminSignatureAuth — set when the signed-request path
+   *  authorizes a request (attribution/audit). Absent on the master-key path. */
+  adminWallet?: string;
 };
 
 /**
