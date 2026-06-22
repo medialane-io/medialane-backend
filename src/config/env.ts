@@ -77,7 +77,7 @@ const envSchema = z.object({
   // Starknet wallet addresses. Only ever checked AFTER the wallet signature is
   // verified, so the allowlist is unforgeable. The single seam to later swap for
   // an on-chain admin role read.
-  ADMIN_ADDRESSES: z.string().optional(),
+  STARKNET_ADMIN_ADDRESSES: z.string().optional(),
   // API keys are hashed with HMAC-SHA256(key, HMAC_KEY) before storage and
   // lookup. Required — without it the backend cannot authenticate any key.
   // The legacy plain-SHA-256 fallback was removed 2026-05-24 after all
