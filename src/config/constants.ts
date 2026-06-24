@@ -1,12 +1,16 @@
 import { hash } from "starknet";
 import type { Chain } from "@prisma/client";
+import { getCoordinates } from "@medialane/sdk";
 import { env } from "./env.js";
 
-// Per-chain coordinates (spec 2026-06-13 §3.1). The backend reads several
-// chains, so it keeps env-driven coordinates grouped per chain rather than a
-// single chain-scoped SDK client. Only STARKNET is populated today; adding a
-// chain adds an entry here. Each field prefers the chain-named env var and
-// falls back to the legacy flat var so existing Railway env keeps working.
+// The SDK chain registry (getCoordinates) is the single source of every
+// protocol address (spec 2026-06-13 §3.1). The chain-named env vars are
+// optional ops overrides — unset/empty falls back to the SDK value. (Hardcoded
+// env defaults are how the stale COMMENTS address drifted from the SDK and
+// caused the 2026-05-17 comments outage — audit Finding 7.) Only STARKNET is
+// populated today; adding a chain reads getCoordinates(<chain>) the same way.
+const SN = getCoordinates("STARKNET");
+
 interface BackendChainCoords {
   rpcUrl: string;
   marketplace721: string;
@@ -18,10 +22,10 @@ interface BackendChainCoords {
 export const CHAIN_COORDS: Partial<Record<Chain, BackendChainCoords>> = {
   STARKNET: {
     rpcUrl: env.STARKNET_RPC_URL ?? env.ALCHEMY_RPC_URL,
-    marketplace721: env.STARKNET_MARKETPLACE_721 ?? env.MARKETPLACE_721_CONTRACT_MAINNET,
-    marketplace1155: env.STARKNET_MARKETPLACE_1155 ?? env.MARKETPLACE_1155_CONTRACT_MAINNET,
-    collection721: env.STARKNET_COLLECTION_721 ?? env.COLLECTION_721_CONTRACT_MAINNET,
-    collection1155: env.STARKNET_COLLECTION_1155 ?? env.COLLECTION_1155_CONTRACT_MAINNET,
+    marketplace721: env.STARKNET_MARKETPLACE_721 || SN.marketplace721!,
+    marketplace1155: env.STARKNET_MARKETPLACE_1155 || SN.marketplace1155!,
+    collection721: env.STARKNET_COLLECTION_721 || SN.collection721!,
+    collection1155: env.STARKNET_COLLECTION_1155 || SN.collection1155!,
   },
 };
 
@@ -54,13 +58,13 @@ export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
 export const TRANSFER_SINGLE_SELECTOR = hash.getSelectorFromName("TransferSingle");
 export const TRANSFER_BATCH_SELECTOR = hash.getSelectorFromName("TransferBatch");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
-export const COMMENTS_CONTRACT = env.COMMENTS_CONTRACT_ADDRESS;
+export const COMMENTS_CONTRACT = env.COMMENTS_CONTRACT_ADDRESS || SN.nftComments!;
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
-export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS;
+export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS || SN.popFactory!;
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
-export const DROP_FACTORY_CONTRACT = env.DROP_FACTORY_ADDRESS;
+export const DROP_FACTORY_CONTRACT = env.DROP_FACTORY_ADDRESS || SN.dropFactory!;
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
-export const CREATOR_COIN_FACTORY_CONTRACT = env.CREATOR_COIN_FACTORY_ADDRESS;
+export const CREATOR_COIN_FACTORY_CONTRACT = env.CREATOR_COIN_FACTORY_ADDRESS || SN.creatorCoinFactory!;
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
 export const COLLECTION_1155_CONTRACT = chainCoords("STARKNET").collection1155;
@@ -81,17 +85,13 @@ export const IPFS_GATEWAYS = [
   "https://ipfs.io/ipfs",
 ];
 
-// Chain IDs
+// Chain IDs. Medialane is mainnet-only (no network/Sepolia axis).
 export const CHAIN_IDS = {
-  mainnet:
-    "0x534e5f4d41494e" as const, // SN_MAIN
-  sepolia: "0x534e5f5345504f4c4941" as const, // SN_SEPOLIA
+  mainnet: "0x534e5f4d41494e" as const, // SN_MAIN
 };
 
 export function getChainId(): string {
-  return env.STARKNET_NETWORK === "mainnet"
-    ? CHAIN_IDS.mainnet
-    : CHAIN_IDS.sepolia;
+  return CHAIN_IDS.mainnet;
 }
 
 // Zero address

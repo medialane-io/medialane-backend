@@ -2,7 +2,6 @@ import { z } from "zod";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
-  STARKNET_NETWORK: z.enum(["mainnet", "sepolia"]).default("mainnet"),
   ALCHEMY_RPC_URL: z.string().url(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
   // Chain-named coordinates (preferred — spec 2026-06-13 §3.1). The old
@@ -30,37 +29,23 @@ const envSchema = z.object({
   STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
   CLERK_SECRET_KEY: z.string().default(""),
-  MARKETPLACE_721_CONTRACT_MAINNET: z
-    .string()
-    .default("0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e"),
-  MARKETPLACE_1155_CONTRACT_MAINNET: z
-    .string()
-    .default("0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077"),
-  COLLECTION_721_CONTRACT_MAINNET: z
-    .string()
-    .default("0x0558c9b6ea4d403df6d765fb77be55702c572f0a811f037c6c4209fe1e5aeef2"), // MIP v0.4.0
-  COMMENTS_CONTRACT_ADDRESS: z.string().default("0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799"),
+  // Protocol contract addresses come from the SDK chain registry
+  // (getCoordinates → constants.ts). These optional env vars are ops overrides
+  // only; unset/empty → the SDK value. No hardcoded defaults (that is how the
+  // stale COMMENTS address drifted from the SDK — audit Finding 7).
+  COMMENTS_CONTRACT_ADDRESS: z.string().optional(),
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
-  POP_FACTORY_ADDRESS: z.string().default(""),
+  POP_FACTORY_ADDRESS: z.string().optional(),
   POP_START_BLOCK: z.coerce.number().default(0),
-  DROP_FACTORY_ADDRESS: z.string().default(""),
+  DROP_FACTORY_ADDRESS: z.string().optional(),
   DROP_START_BLOCK: z.coerce.number().default(0),
-  CREATOR_COIN_FACTORY_ADDRESS: z
-    .string()
-    .default("0x50fa807b5274079fb19374673d7bab6d2dc3af7e1032ea43eb6e44bcbde4c3c"),
+  CREATOR_COIN_FACTORY_ADDRESS: z.string().optional(),
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
   // Unruggable (unrug.top) memecoin factory — used to verify external coins via
   // is_memecoin() before adding them as external-erc20.
   UNRUG_FACTORY_ADDRESS: z
     .string()
     .default("0x01a46467a9246f45c8c340f1f155266a26a71c07bd55d36e8d1c7d0d438a2dbc"),
-  // IP-Programmable-ERC1155 factory watched for CollectionDeployed. v0.3.0
-  // (sequential on-chain edition ids) deployed mainnet 2026-06-10. The prior
-  // v0.2.0 factory (0x067064…) is already fully indexed; existing collections'
-  // token indexing is per-collection and unaffected by this switch.
-  COLLECTION_1155_CONTRACT_MAINNET: z
-    .string()
-    .default("0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(50000),
   COLLECTION_721_START_BLOCK: z.coerce.number().default(11002817), // MIP v0.4.0 deploy block
