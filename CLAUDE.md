@@ -590,26 +590,17 @@ Required:
 | `PINATA_GATEWAY` | Pinata gateway hostname |
 | `API_SECRET_KEY` | Min 16 chars, admin auth |
 
-Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK` (default: `9196722`), `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `STARKNET_NETWORK`, `MARKETPLACE_721_CONTRACT_MAINNET`, `MARKETPLACE_1155_CONTRACT_MAINNET`, `COLLECTION_721_CONTRACT_MAINNET`, `COLLECTION_721_START_BLOCK` (default: `10046166`), `COLLECTION_1155_CONTRACT_MAINNET`, `POP_FACTORY_ADDRESS`, `POP_START_BLOCK`, `DROP_FACTORY_ADDRESS`, `DROP_START_BLOCK`
+Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK` (default: `9196722`), `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `COLLECTION_721_START_BLOCK`, `POP_START_BLOCK`, `DROP_START_BLOCK`, `COMMENTS_START_BLOCK`.
 
-**Collection Drop Railway env vars (add to Railway):**
+**Protocol contract addresses come from the SDK chain registry** (`getCoordinates("STARKNET")` → `src/config/constants.ts`) — the single source. There are **no `*_MAINNET` env vars and no hardcoded address defaults** (that is how the stale `COMMENTS` address drifted and caused the 2026-05-17 outage). The chain-named vars below are **optional ops overrides** only — unset/empty falls back to the SDK value:
 ```
-DROP_FACTORY_ADDRESS=0x03587f42e29daee1b193f6cf83bf8627908ed6632d0d83fcb26225c50547d800
-DROP_START_BLOCK=8341335
+STARKNET_MARKETPLACE_721, STARKNET_MARKETPLACE_1155, STARKNET_COLLECTION_721, STARKNET_COLLECTION_1155
+COMMENTS_CONTRACT_ADDRESS   # override only; default = SDK nftComments (the live deployed instance, NOT 0x024f97…)
+POP_FACTORY_ADDRESS, DROP_FACTORY_ADDRESS, CREATOR_COIN_FACTORY_ADDRESS   # override only; default from the SDK
 ```
+Mainnet-only — the `STARKNET_NETWORK` (mainnet|sepolia) axis was removed; `getChainId()` always returns `SN_MAIN`.
 
-**Current immutable contract defaults (no Railway override needed unless testing):**
-```
-MARKETPLACE_721_CONTRACT_MAINNET=0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e
-MARKETPLACE_1155_CONTRACT_MAINNET=0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077
-COLLECTION_721_CONTRACT_MAINNET=0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2  # MIP v0.3.0
-COLLECTION_721_START_BLOCK=10046166
-COLLECTION_1155_CONTRACT_MAINNET=0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc  # v0.3.0 (sequential ids); retired v0.2.0 collections reclassified external-erc1155 (read-only)
-COMMENTS_CONTRACT_ADDRESS=<deployed NFTComments instance — NOT 0x024f97…62799 (undeployed)>
-INDEXER_START_BLOCK=9196722
-```
-
-> Env vars renamed 2026-05-22: `COLLECTION_START_BLOCK` → `COLLECTION_721_START_BLOCK`, dropped unused `ERC1155_FACTORY_START_BLOCK`.
+> Env history: `COLLECTION_START_BLOCK` → `COLLECTION_721_START_BLOCK` (2026-05-22); the flat `*_CONTRACT_MAINNET` vars + `STARKNET_NETWORK` removed (2026-06-24, audit Finding 7 — addresses now single-sourced from the SDK).
 
 Local values: use `.env.local` — never put secrets in this file.
 
