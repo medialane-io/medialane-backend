@@ -10,7 +10,7 @@ import prisma from "./db/client.js";
 const log = createLogger("main");
 
 async function main() {
-  log.info({ network: env.STARKNET_NETWORK, port: env.PORT }, "Starting Medialane Backend");
+  log.info({ chain: "STARKNET", port: env.PORT }, "Starting Medialane Backend");
 
   // Warn about optional-but-important env vars that have empty defaults
   if (!env.PINATA_JWT) {
