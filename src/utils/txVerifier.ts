@@ -1,7 +1,7 @@
 import { hash } from "starknet";
 import { postRpc } from "./rpcFetch.js";
 import { normalizeAddress, normalizeHash } from "./starknet.js";
-import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
+import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
 import { createLogger } from "./logger.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
@@ -15,8 +15,8 @@ const RETRY_DELAYS_MS = [0, 3000, 5000, 7000, 10_000];
 // Built once at module load — both marketplace contracts are static constants.
 // An event from either address counts as a confirmed marketplace operation.
 const VALID_MARKETPLACE_CONTRACTS = new Set([
-  normalizeAddress("STARKNET", MARKETPLACE_721_CONTRACT),
-  normalizeAddress("STARKNET", MARKETPLACE_1155_CONTRACT),
+  normalizeAddress("STARKNET", STARKNET_MARKETPLACE_721_CONTRACT),
+  normalizeAddress("STARKNET", STARKNET_MARKETPLACE_1155_CONTRACT),
 ]);
 
 export type VerifyResult =
@@ -224,7 +224,7 @@ const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details")
  * Returns false on any error (safe fallback — don't make incorrect updates).
  */
 export async function checkOnChainOrderCancelled(orderHash: string, is1155: boolean): Promise<boolean> {
-  const contractAddress = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
+  const contractAddress = is1155 ? STARKNET_MARKETPLACE_1155_CONTRACT : STARKNET_MARKETPLACE_721_CONTRACT;
   const statusIndex = is1155 ? ORDER_STATUS_INDEX.erc1155 : ORDER_STATUS_INDEX.erc721;
 
   try {

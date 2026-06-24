@@ -19,7 +19,7 @@ import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { POP_FACTORY_CONTRACT, DROP_FACTORY_CONTRACT, CREATOR_COIN_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
+import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -142,7 +142,7 @@ async function tick(tickId: string): Promise<number> {
   // Poll POP allowlist events on a slow schedule (same interval as Transfer events).
   // One starknet_getEvents call per known POP collection per interval.
   let rawPopAllowlistEvents: RawStarknetEvent[] = [];
-  if (POP_FACTORY_CONTRACT && now - _lastPopAllowlistPollTime >= transferPollIntervalMs()) {
+  if (STARKNET_POP_FACTORY_CONTRACT && now - _lastPopAllowlistPollTime >= transferPollIntervalMs()) {
     const popCollections = await prisma.collection.findMany({
       where: { chain: CHAIN, service: "pop-protocol", startBlock: { lte: BigInt(toBlock) } },
       select: { contractAddress: true },
@@ -161,7 +161,7 @@ async function tick(tickId: string): Promise<number> {
 
   // Poll Drop allowlist events on the same slow schedule.
   let rawDropAllowlistEvents: RawStarknetEvent[] = [];
-  if (DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
+  if (STARKNET_DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
     const dropCollections = await prisma.collection.findMany({
       where: { chain: CHAIN, service: "drop-collection", startBlock: { lte: BigInt(toBlock) } },
       select: { contractAddress: true },
@@ -183,7 +183,7 @@ async function tick(tickId: string): Promise<number> {
   // launched via Medialane can additionally be indexed on-demand so they appear
   // instantly; this poll is the backstop / catches non-Medialane launches.
   let rawCreatorCoinFactoryEvents: RawStarknetEvent[] = [];
-  if (CREATOR_COIN_FACTORY_CONTRACT && now - _lastCreatorCoinPollTime >= env.CREATOR_COIN_POLL_INTERVAL_MS) {
+  if (STARKNET_CREATOR_COIN_FACTORY_CONTRACT && now - _lastCreatorCoinPollTime >= env.CREATOR_COIN_POLL_INTERVAL_MS) {
     const ccFromBlock = _lastCreatorCoinBlock != null ? _lastCreatorCoinBlock + 1 : fromBlock;
     if (ccFromBlock <= toBlock) {
       rawCreatorCoinFactoryEvents = await pollCreatorCoinFactoryEvents(ccFromBlock, toBlock);

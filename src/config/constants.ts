@@ -39,10 +39,18 @@ export function chainCoords(chain: Chain): BackendChainCoords {
   return c;
 }
 
-// Contract addresses — chain-named constants from the SDK (single source).
-export const MARKETPLACE_721_CONTRACT = STARKNET_MARKETPLACE_721_CONTRACT;
-export const MARKETPLACE_1155_CONTRACT = STARKNET_MARKETPLACE_1155_CONTRACT;
-export const COLLECTION_721_CONTRACT = STARKNET_COLLECTION_721_CONTRACT;
+// Contract addresses — the SDK's chain-named constants, re-exported so callers
+// import them from here. Single source; no local short aliases.
+export {
+  STARKNET_MARKETPLACE_721_CONTRACT,
+  STARKNET_MARKETPLACE_1155_CONTRACT,
+  STARKNET_COLLECTION_721_CONTRACT,
+  STARKNET_COLLECTION_1155_CONTRACT,
+  STARKNET_NFTCOMMENTS_CONTRACT,
+  STARKNET_POP_FACTORY_CONTRACT,
+  STARKNET_DROP_FACTORY_CONTRACT,
+  STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
+};
 
 // Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
@@ -61,17 +69,12 @@ export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
 export const TRANSFER_SINGLE_SELECTOR = hash.getSelectorFromName("TransferSingle");
 export const TRANSFER_BATCH_SELECTOR = hash.getSelectorFromName("TransferBatch");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
-export const COMMENTS_CONTRACT = STARKNET_NFTCOMMENTS_CONTRACT;
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
-export const POP_FACTORY_CONTRACT = STARKNET_POP_FACTORY_CONTRACT;
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
-export const DROP_FACTORY_CONTRACT = STARKNET_DROP_FACTORY_CONTRACT;
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
-export const CREATOR_COIN_FACTORY_CONTRACT = STARKNET_CREATOR_COIN_FACTORY_CONTRACT;
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
 // Unrug.top memecoin factory — external (not a Medialane contract), so it stays env.
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
-export const COLLECTION_1155_CONTRACT = STARKNET_COLLECTION_1155_CONTRACT;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 
 // Token catalogue + lookup come from @medialane/sdk (single source of truth).

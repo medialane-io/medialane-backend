@@ -5,7 +5,7 @@
 import type { TypedData } from "starknet";
 import { cairo, hash, num } from "starknet";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
-import { MARKETPLACE_721_CONTRACT, MARKETPLACE_1155_CONTRACT, COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
+import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT, STARKNET_COLLECTION_721_CONTRACT, getChainId, getTokenByAddress } from "../config/constants.js";
 import { postRpc } from "../utils/rpcFetch.js";
 import {
   buildOrderTypedData,
@@ -32,7 +32,7 @@ const GET_COUNTER_SELECTOR = hash.getSelectorFromName("get_counter");
 const ROYALTY_INFO_SELECTOR = hash.getSelectorFromName("royalty_info");
 
 async function fetchCounter1155(address: string): Promise<string> {
-  return fetchCounterFromContract(MARKETPLACE_1155_CONTRACT, address);
+  return fetchCounterFromContract(STARKNET_MARKETPLACE_1155_CONTRACT, address);
 }
 
 function toHex(value: string | number | bigint): string {
@@ -48,7 +48,7 @@ function toHex(value: string | number | bigint): string {
 }
 
 async function fetchCounter(address: string): Promise<string> {
-  return fetchCounterFromContract(MARKETPLACE_721_CONTRACT, address);
+  return fetchCounterFromContract(STARKNET_MARKETPLACE_721_CONTRACT, address);
 }
 
 async function fetchCounterFromContract(contractAddress: string, address: string): Promise<string> {
@@ -115,7 +115,7 @@ function generateSalt(): string {
 }
 
 function resolveCollectionContract(override?: string): string {
-  return override ? normalizeAddress("STARKNET", override) : COLLECTION_721_CONTRACT;
+  return override ? normalizeAddress("STARKNET", override) : STARKNET_COLLECTION_721_CONTRACT;
 }
 
 /** Convert a human-readable amount (e.g. "1.5") to raw token units as BigInt. */
@@ -141,7 +141,7 @@ async function buildCreateListing1155Intent(body: CreateListingIntentBody & { am
 
   const orderParams = {
     offerer: toHex(body.offerer),
-    marketplace: toHex(MARKETPLACE_1155_CONTRACT),
+    marketplace: toHex(STARKNET_MARKETPLACE_1155_CONTRACT),
     offer: {
       item_type: "ERC1155",
       token: toHex(body.nftContract),
@@ -169,10 +169,10 @@ async function buildCreateListing1155Intent(body: CreateListingIntentBody & { am
     {
       contractAddress: body.nftContract,
       entrypoint: "set_approval_for_all",
-      calldata: [MARKETPLACE_1155_CONTRACT, "0x1"],
+      calldata: [STARKNET_MARKETPLACE_1155_CONTRACT, "0x1"],
     },
     {
-      contractAddress: MARKETPLACE_1155_CONTRACT,
+      contractAddress: STARKNET_MARKETPLACE_1155_CONTRACT,
       entrypoint: "register_order",
       calldata: [], // populated after signature
     },
@@ -193,7 +193,7 @@ async function buildCreateListing721Intent(body: CreateListingIntentBody) {
 
   const orderParams = {
     offerer: toHex(body.offerer),
-    marketplace: toHex(MARKETPLACE_721_CONTRACT),
+    marketplace: toHex(STARKNET_MARKETPLACE_721_CONTRACT),
     offer: {
       item_type: "ERC721",               // shortstring — matches ItemType::ERC721.into() in Cairo
       token: toHex(body.nftContract),    // ContractAddress
@@ -222,10 +222,10 @@ async function buildCreateListing721Intent(body: CreateListingIntentBody) {
     {
       contractAddress: body.nftContract,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_721_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
+      calldata: [STARKNET_MARKETPLACE_721_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
     },
     {
-      contractAddress: MARKETPLACE_721_CONTRACT,
+      contractAddress: STARKNET_MARKETPLACE_721_CONTRACT,
       entrypoint: "register_order",
       calldata: [], // populated after signature
     },
@@ -252,7 +252,7 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
   const salt = body.salt ?? generateSalt();
   const chainId = getChainId();
-  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
+  const marketplaceContract = is1155 ? STARKNET_MARKETPLACE_1155_CONTRACT : STARKNET_MARKETPLACE_721_CONTRACT;
   const quantity = is1155 ? BigInt(body.quantity ?? "1") : 1n;
   if (quantity < 1n) throw new Error("quantity must be at least 1");
 
@@ -313,7 +313,7 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
     body.tokenStandard === "ERC1155" ||
     order?.offerItemType === "ERC1155" ||
     order?.considerationItemType === "ERC1155";
-  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
+  const marketplaceContract = is1155 ? STARKNET_MARKETPLACE_1155_CONTRACT : STARKNET_MARKETPLACE_721_CONTRACT;
 
   // Fulfilment is unsigned — the caller IS the fulfiller (audit F3). No SNIP-12,
   // no nonce. For ERC-1155 the buyer's chosen unit quantity defaults to 1.
@@ -383,7 +383,7 @@ export async function buildCancelOrderIntent(body: CancelOrderIntentBody) {
     body.tokenStandard === "ERC1155" ||
     order?.offerItemType === "ERC1155" ||
     order?.considerationItemType === "ERC1155";
-  const marketplaceContract = is1155 ? MARKETPLACE_1155_CONTRACT : MARKETPLACE_721_CONTRACT;
+  const marketplaceContract = is1155 ? STARKNET_MARKETPLACE_1155_CONTRACT : STARKNET_MARKETPLACE_721_CONTRACT;
 
   const cancelation = {
     order_hash: toHex(body.orderHash),
@@ -526,7 +526,7 @@ export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
 
   const orderParams = {
     offerer: toHex(body.sellerAddress),
-    marketplace: toHex(MARKETPLACE_721_CONTRACT),
+    marketplace: toHex(STARKNET_MARKETPLACE_721_CONTRACT),
     offer: {
       item_type: "ERC721",
       token: toHex(body.nftContract),
@@ -555,10 +555,10 @@ export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
     {
       contractAddress: body.nftContract,
       entrypoint: "approve",
-      calldata: [MARKETPLACE_721_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
+      calldata: [STARKNET_MARKETPLACE_721_CONTRACT, tokenIdUint256.low.toString(), tokenIdUint256.high.toString()],
     },
     {
-      contractAddress: MARKETPLACE_721_CONTRACT,
+      contractAddress: STARKNET_MARKETPLACE_721_CONTRACT,
       entrypoint: "register_order",
       calldata: [],
     },
