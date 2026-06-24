@@ -4,17 +4,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   ALCHEMY_RPC_URL: z.string().url(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
-  // Chain-named coordinates (preferred — spec 2026-06-13 §3.1). The old
-  // ALCHEMY_RPC_URL / *_MAINNET vars still read as fallbacks (below), so
-  // existing Railway env keeps working until updated. Only Starknet is
-  // populated today; other chains add their own group here when they land.
-  // NOTE: ALCHEMY_RPC_URL stays the Starknet RPC fallback + capped circuit
-  // breaker (feedback_alchemy_cap_is_intentional) — do not remove it.
+  // Starknet RPC. ALCHEMY_RPC_URL stays the fallback + capped circuit breaker
+  // (feedback_alchemy_cap_is_intentional) — do not remove it. Contract
+  // addresses are NOT env vars — they come from the SDK's chain-named constants.
   STARKNET_RPC_URL: z.string().url().optional(),
-  STARKNET_MARKETPLACE_721: z.string().optional(),
-  STARKNET_MARKETPLACE_1155: z.string().optional(),
-  STARKNET_COLLECTION_721: z.string().optional(),
-  STARKNET_COLLECTION_1155: z.string().optional(),
   // x402 agent payments (per-chain: settlement asset + treasury + MDLN bonus
   // token). Chain-prefixed for multichain readiness — a future Base rail adds
   // BASE_USDC_CONTRACT / BASE_X402_TREASURY without touching these.
@@ -29,17 +22,10 @@ const envSchema = z.object({
   STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
   CLERK_SECRET_KEY: z.string().default(""),
-  // Protocol contract addresses come from the SDK chain registry
-  // (getCoordinates → constants.ts). These optional env vars are ops overrides
-  // only; unset/empty → the SDK value. No hardcoded defaults (that is how the
-  // stale COMMENTS address drifted from the SDK — audit Finding 7).
-  COMMENTS_CONTRACT_ADDRESS: z.string().optional(),
+  // Indexer start blocks (the contract addresses come from the SDK constants).
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
-  POP_FACTORY_ADDRESS: z.string().optional(),
   POP_START_BLOCK: z.coerce.number().default(0),
-  DROP_FACTORY_ADDRESS: z.string().optional(),
   DROP_START_BLOCK: z.coerce.number().default(0),
-  CREATOR_COIN_FACTORY_ADDRESS: z.string().optional(),
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
   // Unruggable (unrug.top) memecoin factory — used to verify external coins via
   // is_memecoin() before adding them as external-erc20.
