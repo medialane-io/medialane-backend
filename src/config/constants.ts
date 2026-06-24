@@ -1,16 +1,20 @@
 import { hash } from "starknet";
 import type { Chain } from "@prisma/client";
-import { getCoordinates } from "@medialane/sdk";
+import {
+  STARKNET_MARKETPLACE_721_CONTRACT,
+  STARKNET_MARKETPLACE_1155_CONTRACT,
+  STARKNET_COLLECTION_721_CONTRACT,
+  STARKNET_COLLECTION_1155_CONTRACT,
+  STARKNET_NFTCOMMENTS_CONTRACT,
+  STARKNET_POP_FACTORY_CONTRACT,
+  STARKNET_DROP_FACTORY_CONTRACT,
+  STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
+} from "@medialane/sdk";
 import { env } from "./env.js";
 
-// The SDK chain registry (getCoordinates) is the single source of every
-// protocol address (spec 2026-06-13 §3.1). The chain-named env vars are
-// optional ops overrides — unset/empty falls back to the SDK value. (Hardcoded
-// env defaults are how the stale COMMENTS address drifted from the SDK and
-// caused the 2026-05-17 comments outage — audit Finding 7.) Only STARKNET is
-// populated today; adding a chain reads getCoordinates(<chain>) the same way.
-const SN = getCoordinates("STARKNET");
-
+// Per-chain coordinates. Contract addresses come from the SDK's chain-named
+// constants (single source — no env overrides); only the RPC URL is env. Only
+// STARKNET today; another chain adds an entry from its SDK constants.
 interface BackendChainCoords {
   rpcUrl: string;
   marketplace721: string;
@@ -22,10 +26,10 @@ interface BackendChainCoords {
 export const CHAIN_COORDS: Partial<Record<Chain, BackendChainCoords>> = {
   STARKNET: {
     rpcUrl: env.STARKNET_RPC_URL ?? env.ALCHEMY_RPC_URL,
-    marketplace721: env.STARKNET_MARKETPLACE_721 || SN.marketplace721!,
-    marketplace1155: env.STARKNET_MARKETPLACE_1155 || SN.marketplace1155!,
-    collection721: env.STARKNET_COLLECTION_721 || SN.collection721!,
-    collection1155: env.STARKNET_COLLECTION_1155 || SN.collection1155!,
+    marketplace721: STARKNET_MARKETPLACE_721_CONTRACT,
+    marketplace1155: STARKNET_MARKETPLACE_1155_CONTRACT,
+    collection721: STARKNET_COLLECTION_721_CONTRACT,
+    collection1155: STARKNET_COLLECTION_1155_CONTRACT,
   },
 };
 
@@ -35,11 +39,18 @@ export function chainCoords(chain: Chain): BackendChainCoords {
   return c;
 }
 
-// Contract addresses — Starknet flat exports derive from the per-chain map so
-// there is one source. The Starknet mirror/handlers use these names.
-export const MARKETPLACE_721_CONTRACT = chainCoords("STARKNET").marketplace721;
-export const MARKETPLACE_1155_CONTRACT = chainCoords("STARKNET").marketplace1155;
-export const COLLECTION_721_CONTRACT = chainCoords("STARKNET").collection721;
+// Contract addresses — the SDK's chain-named constants, re-exported so callers
+// import them from here. Single source; no local short aliases.
+export {
+  STARKNET_MARKETPLACE_721_CONTRACT,
+  STARKNET_MARKETPLACE_1155_CONTRACT,
+  STARKNET_COLLECTION_721_CONTRACT,
+  STARKNET_COLLECTION_1155_CONTRACT,
+  STARKNET_NFTCOMMENTS_CONTRACT,
+  STARKNET_POP_FACTORY_CONTRACT,
+  STARKNET_DROP_FACTORY_CONTRACT,
+  STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
+};
 
 // Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
@@ -58,16 +69,12 @@ export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
 export const TRANSFER_SINGLE_SELECTOR = hash.getSelectorFromName("TransferSingle");
 export const TRANSFER_BATCH_SELECTOR = hash.getSelectorFromName("TransferBatch");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
-export const COMMENTS_CONTRACT = env.COMMENTS_CONTRACT_ADDRESS || SN.nftComments!;
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
-export const POP_FACTORY_CONTRACT = env.POP_FACTORY_ADDRESS || SN.popFactory!;
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
-export const DROP_FACTORY_CONTRACT = env.DROP_FACTORY_ADDRESS || SN.dropFactory!;
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
-export const CREATOR_COIN_FACTORY_CONTRACT = env.CREATOR_COIN_FACTORY_ADDRESS || SN.creatorCoinFactory!;
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
+// Unrug.top memecoin factory — external (not a Medialane contract), so it stays env.
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
-export const COLLECTION_1155_CONTRACT = chainCoords("STARKNET").collection1155;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 
 // Token catalogue + lookup come from @medialane/sdk (single source of truth).

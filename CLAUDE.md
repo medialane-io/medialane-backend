@@ -592,15 +592,9 @@ Required:
 
 Optional: `VOYAGER_API_KEY`, `CHIPIPAY_API_KEY`, `CHIPIPAY_API_URL`, `LOG_LEVEL`, `INDEXER_START_BLOCK` (default: `9196722`), `INDEXER_POLL_INTERVAL_MS`, `INDEXER_BLOCK_BATCH_SIZE`, `CORS_ORIGINS`, `PORT`, `COLLECTION_721_START_BLOCK`, `POP_START_BLOCK`, `DROP_START_BLOCK`, `COMMENTS_START_BLOCK`.
 
-**Protocol contract addresses come from the SDK chain registry** (`getCoordinates("STARKNET")` → `src/config/constants.ts`) — the single source. There are **no `*_MAINNET` env vars and no hardcoded address defaults** (that is how the stale `COMMENTS` address drifted and caused the 2026-05-17 outage). The chain-named vars below are **optional ops overrides** only — unset/empty falls back to the SDK value:
-```
-STARKNET_MARKETPLACE_721, STARKNET_MARKETPLACE_1155, STARKNET_COLLECTION_721, STARKNET_COLLECTION_1155
-COMMENTS_CONTRACT_ADDRESS   # override only; default = SDK nftComments (the live deployed instance, NOT 0x024f97…)
-POP_FACTORY_ADDRESS, DROP_FACTORY_ADDRESS, CREATOR_COIN_FACTORY_ADDRESS   # override only; default from the SDK
-```
-Mainnet-only — the `STARKNET_NETWORK` (mainnet|sepolia) axis was removed; `getChainId()` always returns `SN_MAIN`.
+**Protocol contract addresses are imported from the SDK's chain-named constants** (`STARKNET_MARKETPLACE_721_CONTRACT`, `STARKNET_NFTCOMMENTS_CONTRACT`, … → `src/config/constants.ts`) — the single source. **There are no contract-address env vars** (no `*_MAINNET`, no overrides — that decoupling is how the stale `COMMENTS` address drifted and caused the 2026-05-17 outage). The only address-ish env var left is `UNRUG_FACTORY_ADDRESS` (an *external* unrug.top factory, not a Medialane contract). Indexer start blocks (`COMMENTS/POP/DROP/CREATOR_COIN/COLLECTION_721_START_BLOCK`, `INDEXER_START_BLOCK`) stay env. Mainnet-only — the `STARKNET_NETWORK` axis is removed; `getChainId()` returns `SN_MAIN`.
 
-> Env history: `COLLECTION_START_BLOCK` → `COLLECTION_721_START_BLOCK` (2026-05-22); the flat `*_CONTRACT_MAINNET` vars + `STARKNET_NETWORK` removed (2026-06-24, audit Finding 7 — addresses now single-sourced from the SDK).
+> Env history: `*_CONTRACT_MAINNET` vars + `STARKNET_NETWORK` + the per-contract override vars all removed (2026-06-24) — contract addresses now come only from the SDK's `STARKNET_*` constants.
 
 Local values: use `.env.local` — never put secrets in this file.
 

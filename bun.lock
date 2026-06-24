@@ -8,7 +8,7 @@
         "@clerk/backend": "^3.2.0",
         "@hono/node-server": "^1.19.14",
         "@hono/zod-validator": "^0.7.6",
-        "@medialane/sdk": "0.40.0",
+        "@medialane/sdk": "0.42.1",
         "@prisma/client": "^5.22.0",
         "hono": "^4.12.12",
         "ioredis": "^5.3.2",
@@ -39,7 +39,7 @@
 
     "@ioredis/commands": ["@ioredis/commands@1.5.1", "", {}, "sha512-JH8ZL/ywcJyR9MmJ5BNqZllXNZQqQbnVZOqpPQqE1vHiFgAw4NHbvE0FOduNU8IX9babitBT46571OnPTT0Zcw=="],
 
-    "@medialane/sdk": ["@medialane/sdk@0.40.0", "", { "dependencies": { "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "zod": "^3.23.8" }, "peerDependencies": { "starknet": ">=6.0.0" } }, "sha512-Tvg+pYU9dJogIkdhhd1kNHEtcFn6ZZkXilpo+fywHHu73kxDLp944rW+AbMbhyO02fYayZyvlmf9jqYAwm5X5Q=="],
+    "@medialane/sdk": ["@medialane/sdk@0.42.1", "", { "dependencies": { "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "zod": "^3.23.8" }, "peerDependencies": { "starknet": ">=6.0.0" } }, "sha512-wNJ9CAS40/IfyZdHhIeLjbQSKBYVJ01lghfp4Hd2Txj+hPagl40evY4SIZXyTjoFhu4nl1Mb1Da3CF77R1/JvQ=="],
 
     "@noble/curves": ["@noble/curves@1.7.0", "", { "dependencies": { "@noble/hashes": "1.6.0" } }, "sha512-UTMhXK9SeDhFJVrHeUJ5uZlI6ajXg10O6Ddocf9S6GjbSBVZsJo88HzKwXznNfGpMTRDyJkqMjNDPYgf0qFWnw=="],
 

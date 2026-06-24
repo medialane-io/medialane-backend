@@ -5,7 +5,7 @@ import { shortString } from "starknet";
 import type { Coin } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
-import { CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
+import { STARKNET_CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
 import { upsertCoin } from "../../utils/coin.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -52,7 +52,7 @@ coins.post("/sync", async (c) => {
     .safeParse(body);
   if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
 
-  if (!CREATOR_COIN_FACTORY_CONTRACT) {
+  if (!STARKNET_CREATOR_COIN_FACTORY_CONTRACT) {
     return c.json({ error: "Creator Coin factory not configured" }, 503);
   }
   const coinAddress = normalizeAddress("STARKNET", parsed.data.coinAddress);
@@ -61,7 +61,7 @@ coins.post("/sync", async (c) => {
     // Gate: only genuine Factory-deployed Creator Coins.
     const verify = await callRpc((provider) =>
       provider.callContract({
-        contractAddress: CREATOR_COIN_FACTORY_CONTRACT,
+        contractAddress: STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
         entrypoint: "is_creator_coin",
         calldata: [coinAddress],
       })

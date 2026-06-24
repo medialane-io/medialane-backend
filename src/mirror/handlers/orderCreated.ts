@@ -3,8 +3,8 @@ import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "@medialane/sdk";
 import { postRpc } from "../../utils/rpcFetch.js";
 import {
-  MARKETPLACE_721_CONTRACT,
-  MARKETPLACE_1155_CONTRACT,
+  STARKNET_MARKETPLACE_721_CONTRACT,
+  STARKNET_MARKETPLACE_1155_CONTRACT,
   getTokenByAddress,
 } from "../../config/constants.js";
 import { callRpc, decodeShortstring, normalizeAddress } from "../../utils/starknet.js";
@@ -63,7 +63,7 @@ async function applyOrderCreated(
   // 05-service-model §V: the indexer tags the venue's stable service id; the raw
   // address is an explorer-link helper only, never a behaviour discriminator.
   const marketplaceService =
-    normalizeAddress("STARKNET", marketplaceContract) === normalizeAddress("STARKNET", MARKETPLACE_1155_CONTRACT)
+    normalizeAddress("STARKNET", marketplaceContract) === normalizeAddress("STARKNET", STARKNET_MARKETPLACE_1155_CONTRACT)
       ? "medialane-marketplace-erc1155"
       : "medialane-marketplace-erc721";
 
@@ -192,7 +192,7 @@ export async function handleOrderCreated(
         const raw = await callRpc((provider) => {
           const contract = new Contract(
             IPMarketplaceABI as any,
-            MARKETPLACE_721_CONTRACT,
+            STARKNET_MARKETPLACE_721_CONTRACT,
             provider,
           );
           return contract.get_order_details(event.orderHash);
@@ -217,7 +217,7 @@ export async function handleOrderCreated(
     details,
     blockNumber: event.blockNumber,
     txHash: event.txHash,
-    marketplaceContract: MARKETPLACE_721_CONTRACT,
+    marketplaceContract: STARKNET_MARKETPLACE_721_CONTRACT,
   });
 }
 
@@ -283,7 +283,7 @@ export async function handleOrderCreated1155(
     details,
     blockNumber,
     txHash,
-    marketplaceContract: MARKETPLACE_1155_CONTRACT,
+    marketplaceContract: STARKNET_MARKETPLACE_1155_CONTRACT,
   });
 }
 
@@ -294,7 +294,7 @@ async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDet
       method: "starknet_call",
       params: {
         request: {
-          contract_address: MARKETPLACE_1155_CONTRACT,
+          contract_address: STARKNET_MARKETPLACE_1155_CONTRACT,
           entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
           calldata: [orderHash],
         },

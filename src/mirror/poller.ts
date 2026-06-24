@@ -1,8 +1,8 @@
 import { callRpc } from "../utils/starknet.js";
 import {
-  MARKETPLACE_721_CONTRACT,
-  MARKETPLACE_1155_CONTRACT,
-  COLLECTION_721_CONTRACT,
+  STARKNET_MARKETPLACE_721_CONTRACT,
+  STARKNET_MARKETPLACE_1155_CONTRACT,
+  STARKNET_COLLECTION_721_CONTRACT,
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
@@ -11,15 +11,15 @@ import {
   TRANSFER_SINGLE_SELECTOR,
   TRANSFER_BATCH_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
-  COMMENTS_CONTRACT,
+  STARKNET_NFTCOMMENTS_CONTRACT,
   COMMENT_ADDED_SELECTOR,
-  POP_FACTORY_CONTRACT,
+  STARKNET_POP_FACTORY_CONTRACT,
   POP_ALLOWLIST_UPDATED_SELECTOR,
-  DROP_FACTORY_CONTRACT,
+  STARKNET_DROP_FACTORY_CONTRACT,
   DROP_CREATED_SELECTOR,
-  COLLECTION_1155_CONTRACT,
+  STARKNET_COLLECTION_1155_CONTRACT,
   COLLECTION_DEPLOYED_SELECTOR,
-  CREATOR_COIN_FACTORY_CONTRACT,
+  STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
   CREATOR_COIN_CREATED_SELECTOR,
 } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -72,7 +72,7 @@ export async function pollEvents(
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
   return pollContractEvents({
-    address: MARKETPLACE_721_CONTRACT,
+    address: STARKNET_MARKETPLACE_721_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[
@@ -94,9 +94,9 @@ export async function pollEvents1155(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!MARKETPLACE_1155_CONTRACT) return [];
+  if (!STARKNET_MARKETPLACE_1155_CONTRACT) return [];
   return pollContractEvents({
-    address: MARKETPLACE_1155_CONTRACT,
+    address: STARKNET_MARKETPLACE_1155_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[
@@ -140,7 +140,7 @@ export async function pollCollectionCreatedEvents(
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
   return pollContractEvents({
-    address: COLLECTION_721_CONTRACT,
+    address: STARKNET_COLLECTION_721_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
@@ -149,16 +149,16 @@ export async function pollCollectionCreatedEvents(
 
 /**
  * Fetch CommentAdded events from the NFTComments contract.
- * Returns an empty array when COMMENTS_CONTRACT is not configured.
+ * Returns an empty array when STARKNET_NFTCOMMENTS_CONTRACT is not configured.
  */
 export async function pollCommentEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!COMMENTS_CONTRACT) return [];
+  if (!STARKNET_NFTCOMMENTS_CONTRACT) return [];
 
   return pollContractEvents({
-    address: COMMENTS_CONTRACT,
+    address: STARKNET_NFTCOMMENTS_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[num.toHex(COMMENT_ADDED_SELECTOR)]],
@@ -173,10 +173,10 @@ export async function pollPopFactoryEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!POP_FACTORY_CONTRACT) return [];
+  if (!STARKNET_POP_FACTORY_CONTRACT) return [];
 
   return pollContractEvents({
-    address: POP_FACTORY_CONTRACT,
+    address: STARKNET_POP_FACTORY_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
@@ -207,10 +207,10 @@ export async function pollDropFactoryEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!DROP_FACTORY_CONTRACT) return [];
+  if (!STARKNET_DROP_FACTORY_CONTRACT) return [];
 
   return pollContractEvents({
-    address: DROP_FACTORY_CONTRACT,
+    address: STARKNET_DROP_FACTORY_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[num.toHex(DROP_CREATED_SELECTOR)]],
@@ -236,16 +236,16 @@ export async function pollDropAllowlistEvents(
 
 /**
  * Fetch CollectionDeployed events from the IP-Programmable-ERC1155-Collections factory.
- * Returns an empty array when COLLECTION_1155_CONTRACT is not configured.
+ * Returns an empty array when STARKNET_COLLECTION_1155_CONTRACT is not configured.
  */
 export async function pollERC1155FactoryEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!COLLECTION_1155_CONTRACT) return [];
+  if (!STARKNET_COLLECTION_1155_CONTRACT) return [];
 
   return pollContractEvents({
-    address: COLLECTION_1155_CONTRACT,
+    address: STARKNET_COLLECTION_1155_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
@@ -254,16 +254,16 @@ export async function pollERC1155FactoryEvents(
 
 /**
  * Fetch CreatorCoinCreated events from the Creator Coin factory contract.
- * Returns an empty array when CREATOR_COIN_FACTORY_CONTRACT is not configured.
+ * Returns an empty array when STARKNET_CREATOR_COIN_FACTORY_CONTRACT is not configured.
  */
 export async function pollCreatorCoinFactoryEvents(
   fromBlock: number,
   toBlock: number
 ): Promise<RawStarknetEvent[]> {
-  if (!CREATOR_COIN_FACTORY_CONTRACT) return [];
+  if (!STARKNET_CREATOR_COIN_FACTORY_CONTRACT) return [];
 
   return pollContractEvents({
-    address: CREATOR_COIN_FACTORY_CONTRACT,
+    address: STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
     fromBlock,
     toBlock,
     keys: [[num.toHex(CREATOR_COIN_CREATED_SELECTOR)]],

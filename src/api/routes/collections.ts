@@ -8,7 +8,7 @@ import { env } from "../../config/env.js";
 import { serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
-import { COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
@@ -346,7 +346,7 @@ collections.post("/sync-tx", async (c) => {
     const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
-    const registryAddress = normalizeAddress("STARKNET", COLLECTION_721_CONTRACT);
+    const registryAddress = normalizeAddress("STARKNET", STARKNET_COLLECTION_721_CONTRACT);
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>

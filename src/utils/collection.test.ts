@@ -2,26 +2,24 @@
 // Pure-function tests against the SDK registry — no DB.
 import { describe, expect, test } from "bun:test";
 import { getServiceByMarketplaceAddress } from "./collection.js";
-import { getCoordinates } from "@medialane/sdk";
-
-const SN = getCoordinates("STARKNET");
+import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT } from "@medialane/sdk";
 
 describe("getServiceByMarketplaceAddress", () => {
   test("resolves 721 marketplace address → ERC721 service", () => {
-    const svc = getServiceByMarketplaceAddress(SN.marketplace721!);
+    const svc = getServiceByMarketplaceAddress(STARKNET_MARKETPLACE_721_CONTRACT);
     expect(svc?.id).toBe("medialane-marketplace-erc721");
     expect(svc?.standard).toBe("ERC721");
   });
 
   test("resolves 1155 marketplace address → ERC1155 service", () => {
-    const svc = getServiceByMarketplaceAddress(SN.marketplace1155!);
+    const svc = getServiceByMarketplaceAddress(STARKNET_MARKETPLACE_1155_CONTRACT);
     expect(svc?.id).toBe("medialane-marketplace-erc1155");
     expect(svc?.standard).toBe("ERC1155");
   });
 
   test("normalizes input before lookup (short address)", () => {
     // strip leading zeros — the helper should still match
-    const short = "0x" + SN.marketplace721!.slice(2).replace(/^0+/, "");
+    const short = "0x" + STARKNET_MARKETPLACE_721_CONTRACT.slice(2).replace(/^0+/, "");
     expect(getServiceByMarketplaceAddress(short)?.id).toBe("medialane-marketplace-erc721");
   });
 
