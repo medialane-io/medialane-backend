@@ -9,6 +9,7 @@ import {
   STARKNET_POP_FACTORY_CONTRACT,
   STARKNET_DROP_FACTORY_CONTRACT,
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
+  STARKNET_COLLECTION_721_START_BLOCK,
 } from "@medialane/sdk";
 import { env } from "./env.js";
 
@@ -54,7 +55,9 @@ export {
 
 // Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
-export const COLLECTION_721_START_BLOCK = env.COLLECTION_721_START_BLOCK;
+// Chain-named, single-sourced from the SDK (`chains.ts`) — no env var. The
+// registry's deploy block is a Starknet fact, so it carries the chain prefix.
+export const COLLECTION_721_START_BLOCK = STARKNET_COLLECTION_721_START_BLOCK;
 
 // Event selectors (computed once at startup)
 export const ORDER_CREATED_SELECTOR = hash.getSelectorFromName("OrderCreated");
