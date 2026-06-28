@@ -532,7 +532,25 @@ start_time, end_time, salt, nonce, sig_len, sig[0], sig[1]
 - Results (including failures) cached in `MetadataCache` to avoid repeat fetches
 - Pinata free plan: `pin_by_cid` not supported → METADATA_PIN jobs always fail
 
-### Cairo ByteArray token_uri decoding (CRITICAL — fixed 2026-03-06)
+### Cairo ByteArray decoding (CRITICAL — two fixed incidents)
+
+**ByteArray event decoder must use `Uint8Array` + `TextDecoder`, never `String.fromCharCode` (fixed 2026-06-28)**
+
+`String.fromCharCode(code)` treats each extracted byte as a Unicode code point — correct for ASCII (0x00–0x7F) but wrong for multi-byte UTF-8 sequences. `String.fromCharCode(0xC3)` = "Ã", `String.fromCharCode(0xB3)` = "³", so the UTF-8 bytes for "ó" (`[0xC3, 0xB3]`) become "Ã³" — mojibake that gets locked into the DB and displayed everywhere (including Voyager, which uses the same naive approach).
+
+**The canonical pattern** (see `src/mirror/handlers/collectionCreated.ts` and `src/api/routes/collections.ts`):
+```ts
+const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
+// ... fill bytes from felts ...
+new TextDecoder("utf-8", { fatal: false }).decode(bytes)
+```
+
+`src/mirror/handlers/ip1155Factory.ts` had the `String.fromCharCode` bug from April 2026 until June 28. It only caused visible corruption after the SDK 0.43.0 redeploy (June 26) aligned the backend's polling target with the io app's deployment factory. Any new `decodeByteArray` function must use `TextDecoder`.
+
+**Remediation for corrupted rows:** null out `name` and reset `metadataStatus = 'PENDING'` in the DB, then `POST /admin/collections/:contract/refresh`. The metadata fetch job will re-read from chain via `callViewByteArrayUtf8` (which is correct) and restore the proper name.
+
+**token_uri ABI struct (fixed 2026-03-06)**
+
 Modern OZ ERC-721 contracts return `token_uri` as a Cairo `ByteArray` struct. starknet.js v6 requires the struct definition in the ABI **alongside** the function entry, or it returns only `data_len` as a bigint and drops `pending_word` bytes — truncating IPFS CIDs by ~4 chars and making them invalid.
 
 The ABI in `src/orchestrator/metadata.ts` (`ERC721_METADATA_ABI_BYTEARRAY`) includes the required struct. Do not remove it. Strategy: try ByteArray ABI first, fall back to `ERC721_METADATA_ABI_FELT_ARRAY` for legacy contracts.
