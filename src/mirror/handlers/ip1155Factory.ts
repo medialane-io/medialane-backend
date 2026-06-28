@@ -16,27 +16,28 @@ const log = createLogger("mirror:ip1155Factory");
 function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
   if (offset >= felts.length) return { value: "", nextOffset: offset };
   const dataLen = Number(BigInt(felts[offset]));
-  const chunks = felts.slice(offset + 1, offset + 1 + dataLen);
-  const pendingWord = felts[offset + 1 + dataLen] ?? "0x0";
+  if (felts.length < offset + 1 + dataLen + 2) return { value: "", nextOffset: felts.length };
+
+  const pendingWord = BigInt(felts[offset + 1 + dataLen] ?? "0x0");
   const pendingWordLen = Number(BigInt(felts[offset + 1 + dataLen + 1] ?? "0"));
+  const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
+  let byteOffset = 0;
 
-  let value = "";
-  for (const chunk of chunks) {
-    const hex = BigInt(chunk).toString(16).padStart(62, "0");
-    for (let i = 0; i < 31; i++) {
-      const code = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-      if (code > 0) value += String.fromCharCode(code);
-    }
-  }
-  if (pendingWordLen > 0) {
-    const hex = BigInt(pendingWord).toString(16).padStart(pendingWordLen * 2, "0");
-    for (let i = 0; i < pendingWordLen; i++) {
-      const code = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-      if (code > 0) value += String.fromCharCode(code);
+  for (let i = 0; i < dataLen; i++) {
+    const value = BigInt(felts[offset + 1 + i]);
+    for (let j = 0; j < 31; j++) {
+      bytes[byteOffset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
     }
   }
 
-  return { value, nextOffset: offset + 1 + dataLen + 2 };
+  for (let j = 0; j < pendingWordLen; j++) {
+    bytes[byteOffset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
+  }
+
+  return {
+    value: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+    nextOffset: offset + 1 + dataLen + 2,
+  };
 }
 
 /**
