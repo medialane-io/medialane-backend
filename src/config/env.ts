@@ -59,6 +59,10 @@ const envSchema = z.object({
     .default("https://medialane.io,https://www.medialane.io,https://starknet.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(10000),
   INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(500),
+  // Blocks the indexer trails behind the chain tip before indexing them —
+  // a small reorg-safety buffer (2026-06-30 audit finding). The poller never
+  // requests events past `latestBlock - INDEXER_CONFIRMATION_BLOCKS`.
+  INDEXER_CONFIRMATION_BLOCKS: z.coerce.number().min(0).default(2),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(120_000),
   CHIPIPAY_API_KEY: z.string().default(""),
   CHIPIPAY_API_URL: z.string().default("https://api.chipi.io"),

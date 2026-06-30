@@ -39,13 +39,14 @@ describe("buildPaymentRequired", () => {
 });
 
 describe("settlePayment", () => {
-  test("verifies, applies MDLN multiplier, and credits", async () => {
+  test("verifies, applies MDLN multiplier, and credits when payer wallet is linked", async () => {
     const credited: CreditInput[] = [];
     const deps = {
       creditAccount: async (input: CreditInput) => {
         credited.push(input);
       },
       mdlnMultiplier: async () => 1.2,
+      isWalletLinkedToAccount: async () => true,
     };
     const res = await settlePayment(
       scheme,
@@ -57,5 +58,41 @@ describe("settlePayment", () => {
     expect(res.creditedAmount).toBe(120); // 1_000_000 atomic / 10_000 per credit = 100, * 1.2
     expect(credited).toHaveLength(1);
     expect(credited[0].mdlnMultiplier).toBe(1.2);
+  });
+
+  test("rejects when the verified payer wallet is not linked to the calling account", async () => {
+    const credited: CreditInput[] = [];
+    const deps = {
+      creditAccount: async (input: CreditInput) => {
+        credited.push(input);
+      },
+      mdlnMultiplier: async () => 1.0,
+      isWalletLinkedToAccount: async () => false,
+    };
+    const res = await settlePayment(
+      scheme,
+      "attacker-account",
+      { scheme: "starknet-transfer", network: "starknet", txHash: "0xtx", nonce: "n1" },
+      deps,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/not linked to this account/);
+    expect(credited).toHaveLength(0);
+  });
+
+  test("rejects when verify() reports no payer at all", async () => {
+    const noPayerScheme = { ...scheme, verify: async () => ({ ok: true, amountAtomic: 1_000_000n, proofNonce: "0xtx:n1" }) };
+    const deps = {
+      creditAccount: async () => {},
+      mdlnMultiplier: async () => 1.0,
+      isWalletLinkedToAccount: async () => true, // would link, but payer is undefined — must still reject
+    };
+    const res = await settlePayment(
+      noPayerScheme,
+      "t1",
+      { scheme: "starknet-transfer", network: "starknet", txHash: "0xtx", nonce: "n1" },
+      deps,
+    );
+    expect(res.ok).toBe(false);
   });
 });

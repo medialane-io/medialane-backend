@@ -5,7 +5,8 @@ import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
-import { hashApiKey } from "../../utils/apiKey.js";
+import { apiKeyRateLimit } from "../middleware/rateLimit.js";
+import { meter } from "../middleware/meter.js";
 import { Account } from "starknet";
 import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -20,41 +21,20 @@ import { createSlidingWindow } from "../../utils/slidingWindow.js";
 // 10 requests per 60s per tenant ID
 const checkRateLimit = createSlidingWindow(10, 60_000);
 
-// Helper: reads API key from x-api-key header ONLY (not Authorization).
-// Used on Path 1 where Authorization carries the Clerk JWT.
-// Uses hashApiKey to match the actual keyHash stored in the DB (same as apiKeyAuth.ts).
-async function xApiKeyAuth(c: any, next: any) {
-  const raw = c.req.header("x-api-key");
-  if (!raw) return c.json({ error: "Missing API key" }, 401);
-  const KEY_SELECT = {
-    id: true,
-    status: true,
-    monthlyRequestCount: true,
-    monthlyResetAt: true,
-    tenant: { select: { id: true, name: true, email: true, plan: true, status: true } },
-    account: { select: { id: true, plan: true, status: true, creditBalance: true } },
-  };
-  const apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(raw) }, select: KEY_SELECT });
-  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.account || apiKey.account.status !== "ACTIVE") {
-    return c.json({ error: "Invalid or revoked API key" }, 401);
-  }
-  if (apiKey.tenant && apiKey.tenant.status !== "ACTIVE") {
-    return c.json({ error: "Invalid or revoked API key" }, 401);
-  }
-  c.set("apiKey", apiKey);
-  c.set("account", apiKey.account);
-  if (apiKey.tenant) c.set("tenant", apiKey.tenant);
-  // Fire-and-forget lastUsedAt update — match apiKeyAuth.ts convention
-  prisma.apiKey.update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
-  await next();
-}
+// This router is mounted before the global apiKeyAuth/apiKeyRateLimit/meter
+// chain in server.ts (it layers Clerk JWT auth on top of tenant auth), so
+// every route below wires the same shared middlewares explicitly instead of
+// relying on the global mount — otherwise tenant auth, the FREE-tier monthly
+// quota, and x402 metering all silently never run (2026-06-30 audit finding).
 
 // ─── PATH 1: On-chain auto claim ────────────────────────────────────────────
 // Auth: x-api-key (tenant) + Authorization: Bearer (Clerk JWT)
 
 claims.post(
   "/",
-  xApiKeyAuth,
+  apiKeyAuth,
+  apiKeyRateLimit(),
+  meter(),
   identityAuth,
   zValidator("json", z.object({
     contractAddress: z.string(),
@@ -130,6 +110,8 @@ claims.post(
 claims.post(
   "/challenge",
   apiKeyAuth,
+  apiKeyRateLimit(),
+  meter(),
   zValidator("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
   async (c) => {
     const { contractAddress, walletAddress } = c.req.valid("json");
@@ -160,6 +142,8 @@ claims.post(
 claims.post(
   "/verify",
   apiKeyAuth,
+  apiKeyRateLimit(),
+  meter(),
   zValidator("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
@@ -238,6 +222,8 @@ claims.post(
 claims.post(
   "/request",
   apiKeyAuth,
+  apiKeyRateLimit(),
+  meter(),
   zValidator("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string().optional(),

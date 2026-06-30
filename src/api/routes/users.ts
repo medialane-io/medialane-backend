@@ -4,6 +4,8 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
+import { apiKeyRateLimit } from "../middleware/rateLimit.js";
+import { meter } from "../middleware/meter.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -50,7 +52,13 @@ const meBodySchema = z.object({
  * Frictionless registration — authenticated by tenant API key.
  * Address provided in body. Idempotent: returns existing Account if already known.
  */
-users.post("/register", async (c, next) => apiKeyAuth(c, next), zValidator("json", registerBodySchema), async (c) => {
+users.post(
+  "/register",
+  async (c, next) => apiKeyAuth(c, next),
+  async (c, next) => apiKeyRateLimit()(c, next),
+  async (c, next) => meter()(c, next),
+  zValidator("json", registerBodySchema),
+  async (c) => {
   const body = c.req.valid("json");
   const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
   const appSource = normalizeAppSource(body.appSource ?? "MEDIALANE_STARKNET");
@@ -147,7 +155,12 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
  * Filters all delegate to Identity (chain, provider, appSource) — an Account
  * with any matching Identity is counted once, regardless of how many it has.
  */
-users.get("/count", async (c, next) => apiKeyAuth(c, next), async (c) => {
+users.get(
+  "/count",
+  async (c, next) => apiKeyAuth(c, next),
+  async (c, next) => apiKeyRateLimit()(c, next),
+  async (c, next) => meter()(c, next),
+  async (c) => {
   const { chain, appSource, walletType, since } = c.req.query();
 
   const identityWhere: Record<string, unknown> = {};

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { x402Config } from "../config/x402.js";
 import { creditAccount as defaultCreditAccount } from "./credits.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "./mdln.js";
+import { isWalletLinkedToAccount as defaultIsWalletLinkedToAccount } from "../utils/account.js";
 import type { CreditInput } from "./credits.js";
 import type { PaymentRequirement, PaymentScheme, X402Payload } from "./schemes/types.js";
 
@@ -9,6 +10,7 @@ import type { PaymentRequirement, PaymentScheme, X402Payload } from "./schemes/t
 export interface SettleDeps {
   creditAccount: (input: CreditInput) => Promise<void>;
   mdlnMultiplier: (address: string) => Promise<number>;
+  isWalletLinkedToAccount: typeof defaultIsWalletLinkedToAccount;
 }
 
 export interface PaymentRequiredBody {
@@ -66,16 +68,33 @@ export interface SettleResult {
  * Verify an X-PAYMENT against `scheme` and, if valid, credit the tenant. Replays
  * are absorbed by the unique `proofNonce` on Payment — a unique violation means
  * the proof was already credited, which we treat as success-idempotent.
+ *
+ * Payer binding: the verified on-chain payer (`v.payer`) must be a wallet
+ * Identity already linked to `accountId`. Without this, the public, observable
+ * nature of an on-chain transfer (visible in mempool/explorer before the
+ * legitimate funder's API call lands) would let any other tenant race to claim
+ * someone else's transfer for their own account — see the 2026-06-30 audit.
  */
 export async function settlePayment(
   scheme: PaymentScheme,
   accountId: string,
   payload: X402Payload,
-  deps: SettleDeps = { creditAccount: defaultCreditAccount, mdlnMultiplier: defaultMdlnMultiplier },
+  deps: SettleDeps = {
+    creditAccount: defaultCreditAccount,
+    mdlnMultiplier: defaultMdlnMultiplier,
+    isWalletLinkedToAccount: defaultIsWalletLinkedToAccount,
+  },
 ): Promise<SettleResult> {
   const v = await scheme.verify(payload);
   if (!v.ok || v.amountAtomic === undefined || !v.proofNonce) {
     return { ok: false, reason: v.reason ?? "payment verification failed" };
+  }
+
+  if (!v.payer || !(await deps.isWalletLinkedToAccount(accountId, "STARKNET", v.payer))) {
+    return {
+      ok: false,
+      reason: "payer wallet is not linked to this account — link it via POST /v1/users/me, then fund from that wallet",
+    };
   }
 
   const baseCredits = Number(v.amountAtomic / x402Config.usdcAtomicPerCredit);

@@ -23,6 +23,25 @@ export async function resolveAccountIdFromWallet(
 }
 
 /**
+ * Is `address` a wallet Identity already linked to `accountId`?
+ * Used to bind on-chain payment proofs (x402 funding) to the account being
+ * credited — prevents crediting account A from a transfer actually sent by
+ * (and provably owned by) a wallet belonging to account B.
+ */
+export async function isWalletLinkedToAccount(
+  accountId: string,
+  chain: Chain,
+  address: string,
+): Promise<boolean> {
+  const normalized = normalizeAddress(chain, address);
+  const identity = await prisma.identity.findUnique({
+    where: { chain_address: { chain, address: normalized } },
+    select: { accountId: true, scheme: true },
+  });
+  return identity?.scheme === IDENTITY_SCHEME.WALLET && identity.accountId === accountId;
+}
+
+/**
  * Generates a user-facing account handle.
  * Format: "acc_" + 12 Crockford base32 chars (no I/L/O/U).
  * Collision is the caller's responsibility — Account.publicId is @unique.

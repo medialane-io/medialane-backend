@@ -91,8 +91,12 @@ async function tick(tickId: string): Promise<number> {
 
   const cursor = await loadCursor(CHAIN);
   const latestBlock = await getLatestBlock();
+  // Trail the chain tip by a small confirmation buffer — a minimal reorg-safety
+  // margin. `latestBlock` (the true tip) is still used for lag reporting below;
+  // only the polling window itself stays behind it.
+  const safeLatestBlock = Math.max(latestBlock - env.INDEXER_CONFIRMATION_BLOCKS, 0);
   const fromBlock = Number(cursor.lastBlock) + 1;
-  const toBlock = Math.min(fromBlock + env.INDEXER_BLOCK_BATCH_SIZE - 1, latestBlock);
+  const toBlock = Math.min(fromBlock + env.INDEXER_BLOCK_BATCH_SIZE - 1, safeLatestBlock);
 
   if (fromBlock > toBlock) {
     tlog.debug({ fromBlock, toBlock, latestBlock }, "Caught up, nothing to index");

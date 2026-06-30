@@ -4,6 +4,9 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
+import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
+import { apiKeyRateLimit } from "../middleware/rateLimit.js";
+import { meter } from "../middleware/meter.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const collectionSlugClaims = new Hono<AppEnv>();
@@ -53,10 +56,17 @@ collectionSlugClaims.get("/check/:slug", async (c) => {
 
 // ─── POST /v1/collection-slug-claims ─────────────────────────────────────────
 // Submit a slug claim for a collection. Caller must be the collection owner.
-// Auth: identityAuth (Clerk JWT) — mounted before global apiKeyAuth.
+// Auth: tenant API key + Clerk JWT. This router is mounted before the global
+// apiKeyAuth/apiKeyRateLimit/meter chain in server.ts, so they're wired
+// explicitly here (matches what the SDK already sends — `submitCollectionSlugClaim`
+// includes x-api-key — and matches the sibling claims/username-claims routers;
+// 2026-06-30 audit finding).
 
 collectionSlugClaims.post(
   "/",
+  apiKeyAuth,
+  apiKeyRateLimit(),
+  meter(),
   identityAuth,
   zValidator("json", z.object({
     contractAddress: z.string(),
@@ -131,6 +141,9 @@ collectionSlugClaims.post(
 
 collectionSlugClaims.get(
   "/me",
+  apiKeyAuth,
+  apiKeyRateLimit(),
+  meter(),
   identityAuth,
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;

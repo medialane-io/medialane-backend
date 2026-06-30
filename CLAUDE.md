@@ -321,17 +321,22 @@ Spec: `medialane-core/docs/specs/2026-06-14-coin-collection-split-design.md`; st
   admin-add path → `Collection(service: external-erc20)`. unrug's `MemecoinCreated` event is
   byte-identical to our `CreatorCoinCreated`, so the same decoder works when an admin adds one.
 
-### Platform fee + collection-token ownership (added 2026-05-20)
+### Platform fee + collection-token ownership
 
-**Platform fee in fulfill intents.** `buildFulfillOrderIntent` (`src/orchestrator/intent.ts`),
-in the **listing branch only** (buyer fulfills a listing), appends an ERC-20
-`transfer` to the creators-fund address after the `approve` and before
-`fulfill_order`. The fee is computed by `buildFeeCall` from `@medialane/sdk`
-(single source of truth); config via `src/config/fee.ts` (`FEE_ENABLED`,
-`FEE_FUND_ADDRESS`, `FEE_MARKETPLACE_BPS`/`FEE_LAUNCHPAD_BPS`, default 1%).
-The accept-offer (`isOffer`) branch is intentionally **not** fee'd — the
-fulfiller there is the seller, not the payer. No fee logic on-chain — platform
-layer only (`00 §12`).
+**Platform fee — NOT bundled in this backend (corrected 2026-06-30, was stale
+since the 2026-05-20 entry below).** `buildFulfillOrderIntent`
+(`src/orchestrator/intent.ts`) does **not** append a fee call — fulfill intents
+are just `approve` (or `set_approval_for_all`) + `fulfill_order`, full stop.
+The platform fee is charged by the **io app** as a separate post-confirmation
+transaction (the ChipiPay account is non-atomic, so a bundled fee would stick
+even when `fulfill_order` reverts) — see
+`medialane-core/docs/specs/2026-05-20-io-verify-then-charge-fee-design.md`.
+There is no `buildFeeCall`, no `src/config/fee.ts`, and no `FEE_ENABLED`/
+`FEE_FUND_ADDRESS`/`FEE_MARKETPLACE_BPS` in this codebase — don't go looking
+for them, and don't "fix" the missing fee call in `buildFulfillOrderIntent`.
+
+**Collection-token balances.** `GET /v1/collections/:contract/tokens` now batch-
+queries `TokenBalance` and includes per-token `balances` in the list response.
 
 **Collection-token balances.** `GET /v1/collections/:contract/tokens` now batch-
 queries `TokenBalance` and includes per-token `balances` in the list response.
