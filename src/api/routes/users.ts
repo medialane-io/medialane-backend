@@ -69,7 +69,7 @@ users.post(
       where: { id: accountId },
       include: {
         identities: {
-          where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress("STARKNET", body.walletAddress) },
+          where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(chain, body.walletAddress) },
           take: 1,
         },
       },

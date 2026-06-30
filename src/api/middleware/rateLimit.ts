@@ -1,15 +1,11 @@
 import type { MiddlewareHandler } from "hono";
-import type { Plan } from "@prisma/client";
-import { Prisma } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
-import prisma from "../../db/client.js";
 import { createRedisStore } from "./redisRateLimit.js";
 
 import { env } from "../../config/env.js";
 
-const FREE_MONTHLY_LIMIT = 50;
-const PREMIUM_PER_MINUTE_LIMIT = 3000;
-const WINDOW_MS = 60_000; // 1 minute (PREMIUM only)
+const PER_MINUTE_LIMIT = 3000;
+const WINDOW_MS = 60_000; // 1 minute
 
 // ---------------------------------------------------------------------------
 // Store interface — swap to RedisRateLimitStore for multi-instance production
@@ -70,72 +66,18 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
       return;
     }
 
-    const plan: Plan = apiKey.account.plan;
+    const key = `ratelimit:${apiKey.id}`;
+    const { count, resetAt } = await store.increment(key, WINDOW_MS);
+    const remaining = Math.max(0, PER_MINUTE_LIMIT - count);
+    const resetSec = Math.ceil(resetAt / 1000);
 
-    if (plan === "FREE") {
-      const now = new Date();
-      const resetAt = new Date(apiKey.monthlyResetAt);
-      const isNewMonth =
-        now.getFullYear() !== resetAt.getFullYear() ||
-        now.getMonth() !== resetAt.getMonth();
+    c.header("X-RateLimit-Limit", String(PER_MINUTE_LIMIT));
+    c.header("X-RateLimit-Remaining", String(remaining));
+    c.header("X-RateLimit-Reset", String(resetSec));
 
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      const resetSec = Math.ceil(nextMonth.getTime() / 1000);
-
-      let updatedCount: number;
-      if (isNewMonth) {
-        // Reset counter for new month
-        const updated = await prisma.apiKey.update({
-          where: { id: apiKey.id },
-          data: { monthlyRequestCount: 1, monthlyResetAt: now },
-          select: { monthlyRequestCount: true },
-        });
-        updatedCount = updated.monthlyRequestCount;
-      } else {
-        // Atomic conditional increment in ONE round trip. Returns the new
-        // count via Postgres RETURNING — prevents the previous double-query
-        // pattern (updateMany then findUnique) and prevents the race where
-        // two concurrent requests both read count=49 and both increment
-        // past 50 (the WHERE guard makes this impossible at the DB level).
-        const rows = await prisma.$queryRaw<{ monthlyRequestCount: number }[]>(Prisma.sql`
-          UPDATE "ApiKey"
-          SET "monthlyRequestCount" = "monthlyRequestCount" + 1
-          WHERE id = ${apiKey.id}
-            AND "monthlyRequestCount" < ${FREE_MONTHLY_LIMIT}
-          RETURNING "monthlyRequestCount"
-        `);
-        if (rows.length === 0) {
-          // No rows updated — already at or over the limit
-          c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
-          c.header("X-RateLimit-Remaining", "0");
-          c.header("X-RateLimit-Reset", String(resetSec));
-          c.header("Retry-After", String(resetSec - Math.floor(Date.now() / 1000)));
-          return c.json(
-            { error: "Monthly request limit reached. Upgrade to PREMIUM for unlimited access." },
-            429
-          );
-        }
-        updatedCount = rows[0].monthlyRequestCount;
-      }
-
-      c.header("X-RateLimit-Limit", String(FREE_MONTHLY_LIMIT));
-      c.header("X-RateLimit-Remaining", String(Math.max(0, FREE_MONTHLY_LIMIT - updatedCount)));
-      c.header("X-RateLimit-Reset", String(resetSec));
-    } else {
-      // PREMIUM — per-minute in-memory limiting
-      const key = `ratelimit:${apiKey.id}`;
-      const { count, resetAt } = await store.increment(key, WINDOW_MS);
-      const remaining = Math.max(0, PREMIUM_PER_MINUTE_LIMIT - count);
-      const resetSec = Math.ceil(resetAt / 1000);
-
-      c.header("X-RateLimit-Limit", String(PREMIUM_PER_MINUTE_LIMIT));
-      c.header("X-RateLimit-Remaining", String(remaining));
-      c.header("X-RateLimit-Reset", String(resetSec));
-
-      if (count > PREMIUM_PER_MINUTE_LIMIT) {
-        c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
-        return c.json({ error: "Too many requests" }, 429);
-      }
+    if (count > PER_MINUTE_LIMIT) {
+      c.header("Retry-After", String(Math.ceil((resetAt - Date.now()) / 1000)));
+      return c.json({ error: "Too many requests" }, 429);
     }
 
     await next();

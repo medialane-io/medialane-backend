@@ -35,29 +35,27 @@ export function meter(deps: MeterDeps = {
     const account = c.get("account");
     if (!account) return c.json({ error: "Unauthorized" }, 401);
 
-    // If the agent supplied a payment, settle it first so the debit can succeed.
+    // If the agent supplied a payment, settle it to top up their balance before
+    // debiting. A failed settlement (stale txHash, already credited, etc.) is
+    // non-fatal: we fall through and let debitCredits decide — an agent with a
+    // sufficient existing credit balance should not be blocked by a bad header.
     const header = c.req.header("x-payment");
     if (header) {
       const payload = decodePaymentHeader(header);
       const scheme = payload && SCHEMES.find((s) => s.scheme === payload.scheme && s.network === payload.network);
       if (payload && scheme) {
         const settled = await settlePayment(scheme, account.id, payload);
-        if (!settled.ok) {
-          c.header("X-Credits-Remaining", "0");
-          return c.json(
-            buildPaymentRequired(SCHEMES, {
-              costCredits: cost,
-              resource: c.req.path,
-              nonce: newNonce(),
-              error: settled.reason,
-            }),
-            402,
+        if (settled.ok) {
+          c.header(
+            "X-Payment-Response",
+            Buffer.from(JSON.stringify({ credited: settled.creditedAmount }), "utf8").toString("base64"),
+          );
+        } else {
+          log.warn(
+            { account: account.id, reason: settled.reason, path: c.req.path },
+            "payment settlement failed — falling through to credit balance",
           );
         }
-        c.header(
-          "X-Payment-Response",
-          Buffer.from(JSON.stringify({ credited: settled.creditedAmount }), "utf8").toString("base64"),
-        );
       }
     }
 

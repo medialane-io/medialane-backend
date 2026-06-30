@@ -21,13 +21,23 @@ const log = createLogger("middleware:identityAuth");
 
 // Lazily initialised — only created on the first Clerk JWT request.
 // SIWS callers (the majority) never pay the Clerk SDK initialisation cost.
-let _clerk: Awaited<ReturnType<typeof import("@clerk/backend").createClerkClient>> | null = null;
-function getClerk() {
+type ClerkModule = typeof import("@clerk/backend");
+let _clerkMod: ClerkModule | null = null;
+let _clerk: Awaited<ReturnType<ClerkModule["createClerkClient"]>> | null = null;
+
+async function getClerkMod(): Promise<ClerkModule> {
+  if (!_clerkMod) {
+    _clerkMod = await import("@clerk/backend");
+  }
+  return _clerkMod;
+}
+
+async function getClerk() {
   if (!_clerk) {
     if (!env.CLERK_SECRET_KEY) {
       throw new Error("CLERK_SECRET_KEY is not configured — Clerk JWT auth unavailable");
     }
-    const { createClerkClient } = require("@clerk/backend");
+    const { createClerkClient } = await getClerkMod();
     _clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
   }
   return _clerk!;
@@ -69,11 +79,11 @@ export async function identityAuth(c: Context, next: Next) {
 
   // ── Path 1: Clerk JWT ──────────────────────────────────────────────────────
   try {
-    const { verifyToken: clerkVerifyToken } = require("@clerk/backend");
+    const { verifyToken: clerkVerifyToken } = await getClerkMod();
     const payload = await clerkVerifyToken(token, {
       secretKey: env.CLERK_SECRET_KEY,
     });
-    const user = await getClerk().users.getUser(payload.sub);
+    const user = await (await getClerk()).users.getUser(payload.sub);
     const rawWallet = (user.publicMetadata?.publicKey ?? user.publicMetadata?.walletAddress) as string | undefined;
     if (!rawWallet) {
       return c.json({ error: "No wallet associated with this account" }, 403);

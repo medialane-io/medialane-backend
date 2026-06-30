@@ -48,7 +48,10 @@ function decodeShortStr(felt: string): string | null {
 coins.post("/sync", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
-    .object({ coinAddress: z.string().min(3), owner: z.string().optional() })
+    .object({
+      coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address"),
+      owner: z.string().optional(),
+    })
     .safeParse(body);
   if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
 
