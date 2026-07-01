@@ -51,19 +51,24 @@ export function createApp(): Hono<AppEnv> {
   app.route("/admin", admin);
   app.route("/admin/rewards", adminRewards);
 
-  // Claims routers — mounted BEFORE global apiKeyAuth; both handle their own Clerk JWT auth
+  // All /v1/* routes require a tenant API key (auth, FREE-tier quota, x402
+  // metering) except the explicit public paths listed inside tenantGate
+  // itself. Mounted FIRST on /v1/* so gating no longer depends on the order
+  // routers are registered below — see
+  // medialane-core/docs/specs/2026-06-30-tenant-gate-global-middleware-design.md.
+  app.use("/v1/*", tenantGate);
+
+  // Claims routers — some routes (e.g. the /check/:x availability checks,
+  // /v1/users/me) are exempted inside tenantGate; everything else here is
+  // tenant-gated by the mount above, then layers its own Clerk JWT/SIWS auth.
   app.route("/v1/collections/claim", claims);
   app.route("/v1/username-claims", usernameClaims);
   app.route("/v1/collection-slug-claims", collectionSlugClaims);
   app.route("/v1/users", users);
-  // Remix offers — Clerk JWT auth + x-api-key (mounted before global apiKeyAuth)
   app.route("/v1/remix-offers", remixOffers);
 
   // SIWS auth — public, no API key required (authentication precedes key issuance)
   app.route("/v1/auth/siws", siws);
-
-  // All /v1/* routes require a tenant API key (auth, FREE-tier quota, x402 metering)
-  app.use("/v1/*", ...tenantGate);
 
   // Tenant self-service portal
   app.route("/v1/portal", portal);

@@ -4,7 +4,6 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { tenantGate } from "../middleware/tenantGate.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const collectionSlugClaims = new Hono<AppEnv>();
@@ -54,14 +53,10 @@ collectionSlugClaims.get("/check/:slug", async (c) => {
 
 // ─── POST /v1/collection-slug-claims ─────────────────────────────────────────
 // Submit a slug claim for a collection. Caller must be the collection owner.
-// Auth: tenant API key + Clerk JWT. This router is mounted before the global
-// tenantGate chain in server.ts, so it's wired explicitly here (matches what
-// the SDK already sends — `submitCollectionSlugClaim` includes x-api-key —
-// and matches the sibling claims/username-claims routers; 2026-06-30 audit finding).
+// Auth: tenant API key (global tenantGate) + Clerk JWT.
 
 collectionSlugClaims.post(
   "/",
-  ...tenantGate,
   identityAuth,
   zValidator("json", z.object({
     contractAddress: z.string(),
@@ -136,7 +131,6 @@ collectionSlugClaims.post(
 
 collectionSlugClaims.get(
   "/me",
-  ...tenantGate,
   identityAuth,
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;

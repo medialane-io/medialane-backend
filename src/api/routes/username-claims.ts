@@ -4,7 +4,6 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { tenantGate } from "../middleware/tenantGate.js";
 import { resolveAccountIdFromWallet } from "../../utils/account.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -59,14 +58,10 @@ usernameClaims.get("/check/:username", async (c) => {
 
 // ─── POST /v1/username-claims ─────────────────────────────────────────────────
 // Submit a username claim for DAO review.
-// Auth: standard API key + Clerk JWT. This router is mounted before the global
-// tenantGate chain in server.ts, so it's wired explicitly here — otherwise
-// tenant auth, quota, and metering silently never run on this route despite
-// this comment's original intent (2026-06-30 audit finding).
+// Auth: standard API key (global tenantGate) + Clerk JWT.
 
 usernameClaims.post(
   "/",
-  ...tenantGate,
   identityAuth,
   zValidator("json", z.object({ username: z.string(), notifyEmail: z.string().email().optional() })),
   async (c) => {
@@ -122,7 +117,6 @@ usernameClaims.post(
 
 usernameClaims.get(
   "/me",
-  ...tenantGate,
   identityAuth,
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;

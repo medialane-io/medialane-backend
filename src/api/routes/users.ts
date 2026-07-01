@@ -3,7 +3,6 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { tenantGate } from "../middleware/tenantGate.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -52,7 +51,6 @@ const meBodySchema = z.object({
  */
 users.post(
   "/register",
-  ...tenantGate,
   zValidator("json", registerBodySchema),
   async (c) => {
     const body = c.req.valid("json");
@@ -154,7 +152,6 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
  */
 users.get(
   "/count",
-  ...tenantGate,
   async (c) => {
     const { chain, appSource, walletType, since } = c.req.query();
 

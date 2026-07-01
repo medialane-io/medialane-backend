@@ -4,7 +4,6 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { tenantGate } from "../middleware/tenantGate.js";
 import { Account } from "starknet";
 import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -19,18 +18,15 @@ import { createSlidingWindow } from "../../utils/slidingWindow.js";
 // 10 requests per 60s per tenant ID
 const checkRateLimit = createSlidingWindow(10, 60_000);
 
-// This router is mounted before the global tenantGate chain in server.ts (it
-// layers Clerk JWT auth on top of tenant auth), so every route below wires
-// `tenantGate` explicitly instead of relying on the global mount — otherwise
-// tenant auth, the FREE-tier monthly quota, and x402 metering all silently
-// never run (2026-06-30 audit finding).
+// Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
+// on /v1/* by tenantGate (src/api/middleware/tenantGate.ts), mounted before
+// this router in server.ts — no per-route wiring needed here.
 
 // ─── PATH 1: On-chain auto claim ────────────────────────────────────────────
 // Auth: x-api-key (tenant) + Authorization: Bearer (Clerk JWT)
 
 claims.post(
   "/",
-  ...tenantGate,
   identityAuth,
   zValidator("json", z.object({
     contractAddress: z.string(),
@@ -105,7 +101,6 @@ claims.post(
 
 claims.post(
   "/challenge",
-  ...tenantGate,
   zValidator("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
   async (c) => {
     const { contractAddress, walletAddress } = c.req.valid("json");
@@ -135,7 +130,6 @@ claims.post(
 
 claims.post(
   "/verify",
-  ...tenantGate,
   zValidator("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
@@ -213,7 +207,6 @@ claims.post(
 
 claims.post(
   "/request",
-  ...tenantGate,
   zValidator("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string().optional(),

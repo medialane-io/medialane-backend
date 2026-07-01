@@ -4,15 +4,13 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
-import { tenantGate } from "../middleware/tenantGate.js";
 import type { AppEnv } from "../../types/hono.js";
 
-// This router is mounted before the global tenantGate chain in server.ts (it
-// layers Clerk JWT/SIWS auth on top of tenant auth — matching what the SDK
-// already sends via ApiClient.request()'s baseHeaders), so every protected
-// route below wires `tenantGate` explicitly. Otherwise tenant auth, the
-// FREE-tier monthly quota, and x402 metering all silently never run
-// (2026-06-30 audit finding). `GET /:id` stays public/soft-auth.
+// Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
+// on /v1/* by tenantGate (src/api/middleware/tenantGate.ts), mounted before
+// this router in server.ts — no per-route wiring needed here. `GET /:id` is
+// tenant-gated too (the SDK always sends x-api-key there); only its Clerk
+// participant check is optional.
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
 import { createLogger } from "../../utils/logger.js";
@@ -197,7 +195,6 @@ function serializeOffer(offer: any, callerWallet?: string) {
 remixOffers.post(
   "/",
 
-  ...tenantGate,
   (c, next) => identityAuth(c, next),
   zValidator("json", createOfferSchema),
   async (c) => {
@@ -277,7 +274,6 @@ remixOffers.post(
 remixOffers.post(
   "/auto",
 
-  ...tenantGate,
   (c, next) => identityAuth(c, next),
   zValidator("json", autoOfferSchema),
   async (c) => {
@@ -361,7 +357,6 @@ remixOffers.post(
 remixOffers.post(
   "/self/confirm",
 
-  ...tenantGate,
   (c, next) => identityAuth(c, next),
   zValidator("json", selfConfirmSchema),
   async (c) => {
@@ -413,7 +408,6 @@ remixOffers.post(
 remixOffers.post(
   "/:id/confirm",
 
-  ...tenantGate,
   (c, next) => requireClerkJwt(c, next),
   zValidator("json", confirmSchema),
   async (c) => {
@@ -450,7 +444,6 @@ remixOffers.post(
 remixOffers.post(
   "/:id/reject",
 
-  ...tenantGate,
   (c, next) => requireClerkJwt(c, next),
   async (c) => {
     const { id } = c.req.param();
@@ -479,7 +472,6 @@ remixOffers.post(
 remixOffers.post(
   "/:id/extend",
 
-  ...tenantGate,
   (c, next) => identityAuth(c, next),
   async (c) => {
     const { id } = c.req.param();
@@ -521,7 +513,6 @@ remixOffers.post(
 remixOffers.get(
   "/",
 
-  ...tenantGate,
   (c, next) => identityAuth(c, next),
   zValidator("query", listSchema),
   async (c) => {
