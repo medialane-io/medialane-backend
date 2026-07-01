@@ -92,15 +92,3 @@ export async function identityAuth(c: Context, next: Next) {
 
   return next();
 }
-
-/**
- * Strict variant: only accepts a Clerk JWT.
- * Use on endpoints that must not accept SIWS tokens (e.g. gated content, remix confirm).
- */
-export async function requireClerkJwt(c: Context, next: Next) {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ") || authHeader.slice(7).startsWith("siws_")) {
-    return c.json({ error: "Clerk session token required" }, 401);
-  }
-  return identityAuth(c, next);
-}

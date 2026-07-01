@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { requireClerkJwt } from "../middleware/identityAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -41,9 +41,11 @@ const conditionsSchema = z.object({
 
 // POST /v1/drop/conditions
 // Store claim conditions after a successful create_drop transaction.
-// Requires Clerk JWT — only the collection owner (claimedBy or owner field) may set conditions.
+// Requires a verified wallet identity (Clerk JWT or SIWS) — only the collection
+// owner (claimedBy or owner field) may set conditions. Ownership is the real
+// gate (below), independent of which auth mechanism proved the wallet.
 // Body: { collectionAddress, maxSupply, price, paymentToken, startTime, endTime, maxPerWallet }
-drop.post("/conditions", async (c, next) => requireClerkJwt(c, next), async (c) => {
+drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ error: "Invalid request body" }, 400);
 

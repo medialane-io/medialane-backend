@@ -6,7 +6,7 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
-import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import {
   ensureAccountForWallet,
   resolveAccountIdFromWallet,
@@ -154,7 +154,7 @@ profiles.patch(
 
 profiles.get(
   "/collections/:contract/gated-content",
-  async (c, next) => requireClerkJwt(c, next),
+  async (c, next) => identityAuth(c, next),
   async (c) => {
     const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
 // Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
@@ -408,7 +408,7 @@ remixOffers.post(
 remixOffers.post(
   "/:id/confirm",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   zValidator("json", confirmSchema),
   async (c) => {
     const { id } = c.req.param();
@@ -444,7 +444,7 @@ remixOffers.post(
 remixOffers.post(
   "/:id/reject",
 
-  (c, next) => requireClerkJwt(c, next),
+  (c, next) => identityAuth(c, next),
   async (c) => {
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
