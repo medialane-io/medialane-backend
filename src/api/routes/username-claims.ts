@@ -5,32 +5,13 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { resolveAccountIdFromWallet } from "../../utils/account.js";
+import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const usernameClaims = new Hono<AppEnv>();
 
-// Username rules:
-// - 3–20 chars
-// - lowercase letters, numbers, underscores, hyphens
-// - cannot start or end with _ or -
-const USERNAME_REGEX = /^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$|^[a-z0-9]{3}$/;
-
-const RESERVED = new Set([
-  "admin", "api", "www", "medialane", "creator", "creators", "account",
-  "portfolio", "support", "docs", "about", "discover", "marketplace",
-  "collections", "activities", "launchpad", "create", "search",
-  "settings", "help", "legal", "terms", "privacy", "contact",
-  "team", "dao", "blog", "news", "status", "security",
-]);
-
 function validateUsername(username: string): string | null {
-  if (!USERNAME_REGEX.test(username)) {
-    return "Username must be 3–20 characters and contain only lowercase letters, numbers, underscores, and hyphens. Cannot start or end with _ or -.";
-  }
-  if (RESERVED.has(username)) {
-    return "That username is reserved.";
-  }
-  return null;
+  return validateSlugLike(username, "username");
 }
 
 // ─── GET /v1/username-claims/check/:username ─────────────────────────────────
@@ -41,8 +22,6 @@ usernameClaims.get("/check/:username", async (c) => {
 
   const validationError = validateUsername(slug);
   if (validationError) return c.json({ available: false, reason: validationError });
-
-  if (RESERVED.has(slug)) return c.json({ available: false, reason: "That username is reserved." });
 
   const [takenProfile, pendingClaim] = await Promise.all([
     prisma.accountProfile.findUnique({ where: { username: slug }, select: { accountId: true } }),

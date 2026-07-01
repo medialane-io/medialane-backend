@@ -4,30 +4,13 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
+import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const collectionSlugClaims = new Hono<AppEnv>();
 
-// Slug rules: 3–20 chars, lowercase letters/numbers/underscores/hyphens,
-// cannot start or end with _ or -
-const SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$|^[a-z0-9]{3}$/;
-
-const RESERVED = new Set([
-  "admin", "api", "www", "medialane", "creator", "creators", "account",
-  "portfolio", "support", "docs", "about", "discover", "marketplace",
-  "collections", "collection", "activities", "launchpad", "create", "search",
-  "settings", "help", "legal", "terms", "privacy", "contact",
-  "team", "dao", "blog", "news", "status", "security",
-]);
-
 function validateSlug(slug: string): string | null {
-  if (!SLUG_REGEX.test(slug)) {
-    return "Slug must be 3–20 characters and contain only lowercase letters, numbers, underscores, and hyphens. Cannot start or end with _ or -.";
-  }
-  if (RESERVED.has(slug)) {
-    return "That slug is reserved.";
-  }
-  return null;
+  return validateSlugLike(slug, "slug");
 }
 
 // ─── GET /v1/collection-slug-claims/check/:slug ───────────────────────────────
