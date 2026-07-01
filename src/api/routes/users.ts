@@ -3,9 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
-import { apiKeyRateLimit } from "../middleware/rateLimit.js";
-import { meter } from "../middleware/meter.js";
+import { tenantGate } from "../middleware/tenantGate.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -54,43 +52,42 @@ const meBodySchema = z.object({
  */
 users.post(
   "/register",
-  async (c, next) => apiKeyAuth(c, next),
-  async (c, next) => apiKeyRateLimit()(c, next),
-  async (c, next) => meter()(c, next),
+  ...tenantGate,
   zValidator("json", registerBodySchema),
   async (c) => {
-  const body = c.req.valid("json");
-  const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
-  const appSource = normalizeAppSource(body.appSource ?? "MEDIALANE_STARKNET");
-  const chain: Chain = body.chain ?? "STARKNET";
+    const body = c.req.valid("json");
+    const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
+    const appSource = normalizeAppSource(body.appSource ?? "MEDIALANE_STARKNET");
+    const chain: Chain = body.chain ?? "STARKNET";
 
-  const { accountId } = await ensureAccountForWallet({
-    chain,
-    address: body.walletAddress,
-    provider,
-    appSource,
-  });
+    const { accountId } = await ensureAccountForWallet({
+      chain,
+      address: body.walletAddress,
+      provider,
+      appSource,
+    });
 
-  const account = await prisma.account.findUniqueOrThrow({
-    where: { id: accountId },
-    include: {
-      identities: {
-        where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress("STARKNET", body.walletAddress) },
-        take: 1,
+    const account = await prisma.account.findUniqueOrThrow({
+      where: { id: accountId },
+      include: {
+        identities: {
+          where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress("STARKNET", body.walletAddress) },
+          take: 1,
+        },
       },
-    },
-  });
-  const wallet = account.identities[0]!;
-  return c.json({
-    accountId: account.id,
-    publicId: account.publicId,
-    walletAddress: wallet.address,
-    chain: wallet.chain,
-    provider: wallet.provider,
-    appSource,
-    createdAt: account.createdAt,
-  });
-});
+    });
+    const wallet = account.identities[0]!;
+    return c.json({
+      accountId: account.id,
+      publicId: account.publicId,
+      walletAddress: wallet.address,
+      chain: wallet.chain,
+      provider: wallet.provider,
+      appSource,
+      createdAt: account.createdAt,
+    });
+  }
+);
 
 /**
  * POST /v1/users/me
@@ -157,27 +154,26 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
  */
 users.get(
   "/count",
-  async (c, next) => apiKeyAuth(c, next),
-  async (c, next) => apiKeyRateLimit()(c, next),
-  async (c, next) => meter()(c, next),
+  ...tenantGate,
   async (c) => {
-  const { chain, appSource, walletType, since } = c.req.query();
+    const { chain, appSource, walletType, since } = c.req.query();
 
-  const identityWhere: Record<string, unknown> = {};
-  if (chain && VALID_CHAINS.has(chain as Chain)) identityWhere.chain = chain;
-  if (walletType) identityWhere.provider = walletType.toLowerCase();
-  if (appSource && VALID_APP_SOURCES.has(normalizeAppSource(appSource)))
-    identityWhere.appSource = normalizeAppSource(appSource);
+    const identityWhere: Record<string, unknown> = {};
+    if (chain && VALID_CHAINS.has(chain as Chain)) identityWhere.chain = chain;
+    if (walletType) identityWhere.provider = walletType.toLowerCase();
+    if (appSource && VALID_APP_SOURCES.has(normalizeAppSource(appSource)))
+      identityWhere.appSource = normalizeAppSource(appSource);
 
-  const accountWhere: Record<string, unknown> = {};
-  if (Object.keys(identityWhere).length > 0) accountWhere.identities = { some: identityWhere };
-  if (since) {
-    const sinceDate = new Date(since);
-    if (!isNaN(sinceDate.getTime())) accountWhere.createdAt = { gte: sinceDate };
+    const accountWhere: Record<string, unknown> = {};
+    if (Object.keys(identityWhere).length > 0) accountWhere.identities = { some: identityWhere };
+    if (since) {
+      const sinceDate = new Date(since);
+      if (!isNaN(sinceDate.getTime())) accountWhere.createdAt = { gte: sinceDate };
+    }
+
+    const count = await prisma.account.count({ where: accountWhere });
+    return c.json({ count, filters: { chain, appSource, walletType, since } });
   }
-
-  const count = await prisma.account.count({ where: accountWhere });
-  return c.json({ count, filters: { chain, appSource, walletType, since } });
-});
+);
 
 export default users;

@@ -3,11 +3,10 @@ import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
-import { apiKeyAuth } from "./middleware/apiKeyAuth.js";
+import { tenantGate } from "./middleware/tenantGate.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
-import { apiKeyRateLimit } from "./middleware/rateLimit.js";
 import health from "./routes/health.js";
 import orders from "./routes/orders.js";
 import tokens from "./routes/tokens.js";
@@ -33,7 +32,6 @@ import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
 import { rewards, adminRewards } from "./routes/rewards.js";
 import { x402Discovery } from "./routes/x402.js";
-import { meter } from "./middleware/meter.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -64,10 +62,8 @@ export function createApp(): Hono<AppEnv> {
   // SIWS auth — public, no API key required (authentication precedes key issuance)
   app.route("/v1/auth/siws", siws);
 
-  // All /v1/* routes require a tenant API key
-  app.use("/v1/*", apiKeyAuth);
-  app.use("/v1/*", apiKeyRateLimit());
-  app.use("/v1/*", meter()); // pay-per-use credit metering (x402)
+  // All /v1/* routes require a tenant API key (auth, FREE-tier quota, x402 metering)
+  app.use("/v1/*", ...tenantGate);
 
   // Tenant self-service portal
   app.route("/v1/portal", portal);

@@ -4,18 +4,15 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth, requireClerkJwt } from "../middleware/identityAuth.js";
-import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
-import { apiKeyRateLimit } from "../middleware/rateLimit.js";
-import { meter } from "../middleware/meter.js";
+import { tenantGate } from "../middleware/tenantGate.js";
 import type { AppEnv } from "../../types/hono.js";
 
-// This router is mounted before the global apiKeyAuth/apiKeyRateLimit/meter
-// chain in server.ts (it layers Clerk JWT/SIWS auth on top of tenant auth —
-// matching what the SDK already sends via ApiClient.request()'s baseHeaders),
-// so every protected route below wires the same shared middlewares explicitly.
-// Otherwise tenant auth, the FREE-tier monthly quota, and x402 metering all
-// silently never run (2026-06-30 audit finding). `GET /:id` stays public/soft-auth.
-const tenantGate = [apiKeyAuth, apiKeyRateLimit(), meter()] as const;
+// This router is mounted before the global tenantGate chain in server.ts (it
+// layers Clerk JWT/SIWS auth on top of tenant auth — matching what the SDK
+// already sends via ApiClient.request()'s baseHeaders), so every protected
+// route below wires `tenantGate` explicitly. Otherwise tenant auth, the
+// FREE-tier monthly quota, and x402 metering all silently never run
+// (2026-06-30 audit finding). `GET /:id` stays public/soft-auth.
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
 import { createLogger } from "../../utils/logger.js";
