@@ -61,6 +61,9 @@ export async function identityAuth(c: Context, next: Next) {
     // every caller is Starknet; routes resolve accounts as STARKNET until they
     // consume id.chain, so we stamp the address (behavior unchanged).
     c.set("walletAddress", id.address);
+    // Traffic marker (see the matching Clerk-path log below) — debug level,
+    // this is the expected majority path so info-level would be noisy.
+    log.debug({ path: c.req.path }, "identityAuth: SIWS path used");
     return next();
   }
 
@@ -77,6 +80,11 @@ export async function identityAuth(c: Context, next: Next) {
     }
     c.set("walletAddress", normalizeAddress("STARKNET", rawWallet));
     c.set("clerkUserId", payload.sub);
+    // Traffic marker for the Clerk-removal migration (medialane-core spec
+    // 2026-06-30-remove-clerk-from-backend-design.md, Stage 2) — greppable
+    // in Railway logs to confirm remaining callers before the Clerk branch
+    // is deleted. Remove once that decision is made either way.
+    log.info({ path: c.req.path }, "identityAuth: Clerk JWT path used");
   } catch (err) {
     // Log the underlying error so the next "Invalid or expired session token"
     // incident can be diagnosed from Railway logs without code spelunking. The
