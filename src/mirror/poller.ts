@@ -24,6 +24,9 @@ import {
   STARKNET_IP_TICKETS_FACTORY_CONTRACT,
   STARKNET_IP_CLUB_REGISTRY_CONTRACT,
   NEW_CLUB_CREATED_SELECTOR,
+  CLUB_STATUS_UPDATED_SELECTOR,
+  NEW_MEMBER_SELECTOR,
+  MEMBER_LEFT_SELECTOR,
   TICKET_COLLECTION_CREATED_SELECTOR,
   TICKET_MINTED_SELECTOR,
   TICKET_REDEEMED_SELECTOR,
@@ -302,8 +305,11 @@ export async function pollTicketFactoryEvents(
 }
 
 /**
- * Fetch NewClubCreated events from the IPClub registry.
- * Returns an empty array when STARKNET_IP_CLUB_REGISTRY_CONTRACT is not configured (not deployed yet).
+ * Fetch all IPClub registry events (NewClubCreated/ClubStatusUpdated/
+ * NewMember/MemberLeft) in one call — same single-key-position OR filter
+ * shape as pollSponsorshipEvents, since they're all emitted by one fixed
+ * registry address. Returns an empty array when
+ * STARKNET_IP_CLUB_REGISTRY_CONTRACT is not configured (not deployed yet).
  */
 export async function pollClubFactoryEvents(
   fromBlock: number,
@@ -315,7 +321,12 @@ export async function pollClubFactoryEvents(
     address: STARKNET_IP_CLUB_REGISTRY_CONTRACT,
     fromBlock,
     toBlock,
-    keys: [[num.toHex(NEW_CLUB_CREATED_SELECTOR)]],
+    keys: [[
+      num.toHex(NEW_CLUB_CREATED_SELECTOR),
+      num.toHex(CLUB_STATUS_UPDATED_SELECTOR),
+      num.toHex(NEW_MEMBER_SELECTOR),
+      num.toHex(MEMBER_LEFT_SELECTOR),
+    ]],
   });
 }
 

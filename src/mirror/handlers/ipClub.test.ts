@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeNewClubCreatedEvent } from "./ipClub.js";
+import { decodeNewClubCreatedEvent, decodeClubStatusUpdatedEvent, decodeNewMemberEvent, decodeMemberLeftEvent } from "./ipClub.js";
 
 function event(keys: string[], data: string[] = []) {
   return {
@@ -32,5 +32,30 @@ describe("decodeNewClubCreatedEvent", () => {
 
   test("returns null when keys/data are too short", () => {
     expect(decodeNewClubCreatedEvent(event(["0x0"]))).toBeNull();
+  });
+});
+
+describe("decodeClubStatusUpdatedEvent", () => {
+  test("decodes club_id (u256) and open from keys/data", () => {
+    const result = decodeClubStatusUpdatedEvent(event(["0x0", "0x1", "0x0"], ["0x1", "0x64"]));
+    expect(result?.clubId).toBe("1");
+    expect(result?.open).toBe(true);
+  });
+
+  test("returns null when data is missing", () => {
+    expect(decodeClubStatusUpdatedEvent(event(["0x0", "0x1", "0x0"], []))).toBeNull();
+  });
+});
+
+describe("decodeNewMemberEvent / decodeMemberLeftEvent", () => {
+  test("decodes club_id (u256) and member from keys", () => {
+    const result = decodeNewMemberEvent(event(["0x0", "0x1", "0x0", "0xabc"]));
+    expect(result?.clubId).toBe("1");
+    expect(result?.member).toBeDefined();
+    expect(decodeMemberLeftEvent(event(["0x0", "0x1", "0x0", "0xabc"]))?.clubId).toBe("1");
+  });
+
+  test("returns null when keys are too short", () => {
+    expect(decodeNewMemberEvent(event(["0x0"]))).toBeNull();
   });
 });
