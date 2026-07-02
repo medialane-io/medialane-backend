@@ -24,6 +24,9 @@ import {
   STARKNET_IP_TICKETS_FACTORY_CONTRACT,
   STARKNET_IP_CLUB_REGISTRY_CONTRACT,
   NEW_CLUB_CREATED_SELECTOR,
+  TICKET_COLLECTION_CREATED_SELECTOR,
+  TICKET_MINTED_SELECTOR,
+  TICKET_REDEEMED_SELECTOR,
   STARKNET_IP_SPONSORSHIP_CONTRACT,
   OFFER_CREATED_SELECTOR,
   OFFER_STATUS_UPDATED_SELECTOR,
@@ -313,6 +316,28 @@ export async function pollClubFactoryEvents(
     fromBlock,
     toBlock,
     keys: [[num.toHex(NEW_CLUB_CREATED_SELECTOR)]],
+  });
+}
+
+/**
+ * Fetch the inner per-batch events (TicketCollectionCreated/TicketMinted/
+ * TicketRedeemed) from one deployed IPTicketCollection instance — distinct
+ * from pollTicketFactoryEvents, which only discovers the outer contract.
+ */
+export async function pollTicketCollectionEvents(
+  collectionAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  return pollContractEvents({
+    address: collectionAddress,
+    fromBlock,
+    toBlock,
+    keys: [[
+      num.toHex(TICKET_COLLECTION_CREATED_SELECTOR),
+      num.toHex(TICKET_MINTED_SELECTOR),
+      num.toHex(TICKET_REDEEMED_SELECTOR),
+    ]],
   });
 }
 

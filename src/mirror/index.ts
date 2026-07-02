@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, pollTicketFactoryEvents, pollClubFactoryEvents, pollSponsorshipEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, pollTicketFactoryEvents, pollClubFactoryEvents, pollSponsorshipEvents, pollTicketCollectionEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
@@ -18,11 +18,12 @@ import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { handleTicketCollectionDeployed } from "./handlers/ticketCollectionFactory.js";
 import { handleNewClubCreated } from "./handlers/ipClub.js";
 import { handleSponsorshipEvent } from "./sponsorshipPoller.js";
+import { handleTicketCollectionEvent } from "./handlers/ticketCollectionEvents.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, STARKNET_IP_SPONSORSHIP_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
+import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, STARKNET_IP_SPONSORSHIP_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -70,6 +71,12 @@ let _lastCreatorCoinBlock: number | null = null;
 // Creator Coin above.
 let _lastSponsorshipPollTime = 0;
 let _lastSponsorshipBlock: number | null = null;
+
+// Tracks the last block up to which per-instance IP-Tickets inner events
+// (TicketCollectionCreated/TicketMinted/TicketRedeemed) were fetched. Same
+// slow per-instance cadence as POP/Drop allowlist polling above.
+let _lastTicketInstancePollTime = 0;
+let _lastTicketInstanceBlock: number | null = null;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -175,6 +182,25 @@ async function tick(tickId: string): Promise<number> {
     _lastPopAllowlistPollTime = now;
   }
 
+  // Poll IP-Tickets per-instance inner events on the same slow schedule.
+  let rawTicketInstanceEvents: RawStarknetEvent[] = [];
+  if (STARKNET_IP_TICKETS_FACTORY_CONTRACT && now - _lastTicketInstancePollTime >= transferPollIntervalMs()) {
+    const ticketCollections = await prisma.collection.findMany({
+      where: { chain: CHAIN, service: "ip-tickets", startBlock: { lte: BigInt(toBlock) } },
+      select: { contractAddress: true },
+    });
+    if (ticketCollections.length > 0) {
+      const ticketInstanceFromBlock = _lastTicketInstanceBlock != null ? _lastTicketInstanceBlock + 1 : fromBlock;
+      if (ticketInstanceFromBlock <= toBlock) {
+        rawTicketInstanceEvents = (
+          await Promise.all(ticketCollections.map((c) => pollTicketCollectionEvents(c.contractAddress, ticketInstanceFromBlock, toBlock)))
+        ).flat();
+      }
+    }
+    _lastTicketInstanceBlock = toBlock;
+    _lastTicketInstancePollTime = now;
+  }
+
   // Poll Drop allowlist events on the same slow schedule.
   let rawDropAllowlistEvents: RawStarknetEvent[] = [];
   if (STARKNET_DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
@@ -233,6 +259,7 @@ async function tick(tickId: string): Promise<number> {
       dropAllowlist: rawDropAllowlistEvents.length,
       erc1155Factory: rawERC1155FactoryEvents.length,
       ticketFactory: rawTicketFactoryEvents.length,
+      ticketInstance: rawTicketInstanceEvents.length,
       clubFactory: rawClubFactoryEvents.length,
       sponsorship: rawSponsorshipEvents.length,
       nftContractsPolled: nftContracts.length,
@@ -406,6 +433,12 @@ async function tick(tickId: string): Promise<number> {
     await handlePopAllowlistUpdated(event);
   }
 
+  // Process IP-Tickets inner events (TicketCollectionCreated resolves via an
+  // RPC view call; TicketMinted/TicketRedeemed are DB writes only)
+  for (const event of rawTicketInstanceEvents) {
+    await handleTicketCollectionEvent(event);
+  }
+
   // Process Drop factory DropCreated events (DB write only, collection_address is in data[0])
   for (const event of rawDropFactoryEvents) {
     await handleDropCreated(event);
@@ -519,6 +552,7 @@ async function tick(tickId: string): Promise<number> {
       dropAllowlistEvents: rawDropAllowlistEvents.length,
       erc1155FactoryEvents: rawERC1155FactoryEvents.length,
       ticketFactoryEvents: rawTicketFactoryEvents.length,
+      ticketInstanceEvents: rawTicketInstanceEvents.length,
       clubFactoryEvents: rawClubFactoryEvents.length,
       sponsorshipEvents: rawSponsorshipEvents.length,
       parsed: deduplicatedEvents.length,

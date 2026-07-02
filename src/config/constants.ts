@@ -92,6 +92,9 @@ export const BID_PLACED_SELECTOR = hash.getSelectorFromName("BidPlaced");
 export const BID_RETRACTED_SELECTOR = hash.getSelectorFromName("BidRetracted");
 export const SPONSORSHIP_ACCEPTED_SELECTOR = hash.getSelectorFromName("SponsorshipAccepted");
 export const LICENSE_TRANSFERRED_SELECTOR = hash.getSelectorFromName("LicenseTransferred");
+export const TICKET_COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("TicketCollectionCreated");
+export const TICKET_MINTED_SELECTOR = hash.getSelectorFromName("TicketMinted");
+export const TICKET_REDEEMED_SELECTOR = hash.getSelectorFromName("TicketRedeemed");
 
 // Token catalogue + lookup come from @medialane/sdk (single source of truth).
 // Re-exported here so internal callers keep their existing import path.
