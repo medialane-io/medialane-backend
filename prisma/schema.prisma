@@ -190,6 +190,14 @@ model Token {
   licenseType     String?
   commercialUse   Boolean?
   author          String?
+  /// IP-Tickets only: set true when redeem_ticket is called on-chain. The
+  /// token stays transferable per contract design — this flag gates access,
+  /// never ownership. Always false for every other service.
+  redeemed        Boolean        @default(false)
+  /// IP-Tickets only: the inner ticket-collection (event/tier) id this token
+  /// was minted from — a per-deployed-contract grouping distinct from the
+  /// outer Collection row. Set by TicketMinted; joins to TicketCollectionInfo.
+  ticketCollectionId String?
   transfers       Transfer[]
   collection      Collection?    @relation(fields: [chain, contractAddress], references: [chain, contractAddress])
   createdAt       DateTime       @default(now())
@@ -948,4 +956,101 @@ model AdminAuthNonce {
   expiresAt DateTime
 
   @@index([expiresAt])
+}
+
+/// The inner per-batch grouping inside one deployed IPTicketCollection
+/// (contractAddress is the outer, factory-discovered Collection row's
+/// address; ticketCollectionId is the on-chain collection_id created via
+/// create_ticket_collection). One creator can run multiple events/tiers
+/// under their own contract — mirrors how mip-erc1155 tracks editions.
+/// Populated by a slow per-instance poller (same shape as POP/Drop
+/// AllowlistUpdated), not the main per-tick loop.
+model TicketCollectionInfo {
+  id                 String   @id @default(cuid())
+  chain              Chain    @default(STARKNET)
+  contractAddress    String
+  ticketCollectionId String
+  price              String
+  maxSupply          String
+  minted             String
+  expiration         BigInt
+  royaltyBps         Int
+  paymentToken       String?
+  metadataUri        String
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([chain, contractAddress, ticketCollectionId])
+}
+
+/// IP-Sponsorship has no factory and mints nothing itself — offers/bids/
+/// licenses are NOT Collection/Token rows (there is nothing to mint on
+/// IPSponsorship; the receipt NFT, if any, is minted separately on a
+/// dedicated IPGenesis instance and tracked only via licenseNftTokenId
+/// below, never as its own Token row). Populated by a dedicated poller
+/// (src/mirror/sponsorshipPoller.ts), not the main Collection-factory mirror
+/// loop.
+model SponsorshipOffer {
+  id                  String               @id @default(cuid())
+  chain               Chain                @default(STARKNET)
+  sponsorshipContract String
+  offerId             String
+  author              String
+  nftContract         String
+  tokenId             String
+  minAmount           String
+  duration            BigInt
+  paymentToken        String
+  licenseTermsUri     String
+  transferable        Boolean
+  specificSponsor     String?
+  open                Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  bids                SponsorshipBid[]
+  licenses            SponsorshipLicense[]
+
+  @@unique([chain, sponsorshipContract, offerId])
+  @@index([chain, nftContract])
+  @@index([chain, author])
+}
+
+model SponsorshipBid {
+  id                  String           @id @default(cuid())
+  chain               Chain            @default(STARKNET)
+  sponsorshipContract String
+  offerId             String
+  sponsor             String
+  amount              String
+  status              SponsorshipBidStatus @default(ACTIVE)
+  updatedAt           DateTime         @updatedAt
+  offer               SponsorshipOffer @relation(fields: [chain, sponsorshipContract, offerId], references: [chain, sponsorshipContract, offerId])
+
+  @@unique([chain, sponsorshipContract, offerId, sponsor])
+}
+
+enum SponsorshipBidStatus {
+  ACTIVE
+  RETRACTED
+  ACCEPTED
+}
+
+model SponsorshipLicense {
+  id                   String           @id @default(cuid())
+  chain                Chain            @default(STARKNET)
+  sponsorshipContract  String
+  licenseId            String
+  offerId              String
+  sponsor              String
+  transferable         Boolean
+  expiresAt            BigInt
+  /// Non-authoritative receipt — is_license_valid() on IPSponsorship is the
+  /// sole authority for gating/perks regardless of these two fields.
+  licenseNftContract   String?
+  licenseNftTokenId    String?
+  createdAt            DateTime         @default(now())
+  offer                SponsorshipOffer @relation(fields: [chain, sponsorshipContract, offerId], references: [chain, sponsorshipContract, offerId])
+
+  @@unique([chain, sponsorshipContract, licenseId])
 }

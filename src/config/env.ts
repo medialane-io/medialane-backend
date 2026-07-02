@@ -34,6 +34,7 @@ const envSchema = z.object({
     .default("0x01a46467a9246f45c8c340f1f155266a26a71c07bd55d36e8d1c7d0d438a2dbc"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(50000),
+  SPONSORSHIP_POLL_INTERVAL_MS: z.coerce.number().default(50000),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
