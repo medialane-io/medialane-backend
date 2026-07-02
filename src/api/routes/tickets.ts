@@ -8,6 +8,21 @@ const log = createLogger("routes:tickets");
 
 const tickets = new Hono<AppEnv>();
 
+// GET /v1/tickets/:contract/collections
+// Lists the inner ticket collections (event/tier batches) inside one
+// deployed IPTicketCollection contract. One creator's contract can hold
+// several — this is the read the Launchpad detail/mint page needs.
+tickets.get("/:contract/collections", async (c) => {
+  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+
+  const collections = await prisma.ticketCollectionInfo.findMany({
+    where: { chain: "STARKNET", contractAddress: contract },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return c.json({ data: collections });
+});
+
 // GET /v1/tickets/:contract/:collectionId/status/:wallet
 // Mirrors has_valid_ticket/get_active_ticket_balance on IPTicketCollection —
 // DB-backed (Token.redeemed + TicketCollectionInfo.expiration + TokenBalance
