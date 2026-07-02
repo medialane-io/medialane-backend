@@ -16,14 +16,14 @@ import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFa
 import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { handleTicketCollectionDeployed } from "./handlers/ticketCollectionFactory.js";
-import { handleNewClubCreated } from "./handlers/ipClub.js";
+import { handleClubRegistryEvent, decodeNewClubCreatedEvent } from "./handlers/ipClub.js";
 import { handleSponsorshipEvent } from "./sponsorshipPoller.js";
 import { handleTicketCollectionEvent } from "./handlers/ticketCollectionEvents.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, STARKNET_IP_SPONSORSHIP_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
+import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, STARKNET_IP_SPONSORSHIP_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, NEW_CLUB_CREATED_SELECTOR, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -476,11 +476,17 @@ async function tick(tickId: string): Promise<number> {
     }
   }
 
-  // Process IP-Club NewClubCreated events (DB write + metadata job; club_nft is data[0], not a key)
+  // Process all IPClub registry events (NewClubCreated/ClubStatusUpdated/
+  // NewMember/MemberLeft) — only NewClubCreated introduces a new club_nft
+  // contract to re-poll for stats. NewMember/MemberLeft share the exact same
+  // key/data shape as NewClubCreated, so the selector MUST be checked first —
+  // decodeNewClubCreatedEvent's structural check alone would misfire on them.
   for (const event of rawClubFactoryEvents) {
-    await handleNewClubCreated(event);
-    if (event.data?.[0]) {
-      affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
+    await handleClubRegistryEvent(event);
+    const selector = num.toHex(event.keys[0] ?? "0x0");
+    if (selector === num.toHex(NEW_CLUB_CREATED_SELECTOR)) {
+      const created = decodeNewClubCreatedEvent(event);
+      if (created) affectedContracts.add(created.clubAddress);
     }
   }
 

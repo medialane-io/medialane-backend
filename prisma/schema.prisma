@@ -984,6 +984,30 @@ model TicketCollectionInfo {
   @@unique([chain, contractAddress, ticketCollectionId])
 }
 
+/// IPClub's ClubRecord fields (open/entry fee/member cap) — the registry's
+/// own state, distinct from the Collection row (which indexes the per-club
+/// club_nft contract, discovered via NewClubCreated). Populated by
+/// resolveClubRecord(), a get_club_record() view call, refreshed on every
+/// registry event that touches this club (created/status/member
+/// joined/left) — always re-read from source rather than trusting
+/// incremental counters, so it can never drift.
+model ClubInfo {
+  id              String   @id @default(cuid())
+  chain           Chain    @default(STARKNET)
+  registryAddress String
+  clubId          String
+  clubNftAddress  String
+  open            Boolean  @default(true)
+  numMembers      Int      @default(0)
+  maxMembers      Int?
+  entryFee        String?
+  paymentToken    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([chain, registryAddress, clubId])
+}
+
 /// IP-Sponsorship has no factory and mints nothing itself — offers/bids/
 /// licenses are NOT Collection/Token rows (there is nothing to mint on
 /// IPSponsorship; the receipt NFT, if any, is minted separately on a
