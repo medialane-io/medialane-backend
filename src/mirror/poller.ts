@@ -21,6 +21,9 @@ import {
   COLLECTION_DEPLOYED_SELECTOR,
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
   CREATOR_COIN_CREATED_SELECTOR,
+  STARKNET_IP_TICKETS_FACTORY_CONTRACT,
+  STARKNET_IP_CLUB_REGISTRY_CONTRACT,
+  NEW_CLUB_CREATED_SELECTOR,
 } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import { num } from "starknet";
@@ -267,6 +270,42 @@ export async function pollCreatorCoinFactoryEvents(
     fromBlock,
     toBlock,
     keys: [[num.toHex(CREATOR_COIN_CREATED_SELECTOR)]],
+  });
+}
+
+/**
+ * Fetch CollectionDeployed events from the IP-Tickets factory.
+ * Returns an empty array when STARKNET_IP_TICKETS_FACTORY_CONTRACT is not configured (not deployed yet).
+ */
+export async function pollTicketFactoryEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!STARKNET_IP_TICKETS_FACTORY_CONTRACT) return [];
+
+  return pollContractEvents({
+    address: STARKNET_IP_TICKETS_FACTORY_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
+  });
+}
+
+/**
+ * Fetch NewClubCreated events from the IPClub registry.
+ * Returns an empty array when STARKNET_IP_CLUB_REGISTRY_CONTRACT is not configured (not deployed yet).
+ */
+export async function pollClubFactoryEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!STARKNET_IP_CLUB_REGISTRY_CONTRACT) return [];
+
+  return pollContractEvents({
+    address: STARKNET_IP_CLUB_REGISTRY_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[num.toHex(NEW_CLUB_CREATED_SELECTOR)]],
   });
 }
 

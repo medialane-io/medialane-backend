@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, pollTicketFactoryEvents, pollClubFactoryEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
@@ -15,6 +15,8 @@ import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handler
 import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
 import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
+import { handleTicketCollectionDeployed } from "./handlers/ticketCollectionFactory.js";
+import { handleNewClubCreated } from "./handlers/ipClub.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
@@ -115,7 +117,7 @@ async function tick(tickId: string): Promise<number> {
   const nftContracts = knownCollections.map((c) => c.contractAddress);
 
   // Poll marketplace events, ERC-1155 marketplace events, CollectionCreated events, etc. in parallel.
-  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents] = await Promise.all([
+  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents, rawTicketFactoryEvents, rawClubFactoryEvents] = await Promise.all([
     pollEvents(fromBlock, toBlock),
     pollEvents1155(fromBlock, toBlock),
     pollCollectionCreatedEvents(fromBlock, toBlock),
@@ -123,6 +125,8 @@ async function tick(tickId: string): Promise<number> {
     pollPopFactoryEvents(fromBlock, toBlock),
     pollDropFactoryEvents(fromBlock, toBlock),
     pollERC1155FactoryEvents(fromBlock, toBlock),
+    pollTicketFactoryEvents(fromBlock, toBlock),
+    pollClubFactoryEvents(fromBlock, toBlock),
   ]);
 
   // Poll Transfer events on a separate 2-minute schedule.
@@ -209,6 +213,8 @@ async function tick(tickId: string): Promise<number> {
       dropFactory: rawDropFactoryEvents.length,
       dropAllowlist: rawDropAllowlistEvents.length,
       erc1155Factory: rawERC1155FactoryEvents.length,
+      ticketFactory: rawTicketFactoryEvents.length,
+      clubFactory: rawClubFactoryEvents.length,
       nftContractsPolled: nftContracts.length,
     },
     "Fetched events"
@@ -409,6 +415,22 @@ async function tick(tickId: string): Promise<number> {
     }
   }
 
+  // Process IP-Tickets factory CollectionDeployed events (DB write + metadata job)
+  for (const event of rawTicketFactoryEvents) {
+    await handleTicketCollectionDeployed(event);
+    if (event.keys?.[1]) {
+      affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+    }
+  }
+
+  // Process IP-Club NewClubCreated events (DB write + metadata job; club_nft is data[0], not a key)
+  for (const event of rawClubFactoryEvents) {
+    await handleNewClubCreated(event);
+    if (event.data?.[0]) {
+      affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
+    }
+  }
+
   // Also collect nftContracts for fulfilled/cancelled orders (already in DB)
   if (fulfilledOrCancelledHashes.length > 0) {
     const orderRows = await prisma.order.findMany({
@@ -470,6 +492,8 @@ async function tick(tickId: string): Promise<number> {
       dropFactoryEvents: rawDropFactoryEvents.length,
       dropAllowlistEvents: rawDropAllowlistEvents.length,
       erc1155FactoryEvents: rawERC1155FactoryEvents.length,
+      ticketFactoryEvents: rawTicketFactoryEvents.length,
+      clubFactoryEvents: rawClubFactoryEvents.length,
       parsed: deduplicatedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: allAffectedContracts.size,
