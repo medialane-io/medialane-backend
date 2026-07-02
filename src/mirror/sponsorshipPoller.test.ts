@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   decodeOfferCreatedEvent,
+  decodeOfferStatusUpdatedEvent,
   decodeBidPlacedEvent,
+  decodeBidRetractedEvent,
   decodeSponsorshipAcceptedEvent,
+  decodeLicenseTransferredEvent,
 } from "./sponsorshipPoller.js";
 
 function event(keys: string[], data: string[] = []) {
@@ -31,6 +34,18 @@ describe("decodeOfferCreatedEvent", () => {
   });
 });
 
+describe("decodeOfferStatusUpdatedEvent", () => {
+  test("decodes offer_id (u256) and open from keys/data", () => {
+    const result = decodeOfferStatusUpdatedEvent(event(["0x0", "0x1", "0x0"], ["0x1", "0x64"]));
+    expect(result?.offerId).toBe("1");
+    expect(result?.open).toBe(true);
+  });
+
+  test("returns null when data is missing", () => {
+    expect(decodeOfferStatusUpdatedEvent(event(["0x0", "0x1", "0x0"], []))).toBeNull();
+  });
+});
+
 describe("decodeBidPlacedEvent", () => {
   test("decodes offer_id (u256) and sponsor from keys", () => {
     const result = decodeBidPlacedEvent(event(["0x0", "0x1", "0x0", "0xb01"]));
@@ -40,6 +55,18 @@ describe("decodeBidPlacedEvent", () => {
 
   test("returns null when keys are too short", () => {
     expect(decodeBidPlacedEvent(event(["0x0"]))).toBeNull();
+  });
+});
+
+describe("decodeBidRetractedEvent", () => {
+  test("decodes offer_id (u256) and sponsor from keys", () => {
+    const result = decodeBidRetractedEvent(event(["0x0", "0x1", "0x0", "0xb02"]));
+    expect(result?.offerId).toBe("1");
+    expect(result?.sponsor).toBeDefined();
+  });
+
+  test("returns null when keys are too short", () => {
+    expect(decodeBidRetractedEvent(event(["0x0"]))).toBeNull();
   });
 });
 
@@ -55,5 +82,17 @@ describe("decodeSponsorshipAcceptedEvent", () => {
 
   test("returns null when keys are too short", () => {
     expect(decodeSponsorshipAcceptedEvent(event(["0x0"]))).toBeNull();
+  });
+});
+
+describe("decodeLicenseTransferredEvent", () => {
+  test("decodes license_id (u256) and to from keys", () => {
+    const result = decodeLicenseTransferredEvent(event(["0x0", "0x1", "0x0", "0xd01", "0xd02"]));
+    expect(result?.licenseId).toBe("1");
+    expect(result?.to).toBeDefined();
+  });
+
+  test("returns null when keys are too short", () => {
+    expect(decodeLicenseTransferredEvent(event(["0x0"]))).toBeNull();
   });
 });

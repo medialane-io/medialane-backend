@@ -24,6 +24,13 @@ import {
   STARKNET_IP_TICKETS_FACTORY_CONTRACT,
   STARKNET_IP_CLUB_REGISTRY_CONTRACT,
   NEW_CLUB_CREATED_SELECTOR,
+  STARKNET_IP_SPONSORSHIP_CONTRACT,
+  OFFER_CREATED_SELECTOR,
+  OFFER_STATUS_UPDATED_SELECTOR,
+  BID_PLACED_SELECTOR,
+  BID_RETRACTED_SELECTOR,
+  SPONSORSHIP_ACCEPTED_SELECTOR,
+  LICENSE_TRANSFERRED_SELECTOR,
 } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import { num } from "starknet";
@@ -306,6 +313,34 @@ export async function pollClubFactoryEvents(
     fromBlock,
     toBlock,
     keys: [[num.toHex(NEW_CLUB_CREATED_SELECTOR)]],
+  });
+}
+
+/**
+ * Fetch all IPSponsorship events (OfferCreated/OfferStatusUpdated/BidPlaced/
+ * BidRetracted/SponsorshipAccepted/LicenseTransferred) in one call — a single
+ * key-position OR filter, since IPSponsorship is not a Collection factory and
+ * has no per-instance addresses to fan out to. Returns an empty array when
+ * STARKNET_IP_SPONSORSHIP_CONTRACT is not configured (not deployed yet).
+ */
+export async function pollSponsorshipEvents(
+  fromBlock: number,
+  toBlock: number
+): Promise<RawStarknetEvent[]> {
+  if (!STARKNET_IP_SPONSORSHIP_CONTRACT) return [];
+
+  return pollContractEvents({
+    address: STARKNET_IP_SPONSORSHIP_CONTRACT,
+    fromBlock,
+    toBlock,
+    keys: [[
+      num.toHex(OFFER_CREATED_SELECTOR),
+      num.toHex(OFFER_STATUS_UPDATED_SELECTOR),
+      num.toHex(BID_PLACED_SELECTOR),
+      num.toHex(BID_RETRACTED_SELECTOR),
+      num.toHex(SPONSORSHIP_ACCEPTED_SELECTOR),
+      num.toHex(LICENSE_TRANSFERRED_SELECTOR),
+    ]],
   });
 }
 

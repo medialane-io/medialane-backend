@@ -87,8 +87,11 @@ export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 export const NEW_CLUB_CREATED_SELECTOR = hash.getSelectorFromName("NewClubCreated");
 export const OFFER_CREATED_SELECTOR = hash.getSelectorFromName("OfferCreated");
+export const OFFER_STATUS_UPDATED_SELECTOR = hash.getSelectorFromName("OfferStatusUpdated");
 export const BID_PLACED_SELECTOR = hash.getSelectorFromName("BidPlaced");
+export const BID_RETRACTED_SELECTOR = hash.getSelectorFromName("BidRetracted");
 export const SPONSORSHIP_ACCEPTED_SELECTOR = hash.getSelectorFromName("SponsorshipAccepted");
+export const LICENSE_TRANSFERRED_SELECTOR = hash.getSelectorFromName("LicenseTransferred");
 
 // Token catalogue + lookup come from @medialane/sdk (single source of truth).
 // Re-exported here so internal callers keep their existing import path.

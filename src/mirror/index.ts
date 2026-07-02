@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, pollTicketFactoryEvents, pollClubFactoryEvents, getLatestBlock } from "./poller.js";
+import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, pollTicketFactoryEvents, pollClubFactoryEvents, pollSponsorshipEvents, getLatestBlock } from "./poller.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
@@ -17,11 +17,12 @@ import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { handleTicketCollectionDeployed } from "./handlers/ticketCollectionFactory.js";
 import { handleNewClubCreated } from "./handlers/ipClub.js";
+import { handleSponsorshipEvent } from "./sponsorshipPoller.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
+import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, STARKNET_IP_SPONSORSHIP_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
@@ -62,6 +63,13 @@ let _lastDropAllowlistBlock: number | null = null;
 // Slow-poll (default 50s) — few creators, so polling every main tick is wasteful.
 let _lastCreatorCoinPollTime = 0;
 let _lastCreatorCoinBlock: number | null = null;
+
+// Tracks the last block up to which IPSponsorship events were fetched.
+// Slow-poll (default 50s) — not a Collection factory, so it isn't visited by
+// the main mirror loop's per-tick fetch; same decoupled-cadence shape as
+// Creator Coin above.
+let _lastSponsorshipPollTime = 0;
+let _lastSponsorshipBlock: number | null = null;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -200,6 +208,17 @@ async function tick(tickId: string): Promise<number> {
     _lastCreatorCoinPollTime = now;
   }
 
+  // Poll IPSponsorship events on the same slow schedule as Creator Coin.
+  let rawSponsorshipEvents: RawStarknetEvent[] = [];
+  if (STARKNET_IP_SPONSORSHIP_CONTRACT && now - _lastSponsorshipPollTime >= env.SPONSORSHIP_POLL_INTERVAL_MS) {
+    const spFromBlock = _lastSponsorshipBlock != null ? _lastSponsorshipBlock + 1 : fromBlock;
+    if (spFromBlock <= toBlock) {
+      rawSponsorshipEvents = await pollSponsorshipEvents(spFromBlock, toBlock);
+    }
+    _lastSponsorshipBlock = toBlock;
+    _lastSponsorshipPollTime = now;
+  }
+
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(
     {
@@ -215,6 +234,7 @@ async function tick(tickId: string): Promise<number> {
       erc1155Factory: rawERC1155FactoryEvents.length,
       ticketFactory: rawTicketFactoryEvents.length,
       clubFactory: rawClubFactoryEvents.length,
+      sponsorship: rawSponsorshipEvents.length,
       nftContractsPolled: nftContracts.length,
     },
     "Fetched events"
@@ -431,6 +451,12 @@ async function tick(tickId: string): Promise<number> {
     }
   }
 
+  // Process IPSponsorship events (dedicated tables, not Collection/Token —
+  // IPSponsorship mints nothing, so there's no Collection row to invalidate).
+  for (const event of rawSponsorshipEvents) {
+    await handleSponsorshipEvent(event);
+  }
+
   // Also collect nftContracts for fulfilled/cancelled orders (already in DB)
   if (fulfilledOrCancelledHashes.length > 0) {
     const orderRows = await prisma.order.findMany({
@@ -494,6 +520,7 @@ async function tick(tickId: string): Promise<number> {
       erc1155FactoryEvents: rawERC1155FactoryEvents.length,
       ticketFactoryEvents: rawTicketFactoryEvents.length,
       clubFactoryEvents: rawClubFactoryEvents.length,
+      sponsorshipEvents: rawSponsorshipEvents.length,
       parsed: deduplicatedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: allAffectedContracts.size,
