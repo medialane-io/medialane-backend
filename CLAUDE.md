@@ -387,12 +387,21 @@ Structural guarantees that the source-of-null bug class (silent `service: null` 
 | `ip-erc721` | Shared genesis ERC-721 contract |
 | `pop-protocol` | Soulbound proof-of-presence (POP factory) |
 | `drop-collection` | Timed-window collection drop (Drop factory) |
+| `ip-tickets` | Per-creator ERC-721 ticket collection (IPTicketCollectionFactory) |
+| `ip-club` | Per-club soulbound membership NFT (IPClubNFT, deployed from the single `IPClub` registry) |
 | `external-erc721` | Any ERC-721 contract not deployed via a Medialane service |
 | `external-erc1155` | Any ERC-1155 contract not deployed via a Medialane service |
 | `medialane-marketplace-erc721` | Marketplace venue (orders only) |
 | `medialane-marketplace-erc1155` | Marketplace venue (orders only) |
 
 Legacy collections from prior contract redeployments are tagged `external-*` (the platform can no longer mint to them via the current factories, so they're operationally equivalent to true externals). When a future contract version ships, the corresponding existing rows get re-tagged `external-*` in the redeploy SQL.
+
+`ip-sponsorship` deliberately has **no** `Collection.service` entry — `IPSponsorship` is a
+single contract with no factory and mints nothing itself, so offers/bids/licenses live in
+their own dedicated tables (`SponsorshipOffer`/`SponsorshipBid`/`SponsorshipLicense`), not
+the Collection model. Its receipt NFT is minted through a separate `ip-erc721`-class
+instance and is non-authoritative (`IPSponsorship.is_license_valid()` on-chain is the sole
+gate).
 
 ### Rewards & Ranking System (added 2026-05-12)
 
