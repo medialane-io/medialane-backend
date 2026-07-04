@@ -573,6 +573,8 @@ The ABI in `src/orchestrator/metadata.ts` (`ERC721_METADATA_ABI_BYTEARRAY`) incl
 
 Remediation for tokens already corrupted this way: `POST /admin/tokens/:contract/:tokenId/refresh` after this fix is deployed (a stuck-process cache from before the fix will keep reproducing the same truncated value — the fix requires a fresh process).
 
+**Same fix applied to `collectionMetadata.ts` (2026-07-04)** — `fetchCollectionOnChainInfo`'s `name()`/`symbol()`/`base_uri()` reads had the identical indiscriminate-fallback shape (no in-memory cache involved, but worse: a total on-chain read failure was never distinguished from success — `handleCollectionMetadataFetch` marked `metadataStatus: "FETCHED"` even with a blank name, and unlike `Token`, there is **no retry loop for `Collection`** — `metadataRetry.ts` only re-enqueues `Token` rows — so a collection that hit this was stuck with a null name forever). Fixed the same way: `isOwnService(service)` gates the legacy felt252 fallback to `external-*` only; for our own collections, a total on-chain read failure now sets `metadataStatus: "FAILED"` (recoverable via `/admin/collections/backfill-metadata` or a per-contract `/admin/collections/:contract/refresh`) instead of silently persisting an incomplete row as done.
+
 ### BigInt serialization in Hono responses
 Prisma `Order` rows contain `startTime`, `endTime`, `createdBlockNumber` as BigInt. Raw Prisma objects cannot be passed to `c.json()`. Always use the `serializeOrder()` function in `src/api/utils/serialize.ts` when returning orders. It accepts an optional `tokenData: { name, image, description } | undefined` second param to include batchTokenMeta enrichment.
 

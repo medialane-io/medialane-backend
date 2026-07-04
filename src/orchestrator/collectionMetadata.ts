@@ -121,6 +121,7 @@ export async function handleCollectionMetadataFetch(payload: {
   // explicitly. `service` is intentionally NOT written here — it is owned by the
   // indexer factory handlers (mip-erc1155) or stays null (external).
   if (existing?.service === "mip-erc1155" || existing?.standard === "ERC1155") {
+    const isOwnCollection = isOwnService(existing?.service);
     const missingCanonicalFields =
       !existing?.name ||
       !existing?.symbol ||
@@ -133,10 +134,24 @@ export async function handleCollectionMetadataFetch(payload: {
     let onchainOwner: string | null = null;
 
     if (missingCanonicalFields) {
-      const onchainInfo = await fetchCollectionOnChainInfo(contractAddress);
+      const onchainInfo = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
       onchainName = onchainInfo.name;
       onchainSymbol = onchainInfo.symbol;
       onchainBaseUri = onchainInfo.baseUri;
+
+      // Our own collections are always ByteArray-capable. If the on-chain read
+      // still produced nothing and we have no prior name/symbol on record, this
+      // is a real failure, not a completed fetch — mark FAILED so it's visible
+      // and recoverable (backfill-metadata / admin refresh), never silently
+      // "FETCHED" with a blank name that nothing will ever retry.
+      if (isOwnCollection && !onchainName && !onchainSymbol && !existing?.name && !existing?.symbol) {
+        log.warn({ chain, contractAddress }, "On-chain name/symbol read failed for own ERC1155 collection");
+        await prisma.collection.update({
+          where: { chain_contractAddress: { chain, contractAddress } },
+          data: { metadataStatus: "FAILED" },
+        });
+        return;
+      }
 
       try {
         const rawOwner = await callRpc((provider) => {
@@ -210,8 +225,18 @@ export async function handleCollectionMetadataFetch(payload: {
     data: { metadataStatus: "FETCHING" },
   });
 
+  const isOwnCollection = isOwnService(existing?.service);
+
   try {
-    const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress);
+    const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
+
+    // Same reasoning as the ERC1155 branch above: our own collections are always
+    // ByteArray-capable, so a total read failure here is a real failure, never a
+    // silently-accepted blank name.
+    if (isOwnCollection && !name && !symbol && !existing?.name && !existing?.symbol) {
+      throw new Error("On-chain name/symbol read failed for own collection — no legacy fallback available");
+    }
+
     const collectionMetadata = await fetchCollectionMetadataJson(baseUri);
 
     // Look up description + image + owner from the most recent matching CREATE_COLLECTION intent
@@ -357,8 +382,19 @@ export async function detectTokenStandard(contractAddress: string): Promise<Toke
   return null;
 }
 
+/**
+ * Collections we issued ourselves (any `service` other than `external-*`) are
+ * always modern OZ ByteArray contracts — guaranteed by what we deploy, not a
+ * guess. Only genuinely third-party (`external-*`) contracts may predate the
+ * ByteArray type and need the legacy felt252 decoder.
+ */
+function isOwnService(service: string | null | undefined): boolean {
+  return service != null && !service.startsWith("external-");
+}
+
 async function fetchCollectionOnChainInfo(
-  contractAddress: string
+  contractAddress: string,
+  allowLegacyFallback: boolean
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
   // Try ByteArray variant first using raw calls (UTF-8 safe — starknet.js ABI
   // decoding of ByteArray is ASCII-only and corrupts non-Latin characters).
@@ -375,7 +411,14 @@ async function fetchCollectionOnChainInfo(
     // Fall through to felt252 ABI
   }
 
-  // Felt252 fallback for older contracts
+  if (!allowLegacyFallback) {
+    // Own collection: no legacy path. A transient RPC error must not be able to
+    // silently swap in the lossy felt252 decoder — return empty and let the
+    // caller treat it as a real failure (FAILED, retryable), not success.
+    return { name: "", symbol: "", baseUri: "" };
+  }
+
+  // Felt252 fallback for older external contracts only.
   try {
     const [nameRaw, symbolRaw, baseUriRaw] = await Promise.all([
       callView(contractAddress, "name"),
