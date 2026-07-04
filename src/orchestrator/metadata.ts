@@ -200,21 +200,42 @@ async function fetchTokenUri(
   const high = tokenIdBig >> 128n;
   const u256 = { low: low.toString(), high: high.toString() };
 
-  // Seed the in-memory ABI cache from Collection.standard when cold (e.g. after a deploy).
-  // For known ERC-1155 contracts this skips the two failing ERC-721 probe calls that would
-  // otherwise precede the successful ERC-1155 ByteArray probe.
-  if (!contractAbiCache.has(contractAddress)) {
-    const col = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain, contractAddress } },
-      select: { standard: true },
-    });
-    if (col?.standard === "ERC1155") {
-      contractAbiCache.set(contractAddress, { abi: ERC1155_METADATA_ABI_BYTEARRAY, fn: "uri" });
-    } else if (col?.standard === "ERC721") {
-      contractAbiCache.set(contractAddress, { abi: ERC721_METADATA_ABI_BYTEARRAY, fn: "token_uri" });
+  const col = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { standard: true, service: true },
+  });
+
+  // Collections we issued ourselves (any service other than "external-*") are always
+  // modern OZ ByteArray contracts — that's guaranteed by what we deploy, not a guess.
+  // Never probe or fall back to the legacy Array<felt252> ABI for these: a transient
+  // RPC error must not be able to silently downgrade a known-modern contract to a
+  // lossy decoder (that decoder drops the ByteArray's trailing partial word). If the
+  // ByteArray call fails, return null — the caller marks the token FAILED and retries
+  // with the same (correct) ABI later.
+  const isOwnCollection = col != null && !col.service?.startsWith("external-");
+  if (isOwnCollection) {
+    const abi = col.standard === "ERC1155" ? ERC1155_METADATA_ABI_BYTEARRAY : ERC721_METADATA_ABI_BYTEARRAY;
+    const fn = col.standard === "ERC1155" ? "uri" : "token_uri";
+    try {
+      const result = await callRpc((provider) => {
+        const contract = new Contract(abi as any, contractAddress, provider);
+        return (contract as any)[fn](u256);
+      });
+      if (result != null) {
+        let uri = decodeTokenUri(result);
+        if (uri) {
+          if (fn === "uri") uri = resolveErc1155Uri(uri, tokenId);
+          return uri;
+        }
+      }
+    } catch {
+      // Real failure — no legacy fallback for our own contracts. Caller retries later.
     }
-    // UNKNOWN / null: fall through to full probe below
+    return null;
   }
+
+  // Everything below is for external-* collections (contracts we don't control),
+  // where the legacy Array<felt252> ABI is a genuine possibility.
 
   // If we already know which ABI + function works for this contract, use it directly.
   const cached = contractAbiCache.get(contractAddress);
