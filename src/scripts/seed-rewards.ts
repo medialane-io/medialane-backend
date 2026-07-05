@@ -78,21 +78,32 @@ const LEVELS = [
 // ── Action weights ─────────────────────────────────────────────────────────────
 
 const ACTIONS = [
-  { type: "complete_profile",       label: "Complete profile",           xp: 50,  dailyCap: null, minValueUsdc: null },
-  { type: "mint_asset",             label: "Mint an IP asset",           xp: 20,  dailyCap: 10,   minValueUsdc: null },
-  { type: "create_collection",      label: "Create a collection",        xp: 50,  dailyCap: 5,    minValueUsdc: null },
-  { type: "launch_launchpad",       label: "Launch Drop / POP / Edition",xp: 100, dailyCap: null, minValueUsdc: null },
-  { type: "create_remix",           label: "Create a remix",             xp: 25,  dailyCap: 5,    minValueUsdc: null },
-  { type: "list_asset",             label: "List an asset",              xp: 5,   dailyCap: 20,   minValueUsdc: 0.5  },
-  { type: "buy_asset",              label: "Buy an asset",               xp: 15,  dailyCap: 10,   minValueUsdc: 0.5  },
-  { type: "make_offer",             label: "Make an offer",              xp: 8,   dailyCap: 15,   minValueUsdc: 0.5  },
-  { type: "counter_offer",          label: "Counter an offer",           xp: 8,   dailyCap: 10,   minValueUsdc: null },
-  { type: "offer_accepted_seller",  label: "Offer accepted (seller)",    xp: 20,  dailyCap: null, minValueUsdc: null },
-  { type: "offer_accepted_buyer",   label: "Offer accepted (buyer)",     xp: 20,  dailyCap: null, minValueUsdc: null },
-  { type: "claim_pop",              label: "Claim a POP",                xp: 10,  dailyCap: null, minValueUsdc: null },
-  { type: "claim_drop",             label: "Claim a Drop mint",          xp: 10,  dailyCap: null, minValueUsdc: null },
-  { type: "comment",                label: "On-chain comment",           xp: 4,   dailyCap: 5,    minValueUsdc: null },
-  { type: "refer_user",             label: "Refer an active user",       xp: 30,  dailyCap: null, minValueUsdc: null },
+  { type: "complete_profile",       label: "Complete profile",           xp: 50,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "mint_asset",             label: "Mint an IP asset",           xp: 20,  dailyCap: 10,   minValueUsdc: null, enabled: true },
+  { type: "create_collection",      label: "Create a collection",        xp: 50,  dailyCap: 5,    minValueUsdc: null, enabled: true },
+  { type: "launch_launchpad",       label: "Launch Drop / POP / Edition",xp: 100, dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "create_remix",           label: "Create a remix",             xp: 25,  dailyCap: 5,    minValueUsdc: null, enabled: true },
+  { type: "list_asset",             label: "List an asset",              xp: 5,   dailyCap: 20,   minValueUsdc: 0.5,  enabled: true },
+  { type: "buy_asset",              label: "Buy an asset",               xp: 15,  dailyCap: 10,   minValueUsdc: 0.5,  enabled: true },
+  { type: "make_offer",             label: "Make an offer",              xp: 8,   dailyCap: 15,   minValueUsdc: 0.5,  enabled: true },
+  { type: "counter_offer",          label: "Counter an offer",           xp: 8,   dailyCap: 10,   minValueUsdc: null, enabled: true },
+  { type: "offer_accepted_seller",  label: "Offer accepted (seller)",    xp: 20,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "offer_accepted_buyer",   label: "Offer accepted (buyer)",     xp: 20,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "claim_pop",              label: "Claim a POP",                xp: 10,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "claim_drop",             label: "Claim a Drop mint",          xp: 10,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "comment",                label: "On-chain comment",           xp: 4,   dailyCap: 5,    minValueUsdc: null, enabled: true },
+  // Disabled until referral tracking exists — never fake a data source.
+  { type: "refer_user",             label: "Refer an active user",       xp: 30,  dailyCap: null, minValueUsdc: null, enabled: false },
+  // Launchpad services (2026-07-04)
+  { type: "create_ticket_collection",     label: "Create a ticketed event",        xp: 100, dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "buy_ticket",                   label: "Get an event ticket",            xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: true },
+  { type: "create_club",                  label: "Start a club",                   xp: 100, dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "join_club",                    label: "Join a club",                    xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: true },
+  { type: "create_sponsorship_offer",     label: "Open a sponsorship",             xp: 50,  dailyCap: 5,    minValueUsdc: null, enabled: true },
+  { type: "place_sponsorship_bid",        label: "Bid on a sponsorship",           xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: true },
+  { type: "sponsorship_licensed_sponsor", label: "Sponsorship secured (sponsor)",  xp: 40,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "sponsorship_licensed_author",  label: "Sponsorship secured (creator)",  xp: 40,  dailyCap: null, minValueUsdc: null, enabled: true },
+  { type: "launch_coin",                  label: "Launch a creator coin",          xp: 150, dailyCap: null, minValueUsdc: null, enabled: true },
 ];
 
 // ── Multipliers ────────────────────────────────────────────────────────────────
