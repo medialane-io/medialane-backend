@@ -548,27 +548,28 @@ function resolveMultiplier(
 
 async function computeBadges(
   scoresByAddress: Map<string, { totalXp: number; breakdown: Record<string, number> }>,
-  first100: Set<string>
+  first100: Set<string>,
+  minDateByAddress: Map<string, string>
 ): Promise<Map<string, string[]>> {
   const badges = new Map<string, string[]>();
 
   const award = (address: string, key: string) => {
     const list = badges.get(address) ?? [];
-    list.push(key);
+    if (!list.includes(key)) list.push(key);
     badges.set(address, list);
   };
 
-  // OG — beta participation: anyone with any XP before beta end
+  // OG — beta participation: earliest activity before the beta end date
+  const BETA_END_DAY = BETA_END.toISOString().slice(0, 10);
   const allAddresses = [...scoresByAddress.keys()];
   for (const address of allAddresses) {
-    award(address, "og");
+    const earliest = minDateByAddress.get(address);
+    if (earliest && earliest < BETA_END_DAY) award(address, "og");
   }
 
-  // First 100
+  // Early Believer — among the first 100 on Medialane
   for (const address of first100) {
-    if (scoresByAddress.has(address)) {
-      // "early_believer" awarded separately below
-    }
+    if (scoresByAddress.has(address)) award(address, "early_believer");
   }
 
   // Creator badges
@@ -701,6 +702,104 @@ async function computeBadges(
     if (types >= 3) award(address, "auteur");
   }
 
+  // Full Set — currently holds every token of a drop collection
+  const dropContractRows = await prisma.dropClaimConditions.findMany({
+    select: { collectionAddress: true },
+  });
+  const fullSetContracts = [...new Set(dropContractRows.map((d) => d.collectionAddress))];
+  for (const contract of fullSetContracts) {
+    const totalTokens = await prisma.token.count({ where: { contractAddress: contract } });
+    if (totalTokens === 0) continue;
+    const holders = await prisma.tokenBalance.groupBy({
+      by: ["owner"],
+      where: { contractAddress: contract, amount: { not: "0" } },
+      _count: { tokenId: true },
+    });
+    for (const h of holders) {
+      if (h._count.tokenId >= totalTokens) award(normalizeAddress("STARKNET", h.owner), "full_set");
+    }
+  }
+
+  // Diamond Hands — received a token ≥180 days ago and never sent it since.
+  // Transfer has no chain timestamp; createdAt is index time (backfilled rows
+  // carry backfill time) — an acceptable approximation for this badge.
+  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+  const oldReceipts = await prisma.transfer.findMany({
+    where: { createdAt: { lt: sixMonthsAgo } },
+    select: { toAddress: true, contractAddress: true, tokenId: true, createdAt: true },
+  });
+  for (const r of oldReceipts) {
+    const sentAfter = await prisma.transfer.count({
+      where: {
+        contractAddress: r.contractAddress,
+        tokenId: r.tokenId,
+        fromAddress: r.toAddress,
+        createdAt: { gt: r.createdAt },
+      },
+    });
+    if (sentAfter === 0) award(normalizeAddress("STARKNET", r.toAddress), "diamond_hands");
+  }
+
+  // Taste Maker — bought an asset that later resold for ≥5× (same stable currency)
+  const stableFills = await prisma.orderFill.findMany({
+    where: {
+      currencySymbol: { in: ["USDC", "USDT"] },
+      nftContract: { not: null },
+      nftTokenId: { not: null },
+      priceRaw: { not: null },
+    },
+    select: { fulfiller: true, nftContract: true, nftTokenId: true, priceRaw: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const fillsByToken = new Map<string, typeof stableFills>();
+  for (const f of stableFills) {
+    const key = `${f.nftContract}|${f.nftTokenId}`;
+    const list = fillsByToken.get(key) ?? [];
+    list.push(f);
+    fillsByToken.set(key, list);
+  }
+  for (const fills of fillsByToken.values()) {
+    for (let i = 0; i < fills.length; i++) {
+      const buyPrice = parseFloat(fills[i].priceRaw!);
+      if (buyPrice <= 0) continue;
+      if (fills.slice(i + 1).some((later) => parseFloat(later.priceRaw!) >= 5 * buyPrice)) {
+        award(normalizeAddress("STARKNET", fills[i].fulfiller), "taste_maker");
+      }
+    }
+  }
+
+  // Event Host / Club Founder — owns a collection of that service
+  const serviceOwners = await prisma.collection.findMany({
+    where: { service: { in: ["ip-tickets", "ip-club"] }, owner: { not: null }, deletedAt: null },
+    select: { owner: true, service: true },
+  });
+  for (const c of serviceOwners) {
+    award(normalizeAddress("STARKNET", c.owner!), c.service === "ip-tickets" ? "event_host" : "club_founder");
+  }
+
+  // Patron — holds a sponsorship license
+  const patrons = await prisma.sponsorshipLicense.findMany({
+    select: { sponsor: true },
+    distinct: ["sponsor"],
+  });
+  for (const p of patrons) award(normalizeAddress("STARKNET", p.sponsor), "patron");
+
+  // Coin Creator — launched a creator coin
+  const coinCreators = await prisma.coin.findMany({
+    where: { service: "creator-coin", creator: { not: null } },
+    select: { creator: true },
+    distinct: ["creator"],
+  });
+  for (const c of coinCreators) award(normalizeAddress("STARKNET", c.creator!), "coin_creator");
+
+  // Only enabled badges are ever awarded (this is what disables e.g. connector)
+  const enabledKeys = new Set(
+    (await prisma.badgeDefinition.findMany({ where: { enabled: true }, select: { key: true } })).map((b) => b.key)
+  );
+  for (const [address, keys] of badges) {
+    badges.set(address, keys.filter((k) => enabledKeys.has(k)));
+  }
+
   return badges;
 }
 
@@ -791,12 +890,18 @@ export async function computeRewards(
   // ── Aggregate per address ──────────────────────────────────────────────────
   const scoresByAddress = new Map<string, { totalXp: number; breakdown: Record<string, number> }>();
 
+  // Earliest activity date per address — drives the beta multiplier + og badge
+  const minDateByAddress = new Map<string, string>();
+
   for (const ev of cappedEvents) {
     if (!scoresByAddress.has(ev.address)) {
       scoresByAddress.set(ev.address, { totalXp: 0, breakdown: {} });
     }
     const score = scoresByAddress.get(ev.address)!;
     score.breakdown[ev.actionType] = (score.breakdown[ev.actionType] ?? 0) + ev.xp;
+
+    const prev = minDateByAddress.get(ev.address);
+    if (!prev || ev.date < prev) minDateByAddress.set(ev.address, ev.date);
   }
 
   // ── Apply multipliers ──────────────────────────────────────────────────────
@@ -816,7 +921,7 @@ export async function computeRewards(
   // ── Compute badges ─────────────────────────────────────────────────────────
   let badgesByAddress = new Map<string, string[]>();
   if (!skipBadges) {
-    badgesByAddress = await computeBadges(scoresByAddress, first100);
+    badgesByAddress = await computeBadges(scoresByAddress, first100, minDateByAddress);
     log.info(
       { grants: [...badgesByAddress.values()].reduce((s, b) => s + b.length, 0) },
       "Badge grants computed"

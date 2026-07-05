@@ -118,22 +118,27 @@ const MULTIPLIERS = [
 
 const BADGES = [
   // Creator
-  { key: "og",              name: "OG",              description: "Participated during beta",              icon: "Flame",       color: "#f59e0b", category: "creator"   },
-  { key: "first_drop",      name: "First Drop",      description: "Launched your first collection",        icon: "Package",     color: "#8b5cf6", category: "creator"   },
-  { key: "sold_out",        name: "Sold Out",        description: "Every edition in a drop was claimed",   icon: "CheckCircle2",color: "#10b981", category: "creator"   },
-  { key: "remixed",         name: "Remixed",         description: "Someone built on your work",            icon: "GitBranch",   color: "#6366f1", category: "creator"   },
-  { key: "platinum",        name: "Platinum",        description: "1,000 USDC in total sales",             icon: "TrendingUp",  color: "#94a3b8", category: "creator"   },
-  { key: "auteur",          name: "Auteur",          description: "Active across 3+ IP types",             icon: "Layers",      color: "#ec4899", category: "creator"   },
+  { key: "og",              name: "OG",              description: "Participated during beta",              icon: "Flame",       color: "#f59e0b", category: "creator",   enabled: true },
+  { key: "first_drop",      name: "First Drop",      description: "Launched your first collection",        icon: "Package",     color: "#8b5cf6", category: "creator",   enabled: true },
+  { key: "sold_out",        name: "Sold Out",        description: "Every edition in a drop was claimed",   icon: "CheckCircle2",color: "#10b981", category: "creator",   enabled: true },
+  { key: "remixed",         name: "Remixed",         description: "Someone built on your work",            icon: "GitBranch",   color: "#6366f1", category: "creator",   enabled: true },
+  { key: "platinum",        name: "Platinum",        description: "1,000 USDC in total sales",             icon: "TrendingUp",  color: "#94a3b8", category: "creator",   enabled: true },
+  { key: "auteur",          name: "Auteur",          description: "Active across 3+ IP types",             icon: "Layers",      color: "#ec4899", category: "creator",   enabled: true },
+  { key: "event_host",      name: "Event Host",      description: "Created a ticketed event",              icon: "Ticket",      color: "#f59e0b", category: "creator",   enabled: true },
+  { key: "club_founder",    name: "Club Founder",    description: "Started a club",                        icon: "Crown",       color: "#8b5cf6", category: "creator",   enabled: true },
+  { key: "coin_creator",    name: "Coin Creator",    description: "Launched a creator coin",               icon: "Coins",       color: "#0ea5e9", category: "creator",   enabled: true },
   // Collector
-  { key: "early_believer",  name: "Early Believer",  description: "First collector of a creator before 50 sales", icon: "Star", color: "#f59e0b", category: "collector" },
-  { key: "diamond_hands",   name: "Diamond Hands",   description: "Held an asset for 6+ months",          icon: "Gem",         color: "#0ea5e9", category: "collector" },
-  { key: "taste_maker",     name: "Taste Maker",     description: "Bought an asset that later sold for 5×",icon: "Zap",        color: "#8b5cf6", category: "collector" },
-  { key: "full_set",        name: "Full Set",        description: "Collected every edition in a drop",     icon: "Award",       color: "#10b981", category: "collector" },
-  { key: "100_club",        name: "100 Club",        description: "Collected from 100 different creators", icon: "Users",       color: "#6366f1", category: "collector" },
+  { key: "early_believer",  name: "Early Believer",  description: "Among the first 100 on Medialane",      icon: "Star",        color: "#f59e0b", category: "collector", enabled: true },
+  { key: "diamond_hands",   name: "Diamond Hands",   description: "Held an asset for 6+ months",           icon: "Gem",         color: "#0ea5e9", category: "collector", enabled: true },
+  { key: "taste_maker",     name: "Taste Maker",     description: "Bought an asset that later sold for 5×",icon: "Zap",         color: "#8b5cf6", category: "collector", enabled: true },
+  { key: "full_set",        name: "Full Set",        description: "Collected every edition in a drop",     icon: "Award",       color: "#10b981", category: "collector", enabled: true },
+  { key: "100_club",        name: "100 Club",        description: "Collected from 100 different creators", icon: "Users",       color: "#6366f1", category: "collector", enabled: true },
   // Community
-  { key: "voice",           name: "Voice",           description: "50 on-chain comments",                  icon: "MessageSquare",color: "#0ea5e9", category: "community" },
-  { key: "connector",       name: "Connector",       description: "Referred 10 active users",              icon: "Share2",      color: "#10b981", category: "community" },
-  { key: "supporter",       name: "Supporter",       description: "Made offers on 25 different assets",    icon: "HandCoins",   color: "#f59e0b", category: "community" },
+  { key: "voice",           name: "Voice",           description: "50 on-chain comments",                  icon: "MessageSquare",color: "#0ea5e9", category: "community", enabled: true },
+  // Disabled until referral tracking exists.
+  { key: "connector",       name: "Connector",       description: "Referred 10 active users",              icon: "Share2",      color: "#10b981", category: "community", enabled: false },
+  { key: "supporter",       name: "Supporter",       description: "Made offers on 25 different assets",    icon: "HandCoins",   color: "#f59e0b", category: "community", enabled: true },
+  { key: "patron",          name: "Patron",          description: "Sponsored a creator",                   icon: "Handshake",   color: "#10b981", category: "community", enabled: true },
 ];
 
 // ── Seed ──────────────────────────────────────────────────────────────────────
