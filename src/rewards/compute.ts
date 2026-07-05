@@ -905,12 +905,12 @@ export async function computeRewards(
   }
 
   // ── Apply multipliers ──────────────────────────────────────────────────────
-  // Beta tester = any current user (platform is still in beta)
   const mConfigs: MultiplierConfig[] = multipliers.map((m) => ({ condition: m.condition, factor: m.factor }));
+  const BETA_END_DAY = BETA_END.toISOString().slice(0, 10);
+  const isBeta = (address: string) => (minDateByAddress.get(address) ?? "9999") < BETA_END_DAY;
 
   for (const [address, score] of scoresByAddress) {
-    const isBetaUser = true; // everyone active now is a beta tester
-    const multiplier = resolveMultiplier(address, mConfigs, isBetaUser, first100);
+    const multiplier = resolveMultiplier(address, mConfigs, isBeta(address), first100);
     score.totalXp = Math.round(
       Object.values(score.breakdown).reduce((s, x) => s + x, 0) * multiplier
     );
@@ -940,88 +940,73 @@ export async function computeRewards(
     return { dryRun: true, addresses: scoresByAddress.size, events: cappedEvents.length, badgeGrants, top10 };
   }
 
-  // ── Write to DB ────────────────────────────────────────────────────────────
+  // ── Write to DB (one transaction — a crash leaves previous scores intact) ──
   log.info("Writing to DB…");
 
-  // Truncate existing computed data
-  await prisma.$transaction([
-    prisma.pointEvent.deleteMany({}),
-    prisma.userBadge.deleteMany({}),
-    prisma.userScore.deleteMany({}),
-  ]);
-  log.info("Cleared existing scores/badges/events");
-
-  // Upsert UserScores
-  let scoreCount = 0;
-  for (const [address, score] of scoresByAddress) {
-    const isBetaUser = true;
-    const multiplier = resolveMultiplier(address, mConfigs, isBetaUser, first100);
-    const level = levelForXp(score.totalXp, levels);
-
-    await prisma.userScore.upsert({
-      where: { address },
-      update: { totalXp: score.totalXp, currentLevel: level, breakdown: score.breakdown, computedAt: new Date() },
-      create: { address, totalXp: score.totalXp, currentLevel: level, breakdown: score.breakdown },
-    });
-    scoreCount++;
-  }
-  log.info({ count: scoreCount }, "Wrote UserScore records");
-
-  // Bulk-insert PointEvents in batches
   const BATCH = 500;
+  const scoreRows = [...scoresByAddress.entries()].map(([address, score]) => ({
+    address,
+    totalXp: score.totalXp,
+    currentLevel: levelForXp(score.totalXp, levels),
+    breakdown: score.breakdown as Prisma.InputJsonValue,
+  }));
   const pointEvents = cappedEvents.map((ev) => {
-    const rawXp = ev.xp;
-    const multiplier = resolveMultiplier(ev.address, mConfigs, true, first100);
+    const multiplier = resolveMultiplier(ev.address, mConfigs, isBeta(ev.address), first100);
     return {
       address: ev.address,
       actionType: ev.actionType,
-      xp: rawXp,
+      xp: ev.xp,
       multiplier,
-      finalXp: Math.round(rawXp * multiplier),
+      finalXp: Math.round(ev.xp * multiplier),
       txHash: ev.txHash ?? undefined,
       metadata: ev.metadata ? (ev.metadata as Prisma.InputJsonValue) : undefined,
     };
   });
-
-  for (let i = 0; i < pointEvents.length; i += BATCH) {
-    await prisma.pointEvent.createMany({ data: pointEvents.slice(i, i + BATCH) });
+  const badgeRows: { address: string; badgeKey: string }[] = [];
+  for (const [address, keys] of badgesByAddress) {
+    for (const key of keys) badgeRows.push({ address, badgeKey: key });
   }
-  log.info({ count: pointEvents.length }, "Wrote PointEvent records");
 
-  // Write badges
-  if (!skipBadges) {
-    const badgeRows: { address: string; badgeKey: string }[] = [];
-    for (const [address, keys] of badgesByAddress) {
-      for (const key of keys) {
-        badgeRows.push({ address, badgeKey: key });
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.pointEvent.deleteMany({});
+      await tx.userBadge.deleteMany({});
+      await tx.userScore.deleteMany({});
+
+      for (let i = 0; i < scoreRows.length; i += BATCH) {
+        await tx.userScore.createMany({ data: scoreRows.slice(i, i + BATCH) });
       }
-    }
-    for (let i = 0; i < badgeRows.length; i += BATCH) {
-      await prisma.userBadge.createMany({
-        data: badgeRows.slice(i, i + BATCH),
-        skipDuplicates: true,
-      });
-    }
-    log.info({ count: badgeRows.length }, "Wrote UserBadge records");
-  }
+      for (let i = 0; i < pointEvents.length; i += BATCH) {
+        await tx.pointEvent.createMany({ data: pointEvents.slice(i, i + BATCH) });
+      }
+      if (!skipBadges) {
+        for (let i = 0; i < badgeRows.length; i += BATCH) {
+          await tx.userBadge.createMany({ data: badgeRows.slice(i, i + BATCH), skipDuplicates: true });
+        }
+      }
 
-  // Opportunistic accountId backfill — links reputation rows to Accounts where
-  // the wallet is known. Activity-only addresses (no Wallet row) stay null.
-  const scoresLinked = await prisma.$executeRaw`
-    UPDATE "UserScore" us SET "accountId" = w."accountId"
-    FROM "Identity" w
-    WHERE w.scheme = 'wallet' AND w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
-  `;
-  const badgesLinked = await prisma.$executeRaw`
-    UPDATE "UserBadge" ub SET "accountId" = w."accountId"
-    FROM "Identity" w WHERE w.scheme = 'wallet' AND w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
-  `;
-  const eventsLinked = await prisma.$executeRaw`
-    UPDATE "PointEvent" pe SET "accountId" = w."accountId"
-    FROM "Identity" w WHERE w.scheme = 'wallet' AND w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
-  `;
-  log.info({ scoresLinked, badgesLinked, eventsLinked }, "Linked accountId on reputation rows");
+      // Opportunistic accountId backfill — links reputation rows to Accounts
+      // where the wallet is known. Activity-only addresses stay null.
+      await tx.$executeRaw`
+        UPDATE "UserScore" us SET "accountId" = w."accountId"
+        FROM "Identity" w
+        WHERE w.scheme = 'wallet' AND w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
+      `;
+      await tx.$executeRaw`
+        UPDATE "UserBadge" ub SET "accountId" = w."accountId"
+        FROM "Identity" w WHERE w.scheme = 'wallet' AND w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
+      `;
+      await tx.$executeRaw`
+        UPDATE "PointEvent" pe SET "accountId" = w."accountId"
+        FROM "Identity" w WHERE w.scheme = 'wallet' AND w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
+      `;
+    },
+    { timeout: 120_000 }
+  );
 
-  log.info("Done");
+  log.info(
+    { scores: scoreRows.length, events: pointEvents.length, badges: skipBadges ? 0 : badgeRows.length },
+    "Wrote scores, point events, and badges"
+  );
   return { dryRun: false, addresses: scoresByAddress.size, events: cappedEvents.length, badgeGrants, top10 };
 }
