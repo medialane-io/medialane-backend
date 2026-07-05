@@ -15,6 +15,7 @@ import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { Prisma } from "@prisma/client";
 import { normalizeAddress } from "../utils/starknet.js";
 import { createLogger } from "../utils/logger.js";
+import { mintActionForService, creationActionForService } from "./partition.js";
 
 const log = createLogger("rewards:compute");
 
@@ -104,6 +105,14 @@ async function firstNUsers(n: number): Promise<Set<string>> {
   return new Set(rows.map((r) => normalizeAddress("STARKNET", r.address)));
 }
 
+// contractAddress → service, for the partition invariant (see partition.ts)
+async function loadServiceMap(): Promise<Map<string, string>> {
+  const cols = await prisma.collection.findMany({
+    select: { contractAddress: true, service: true },
+  });
+  return new Map(cols.map((c) => [c.contractAddress, c.service]));
+}
+
 // ── Event gatherers (one per action type) ─────────────────────────────────────
 
 async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
@@ -127,36 +136,59 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
     }));
 }
 
-async function gatherMintAsset(xp: number): Promise<RawEvent[]> {
-  // Mint = Transfer where fromAddress is ZERO_ADDRESS
+// Classifies every mint Transfer by the collection's service (partition
+// invariant): issuance mints → mint_asset, ticket buys → buy_ticket, club
+// joins → join_club. Pop/drop/external mints emit nothing here.
+async function gatherMints(
+  actionMap: Map<string, ActionConfig>,
+  serviceMap: Map<string, string>
+): Promise<RawEvent[]> {
   const mints = await prisma.transfer.findMany({
     where: { fromAddress: ZERO },
-    select: { toAddress: true, txHash: true, createdAt: true },
+    select: { toAddress: true, txHash: true, createdAt: true, contractAddress: true },
   });
-  return mints.map((m) => ({
-    address: normalizeAddress("STARKNET", m.toAddress),
-    actionType: "mint_asset",
-    xp,
-    txHash: m.txHash,
-    date: m.createdAt.toISOString().slice(0, 10),
-  }));
+  const events: RawEvent[] = [];
+  for (const m of mints) {
+    const actionType = mintActionForService(serviceMap.get(m.contractAddress));
+    if (!actionType) continue;
+    const action = actionMap.get(actionType);
+    if (!action) continue;
+    events.push({
+      address: normalizeAddress("STARKNET", m.toAddress),
+      actionType,
+      xp: action.xp,
+      txHash: m.txHash,
+      date: m.createdAt.toISOString().slice(0, 10),
+    });
+  }
+  return events;
 }
 
-async function gatherCreateCollection(xp: number): Promise<RawEvent[]> {
+// Classifies every collection creation by service: issuance → create_collection,
+// tickets → create_ticket_collection, clubs → create_club. Drop/pop creations
+// emit nothing here (launch_launchpad owns them); external ones score nothing.
+async function gatherCreations(actionMap: Map<string, ActionConfig>): Promise<RawEvent[]> {
   const collections = await prisma.collection.findMany({
     where: { owner: { not: null }, deletedAt: null },
-    select: { owner: true, createdAt: true, contractAddress: true },
+    select: { owner: true, createdAt: true, contractAddress: true, service: true },
   });
-  return collections
-    .filter((c) => c.owner)
-    .map((c) => ({
-      address: normalizeAddress("STARKNET", c.owner!),
-      actionType: "create_collection",
-      xp,
+  const events: RawEvent[] = [];
+  for (const c of collections) {
+    if (!c.owner) continue;
+    const actionType = creationActionForService(c.service);
+    if (!actionType) continue;
+    const action = actionMap.get(actionType);
+    if (!action) continue;
+    events.push({
+      address: normalizeAddress("STARKNET", c.owner),
+      actionType,
+      xp: action.xp,
       txHash: null,
       date: c.createdAt.toISOString().slice(0, 10),
       metadata: { collection: c.contractAddress },
-    }));
+    });
+  }
+  return events;
 }
 
 async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
@@ -616,6 +648,8 @@ export async function computeRewards(
   const first100 = await firstNUsers(100);
   log.info({ found: first100.size }, "First 100 users identified");
 
+  const serviceMap = await loadServiceMap();
+
   // ── Gather all raw events ──────────────────────────────────────────────────
   const allRaw: RawEvent[] = [];
 
@@ -629,8 +663,18 @@ export async function computeRewards(
   const a = (type: string) => actionMap.get(type)!;
 
   await gather("complete_profile",    () => gatherCompleteProfile(a("complete_profile").xp));
-  await gather("mint_asset",          () => gatherMintAsset(a("mint_asset").xp));
-  await gather("create_collection",   () => gatherCreateCollection(a("create_collection").xp));
+
+  // Mints + creations are classified per collection service internally
+  // (mint_asset / buy_ticket / join_club; create_collection / create_ticket_collection / create_club)
+  {
+    const mintEvents = await gatherMints(actionMap, serviceMap);
+    allRaw.push(...mintEvents);
+    log.info({ count: mintEvents.length }, "Gathered mint-family events");
+    const creationEvents = await gatherCreations(actionMap);
+    allRaw.push(...creationEvents);
+    log.info({ count: creationEvents.length }, "Gathered creation-family events");
+  }
+
   await gather("launch_launchpad",    () => gatherLaunchLaunchpad(a("launch_launchpad").xp));
   await gather("create_remix",        () => gatherCreateRemix(a("create_remix").xp));
   await gather("list_asset",          () => gatherListAsset(a("list_asset").xp, a("list_asset").minValueUsdc));
