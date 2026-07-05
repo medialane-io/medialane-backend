@@ -4,7 +4,7 @@ import { authMiddleware } from "../middleware/adminSecretAuth.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
-import { spawnSync } from "child_process";
+import { runComputeGuarded } from "../../orchestrator/rewardsCompute.js";
 
 const log = createLogger("routes:rewards");
 
@@ -281,38 +281,20 @@ adminRewards.post("/badges/:address", async (c) => {
 });
 
 // POST /admin/rewards/compute — trigger retroactive XP + badge computation
+// in-process (shares a single-flight guard with the scheduled loop).
 // Accepts optional ?dry_run=true to preview without writing.
-// Runs synchronously; responds when complete. Safe at beta scale (~seconds).
 adminRewards.post("/compute", async (c) => {
   const dryRun = c.req.query("dry_run") === "true";
-  const args = ["run", "src/scripts/compute-rewards.ts"];
-  if (dryRun) args.push("--dry-run");
-
-  log.info({ dryRun }, "Starting reward computation via admin endpoint");
+  log.info({ dryRun }, "Reward computation via admin endpoint");
   const startedAt = Date.now();
-
-  // spawnSync blocks the event loop but keeps the HTTP connection alive
-  // until the script finishes — acceptable for an infrequently-run admin op.
-  const result = spawnSync("bun", args, {
-    cwd: process.cwd(),
-    encoding: "utf-8",
-    timeout: 300_000, // 5 minutes max
-  });
-
-  const elapsed = Date.now() - startedAt;
-
-  if (result.status !== 0) {
-    log.error({ stderr: result.stderr, elapsed }, "Reward computation failed");
-    return c.json({ error: "Computation failed", detail: result.stderr?.slice(0, 500) }, 500);
+  try {
+    const result = await runComputeGuarded(dryRun);
+    if ("skipped" in result) return c.json({ error: "A computation is already running" }, 409);
+    return c.json({ ok: true, dryRun, elapsedMs: Date.now() - startedAt, summary: result });
+  } catch (err) {
+    log.error({ err }, "Reward computation failed");
+    return c.json({ error: "Computation failed" }, 500);
   }
-
-  log.info({ elapsed, dryRun }, "Reward computation complete");
-  return c.json({
-    ok: true,
-    dryRun,
-    elapsedMs: elapsed,
-    output: result.stdout?.slice(-2000), // last 2 KB of output
-  });
 });
 
 export { rewards, adminRewards };
