@@ -11,6 +11,59 @@ const log = createLogger("routes:rewards");
 const rewards = new Hono();
 
 // ── Public tenant routes ──────────────────────────────────────────────────────
+// NOTE: /config and /batch MUST be registered before /:address — Hono matches
+// in registration order, and /:address would otherwise swallow them.
+
+// GET /v1/rewards/config — public reward configuration (levels ladder, action
+// XP values for optimistic UI, badge catalog incl. locked ones). Rarely changes.
+rewards.get("/config", async (c) => {
+  const [levels, actions, badges] = await Promise.all([
+    prisma.rewardLevel.findMany({
+      orderBy: { level: "asc" },
+      select: { level: true, name: true, xpRequired: true, badgeColor: true, description: true },
+    }),
+    prisma.rewardAction.findMany({
+      where: { enabled: true },
+      orderBy: { type: "asc" },
+      select: { type: true, label: true, xp: true, dailyCap: true },
+    }),
+    prisma.badgeDefinition.findMany({
+      where: { enabled: true },
+      orderBy: [{ category: "asc" }, { key: "asc" }],
+      select: { key: true, name: true, description: true, icon: true, color: true, category: true },
+    }),
+  ]);
+  c.header("Cache-Control", "public, max-age=300");
+  return c.json({ data: { levels, actions, badges } });
+});
+
+// GET /v1/rewards/batch?addresses=0x1,0x2 — minimal level info for list
+// surfaces (activities, comments). One call per page, never per row.
+rewards.get("/batch", async (c) => {
+  const raw = (c.req.query("addresses") ?? "").split(",").map((a) => a.trim()).filter(Boolean);
+  if (raw.length === 0 || raw.length > 50) return c.json({ error: "Provide 1–50 addresses" }, 400);
+  const addresses = raw.map((a) => normalizeAddress("STARKNET", a));
+  const [scores, levels] = await Promise.all([
+    prisma.userScore.findMany({ where: { address: { in: addresses } } }),
+    prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
+  ]);
+  const levelMap = new Map(levels.map((l) => [l.level, l]));
+  const byAddress = new Map(scores.map((s) => [s.address, s]));
+  const starter = levels[0] ?? { level: 1, name: "Starter", badgeColor: "#64748b" };
+  return c.json({
+    data: addresses.map((address) => {
+      const s = byAddress.get(address);
+      const lvl = s ? levelMap.get(s.currentLevel) ?? starter : starter;
+      return {
+        address,
+        totalXp: s?.totalXp ?? 0,
+        currentLevel: s?.currentLevel ?? 1,
+        currentLevelName: lvl.name,
+        badgeColor: lvl.badgeColor,
+      };
+    }),
+  });
+});
 
 // GET /v1/rewards/:address — score + level + badges for one address
 rewards.get("/:address", async (c) => {

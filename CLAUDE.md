@@ -192,6 +192,8 @@ Response headers on every `/v1/*` response:
 | DELETE | `/v1/portal/keys/:id` | → status REVOKED |
 | GET | `/v1/portal/usage/recent` | Last 10 UsageLog rows |
 | GET | `/v1/portal/usage` | 30 days grouped by day `{ day: "YYYY-MM-DD", requests }[]` |
+| GET | `/v1/rewards/config` | Reward configuration: 50-level ladder, enabled action XP values (for optimistic UI toasts), enabled badge catalog. Cacheable (max-age 300). Registered BEFORE `/:address` |
+| GET | `/v1/rewards/batch` | `?addresses=0x1,0x2` (1–50). Minimal `{ address, totalXp, currentLevel, currentLevelName, badgeColor }` per address (zeroed for unknown). For list surfaces — one call per page, never per row. Registered BEFORE `/:address` |
 | GET | `/v1/rewards/:address` | Score + level + progress + badges + XP breakdown for one address |
 | GET | `/v1/rewards` | Paginated leaderboard. `page`, `limit` (max 100) |
 | GET | `/v1/rewards/:address/events` | Point event history for an address. `page`, `limit` |
@@ -235,7 +237,7 @@ Response headers on every `/v1/*` response:
 | GET | `/admin/rewards/badges` | List all badge definitions |
 | PATCH | `/admin/rewards/badges/:key` | Update badge name, description, icon, color, enabled |
 | POST | `/admin/rewards/badges/:address` | Manually award a badge to an address. Body: `{ badgeKey, txHash? }` |
-| POST | `/admin/rewards/compute` | Trigger retroactive XP + badge computation. `?dry_run=true` to preview. Responds when complete with `{ ok, elapsedMs, output }` |
+| POST | `/admin/rewards/compute` | Trigger XP + badge computation in-process (single-flight guard shared with the scheduled loop; 409 if one is running). `?dry_run=true` to preview. Responds with `{ ok, elapsedMs, summary }` |
 
 ---
 
@@ -403,15 +405,21 @@ the Collection model. Its receipt NFT is minted through a separate `ip-erc721`-c
 instance and is non-authoritative (`IPSponsorship.is_license_valid()` on-chain is the sole
 gate).
 
-### Rewards & Ranking System (added 2026-05-12)
+### Rewards & Ranking System (added 2026-05-12; Rewards 2.0 2026-07-04)
 
 50-level DAO-managed XP system. All weights are in DB tables — adjustable via admin API without code deploys.
 
 **Models**: `RewardLevel` (50 levels), `RewardAction` (per-action XP weights + daily caps), `RewardMultiplier` (global multipliers), `BadgeDefinition` (badge catalogue), `UserScore` (computed per address), `UserBadge` (awarded badges), `PointEvent` (audit log).
 
-**Seeding**: `src/scripts/seed-rewards.ts` — idempotent upsert of 50 levels, 15 actions, 3 multipliers, 14 badges. Runs automatically on every Railway deploy.
+**Seeding**: `src/scripts/seed-rewards.ts` — idempotent upsert of 50 levels, 24 actions, 3 multipliers, 18 badges. Runs automatically on every Railway deploy. `refer_user` action + `connector` badge are seeded `enabled: false` (no referral tracking exists — never fake a data source).
 
-**Computation**: `src/scripts/compute-rewards.ts` — retroactive XP engine. Reads Order, OrderFill, Transfer, Comment, Collection, RemixOffer, CreatorProfile; enforces per-action daily caps; applies `beta_tester` (1.5×) and `first_100` (2.0×) multipliers; truncates + rebuilds UserScore / PointEvent / UserBadge. Triggered via `POST /admin/rewards/compute` or `bun run compute-rewards`. Safe to re-run.
+**Engine**: `src/rewards/compute.ts` (`computeRewards({ dryRun?, skipBadges? })`) — batch truncate-rebuild from indexed data, writes in ONE transaction (a crash leaves previous scores intact). `src/scripts/compute-rewards.ts` is a thin CLI wrapper.
+
+**Scheduling**: `src/orchestrator/rewardsCompute.ts` — `startRewardsComputeLoop()` recomputes every `REWARDS_COMPUTE_INTERVAL_MS` (default 15 min); `runComputeGuarded()` is the single-flight guard shared with `POST /admin/rewards/compute` (409 when concurrent).
+
+**Partition invariant** (`src/rewards/partition.ts`, unit-tested): one on-chain action earns XP for exactly one action type. Mint Transfers and Collection creations are classified by `Collection.service`: issuance (`mip-erc721`/`mip-erc1155`/`ip-erc721`) → `mint_asset`/`create_collection`; `ip-tickets` → `buy_ticket`/`create_ticket_collection`; `ip-club` → `join_club`/`create_club`; drop/pop mints belong to `claim_drop`/`claim_pop` and their creations to `launch_launchpad`; `external-*` scores nothing. Sponsorship (`SponsorshipOffer/Bid/License`) and creator coins (`Coin`, `launch_coin`) have dedicated gatherers.
+
+**Multipliers**: `beta_tester` (1.5×) applies to addresses whose earliest activity predates `BETA_END` (real date check); `first_100` (2.0×); `loyalty` admin-manual.
 
 **Anti-gaming**: Action-based scoring (not volume-proportional) — no incentive to wash trade.
 
