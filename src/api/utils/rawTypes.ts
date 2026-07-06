@@ -62,6 +62,30 @@ export interface RawCountRow {
   count: bigint;
 }
 
+/** Raw row returned by SELECT t.* FROM "Token" t via $queryRaw (price sort) */
+export interface RawTokenRow {
+  id: string;
+  chain: Chain;
+  contractAddress: string;
+  tokenId: string;
+  tokenUri: string | null;
+  metadataStatus: MetadataStatus;
+  isHidden: boolean;
+  name: string | null;
+  description: string | null;
+  image: string | null;
+  attributes: unknown;
+  ipType: string | null;
+  licenseType: string | null;
+  commercialUse: boolean | null;
+  author: string | null;
+  redeemed: boolean;
+  ticketCollectionId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  minPrice: string | null;
+}
+
 /** Raw row returned by full-text search on Token */
 export interface RawSearchTokenRow {
   contractAddress: string;

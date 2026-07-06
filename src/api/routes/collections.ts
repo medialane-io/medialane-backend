@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import type { RawCollectionRow, RawCountRow } from "../utils/rawTypes.js";
+import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/adminSecretAuth.js";
 import { env } from "../../config/env.js";
@@ -276,8 +276,10 @@ collections.get("/:contract/tokens", async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
   const sortParam = c.req.query("sort");
-  const sort: "recent" | "oldest" | "name" =
-    sortParam === "oldest" || sortParam === "name" ? sortParam : "recent";
+  const sort: "recent" | "oldest" | "name" | "price" =
+    sortParam === "oldest" || sortParam === "name" || sortParam === "price"
+      ? sortParam
+      : "recent";
   const addr = normalizeAddress("STARKNET", contract);
 
   const collection = await prisma.collection.findUnique({
@@ -298,6 +300,45 @@ collections.get("/:contract/tokens", async (c) => {
     }
   }
 
+  const skip = (page - 1) * limit;
+
+  // "price" needs a per-token cheapest-active-listing lookup — not a plain
+  // column, so it goes through raw SQL (same ::numeric NULLS LAST convention
+  // as /v1/orders' price_asc). Every other sort stays on the ORM path.
+  if (sort === "price") {
+    const [data, total] = await Promise.all([
+      prisma.$queryRaw<RawTokenRow[]>`
+        SELECT t.*,
+          (
+            SELECT MIN(o."priceRaw"::numeric)
+            FROM "Order" o
+            WHERE o.chain = 'STARKNET'
+              AND o."nftContract" = t."contractAddress"
+              AND o."nftTokenId" = t."tokenId"
+              AND o.status = 'ACTIVE'::"OrderStatus"
+              AND o."offerItemType" IN ('ERC721', 'ERC1155')
+          ) AS "minPrice"
+        FROM "Token" t
+        WHERE t.chain = 'STARKNET' AND t."contractAddress" = ${addr} AND t."isHidden" = false
+        ORDER BY "minPrice"::numeric ASC NULLS LAST
+        LIMIT ${limit} OFFSET ${skip}
+      `,
+      prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
+    ]);
+
+    const balancesByToken = await batchTokenBalances(addr, data.map((t) => t.tokenId));
+    return c.json({
+      data: data.map((t) =>
+        serializeToken(
+          { ...t, collection: { standard: collection?.standard ?? null } },
+          [],
+          balancesByToken.get(t.tokenId) ?? []
+        )
+      ),
+      meta: { page, limit, total },
+    });
+  }
+
   const [data, total] = await Promise.all([
     prisma.token.findMany({
       where: { chain: "STARKNET", contractAddress: addr, isHidden: false },
@@ -307,22 +348,31 @@ collections.get("/:contract/tokens", async (c) => {
           : sort === "name"
             ? { name: "asc" }
             : { createdAt: "desc" },
-      skip: (page - 1) * limit,
+      skip,
       take: limit,
       include: { collection: { select: { standard: true } } },
     }),
     prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
   ]);
 
-  // Per-token current holders — without this the collection list returned
-  // balances:null, so clients couldn't tell which tokens the viewer owns
-  // (every card showed Buy/Offer, even to the owner). One indexed batch query.
-  const tokenIds = data.map((t) => t.tokenId);
+  const balancesByToken = await batchTokenBalances(addr, data.map((t) => t.tokenId));
+
+  return c.json({
+    data: data.map((t) => serializeToken(t, [], balancesByToken.get(t.tokenId) ?? [])),
+    meta: { page, limit, total },
+  });
+});
+
+// Per-token current holders — without this the collection list returned
+// balances:null, so clients couldn't tell which tokens the viewer owns
+// (every card showed Buy/Offer, even to the owner). One indexed batch query,
+// shared by every sort branch of GET /v1/collections/:contract/tokens.
+async function batchTokenBalances(contractAddress: string, tokenIds: string[]) {
   const balanceRows = tokenIds.length
     ? await prisma.tokenBalance.findMany({
         where: {
           chain: "STARKNET",
-          contractAddress: addr,
+          contractAddress,
           tokenId: { in: tokenIds },
           amount: { not: "0" },
         },
@@ -335,12 +385,8 @@ collections.get("/:contract/tokens", async (c) => {
     arr.push({ owner: b.owner, amount: b.amount });
     balancesByToken.set(b.tokenId, arr);
   }
-
-  return c.json({
-    data: data.map((t) => serializeToken(t, [], balancesByToken.get(t.tokenId) ?? [])),
-    meta: { page, limit, total },
-  });
-});
+  return balancesByToken;
+}
 
 // POST /v1/collections/sync-tx — immediately index a CollectionCreated event from a tx receipt
 // Call this right after a create_collection tx is confirmed to make the collection appear instantly.
