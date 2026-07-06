@@ -275,6 +275,9 @@ collections.get("/:contract/tokens", async (c) => {
   const { contract } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
+  const sortParam = c.req.query("sort");
+  const sort: "recent" | "oldest" | "name" =
+    sortParam === "oldest" || sortParam === "name" ? sortParam : "recent";
   const addr = normalizeAddress("STARKNET", contract);
 
   const collection = await prisma.collection.findUnique({
@@ -298,7 +301,12 @@ collections.get("/:contract/tokens", async (c) => {
   const [data, total] = await Promise.all([
     prisma.token.findMany({
       where: { chain: "STARKNET", contractAddress: addr, isHidden: false },
-      orderBy: { tokenId: "asc" },
+      orderBy:
+        sort === "oldest"
+          ? { createdAt: "asc" }
+          : sort === "name"
+            ? { name: "asc" }
+            : { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
       include: { collection: { select: { standard: true } } },
