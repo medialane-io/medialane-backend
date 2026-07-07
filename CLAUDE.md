@@ -664,15 +664,15 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 ## Key Contracts (mainnet)
 
-> **Source of truth for marketplace addresses = SDK `chains.ts` (`coordinates.SN_MAIN`) + prod Railway env, NOT this file.** Earlier drafts listed `0x00f8c…`/`0x02bfa5…` here; those are stale (a pre-redesign venue) and caused a 2026-06 incident where a real ERC-1155 listing was chased against the wrong contract. The values below mirror SDK + prod env — re-check them there before trusting.
-- Marketplace ERC-721 (current): `0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e` (startBlock 10350340)
-- **Marketplace ERC-1155 (current, redesigned venue)**: `0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077` (startBlock 10350855)
-- **MIP IPCollection registry (ERC-721) v0.3.0** (deployed 2026-05-22): `0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2`
-- **IP-Programmable-ERC1155-Collections factory v0.3.0** (sequential on-chain edition ids, deployed 2026-06-10): `0x0083543c3ee15040a419fc539fa6889f5b956e7d071bcfa97842cb0ae42ad6cc` — retired v0.2.0 factory `0x067064…` is unsupported: per the protocol-upgrade routine, its collections were reclassified `external-erc1155` (read-only external provenance) on 2026-06-10
+> **Source of truth for marketplace addresses = SDK `chains.ts` (`coordinates.SN_MAIN`) + prod Railway env, NOT this file.** This section has gone stale twice now (once pre-redesign, caught 2026-06; again after the 2026-06-26 core-protocol redeploy, caught 2026-07-06) — **always re-check `getCoordinates("STARKNET")` in the installed SDK version before trusting anything below.**
+- **Marketplace ERC-721** (redeployed 2026-06-26, SDK v0.43.0): `0x03eda9a2b6ad90845a43591bac8083ebaf677d51fdf20f503b2c01889e3131fc` (startBlock 11198146) — supersedes the 2026-05-31 `0x069cf539…` venue
+- **Marketplace ERC-1155** (redeployed 2026-06-26): `0x07c4ce1c19ea48cc11135ed22b19ff745f5aec508c3828593002e4f76fdb1b38` (startBlock 11198267) — supersedes the 2026-05-31 `0x040cd7b3…` venue
+- **MIP IPCollection registry (ERC-721)** (redeployed 2026-06-26): `0x0225c3ae09506b8d97adc39649ca740dad5aac195b7f5f0441cc1852947acaea` (startBlock 11198496) — supersedes the v0.4.0 `0x0322cb71…` registry
+- **IP-Programmable-ERC1155-Collections factory** (redeployed 2026-06-26): `0x015368976d46fae5bfa1c58600f641d5aa5dbbf53ebc6b78aa3922194aad3551` (startBlock 11199527) — supersedes the v0.3.0 `0x0083543c…` factory (which itself had superseded the retired v0.2.0 `0x067064…`); every prior-version factory's collections reclassify `external-erc1155`/`external-erc721` (read-only) per the protocol-upgrade routine
 - NFTComments: set via `COMMENTS_CONTRACT_ADDRESS` env (the deployed instance) — **not** `0x024f97…62799` (undeployed; caused the 2026-05-17 comments outage)
 - Indexer start block: `9196722`
-- SNIP-12 domain ERC-721: `{ name: "Medialane", version: "1", revision: "1" }`
-- SNIP-12 domain ERC-1155: `{ name: "Medialane", version: "2", revision: "1" }`
+- SNIP-12 domain ERC-721: `{ name: "Medialane", version: "5", revision: "1" }` (bumped 4→5 in the 2026-06-26 redeploy)
+- SNIP-12 domain ERC-1155: `{ name: "Medialane", version: "4", revision: "1" }` (bumped 3→4 in the 2026-06-26 redeploy)
 - Event selectors computed via `hash.getSelectorFromName()` at startup
 
 ---
@@ -689,3 +689,12 @@ Migrations run on every deploy. `seed-rewards.ts` runs after every migration (up
 ```bash
 curl -X POST https://<railway-url>/admin/rewards/compute -H "x-api-key: <API_SECRET_KEY>"
 ```
+
+### Platform multichain federation — Phase B (added 2026-07-07, branch `feat/multichain-federation`)
+
+Backend side of `medialane-core/docs/specs/2026-07-07-platform-multichain-federation-design.md`:
+
+- **`STELLAR`** added to the Prisma `Chain` enum (hand-written migration `20260707200000_add_chain_stellar`, applies at deploy).
+- **`?chain=` read filter** (`src/api/utils/chainFilter.ts`: `parseChainFilter` — default `STARKNET`, `all` = cross-chain aggregation, invalid → 400) applied to `/v1/collections`, `/v1/orders`, `/v1/activities`, `/v1/coins`. Raw-SQL paths use the `::"Chain"` cast.
+- **`ChainIngestor` seam** (`src/mirror/ingestor.ts`): per-chain event ingestion interface; `src/index.ts` boots the Starknet mirror through `registerIngestors([starknetIngestor])` — zero behavior change. EVM/Solana/Stellar ingestors (Phases C–E) plug in here, deploy-gated on coordinates. Foreign contracts are never bulk-indexed — ingestors cover Medialane's own deployed contracts only.
+- **SDK 0.52.0 (core split)** consumed via `bun link` during development — NOT published; the package.json version bump lands with the publish. Starknet imports migrate to `@medialane/sdk/starknet` during the transition window (root re-exports keep current imports working).
