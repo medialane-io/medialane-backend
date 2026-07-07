@@ -698,3 +698,9 @@ Backend side of `medialane-core/docs/specs/2026-07-07-platform-multichain-federa
 - **`?chain=` read filter** (`src/api/utils/chainFilter.ts`: `parseChainFilter` — default `STARKNET`, `all` = cross-chain aggregation, invalid → 400) applied to `/v1/collections`, `/v1/orders`, `/v1/activities`, `/v1/coins`. Raw-SQL paths use the `::"Chain"` cast.
 - **`ChainIngestor` seam** (`src/mirror/ingestor.ts`): per-chain event ingestion interface; `src/index.ts` boots the Starknet mirror through `registerIngestors([starknetIngestor])` — zero behavior change. EVM/Solana/Stellar ingestors (Phases C–E) plug in here, deploy-gated on coordinates. Foreign contracts are never bulk-indexed — ingestors cover Medialane's own deployed contracts only.
 - **SDK 0.52.0 (core split)** consumed via `bun link` during development — NOT published; the package.json version bump lands with the publish. Starknet imports migrate to `@medialane/sdk/starknet` during the transition window (root re-exports keep current imports working).
+
+### Platform federation — Phase C (EVM, added 2026-07-07)
+
+- **chainRead**: `ETHEREUM`/`BASE` cases (`src/chainRead/evm.ts`, viem) — `balanceOf`/`balanceOfBatch`/`owner()`; RPC = `ETHEREUM_RPC_URL`/`BASE_RPC_URL` env override → chain-registry rpcUrl.
+- **auth**: EVM case in `verifyWalletSignature` — viem client `verifyMessage` (EIP-191 EOA + EIP-1271 smart accounts); the args gained optional `message` for EVM sign-in.
+- **evmIngestor** (`src/mirror/evm/`): pure `decodeEvmLogs` (unit-tested with synthetic logs) + `pollOnce`/`applyEvents` — eth_getLogs over our venues/registries/discovered collections, per-chain `IndexerCursor`, translation into `upsertCollectionFromFactory`/`handleTransfer`/order-status writes. Registered in `src/index.ts`; **dormant until coordinates land at deploy** (logs "no coordinates configured").
