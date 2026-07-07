@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./api/server.js";
 import { startMirror } from "./mirror/index.js";
 import { registerIngestors, type ChainIngestor } from "./mirror/ingestor.js";
+import { makeEvmIngestor } from "./mirror/evm/ingestor.js";
 import { startOrchestrator } from "./orchestrator/index.js";
 import { worker } from "./orchestrator/worker.js";
 import { env } from "./config/env.js";
@@ -50,7 +51,7 @@ async function main() {
         process.exit(1);
       }),
   };
-  registerIngestors([starknetIngestor]);
+  registerIngestors([starknetIngestor, makeEvmIngestor("ETHEREUM"), makeEvmIngestor("BASE")]);
 
   startOrchestrator().catch((err) => {
     log.fatal({ err }, "Orchestrator crashed");
