@@ -1,5 +1,8 @@
 import type { Chain } from "@prisma/client";
 import { callRpc } from "../utils/starknet.js";
+import { createPublicClient, http } from "viem";
+import { getCoordinates } from "@medialane/sdk";
+import { env } from "../config/env.js";
 
 /**
  * Chain-dispatched wallet signature verification (spec 2026-06-13 §3.4).
@@ -22,10 +25,15 @@ export async function verifyWalletSignature(args: {
   address: string;
   typedData: unknown;
   signature: string[];
+  /** EVM chains verify a plain EIP-191 message (sign-in-with-wallet). */
+  message?: string;
 }): Promise<VerifyResult> {
   switch (args.chain) {
     case "STARKNET":
       return verifyStarknet(args.address, args.typedData, args.signature);
+    case "ETHEREUM":
+    case "BASE":
+      return verifyEvm(args.chain, args.address, args.message ?? "", args.signature);
     default:
       throw new Error(`Signature verification not implemented for chain "${args.chain}"`);
   }
@@ -52,5 +60,37 @@ async function verifyStarknet(
       return { ok: false, reason: "not_deployed" };
     }
     throw err; // unexpected RPC error — caller logs + 401
+  }
+}
+
+
+/** EIP-191 personal-sign verification with EIP-1271 fallback for smart
+ *  accounts — viem's client-level verifyMessage handles both. */
+async function verifyEvm(
+  chain: Chain,
+  address: string,
+  message: string,
+  signature: string[],
+): Promise<VerifyResult> {
+  if (!message || signature.length === 0) return { ok: false, reason: "invalid" };
+  const override = chain === "ETHEREUM" ? env.ETHEREUM_RPC_URL : env.BASE_RPC_URL;
+  let rpcUrl = override;
+  if (!rpcUrl) {
+    try {
+      rpcUrl = (getCoordinates(chain as "ETHEREUM" | "BASE") as { rpcUrl: string }).rpcUrl;
+    } catch {
+      return { ok: false, reason: "invalid" };
+    }
+  }
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  try {
+    const valid = await client.verifyMessage({
+      address: address as `0x${string}`,
+      message,
+      signature: signature[0] as `0x${string}`,
+    });
+    return valid ? { ok: true } : { ok: false, reason: "invalid" };
+  } catch {
+    return { ok: false, reason: "invalid" };
   }
 }

@@ -3,6 +3,13 @@ import { z } from "zod";
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   ALCHEMY_RPC_URL: z.string().url(),
+  // Per-chain RPC overrides for the federation ingestors + on-demand reads
+  // (platform-federation spec §3.2). Optional — the SDK chain registry's
+  // rpcUrl is the default once a chain's coordinates land at deploy.
+  ETHEREUM_RPC_URL: z.string().url().optional(),
+  BASE_RPC_URL: z.string().url().optional(),
+  SOLANA_RPC_URL: z.string().url().optional(),
+  STELLAR_RPC_URL: z.string().url().optional(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
   // Starknet RPC. ALCHEMY_RPC_URL stays the fallback + capped circuit breaker
   // (feedback_alchemy_cap_is_intentional) — do not remove it. Contract

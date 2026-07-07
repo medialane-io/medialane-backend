@@ -1,6 +1,7 @@
 import { Contract, cairo } from "starknet";
 import type { Chain } from "@prisma/client";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
+import { evmCollectionOwner, evmHoldsToken } from "./evm.js";
 
 /**
  * On-demand, read-only chain reads behind ONE dispatch point (spec 2026-06-13
@@ -28,6 +29,9 @@ export async function holdsToken(
   switch (chain) {
     case "STARKNET":
       return starknetHoldsToken(contract, owner, standard, knownTokenIds);
+    case "ETHEREUM":
+    case "BASE":
+      return evmHoldsToken(chain, contract, owner, standard, knownTokenIds);
     default:
       throw new Error(`Ownership checks not implemented for chain "${chain}"`);
   }
@@ -42,6 +46,9 @@ export async function getCollectionOwner(chain: Chain, contract: string): Promis
   switch (chain) {
     case "STARKNET":
       return starknetCollectionOwner(contract);
+    case "ETHEREUM":
+    case "BASE":
+      return normalizeAddress(chain, await evmCollectionOwner(chain, contract));
     default:
       throw new Error(`Owner reads not implemented for chain "${chain}"`);
   }
