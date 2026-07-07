@@ -12,6 +12,7 @@ enum Chain {
   ETHEREUM
   SOLANA
   BASE
+  STELLAR
   BITCOIN
 }
 
