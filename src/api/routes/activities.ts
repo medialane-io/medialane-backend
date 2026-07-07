@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
@@ -90,12 +91,14 @@ activities.get("/", async (c) => {
       ? ACTIVE_OFFER_ACTIVITY_WHERE
       : {};
 
-  const transferWhere: any = { chain: "STARKNET" };
+  const chainFilter = parseChainFilter(c.req.query("chain"));
+  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const transferWhere: any = { ...chainWhere(chainFilter) };
   if (type === "mint") transferWhere.fromAddress = ZERO_ADDRESS;
   if (type === "transfer") transferWhere.fromAddress = { not: ZERO_ADDRESS };
   if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
 
-  const orderWhere: any = { chain: "STARKNET", ...orderStatusFilter };
+  const orderWhere: any = { ...chainWhere(chainFilter), ...orderStatusFilter };
   if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
 
   const [transfers, orders, transferCount, orderCount] = await Promise.all([

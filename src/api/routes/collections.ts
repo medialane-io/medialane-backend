@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/adminSecretAuth.js";
@@ -114,6 +115,8 @@ collections.get("/", async (c) => {
   const service   = c.req.query("service");
   const standardFilter = parseStandardFilter(c.req.query("standard"));
   const hideEmpty = c.req.query("hideEmpty") === "true";
+  const chainFilter = parseChainFilter(c.req.query("chain"));
+  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
   const sortRaw = c.req.query("sort") ?? "recent";
   const sort: CollectionSort = (COLLECTION_SORT_VALUES as readonly string[]).includes(sortRaw)
     ? (sortRaw as CollectionSort)
@@ -123,7 +126,8 @@ collections.get("/", async (c) => {
 
   // floor and volume are String? columns — need ::numeric cast via raw SQL
   if (sort === "floor" || sort === "volume") {
-    const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`, Prisma.sql`"isHidden" = false`];
+    const conditions: Prisma.Sql[] = [Prisma.sql`"isHidden" = false`];
+    if (chainFilter !== "all") conditions.push(Prisma.sql`chain = ${chainFilter.chain}::"Chain"`);
     if (isFeatured === "true")  conditions.push(Prisma.sql`"isFeatured" = true`);
     if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
     if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress("STARKNET", owner)}`);
@@ -160,7 +164,7 @@ collections.get("/", async (c) => {
   }
 
   // ORM path for recent / supply / name
-  const where: any = { chain: "STARKNET", isHidden: false };
+  const where: any = { ...chainWhere(chainFilter), isHidden: false };
   if (isFeatured === "true")  where.isFeatured = true;
   if (isFeatured === "false") where.isFeatured = false;
   if (owner)     where.owner = normalizeAddress("STARKNET", owner);

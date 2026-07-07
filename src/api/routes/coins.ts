@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
@@ -109,7 +110,7 @@ coins.get("/", async (c) => {
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const service = c.req.query("service");
   const creator = c.req.query("creator") ?? undefined;
-  const where = buildCoinListWhere({ service: service ?? undefined, creator });
+  const where = buildCoinListWhere({ chainFilter: parseChainFilter(c.req.query("chain")) ?? undefined, service: service ?? undefined, creator });
   const [rows, total] = await Promise.all([
     prisma.coin.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.coin.count({ where }),

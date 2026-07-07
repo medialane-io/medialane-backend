@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { parseChainFilter } from "../utils/chainFilter.js";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
@@ -13,6 +14,7 @@ const orders = new Hono();
 // Shared condition builder — used by all three $queryRaw branches in GET /
 // ---------------------------------------------------------------------------
 interface OrderFilterParams {
+  chainFilter: { chain: import("@prisma/client").Chain } | "all";
   status?: string;
   collection?: string;
   currency?: string;
@@ -22,8 +24,9 @@ interface OrderFilterParams {
 }
 
 function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
-  const { status, collection, currency, offerer, minPrice, maxPrice } = params;
-  const conditions: Prisma.Sql[] = [Prisma.sql`chain = 'STARKNET'`];
+  const { chainFilter, status, collection, currency, offerer, minPrice, maxPrice } = params;
+  const conditions: Prisma.Sql[] =
+    chainFilter === "all" ? [] : [Prisma.sql`chain = ${chainFilter.chain}::"Chain"`];
   if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
   if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
   if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
@@ -76,11 +79,13 @@ orders.get("/", async (c) => {
 
   const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } =
     query.data;
+  const chainFilter = parseChainFilter(c.req.query("chain"));
+  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
 
   const skip = (page - 1) * limit;
 
   const whereClause = Prisma.join(
-    buildOrderConditions({ status, collection, currency, offerer, minPrice, maxPrice }),
+    buildOrderConditions({ chainFilter, status, collection, currency, offerer, minPrice, maxPrice }),
     " AND "
   );
 
