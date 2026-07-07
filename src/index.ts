@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./api/server.js";
 import { startMirror } from "./mirror/index.js";
+import { registerIngestors, type ChainIngestor } from "./mirror/ingestor.js";
 import { startOrchestrator } from "./orchestrator/index.js";
 import { worker } from "./orchestrator/worker.js";
 import { env } from "./config/env.js";
@@ -38,10 +39,18 @@ async function main() {
   );
 
   // Start Mirror and Orchestrator in background (non-blocking)
-  startMirror().catch((err) => {
-    log.fatal({ err }, "Mirror crashed");
-    process.exit(1);
-  });
+  // Starknet's ingestor wraps the existing mirror unchanged; EVM/Solana/
+  // Stellar ingestors (platform-federation Phases C–E) join this list,
+  // deploy-gated on their coordinates.
+  const starknetIngestor: ChainIngestor = {
+    chain: "STARKNET",
+    start: () =>
+      startMirror().catch((err) => {
+        log.fatal({ err }, "Mirror crashed");
+        process.exit(1);
+      }),
+  };
+  registerIngestors([starknetIngestor]);
 
   startOrchestrator().catch((err) => {
     log.fatal({ err }, "Orchestrator crashed");
