@@ -15,11 +15,11 @@ import {
 const CHAIN_ID = "SN_MAIN";
 const names = (defs: readonly { name: string }[]) => defs.map((f) => f.name);
 
-describe("ERC-721 SNIP-12 builders use domain version 4 (redesigned venue)", () => {
+describe("ERC-721 SNIP-12 builders use domain version 5 (2026-06-26 redeploy)", () => {
   test("buildOrderTypedData", () => {
     const td = buildOrderTypedData({ offerer: "0x1" }, CHAIN_ID);
     expect(td.domain.name).toBe("Medialane");
-    expect(td.domain.version).toBe("4");
+    expect(td.domain.version).toBe("5");
     expect(td.primaryType).toBe("OrderParameters");
     expect(td.types.OrderParameters).toBeDefined();
     expect(td.types.OfferItem).toBeDefined();
@@ -39,7 +39,7 @@ describe("ERC-721 SNIP-12 builders use domain version 4 (redesigned venue)", () 
 
   test("buildCancellationTypedData has no nonce", () => {
     const td = buildCancellationTypedData({ order_hash: "0x1" }, CHAIN_ID);
-    expect(td.domain.version).toBe("4");
+    expect(td.domain.version).toBe("5");
     expect(td.primaryType).toBe("OrderCancellation");
     expect(names(td.types.OrderCancellation as { name: string }[])).toEqual([
       "order_hash", "offerer",
@@ -47,17 +47,17 @@ describe("ERC-721 SNIP-12 builders use domain version 4 (redesigned venue)", () 
   });
 });
 
-describe("ERC-1155 SNIP-12 builders use domain version 3 (redesigned venue)", () => {
+describe("ERC-1155 SNIP-12 builders use domain version 4 (2026-06-26 redeploy)", () => {
   test("build1155OrderTypedData", () => {
     const td = build1155OrderTypedData({ offerer: "0x1" }, CHAIN_ID);
     expect(td.domain.name).toBe("Medialane");
-    expect(td.domain.version).toBe("3");
+    expect(td.domain.version).toBe("4");
     expect(td.primaryType).toBe("OrderParameters");
   });
 
   test("build1155CancellationTypedData", () => {
     const td = build1155CancellationTypedData({ order_hash: "0x1" }, CHAIN_ID);
-    expect(td.domain.version).toBe("3");
+    expect(td.domain.version).toBe("4");
     expect(td.primaryType).toBe("OrderCancellation");
   });
 });
