@@ -36,6 +36,8 @@ export async function verifyWalletSignature(args: {
       return verifyEvm(args.chain, args.address, args.message ?? "", args.signature);
     case "SOLANA":
       return verifySolana(args.address, args.message ?? "", args.signature);
+    case "STELLAR":
+      return verifyStellar(args.address, args.message ?? "", args.signature);
     default:
       throw new Error(`Signature verification not implemented for chain "${args.chain}"`);
   }
@@ -114,6 +116,30 @@ async function verifySolana(
       new TextEncoder().encode(message),
       base58.decode(address),
     );
+    return valid ? { ok: true } : { ok: false, reason: "invalid" };
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+}
+
+
+/** Ed25519 verification for Stellar accounts — the G… strkey decodes to the
+ *  public key; signature[0] is hex or base64. */
+async function verifyStellar(
+  address: string,
+  message: string,
+  signature: string[],
+): Promise<VerifyResult> {
+  if (!message || signature.length === 0) return { ok: false, reason: "invalid" };
+  try {
+    const { ed25519 } = await import("@noble/curves/ed25519.js");
+    const { StrKey } = await import("@stellar/stellar-sdk");
+    const pub = StrKey.decodeEd25519PublicKey(address);
+    const raw = signature[0]!;
+    const sig = raw.startsWith("0x")
+      ? Uint8Array.from(Buffer.from(raw.slice(2), "hex"))
+      : Uint8Array.from(Buffer.from(raw, "base64"));
+    const valid = ed25519.verify(sig, new TextEncoder().encode(message), new Uint8Array(pub));
     return valid ? { ok: true } : { ok: false, reason: "invalid" };
   } catch {
     return { ok: false, reason: "invalid" };

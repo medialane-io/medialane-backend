@@ -33,6 +33,7 @@
     "@noble/hashes": "^2.2.0",
     "@prisma/client": "^5.22.0",
     "@scure/base": "^2.2.0",
+    "@stellar/stellar-sdk": "^16.0.1",
     "hono": "^4.12.12",
     "ioredis": "^5.3.2",
     "nodemailer": "^8.0.5",

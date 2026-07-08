@@ -3,6 +3,7 @@ import type { Chain } from "@prisma/client";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
 import { evmCollectionOwner, evmHoldsToken } from "./evm.js";
 import { solanaCollectionOwner, solanaHoldsToken } from "./solana.js";
+import { stellarCollectionOwner, stellarHoldsToken } from "./stellar.js";
 
 /**
  * On-demand, read-only chain reads behind ONE dispatch point (spec 2026-06-13
@@ -35,6 +36,8 @@ export async function holdsToken(
       return evmHoldsToken(chain, contract, owner, standard, knownTokenIds);
     case "SOLANA":
       return solanaHoldsToken(chain, contract, owner, knownTokenIds);
+    case "STELLAR":
+      return stellarHoldsToken(chain, contract, owner, knownTokenIds);
     default:
       throw new Error(`Ownership checks not implemented for chain "${chain}"`);
   }
@@ -54,6 +57,8 @@ export async function getCollectionOwner(chain: Chain, contract: string): Promis
       return normalizeAddress(chain, await evmCollectionOwner(chain, contract));
     case "SOLANA":
       return normalizeAddress(chain, await solanaCollectionOwner(chain, contract));
+    case "STELLAR":
+      return normalizeAddress(chain, await stellarCollectionOwner(chain, contract));
     default:
       throw new Error(`Owner reads not implemented for chain "${chain}"`);
   }
