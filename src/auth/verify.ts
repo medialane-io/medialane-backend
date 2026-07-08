@@ -34,6 +34,8 @@ export async function verifyWalletSignature(args: {
     case "ETHEREUM":
     case "BASE":
       return verifyEvm(args.chain, args.address, args.message ?? "", args.signature);
+    case "SOLANA":
+      return verifySolana(args.address, args.message ?? "", args.signature);
     default:
       throw new Error(`Signature verification not implemented for chain "${args.chain}"`);
   }
@@ -89,6 +91,29 @@ async function verifyEvm(
       message,
       signature: signature[0] as `0x${string}`,
     });
+    return valid ? { ok: true } : { ok: false, reason: "invalid" };
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+}
+
+
+/** Ed25519 verification of a plain sign-in message (Solana wallets sign raw
+ *  bytes; the address IS the public key). Signature = base58 in signature[0]. */
+async function verifySolana(
+  address: string,
+  message: string,
+  signature: string[],
+): Promise<VerifyResult> {
+  if (!message || signature.length === 0) return { ok: false, reason: "invalid" };
+  try {
+    const { ed25519 } = await import("@noble/curves/ed25519.js");
+    const { base58 } = await import("@scure/base");
+    const valid = ed25519.verify(
+      base58.decode(signature[0]!),
+      new TextEncoder().encode(message),
+      base58.decode(address),
+    );
     return valid ? { ok: true } : { ok: false, reason: "invalid" };
   } catch {
     return { ok: false, reason: "invalid" };
