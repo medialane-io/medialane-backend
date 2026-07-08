@@ -10,9 +10,6 @@ import {
   STARKNET_DROP_FACTORY_CONTRACT,
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
   STARKNET_COLLECTION_721_START_BLOCK,
-  STARKNET_IP_TICKETS_FACTORY_CONTRACT,
-  STARKNET_IP_CLUB_REGISTRY_CONTRACT,
-  STARKNET_IP_SPONSORSHIP_CONTRACT,
 } from "@medialane/sdk";
 import { env } from "./env.js";
 
@@ -54,9 +51,6 @@ export {
   STARKNET_POP_FACTORY_CONTRACT,
   STARKNET_DROP_FACTORY_CONTRACT,
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
-  STARKNET_IP_TICKETS_FACTORY_CONTRACT,
-  STARKNET_IP_CLUB_REGISTRY_CONTRACT,
-  STARKNET_IP_SPONSORSHIP_CONTRACT,
 };
 
 // Indexer starting block
@@ -85,19 +79,6 @@ export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCo
 // Unrug.top memecoin factory — external (not a Medialane contract), so it stays env.
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
-export const NEW_CLUB_CREATED_SELECTOR = hash.getSelectorFromName("NewClubCreated");
-export const CLUB_STATUS_UPDATED_SELECTOR = hash.getSelectorFromName("ClubStatusUpdated");
-export const NEW_MEMBER_SELECTOR = hash.getSelectorFromName("NewMember");
-export const MEMBER_LEFT_SELECTOR = hash.getSelectorFromName("MemberLeft");
-export const OFFER_CREATED_SELECTOR = hash.getSelectorFromName("OfferCreated");
-export const OFFER_STATUS_UPDATED_SELECTOR = hash.getSelectorFromName("OfferStatusUpdated");
-export const BID_PLACED_SELECTOR = hash.getSelectorFromName("BidPlaced");
-export const BID_RETRACTED_SELECTOR = hash.getSelectorFromName("BidRetracted");
-export const SPONSORSHIP_ACCEPTED_SELECTOR = hash.getSelectorFromName("SponsorshipAccepted");
-export const LICENSE_TRANSFERRED_SELECTOR = hash.getSelectorFromName("LicenseTransferred");
-export const TICKET_COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("TicketCollectionCreated");
-export const TICKET_MINTED_SELECTOR = hash.getSelectorFromName("TicketMinted");
-export const TICKET_REDEEMED_SELECTOR = hash.getSelectorFromName("TicketRedeemed");
 
 // Token catalogue + lookup come from @medialane/sdk (single source of truth).
 // Re-exported here so internal callers keep their existing import path.

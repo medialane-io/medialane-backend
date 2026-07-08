@@ -21,22 +21,6 @@ import {
   COLLECTION_DEPLOYED_SELECTOR,
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
   CREATOR_COIN_CREATED_SELECTOR,
-  STARKNET_IP_TICKETS_FACTORY_CONTRACT,
-  STARKNET_IP_CLUB_REGISTRY_CONTRACT,
-  NEW_CLUB_CREATED_SELECTOR,
-  CLUB_STATUS_UPDATED_SELECTOR,
-  NEW_MEMBER_SELECTOR,
-  MEMBER_LEFT_SELECTOR,
-  TICKET_COLLECTION_CREATED_SELECTOR,
-  TICKET_MINTED_SELECTOR,
-  TICKET_REDEEMED_SELECTOR,
-  STARKNET_IP_SPONSORSHIP_CONTRACT,
-  OFFER_CREATED_SELECTOR,
-  OFFER_STATUS_UPDATED_SELECTOR,
-  BID_PLACED_SELECTOR,
-  BID_RETRACTED_SELECTOR,
-  SPONSORSHIP_ACCEPTED_SELECTOR,
-  LICENSE_TRANSFERRED_SELECTOR,
 } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import { num } from "starknet";
@@ -283,100 +267,6 @@ export async function pollCreatorCoinFactoryEvents(
     fromBlock,
     toBlock,
     keys: [[num.toHex(CREATOR_COIN_CREATED_SELECTOR)]],
-  });
-}
-
-/**
- * Fetch CollectionDeployed events from the IP-Tickets factory.
- * Returns an empty array when STARKNET_IP_TICKETS_FACTORY_CONTRACT is not configured (not deployed yet).
- */
-export async function pollTicketFactoryEvents(
-  fromBlock: number,
-  toBlock: number
-): Promise<RawStarknetEvent[]> {
-  if (!STARKNET_IP_TICKETS_FACTORY_CONTRACT) return [];
-
-  return pollContractEvents({
-    address: STARKNET_IP_TICKETS_FACTORY_CONTRACT,
-    fromBlock,
-    toBlock,
-    keys: [[num.toHex(COLLECTION_DEPLOYED_SELECTOR)]],
-  });
-}
-
-/**
- * Fetch all IPClub registry events (NewClubCreated/ClubStatusUpdated/
- * NewMember/MemberLeft) in one call — same single-key-position OR filter
- * shape as pollSponsorshipEvents, since they're all emitted by one fixed
- * registry address. Returns an empty array when
- * STARKNET_IP_CLUB_REGISTRY_CONTRACT is not configured (not deployed yet).
- */
-export async function pollClubFactoryEvents(
-  fromBlock: number,
-  toBlock: number
-): Promise<RawStarknetEvent[]> {
-  if (!STARKNET_IP_CLUB_REGISTRY_CONTRACT) return [];
-
-  return pollContractEvents({
-    address: STARKNET_IP_CLUB_REGISTRY_CONTRACT,
-    fromBlock,
-    toBlock,
-    keys: [[
-      num.toHex(NEW_CLUB_CREATED_SELECTOR),
-      num.toHex(CLUB_STATUS_UPDATED_SELECTOR),
-      num.toHex(NEW_MEMBER_SELECTOR),
-      num.toHex(MEMBER_LEFT_SELECTOR),
-    ]],
-  });
-}
-
-/**
- * Fetch the inner per-batch events (TicketCollectionCreated/TicketMinted/
- * TicketRedeemed) from one deployed IPTicketCollection instance — distinct
- * from pollTicketFactoryEvents, which only discovers the outer contract.
- */
-export async function pollTicketCollectionEvents(
-  collectionAddress: string,
-  fromBlock: number,
-  toBlock: number
-): Promise<RawStarknetEvent[]> {
-  return pollContractEvents({
-    address: collectionAddress,
-    fromBlock,
-    toBlock,
-    keys: [[
-      num.toHex(TICKET_COLLECTION_CREATED_SELECTOR),
-      num.toHex(TICKET_MINTED_SELECTOR),
-      num.toHex(TICKET_REDEEMED_SELECTOR),
-    ]],
-  });
-}
-
-/**
- * Fetch all IPSponsorship events (OfferCreated/OfferStatusUpdated/BidPlaced/
- * BidRetracted/SponsorshipAccepted/LicenseTransferred) in one call — a single
- * key-position OR filter, since IPSponsorship is not a Collection factory and
- * has no per-instance addresses to fan out to. Returns an empty array when
- * STARKNET_IP_SPONSORSHIP_CONTRACT is not configured (not deployed yet).
- */
-export async function pollSponsorshipEvents(
-  fromBlock: number,
-  toBlock: number
-): Promise<RawStarknetEvent[]> {
-  if (!STARKNET_IP_SPONSORSHIP_CONTRACT) return [];
-
-  return pollContractEvents({
-    address: STARKNET_IP_SPONSORSHIP_CONTRACT,
-    fromBlock,
-    toBlock,
-    keys: [[
-      num.toHex(OFFER_CREATED_SELECTOR),
-      num.toHex(OFFER_STATUS_UPDATED_SELECTOR),
-      num.toHex(BID_PLACED_SELECTOR),
-      num.toHex(BID_RETRACTED_SELECTOR),
-      num.toHex(SPONSORSHIP_ACCEPTED_SELECTOR),
-      num.toHex(LICENSE_TRANSFERRED_SELECTOR),
-    ]],
   });
 }
 
