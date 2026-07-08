@@ -20,7 +20,7 @@ export function costForRequest(method: string, path: string): number | null {
   }
   for (const rule of COST_RULES) {
     if (rule.method && rule.method !== method.toUpperCase()) continue;
-    if (path === rule.prefix || path.startsWith(rule.prefix + "/") || path.startsWith(rule.prefix)) {
+    if (path === rule.prefix || path.startsWith(rule.prefix + "/")) {
       return rule.cost;
     }
   }

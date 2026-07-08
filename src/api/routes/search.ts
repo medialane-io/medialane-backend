@@ -23,6 +23,7 @@ search.get("/", async (c) => {
       FROM "Token"
       WHERE chain = 'STARKNET'
         AND "isHidden" = false
+        AND "contractAddress" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)
         AND to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId")
             @@ plainto_tsquery('english', ${q})
       ORDER BY rank DESC
