@@ -79,8 +79,6 @@ export interface RawTokenRow {
   licenseType: string | null;
   commercialUse: boolean | null;
   author: string | null;
-  redeemed: boolean;
-  ticketCollectionId: string | null;
   createdAt: Date;
   updatedAt: Date;
   minPrice: string | null;
