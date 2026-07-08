@@ -73,6 +73,18 @@ model IndexerCursor {
   updatedAt         DateTime @updatedAt
 }
 
+/// Durable per-source block cursor for slow-cadence mirror sources
+/// (transfers, allowlists, creator-coin factory). Replaces the former
+/// in-memory `_last*Block` module variables — restart-safe by construction.
+model SourceCursor {
+  chain     Chain
+  sourceId  String
+  lastBlock BigInt
+  updatedAt DateTime @updatedAt
+
+  @@id([chain, sourceId])
+}
+
 enum OrderStatus {
   ACTIVE
   FULFILLED

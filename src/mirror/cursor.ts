@@ -51,5 +51,29 @@ export async function resetCursor(chain: Chain, toBlock?: bigint): Promise<void>
     create: { chain, lastBlock: block, continuationToken: null },
     update: { lastBlock: block, continuationToken: null },
   });
+  // A cursor reset must rewind ALL sources — a stale per-source cursor would
+  // make slow-cadence sources skip the replayed range.
+  await prisma.sourceCursor.deleteMany({ where: { chain } });
   log.info({ chain, block: block.toString() }, "Cursor reset");
+}
+
+export async function loadSourceCursor(chain: Chain, sourceId: string): Promise<bigint | null> {
+  const row = await prisma.sourceCursor.findUnique({
+    where: { chain_sourceId: { chain, sourceId } },
+  });
+  return row?.lastBlock ?? null;
+}
+
+export async function saveSourceCursor(
+  chain: Chain,
+  sourceId: string,
+  lastBlock: bigint,
+  tx?: Prisma.TransactionClient
+): Promise<void> {
+  const client = tx ?? prisma;
+  await client.sourceCursor.upsert({
+    where: { chain_sourceId: { chain, sourceId } },
+    create: { chain, sourceId, lastBlock },
+    update: { lastBlock },
+  });
 }
