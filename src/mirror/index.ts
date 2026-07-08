@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import { loadCursor, saveCursor } from "./cursor.js";
-import { pollEvents, pollEvents1155, pollTransferEvents, pollCollectionCreatedEvents, pollCommentEvents, pollPopFactoryEvents, pollPopAllowlistEvents, pollDropFactoryEvents, pollDropAllowlistEvents, pollERC1155FactoryEvents, pollCreatorCoinFactoryEvents, getLatestBlock } from "./poller.js";
+import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
+import { getLatestBlock } from "./poller.js";
+import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_TRANSFERS, type SourceFetch } from "./sources.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
@@ -10,21 +11,15 @@ import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { upsertCollectionFromFactory } from "../utils/collection.js";
-import { handleCommentAdded } from "./handlers/commentAdded.js";
-import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
-import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
-import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
-import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT, STARKNET_CREATOR_COIN_FACTORY_CONTRACT, ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
+import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
 import { num } from "starknet";
 import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
-import type { RawStarknetEvent } from "../types/starknet.js";
 import type { ParsedTransferSingle, ParsedTransfer } from "../types/marketplace.js";
 
 const log = createLogger("mirror");
@@ -34,32 +29,6 @@ export const CHAIN = "STARKNET" as const;
 const CATCHUP_THRESHOLD = 1000;
 // Abort a hung tick after this many ms to prevent the loop from freezing.
 const TICK_TIMEOUT_MS = 60_000;
-// How often to poll Transfer events across all known NFT collections.
-// Transfer events are polled on a separate (slower) schedule to avoid making one
-// starknet_getEvents RPC call per collection per block — with 50 collections that
-// was generating ~100M compute units/week at steady state.
-// Tunable via TRANSFER_POLL_INTERVAL_MS env var (default 120s).
-// Evaluated lazily so it picks up the parsed env value.
-const transferPollIntervalMs = () => env.TRANSFER_POLL_INTERVAL_MS;
-
-// Tracks the last block up to which Transfer events were fetched, and when.
-// Kept in memory — a restart re-polls from the indexer cursor (safe, idempotent).
-let _lastTransferPollTime = 0;
-let _lastTransferBlock: number | null = null;
-
-// Tracks the last block up to which POP allowlist events were fetched.
-// Same slow-poll pattern as Transfer events.
-let _lastPopAllowlistPollTime = 0;
-let _lastPopAllowlistBlock: number | null = null;
-
-// Tracks the last block up to which Drop allowlist events were fetched.
-let _lastDropAllowlistPollTime = 0;
-let _lastDropAllowlistBlock: number | null = null;
-
-// Tracks the last block up to which Creator Coin factory events were fetched.
-// Slow-poll (default 50s) — few creators, so polling every main tick is wasteful.
-let _lastCreatorCoinPollTime = 0;
-let _lastCreatorCoinBlock: number | null = null;
 
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
@@ -105,112 +74,22 @@ async function tick(tickId: string): Promise<number> {
 
   tlog.info({ fromBlock, toBlock, latestBlock }, "Indexing block range");
 
-  // Load NFT collection contracts that existed at or before the current block range.
-  // Filtering by startBlock prevents querying contracts that don't exist yet, which
-  // avoids hammering the RPC with guaranteed-empty requests and causing rate-limit hangs.
-  const knownCollections = await prisma.collection.findMany({
-    where: { chain: CHAIN, startBlock: { lte: BigInt(toBlock) } },
-    select: { contractAddress: true },
-  });
-  const nftContracts = knownCollections.map((c) => c.contractAddress);
+  // One generic sweep over the declarative source table (sources.ts): every
+  // due source fetches its events for this window; slow-cadence sources
+  // resume from their durable SourceCursor.
+  const fetches = await fetchDueSources({ chain: CHAIN, fromBlock, toBlock, now: Date.now() });
+  const byId = new Map<string, SourceFetch>(fetches.map((f) => [f.source.id, f]));
+  const eventsOf = (id: string) => byId.get(id)?.events ?? [];
 
-  // Poll marketplace events, ERC-1155 marketplace events, CollectionCreated events, etc. in parallel.
-  const [rawMarketplaceEvents, raw1155Events, rawCollectionCreatedEvents, rawCommentEvents, rawPopFactoryEvents, rawDropFactoryEvents, rawERC1155FactoryEvents] = await Promise.all([
-    pollEvents(fromBlock, toBlock),
-    pollEvents1155(fromBlock, toBlock),
-    pollCollectionCreatedEvents(fromBlock, toBlock),
-    pollCommentEvents(fromBlock, toBlock),
-    pollPopFactoryEvents(fromBlock, toBlock),
-    pollDropFactoryEvents(fromBlock, toBlock),
-    pollERC1155FactoryEvents(fromBlock, toBlock),
-  ]);
+  // Core sources feed the atomic parse/write transaction below.
+  const rawMarketplaceEvents = eventsOf(CORE_MARKETPLACE_721);
+  const raw1155Events = eventsOf(CORE_MARKETPLACE_1155);
+  const rawCollectionCreatedEvents = eventsOf(CORE_FACTORY_MIP721);
+  const rawTransferEvents = eventsOf(CORE_TRANSFERS);
 
-  // Poll Transfer events on a separate 2-minute schedule.
-  // Previously this made one starknet_getEvents call per collection per block tick
-  // (50 collections × every new block = ~100M compute units/week at steady state).
-  // Now we batch: one call per collection every 2 minutes, covering the accumulated
-  // block range, which is 1 call vs ~20 calls for the same block window.
-  let rawTransferEvents: RawStarknetEvent[] = [];
-  const now = Date.now();
-  if (nftContracts.length > 0 && now - _lastTransferPollTime >= transferPollIntervalMs()) {
-    const transferFromBlock = _lastTransferBlock != null ? _lastTransferBlock + 1 : fromBlock;
-    if (transferFromBlock <= toBlock) {
-      rawTransferEvents = (
-        await Promise.all(nftContracts.map((addr) => pollTransferEvents(addr, transferFromBlock, toBlock)))
-      ).flat();
-    }
-    _lastTransferBlock = toBlock;
-    _lastTransferPollTime = now;
-  }
-
-  // Poll POP allowlist events on a slow schedule (same interval as Transfer events).
-  // One starknet_getEvents call per known POP collection per interval.
-  let rawPopAllowlistEvents: RawStarknetEvent[] = [];
-  if (STARKNET_POP_FACTORY_CONTRACT && now - _lastPopAllowlistPollTime >= transferPollIntervalMs()) {
-    const popCollections = await prisma.collection.findMany({
-      where: { chain: CHAIN, service: "pop-protocol", startBlock: { lte: BigInt(toBlock) } },
-      select: { contractAddress: true },
-    });
-    if (popCollections.length > 0) {
-      const allowlistFromBlock = _lastPopAllowlistBlock != null ? _lastPopAllowlistBlock + 1 : fromBlock;
-      if (allowlistFromBlock <= toBlock) {
-        rawPopAllowlistEvents = (
-          await Promise.all(popCollections.map((c) => pollPopAllowlistEvents(c.contractAddress, allowlistFromBlock, toBlock)))
-        ).flat();
-      }
-    }
-    _lastPopAllowlistBlock = toBlock;
-    _lastPopAllowlistPollTime = now;
-  }
-
-  // Poll Drop allowlist events on the same slow schedule.
-  let rawDropAllowlistEvents: RawStarknetEvent[] = [];
-  if (STARKNET_DROP_FACTORY_CONTRACT && now - _lastDropAllowlistPollTime >= transferPollIntervalMs()) {
-    const dropCollections = await prisma.collection.findMany({
-      where: { chain: CHAIN, service: "drop-collection", startBlock: { lte: BigInt(toBlock) } },
-      select: { contractAddress: true },
-    });
-    if (dropCollections.length > 0) {
-      const allowlistFromBlock = _lastDropAllowlistBlock != null ? _lastDropAllowlistBlock + 1 : fromBlock;
-      if (allowlistFromBlock <= toBlock) {
-        rawDropAllowlistEvents = (
-          await Promise.all(dropCollections.map((c) => pollDropAllowlistEvents(c.contractAddress, allowlistFromBlock, toBlock)))
-        ).flat();
-      }
-    }
-    _lastDropAllowlistBlock = toBlock;
-    _lastDropAllowlistPollTime = now;
-  }
-
-  // Poll the Creator Coin factory on its own slow schedule (default 50s) — we
-  // don't expect many creators, so polling it every main tick is wasteful. Coins
-  // launched via Medialane can additionally be indexed on-demand so they appear
-  // instantly; this poll is the backstop / catches non-Medialane launches.
-  let rawCreatorCoinFactoryEvents: RawStarknetEvent[] = [];
-  if (STARKNET_CREATOR_COIN_FACTORY_CONTRACT && now - _lastCreatorCoinPollTime >= env.CREATOR_COIN_POLL_INTERVAL_MS) {
-    const ccFromBlock = _lastCreatorCoinBlock != null ? _lastCreatorCoinBlock + 1 : fromBlock;
-    if (ccFromBlock <= toBlock) {
-      rawCreatorCoinFactoryEvents = await pollCreatorCoinFactoryEvents(ccFromBlock, toBlock);
-    }
-    _lastCreatorCoinBlock = toBlock;
-    _lastCreatorCoinPollTime = now;
-  }
-
-  const rawEvents =[...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
+  const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
   tlog.debug(
-    {
-      marketplace: rawMarketplaceEvents.length,
-      marketplace1155: raw1155Events.length,
-      transfers: rawTransferEvents.length,
-      collectionCreated: rawCollectionCreatedEvents.length,
-      comments: rawCommentEvents.length,
-      popFactory: rawPopFactoryEvents.length,
-      popAllowlist: rawPopAllowlistEvents.length,
-      dropFactory: rawDropFactoryEvents.length,
-      dropAllowlist: rawDropAllowlistEvents.length,
-      erc1155Factory: rawERC1155FactoryEvents.length,
-      nftContractsPolled: nftContracts.length,
-    },
+    Object.fromEntries(fetches.map((f) => [f.source.id, f.events.length])),
     "Fetched events"
   );
 
@@ -325,6 +204,13 @@ async function tick(tickId: string): Promise<number> {
 
       // Cursor advances atomically with the event writes
       await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
+
+      // Transfer writes and the transfers cursor advance atomically — a failed
+      // tick re-polls the same window (handlers are idempotent).
+      const transferFetch = byId.get(CORE_TRANSFERS);
+      if (transferFetch && transferFetch.cursorTo != null) {
+        await saveSourceCursor(CHAIN, CORE_TRANSFERS, BigInt(transferFetch.cursorTo), tx);
+      }
     },
     { timeout: 60000 }
   );
@@ -356,56 +242,16 @@ async function tick(tickId: string): Promise<number> {
     tlog.info({ collectionId: event.collectionId, contractAddress: resolved.contractAddress }, "New collection indexed");
   }
 
-  // Process CommentAdded events outside the main transaction (no cursor dependency, no downstream jobs)
-  if (rawCommentEvents.length > 0) {
-    const txCounters: Record<string, number> = {};
-    for (const event of rawCommentEvents) {
-      const txHash = event.transaction_hash ?? "";
-      const logIndex = txCounters[txHash] ?? 0;
-      txCounters[txHash] = logIndex + 1;
-      await handleCommentAdded(event, txHash, logIndex);
-    }
-  }
-
-  // Process POP factory CollectionCreated events (DB write only, collection_address is in data[0])
-  for (const event of rawPopFactoryEvents) {
-    await handlePopCollectionCreated(event);
-    if (event.data?.[0]) {
-      affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
-    }
-  }
-
-  // Process POP AllowlistUpdated events (DB writes only, no RPC calls)
-  for (const event of rawPopAllowlistEvents) {
-    await handlePopAllowlistUpdated(event);
-  }
-
-  // Process Drop factory DropCreated events (DB write only, collection_address is in data[0])
-  for (const event of rawDropFactoryEvents) {
-    await handleDropCreated(event);
-    if (event.data?.[0]) {
-      affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
-    }
-  }
-
-  // Process Drop AllowlistUpdated events (DB writes only, no RPC calls)
-  for (const event of rawDropAllowlistEvents) {
-    await handleDropAllowlistUpdated(event);
-  }
-
-  // Process Creator Coin factory CreatorCoinCreated events (DB write + metadata job)
-  for (const event of rawCreatorCoinFactoryEvents) {
-    await handleCreatorCoinCreated(event);
-    if (event.data?.[5]) {
-      affectedContracts.add(normalizeAddress("STARKNET", event.data[5]));
-    }
-  }
-
-  // Process ERC-1155 factory CollectionDeployed events (DB write + metadata job)
-  for (const event of rawERC1155FactoryEvents) {
-    await handleIP1155CollectionDeployed(event);
-    if (event.keys?.[1]) {
-      affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+  // Reduce side sources (everything that isn't the core order/transfer/
+  // mip-721-factory pipeline) and advance their durable cursors on success —
+  // a failed apply leaves the cursor behind, so the window replays next time
+  // (handlers are idempotent upserts).
+  const ctx = { affectedContracts };
+  for (const fetch of fetches) {
+    if (!fetch.source.apply) continue;
+    await fetch.source.apply(fetch.events, ctx);
+    if (fetch.cursorTo != null) {
+      await saveSourceCursor(CHAIN, fetch.source.id, BigInt(fetch.cursorTo));
     }
   }
 
@@ -462,14 +308,7 @@ async function tick(tickId: string): Promise<number> {
     {
       fromBlock,
       toBlock,
-      orderEvents: rawMarketplaceEvents.length,
-      transferEvents: rawTransferEvents.length,
-      collectionCreatedEvents: collectionCreatedEvents.length,
-      popFactoryEvents: rawPopFactoryEvents.length,
-      popAllowlistEvents: rawPopAllowlistEvents.length,
-      dropFactoryEvents: rawDropFactoryEvents.length,
-      dropAllowlistEvents: rawDropAllowlistEvents.length,
-      erc1155FactoryEvents: rawERC1155FactoryEvents.length,
+      sources: Object.fromEntries(fetches.map((f) => [f.source.id, f.events.length])),
       parsed: deduplicatedEvents.length,
       orderNftContracts: orderNftContracts.size,
       metadataJobs: allAffectedContracts.size,

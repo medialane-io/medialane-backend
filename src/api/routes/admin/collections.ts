@@ -14,11 +14,11 @@ import { normalizeAddress, normalizeHash, callRpc } from "../../../utils/starkne
 import { upsertCollectionFromFactory } from "../../../utils/collection.js";
 import { upsertCoin } from "../../../utils/coin.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
-import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../../mirror/poller.js";
+import { pollContractEvents, getLatestBlock } from "../../../mirror/poller.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../../utils/txVerifier.js";
-import { ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress, UNRUG_FACTORY_CONTRACT } from "../../../config/constants.js";
+import { ORDER_CREATED_SELECTOR, ZERO_ADDRESS, getTokenByAddress, UNRUG_FACTORY_CONTRACT, STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR, TRANSFER_SELECTOR, TRANSFER_SINGLE_SELECTOR, TRANSFER_BATCH_SELECTOR } from "../../../config/constants.js";
 import { num, shortString } from "starknet";
 
 /** Decode a felt252 short string (OZ 0.8 ERC-20 name/symbol); null on failure. */
@@ -535,7 +535,13 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
 
     log.info({ contractAddress, fromBlock, toBlock }, "Starting Transfer backfill");
 
-    const rawEvents = await pollTransferEvents(contractAddress, fromBlock, toBlock);
+    const rawEvents = await pollContractEvents({
+      address: contractAddress,
+      fromBlock,
+      toBlock,
+      keys: [[num.toHex(TRANSFER_SELECTOR), num.toHex(TRANSFER_SINGLE_SELECTOR), num.toHex(TRANSFER_BATCH_SELECTOR)]],
+      maxPages: 100,
+    });
     const parsedEvents = parseEvents(rawEvents);
     const transferEvents = parsedEvents.filter(
       (e) => e.type === "Transfer" || e.type === "TransferSingle" || e.type === "TransferBatch"
@@ -623,7 +629,12 @@ admin.post("/collections/backfill-metadata", async (c) => {
 
 admin.post("/collections/backfill-registry", async (c) => {
   const latestBlock = await getLatestBlock();
-  const events = await pollCollectionCreatedEvents(COLLECTION_721_START_BLOCK, latestBlock);
+  const events = await pollContractEvents({
+    address: STARKNET_COLLECTION_721_CONTRACT,
+    fromBlock: COLLECTION_721_START_BLOCK,
+    toBlock: latestBlock,
+    keys: [[num.toHex(COLLECTION_CREATED_SELECTOR)]],
+  });
   let inserted = 0;
   let skipped = 0;
 

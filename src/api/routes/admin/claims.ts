@@ -13,7 +13,6 @@ import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../../u
 import { normalizeAddress, normalizeHash } from "../../../utils/starknet.js";
 import { ensureAccountForWallet, addAccountRole } from "../../../utils/account.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
-import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../../mirror/poller.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../../utils/txVerifier.js";

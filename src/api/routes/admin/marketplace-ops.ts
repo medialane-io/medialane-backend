@@ -12,7 +12,6 @@ import { createLogger } from "../../../utils/logger.js";
 import { sendUsernameClaimApproved, sendUsernameClaimRejected } from "../../../utils/mailer.js";
 import { normalizeAddress, normalizeHash } from "../../../utils/starknet.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
-import { pollCollectionCreatedEvents, pollTransferEvents, getLatestBlock } from "../../../mirror/poller.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { fetchMarketplaceReceiptEvents, fetchReceiptEvents } from "../../../utils/txVerifier.js";
