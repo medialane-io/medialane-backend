@@ -704,3 +704,9 @@ Backend side of `medialane-core/docs/specs/2026-07-07-platform-multichain-federa
 - **chainRead**: `ETHEREUM`/`BASE` cases (`src/chainRead/evm.ts`, viem) — `balanceOf`/`balanceOfBatch`/`owner()`; RPC = `ETHEREUM_RPC_URL`/`BASE_RPC_URL` env override → chain-registry rpcUrl.
 - **auth**: EVM case in `verifyWalletSignature` — viem client `verifyMessage` (EIP-191 EOA + EIP-1271 smart accounts); the args gained optional `message` for EVM sign-in.
 - **evmIngestor** (`src/mirror/evm/`): pure `decodeEvmLogs` (unit-tested with synthetic logs) + `pollOnce`/`applyEvents` — eth_getLogs over our venues/registries/discovered collections, per-chain `IndexerCursor`, translation into `upsertCollectionFromFactory`/`handleTransfer`/order-status writes. Registered in `src/index.ts`; **dormant until coordinates land at deploy** (logs "no coordinates configured").
+
+### Platform federation — Phase D (Solana, added 2026-07-07)
+
+- **chainRead**: `SOLANA` case (`src/chainRead/solana.ts`, raw JSON-RPC, no web3.js) — Metaplex Core account reads (`BaseAssetV1.owner` / `BaseCollectionV1.update_authority` at offset 1..33); `knownTokenIds` are Core asset pubkeys.
+- **auth**: `SOLANA` case — ed25519 verify (@noble/curves) of the plain sign-in message; address = the public key; signature[0] = base58.
+- **solanaIngestor** (`src/mirror/solana/`): pure `decodeSolanaLogs` ("Program data:" Anchor events, layouts from the audited programs; unit-tested with synthetic logs) + `pollProgram` — `getSignaturesForAddress` paged oldest-first over both program ids; per-program signature cursors as a JSON map in `IndexerCursor(SOLANA).continuationToken`. Deploy-gated; registered in `src/index.ts`.
