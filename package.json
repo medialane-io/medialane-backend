@@ -29,7 +29,10 @@
     "@hono/node-server": "^1.19.14",
     "@hono/zod-validator": "^0.7.6",
     "@medialane/sdk": "0.47.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "@prisma/client": "^5.22.0",
+    "@scure/base": "^2.2.0",
     "hono": "^4.12.12",
     "ioredis": "^5.3.2",
     "nodemailer": "^8.0.5",
@@ -37,6 +40,7 @@
     "pino": "^9.5.0",
     "pino-pretty": "^11.3.0",
     "starknet": "^6.11.0",
+    "viem": "^2.54.6",
     "zod": "^3.23.8"
   },
   "devDependencies": {
