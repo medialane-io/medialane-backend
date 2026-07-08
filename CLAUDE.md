@@ -6,26 +6,26 @@ Guidance for Claude Code when working in this repository.
 ## Commands
 
 ```bash
-~/.bun/bin/bun run dev          # watch mode
-~/.bun/bin/bun run start        # production
+bun run dev          # watch mode
+bun run start        # production
 
-~/.bun/bin/bun run db:migrate   # Prisma migrate dev (prompts for migration name) — ALWAYS run this when adding schema fields
-~/.bun/bin/bun run db:generate  # regenerate Prisma client after schema changes
-~/.bun/bin/bun run db:push      # push schema without a migration file
-~/.bun/bin/bun run db:studio    # Prisma Studio at localhost:5555
+bun run db:migrate   # Prisma migrate dev (prompts for migration name) — ALWAYS run this when adding schema fields
+bun run db:generate  # regenerate Prisma client after schema changes
+bun run db:push      # push schema without a migration file
+bun run db:studio    # Prisma Studio at localhost:5555
 
-~/.bun/bin/bun run backfill     # backfill historical on-chain data
-~/.bun/bin/bun run reset-cursor # reset IndexerCursor to INDEXER_START_BLOCK
+bun run backfill     # backfill historical on-chain data
+bun run reset-cursor # reset IndexerCursor to INDEXER_START_BLOCK
 
 # Account-model scripts (added 2026-05-20)
-~/.bun/bin/bun run verify-accounts        # invariants on the DB pointed to by DATABASE_URL
-~/.bun/bin/bun run backfill-accounts      # legacy User/CreatorProfile → Account/Wallet/Identity/AccountProfile
-~/.bun/bin/bun run prod:verify            # invariants against Railway prod (uses DATABASE_PUBLIC_URL)
-~/.bun/bin/bun run prod:migrate-status    # `prisma migrate status` against Railway prod
+bun run verify-accounts        # invariants on the DB pointed to by DATABASE_URL
+bun run backfill-accounts      # legacy User/CreatorProfile → Account/Wallet/Identity/AccountProfile
+bun run prod:verify            # invariants against Railway prod (uses DATABASE_PUBLIC_URL)
+bun run prod:migrate-status    # `prisma migrate status` against Railway prod
 ```
 
-Always use `~/.bun/bin/bun` — bun is not in PATH by default on this machine.
-No linting or test runner configured. Verify with curl against localhost:3000.
+`bun` must be on PATH (installed standalone or via nvm/Volta). If it isn't, use the absolute path to your bun binary.
+No linter configured. Tests run via `bun test src` (bun's runner; ~115 tests); `bun run typecheck` is `tsc --noEmit`. For live behavior, verify with curl against localhost:3000.
 
 **Hitting Railway prod from local** requires the public proxy URL — the in-cluster `postgres.railway.internal` won't resolve. The `prod:*` aliases above wrap `railway run --service Postgres bash -c 'DATABASE_URL="$DATABASE_PUBLIC_URL" …'`; prefer them over open-coding the incantation. Verify output now includes a `connection` field so the DB the numbers came from is unambiguous.
 
@@ -243,7 +243,7 @@ Response headers on every `/v1/*` response:
 
 ## Key Conventions
 
-- **Runtime**: Bun only. `~/.bun/bin/bun`, never `node`/`npm`/`npx`.
+- **Runtime**: Bun only. `bun`, never `node`/`npm`/`npx`.
 - **Path alias**: `@/*` → `src/*` (`tsconfig.json`).
 - **Imports**: `.js` extension in all import paths (ESM bundler resolution).
 - **BigInt**: Starknet amounts + block numbers as `BigInt` in TS; stored as `String` in DB.
