@@ -7,9 +7,9 @@ describe("mintActionForService", () => {
     expect(mintActionForService("mip-erc1155")).toBe("mint_asset");
     expect(mintActionForService("ip-erc721")).toBe("mint_asset");
   });
-  test("tickets and clubs claim their own actions", () => {
-    expect(mintActionForService("ip-tickets")).toBe("buy_ticket");
-    expect(mintActionForService("ip-club")).toBe("join_club");
+  test("non-issuance services score nothing", () => {
+    expect(mintActionForService("ip-tickets")).toBeNull();
+    expect(mintActionForService("ip-club")).toBeNull();
   });
   test("pop/drop/external/unknown mints score nothing here", () => {
     expect(mintActionForService("pop-protocol")).toBeNull(); // claim_pop owns it
@@ -27,9 +27,9 @@ describe("creationActionForService", () => {
     expect(creationActionForService("drop-collection")).toBeNull();
     expect(creationActionForService("pop-protocol")).toBeNull();
   });
-  test("tickets/club creations get their own actions", () => {
-    expect(creationActionForService("ip-tickets")).toBe("create_ticket_collection");
-    expect(creationActionForService("ip-club")).toBe("create_club");
+  test("non-issuance creations score nothing", () => {
+    expect(creationActionForService("ip-tickets")).toBeNull();
+    expect(creationActionForService("ip-club")).toBeNull();
   });
   test("external collections score nothing", () => {
     expect(creationActionForService("external-erc721")).toBeNull();

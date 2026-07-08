@@ -137,8 +137,8 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
 }
 
 // Classifies every mint Transfer by the collection's service (partition
-// invariant): issuance mints → mint_asset, ticket buys → buy_ticket, club
-// joins → join_club. Pop/drop/external mints emit nothing here.
+// invariant): issuance mints → mint_asset. Pop/drop/external mints emit
+// nothing here.
 async function gatherMints(
   actionMap: Map<string, ActionConfig>,
   serviceMap: Map<string, string>
@@ -164,9 +164,9 @@ async function gatherMints(
   return events;
 }
 
-// Classifies every collection creation by service: issuance → create_collection,
-// tickets → create_ticket_collection, clubs → create_club. Drop/pop creations
-// emit nothing here (launch_launchpad owns them); external ones score nothing.
+// Classifies every collection creation by service: issuance → create_collection.
+// Drop/pop creations emit nothing here (launch_launchpad owns them); other
+// services score nothing.
 async function gatherCreations(actionMap: Map<string, ActionConfig>): Promise<RawEvent[]> {
   const collections = await prisma.collection.findMany({
     where: { owner: { not: null }, deletedAt: null },
@@ -417,63 +417,6 @@ async function gatherClaimDrop(xp: number): Promise<RawEvent[]> {
     txHash: t.txHash,
     date: t.createdAt.toISOString().slice(0, 10),
   }));
-}
-
-async function gatherSponsorshipOffers(xp: number): Promise<RawEvent[]> {
-  const offers = await prisma.sponsorshipOffer.findMany({
-    select: { author: true, createdAt: true, offerId: true },
-  });
-  return offers.map((o) => ({
-    address: normalizeAddress("STARKNET", o.author),
-    actionType: "create_sponsorship_offer",
-    xp,
-    txHash: null,
-    date: o.createdAt.toISOString().slice(0, 10),
-    metadata: { offerId: o.offerId },
-  }));
-}
-
-async function gatherSponsorshipBids(xp: number): Promise<RawEvent[]> {
-  // SponsorshipBid has no createdAt — updatedAt is the closest stable stamp.
-  const bids = await prisma.sponsorshipBid.findMany({
-    select: { sponsor: true, updatedAt: true, offerId: true },
-  });
-  return bids.map((b) => ({
-    address: normalizeAddress("STARKNET", b.sponsor),
-    actionType: "place_sponsorship_bid",
-    xp,
-    txHash: null,
-    date: b.updatedAt.toISOString().slice(0, 10),
-    metadata: { offerId: b.offerId },
-  }));
-}
-
-async function gatherSponsorshipLicensed(sponsorXp: number, authorXp: number): Promise<RawEvent[]> {
-  // A settled sponsorship rewards both sides, like offer_accepted_*.
-  const licenses = await prisma.sponsorshipLicense.findMany({
-    select: { sponsor: true, createdAt: true, licenseId: true, offer: { select: { author: true } } },
-  });
-  const events: RawEvent[] = [];
-  for (const l of licenses) {
-    const date = l.createdAt.toISOString().slice(0, 10);
-    events.push({
-      address: normalizeAddress("STARKNET", l.sponsor),
-      actionType: "sponsorship_licensed_sponsor",
-      xp: sponsorXp,
-      txHash: null,
-      date,
-      metadata: { licenseId: l.licenseId },
-    });
-    events.push({
-      address: normalizeAddress("STARKNET", l.offer.author),
-      actionType: "sponsorship_licensed_author",
-      xp: authorXp,
-      txHash: null,
-      date,
-      metadata: { licenseId: l.licenseId },
-    });
-  }
-  return events;
 }
 
 async function gatherLaunchCoin(xp: number): Promise<RawEvent[]> {
@@ -768,22 +711,6 @@ async function computeBadges(
     }
   }
 
-  // Event Host / Club Founder — owns a collection of that service
-  const serviceOwners = await prisma.collection.findMany({
-    where: { service: { in: ["ip-tickets", "ip-club"] }, owner: { not: null }, deletedAt: null },
-    select: { owner: true, service: true },
-  });
-  for (const c of serviceOwners) {
-    award(normalizeAddress("STARKNET", c.owner!), c.service === "ip-tickets" ? "event_host" : "club_founder");
-  }
-
-  // Patron — holds a sponsorship license
-  const patrons = await prisma.sponsorshipLicense.findMany({
-    select: { sponsor: true },
-    distinct: ["sponsor"],
-  });
-  for (const p of patrons) award(normalizeAddress("STARKNET", p.sponsor), "patron");
-
   // Coin Creator — launched a creator coin
   const coinCreators = await prisma.coin.findMany({
     where: { service: "creator-coin", creator: { not: null } },
@@ -836,7 +763,7 @@ export async function computeRewards(
   await gather("complete_profile",    () => gatherCompleteProfile(a("complete_profile").xp));
 
   // Mints + creations are classified per collection service internally
-  // (mint_asset / buy_ticket / join_club; create_collection / create_ticket_collection / create_club)
+  // (mint_asset; create_collection)
   {
     const mintEvents = await gatherMints(actionMap, serviceMap);
     allRaw.push(...mintEvents);
@@ -867,19 +794,7 @@ export async function computeRewards(
   if (actionMap.has("claim_pop"))  allRaw.push(...(await gatherClaimPop(a("claim_pop").xp)));
   if (actionMap.has("claim_drop")) allRaw.push(...(await gatherClaimDrop(a("claim_drop").xp)));
 
-  await gather("create_sponsorship_offer", () => gatherSponsorshipOffers(a("create_sponsorship_offer").xp));
-  await gather("place_sponsorship_bid",    () => gatherSponsorshipBids(a("place_sponsorship_bid").xp));
   await gather("launch_coin",              () => gatherLaunchCoin(a("launch_coin").xp));
-
-  // sponsorship_licensed rewards both sides (like offer_accepted)
-  if (actionMap.has("sponsorship_licensed_sponsor") && actionMap.has("sponsorship_licensed_author")) {
-    const events = await gatherSponsorshipLicensed(
-      a("sponsorship_licensed_sponsor").xp,
-      a("sponsorship_licensed_author").xp
-    );
-    allRaw.push(...events);
-    log.info({ count: events.length }, "Gathered sponsorship_licensed events");
-  }
 
   log.info({ total: allRaw.length }, "Total raw events");
 

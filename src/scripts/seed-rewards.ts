@@ -94,15 +94,16 @@ const ACTIONS = [
   { type: "comment",                label: "On-chain comment",           xp: 4,   dailyCap: 5,    minValueUsdc: null, enabled: true },
   // Disabled until referral tracking exists — never fake a data source.
   { type: "refer_user",             label: "Refer an active user",       xp: 30,  dailyCap: null, minValueUsdc: null, enabled: false },
-  // Launchpad services (2026-07-04)
-  { type: "create_ticket_collection",     label: "Create a ticketed event",        xp: 100, dailyCap: null, minValueUsdc: null, enabled: true },
-  { type: "buy_ticket",                   label: "Get an event ticket",            xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: true },
-  { type: "create_club",                  label: "Start a club",                   xp: 100, dailyCap: null, minValueUsdc: null, enabled: true },
-  { type: "join_club",                    label: "Join a club",                    xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: true },
-  { type: "create_sponsorship_offer",     label: "Open a sponsorship",             xp: 50,  dailyCap: 5,    minValueUsdc: null, enabled: true },
-  { type: "place_sponsorship_bid",        label: "Bid on a sponsorship",           xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: true },
-  { type: "sponsorship_licensed_sponsor", label: "Sponsorship secured (sponsor)",  xp: 40,  dailyCap: null, minValueUsdc: null, enabled: true },
-  { type: "sponsorship_licensed_author",  label: "Sponsorship secured (creator)",  xp: 40,  dailyCap: null, minValueUsdc: null, enabled: true },
+  // Disabled until the tickets/club/sponsorship services return post-redesign —
+  // no indexed data source exists for them (never fake a data source).
+  { type: "create_ticket_collection",     label: "Create a ticketed event",        xp: 100, dailyCap: null, minValueUsdc: null, enabled: false },
+  { type: "buy_ticket",                   label: "Get an event ticket",            xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: false },
+  { type: "create_club",                  label: "Start a club",                   xp: 100, dailyCap: null, minValueUsdc: null, enabled: false },
+  { type: "join_club",                    label: "Join a club",                    xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: false },
+  { type: "create_sponsorship_offer",     label: "Open a sponsorship",             xp: 50,  dailyCap: 5,    minValueUsdc: null, enabled: false },
+  { type: "place_sponsorship_bid",        label: "Bid on a sponsorship",           xp: 15,  dailyCap: 10,   minValueUsdc: null, enabled: false },
+  { type: "sponsorship_licensed_sponsor", label: "Sponsorship secured (sponsor)",  xp: 40,  dailyCap: null, minValueUsdc: null, enabled: false },
+  { type: "sponsorship_licensed_author",  label: "Sponsorship secured (creator)",  xp: 40,  dailyCap: null, minValueUsdc: null, enabled: false },
   { type: "launch_coin",                  label: "Launch a creator coin",          xp: 150, dailyCap: null, minValueUsdc: null, enabled: true },
 ];
 
@@ -124,8 +125,9 @@ const BADGES = [
   { key: "remixed",         name: "Remixed",         description: "Someone built on your work",            icon: "GitBranch",   color: "#6366f1", category: "creator",   enabled: true },
   { key: "platinum",        name: "Platinum",        description: "1,000 USDC in total sales",             icon: "TrendingUp",  color: "#94a3b8", category: "creator",   enabled: true },
   { key: "auteur",          name: "Auteur",          description: "Active across 3+ IP types",             icon: "Layers",      color: "#ec4899", category: "creator",   enabled: true },
-  { key: "event_host",      name: "Event Host",      description: "Created a ticketed event",              icon: "Ticket",      color: "#f59e0b", category: "creator",   enabled: true },
-  { key: "club_founder",    name: "Club Founder",    description: "Started a club",                        icon: "Crown",       color: "#8b5cf6", category: "creator",   enabled: true },
+  // Disabled until the tickets/club services return post-redesign.
+  { key: "event_host",      name: "Event Host",      description: "Created a ticketed event",              icon: "Ticket",      color: "#f59e0b", category: "creator",   enabled: false },
+  { key: "club_founder",    name: "Club Founder",    description: "Started a club",                        icon: "Crown",       color: "#8b5cf6", category: "creator",   enabled: false },
   { key: "coin_creator",    name: "Coin Creator",    description: "Launched a creator coin",               icon: "Coins",       color: "#0ea5e9", category: "creator",   enabled: true },
   // Collector
   { key: "early_believer",  name: "Early Believer",  description: "Among the first 100 on Medialane",      icon: "Star",        color: "#f59e0b", category: "collector", enabled: true },
@@ -138,7 +140,8 @@ const BADGES = [
   // Disabled until referral tracking exists.
   { key: "connector",       name: "Connector",       description: "Referred 10 active users",              icon: "Share2",      color: "#10b981", category: "community", enabled: false },
   { key: "supporter",       name: "Supporter",       description: "Made offers on 25 different assets",    icon: "HandCoins",   color: "#f59e0b", category: "community", enabled: true },
-  { key: "patron",          name: "Patron",          description: "Sponsored a creator",                   icon: "Handshake",   color: "#10b981", category: "community", enabled: true },
+  // Disabled until the sponsorship service returns post-redesign.
+  { key: "patron",          name: "Patron",          description: "Sponsored a creator",                   icon: "Handshake",   color: "#10b981", category: "community", enabled: false },
 ];
 
 // ── Seed ──────────────────────────────────────────────────────────────────────
