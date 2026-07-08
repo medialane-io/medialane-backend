@@ -710,3 +710,9 @@ Backend side of `medialane-core/docs/specs/2026-07-07-platform-multichain-federa
 - **chainRead**: `SOLANA` case (`src/chainRead/solana.ts`, raw JSON-RPC, no web3.js) — Metaplex Core account reads (`BaseAssetV1.owner` / `BaseCollectionV1.update_authority` at offset 1..33); `knownTokenIds` are Core asset pubkeys.
 - **auth**: `SOLANA` case — ed25519 verify (@noble/curves) of the plain sign-in message; address = the public key; signature[0] = base58.
 - **solanaIngestor** (`src/mirror/solana/`): pure `decodeSolanaLogs` ("Program data:" Anchor events, layouts from the audited programs; unit-tested with synthetic logs) + `pollProgram` — `getSignaturesForAddress` paged oldest-first over both program ids; per-program signature cursors as a JSON map in `IndexerCursor(SOLANA).continuationToken`. Deploy-gated; registered in `src/index.ts`.
+
+### Platform federation — Phase E (Stellar, added 2026-07-08)
+
+- **chainRead**: `STELLAR` case (`src/chainRead/stellar.ts`, @stellar/stellar-sdk) — simulated `owner_of`/`owner` view calls.
+- **auth**: `STELLAR` case — ed25519 over the sign-in message; `G…` strkey decodes to the key (StrKey); signature hex or base64.
+- **stellarIngestor** (`src/mirror/stellar/`): pure `decodeStellarEvents` (Soroban `getEvents` with `xdrFormat: "json"`; registry vs venue "created" disambiguated by contract id; unit-tested) + ledger-ranged poller; canonical order id = sha256("contract:offerer:salt") matching the SDK's `stellarOrderRef`. Deploy-gated; registered in `src/index.ts`.
