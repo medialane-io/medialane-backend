@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { publicCache } from "../middleware/publicCache.js";
 import prisma from "../../db/client.js";
 import type { RawSearchTokenRow, RawSearchCollectionRow } from "../utils/rawTypes.js";
 import { composeAmountDisplay } from "../utils/serialize.js";
@@ -6,7 +7,7 @@ import { composeAmountDisplay } from "../utils/serialize.js";
 const search = new Hono();
 
 // GET /v1/search?q=...
-search.get("/", async (c) => {
+search.get("/", publicCache(60), async (c) => {
   const q = c.req.query("q")?.trim();
   if (!q || q.length < 2) {
     return c.json({ error: "q must be at least 2 characters" }, 400);

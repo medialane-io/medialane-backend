@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { publicCache } from "../middleware/publicCache.js";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
@@ -107,7 +108,7 @@ type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155"]);
 
 // GET /v1/collections
-collections.get("/", async (c) => {
+collections.get("/", publicCache(30), async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
@@ -201,7 +202,7 @@ collections.get("/", async (c) => {
 });
 
 // GET /v1/collections/by-slug/:slug — resolve a vanity slug to a full collection
-collections.get("/by-slug/:slug", async (c) => {
+collections.get("/by-slug/:slug", publicCache(60), async (c) => {
   const slug = c.req.param("slug").toLowerCase().trim();
 
   const profile = await prisma.collectionProfile.findUnique({
@@ -249,7 +250,7 @@ collections.get("/by-slug/:slug", async (c) => {
 });
 
 // GET /v1/collections/:contract
-collections.get("/:contract", async (c) => {
+collections.get("/:contract", publicCache(30), async (c) => {
   const { contract } = c.req.param();
   const include = c.req.query("include");
   const col = await prisma.collection.findUnique({
@@ -278,7 +279,7 @@ collections.get("/:contract", async (c) => {
 });
 
 // GET /v1/collections/:contract/tokens
-collections.get("/:contract/tokens", async (c) => {
+collections.get("/:contract/tokens", publicCache(30), async (c) => {
   const { contract } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);

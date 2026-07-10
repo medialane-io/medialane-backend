@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { publicCache } from "../middleware/publicCache.js";
 import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -41,7 +42,7 @@ async function batchActivityTokenMeta(
 }
 
 // GET /v1/activities
-activities.get("/", async (c) => {
+activities.get("/", publicCache(15), async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
   const type = c.req.query("type");
@@ -189,7 +190,7 @@ activities.get("/", async (c) => {
 });
 
 // GET /v1/activities/:address
-activities.get("/:address", async (c) => {
+activities.get("/:address", publicCache(15), async (c) => {
   const { address } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);

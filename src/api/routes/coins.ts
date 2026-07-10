@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { publicCache } from "../middleware/publicCache.js";
 import { parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
@@ -108,7 +109,7 @@ coins.post("/sync", async (c) => {
 });
 
 // GET /v1/coins — paginated coin list; ?service=creator-coin|external-erc20, ?page, ?limit
-coins.get("/", async (c) => {
+coins.get("/", publicCache(30), async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const service = c.req.query("service");
@@ -122,7 +123,7 @@ coins.get("/", async (c) => {
 });
 
 // GET /v1/coins/:contract — single coin
-coins.get("/:contract", async (c) => {
+coins.get("/:contract", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const coin = await prisma.coin.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },

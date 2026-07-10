@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { publicCache } from "../middleware/publicCache.js";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -116,7 +117,7 @@ drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => 
 
 // GET /v1/drop/:contract/info
 // Returns collection metadata merged with claim conditions.
-drop.get("/:contract/info", async (c) => {
+drop.get("/:contract/info", publicCache(30), async (c) => {
   const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
 
   const [collection, conditions] = await Promise.all([
