@@ -18,7 +18,7 @@ function appWith(overrides: Partial<AdminSigDeps>, _session: AdminSession) {
     now: () => FIXED_NOW,
     ...overrides,
   };
-  const app = new Hono();
+  const app = new Hono<{ Variables: { adminWallet: string } }>();
   app.use("*", createAdminSignatureAuth(deps));
   app.get("/admin/ping", (c) => c.json({ wallet: c.get("adminWallet") }));
   app.post("/admin/echo", async (c) => c.json(await c.req.json()));

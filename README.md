@@ -264,8 +264,7 @@ bun run db:migrate     # Prisma migrate dev
 bun run db:generate    # Regenerate Prisma client
 bun run db:push        # Push schema (no migration file)
 bun run db:studio      # Prisma Studio at localhost:5555
-bun run backfill       # Backfill historical on-chain data
-bun run reset-cursor   # Reset indexer cursor to start block
+bun run reset-cursor   # Reset indexer cursor to start block (mirror replays the window)
 ```
 
 ---

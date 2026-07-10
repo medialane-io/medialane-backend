@@ -14,8 +14,10 @@ bun run db:generate  # regenerate Prisma client after schema changes
 bun run db:push      # push schema without a migration file
 bun run db:studio    # Prisma Studio at localhost:5555
 
-bun run backfill     # backfill historical on-chain data
-bun run reset-cursor # reset IndexerCursor to INDEXER_START_BLOCK
+bun run reset-cursor # reset IndexerCursor to INDEXER_START_BLOCK — the mirror
+                     # replays the window (catch-up mode); this + the admin
+                     # backfill routes replaced the old scripts/backfill*.ts
+                     # (deleted 2026-07-10, broken since the EVENT_SOURCES rebuild)
 
 # Account-model scripts (added 2026-05-20)
 bun run verify-accounts        # invariants on the DB pointed to by DATABASE_URL
