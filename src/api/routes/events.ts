@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import prisma from "../../db/client.js";
+import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeOrder } from "../utils/serialize.js";
 
@@ -12,6 +13,9 @@ const SSE_MAX_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const SSE_KEEPALIVE_INTERVAL_MS = 15000;
 
 events.get("/", async (c) => {
+  const chainFilter = parseChainFilter(c.req.query("chain"));
+  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const chainClause = chainWhere(chainFilter);
   const lastEventId = c.req.header("Last-Event-ID") ?? c.req.query("since");
 
   return streamSSE(c, async (stream) => {
@@ -35,13 +39,13 @@ events.get("/", async (c) => {
       try {
         const [transfers, orders] = await Promise.all([
           prisma.transfer.findMany({
-            where: { chain: "STARKNET", createdAt: { gt: since } },
+            where: { ...chainClause, createdAt: { gt: since } },
             orderBy: { createdAt: "asc" },
             take: 50,
           }),
           prisma.order.findMany({
             where: {
-              chain: "STARKNET",
+              ...chainClause,
               updatedAt: { gt: since },
               status: { in: ["ACTIVE", "FULFILLED", "CANCELLED"] },
             },

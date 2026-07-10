@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { publicCache } from "../middleware/publicCache.js";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
+import { chainWhere, parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
 import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/adminSecretAuth.js";
@@ -134,7 +134,10 @@ collections.get("/", publicCache(30), async (c) => {
     if (chainFilter !== "all") conditions.push(Prisma.sql`chain = ${chainFilter.chain}::"Chain"`);
     if (isFeatured === "true")  conditions.push(Prisma.sql`"isFeatured" = true`);
     if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
-    if (owner)     conditions.push(Prisma.sql`owner = ${normalizeAddress("STARKNET", owner)}`);
+    if (owner) {
+      if (chainFilter === "all") return c.json({ error: "owner filter requires a single chain" }, 400);
+      conditions.push(Prisma.sql`owner = ${normalizeAddress(chainFilter.chain, owner)}`);
+    }
     if (service)   conditions.push(Prisma.sql`service = ${service}`);
     if (standardFilter) {
       // $queryRaw sends params as text; TokenStandard is an enum — cast each value
@@ -171,7 +174,10 @@ collections.get("/", publicCache(30), async (c) => {
   const where: any = { ...chainWhere(chainFilter), isHidden: false };
   if (isFeatured === "true")  where.isFeatured = true;
   if (isFeatured === "false") where.isFeatured = false;
-  if (owner)     where.owner = normalizeAddress("STARKNET", owner);
+  if (owner) {
+    if (chainFilter === "all") return c.json({ error: "owner filter requires a single chain" }, 400);
+    where.owner = normalizeAddress(chainFilter.chain, owner);
+  }
   if (service)   where.service = service;
   if (standardFilter) where.standard = { in: standardFilter };
   if (hideEmpty) where.totalSupply = { gt: 0 };
@@ -252,9 +258,11 @@ collections.get("/by-slug/:slug", publicCache(60), async (c) => {
 // GET /v1/collections/:contract
 collections.get("/:contract", publicCache(30), async (c) => {
   const { contract } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const include = c.req.query("include");
   const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normalizeAddress("STARKNET", contract) } },
+    where: { chain_contractAddress: { chain, contractAddress: normalizeAddress(chain, contract) } },
     ...(include === "profile" ? { include: { profile: true } } : {}),
   });
   if (!col) return c.json({ error: "Collection not found" }, 404);
@@ -288,10 +296,12 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
     sortParam === "oldest" || sortParam === "name" || sortParam === "price"
       ? sortParam
       : "recent";
-  const addr = normalizeAddress("STARKNET", contract);
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const addr = normalizeAddress(chain, contract);
 
   const collection = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: addr } },
+    where: { chain_contractAddress: { chain, contractAddress: addr } },
   });
 
   if (collection) {
@@ -320,21 +330,21 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
           (
             SELECT MIN(o."priceRaw"::numeric)
             FROM "Order" o
-            WHERE o.chain = 'STARKNET'
+            WHERE o.chain = ${chain}::"Chain"
               AND o."nftContract" = t."contractAddress"
               AND o."nftTokenId" = t."tokenId"
               AND o.status = 'ACTIVE'::"OrderStatus"
               AND o."offerItemType" IN ('ERC721', 'ERC1155')
           ) AS "minPrice"
         FROM "Token" t
-        WHERE t.chain = 'STARKNET' AND t."contractAddress" = ${addr} AND t."isHidden" = false
+        WHERE t.chain = ${chain}::"Chain" AND t."contractAddress" = ${addr} AND t."isHidden" = false
         ORDER BY "minPrice"::numeric ASC NULLS LAST
         LIMIT ${limit} OFFSET ${skip}
       `,
-      prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
+      prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
     ]);
 
-    const balancesByToken = await batchTokenBalances(addr, data.map((t) => t.tokenId));
+    const balancesByToken = await batchTokenBalances(chain, addr, data.map((t) => t.tokenId));
     return c.json({
       data: data.map((t) =>
         serializeToken(
@@ -349,7 +359,7 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain: "STARKNET", contractAddress: addr, isHidden: false },
+      where: { chain, contractAddress: addr, isHidden: false },
       orderBy:
         sort === "oldest"
           ? { createdAt: "asc" }
@@ -360,10 +370,10 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
       take: limit,
       include: { collection: { select: { standard: true } } },
     }),
-    prisma.token.count({ where: { chain: "STARKNET", contractAddress: addr, isHidden: false } }),
+    prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
   ]);
 
-  const balancesByToken = await batchTokenBalances(addr, data.map((t) => t.tokenId));
+  const balancesByToken = await batchTokenBalances(chain, addr, data.map((t) => t.tokenId));
 
   return c.json({
     data: data.map((t) => serializeToken(t, [], balancesByToken.get(t.tokenId) ?? [])),
@@ -375,11 +385,11 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
 // balances:null, so clients couldn't tell which tokens the viewer owns
 // (every card showed Buy/Offer, even to the owner). One indexed batch query,
 // shared by every sort branch of GET /v1/collections/:contract/tokens.
-async function batchTokenBalances(contractAddress: string, tokenIds: string[]) {
+async function batchTokenBalances(chain: import("@prisma/client").Chain, contractAddress: string, tokenIds: string[]) {
   const balanceRows = tokenIds.length
     ? await prisma.tokenBalance.findMany({
         where: {
-          chain: "STARKNET",
+          chain,
           contractAddress,
           tokenId: { in: tokenIds },
           amount: { not: "0" },

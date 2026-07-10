@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseChainFilter, chainWhere } from "./chainFilter.js";
+import { parseChainFilter, parseSingleChain, chainWhere } from "./chainFilter.js";
 
 describe("parseChainFilter", () => {
   test("defaults to STARKNET", () => {
@@ -18,5 +18,20 @@ describe("parseChainFilter", () => {
   });
   test("chainWhere builds the clause", () => {
     expect(chainWhere({ chain: "STARKNET" as any })).toEqual({ chain: "STARKNET" });
+  });
+});
+
+describe("parseSingleChain", () => {
+  test("defaults to STARKNET", () => {
+    expect(parseSingleChain(undefined)).toBe("STARKNET");
+  });
+  test("accepts a chain case-insensitively", () => {
+    expect(parseSingleChain("stellar")).toBe("STELLAR");
+  });
+  test("'all' is rejected — keyed reads need one chain", () => {
+    expect(parseSingleChain("all")).toBeNull();
+  });
+  test("invalid → null", () => {
+    expect(parseSingleChain("dogecoin")).toBeNull();
   });
 });

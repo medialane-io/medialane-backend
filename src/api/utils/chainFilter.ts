@@ -17,6 +17,16 @@ export function parseChainFilter(raw: string | undefined): { chain: Chain } | "a
   return null;
 }
 
+/**
+ * Parse `?chain=` for detail/keyed reads (unique lookups, address
+ * normalization) where cross-chain aggregation makes no sense: a single Chain
+ * only — omitted → STARKNET, "all" or invalid → null (callers respond 400).
+ */
+export function parseSingleChain(raw: string | undefined): Chain | null {
+  const filter = parseChainFilter(raw);
+  return filter && filter !== "all" ? filter.chain : null;
+}
+
 /** Prisma where-fragment for a parsed filter ("all" → empty object). */
 export function chainWhere(filter: { chain: Chain } | "all"): { chain?: Chain } {
   return filter === "all" ? {} : { chain: filter.chain };

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -13,14 +14,16 @@ const pop = new Hono<AppEnv>();
 // isEligible: wallet is in the allowlist with allowed=true
 // hasClaimed:  wallet currently owns a token from this collection (soulbound — owner = original recipient)
 pop.get("/eligibility/:collection/:wallet", async (c) => {
-  const collection = normalizeAddress("STARKNET", c.req.param("collection"));
-  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const collection = normalizeAddress(chain, c.req.param("collection"));
+  const wallet = normalizeAddress(chain, c.req.param("wallet"));
 
   const [allowlistEntry, token] = await Promise.all([
     prisma.popAllowlist.findUnique({
       where: {
         chain_collectionAddress_walletAddress: {
-          chain: "STARKNET",
+          chain,
           collectionAddress: collection,
           walletAddress: wallet,
         },
@@ -28,7 +31,7 @@ pop.get("/eligibility/:collection/:wallet", async (c) => {
       select: { allowed: true },
     }),
     prisma.tokenBalance.findFirst({
-      where: { chain: "STARKNET", contractAddress: collection, owner: wallet, amount: { not: "0" } },
+      where: { chain, contractAddress: collection, owner: wallet, amount: { not: "0" } },
       select: { tokenId: true },
     }),
   ]);
@@ -45,7 +48,9 @@ pop.get("/eligibility/:collection/:wallet", async (c) => {
 // GET /v1/pop/eligibility/:collection — batch eligibility check
 // Query param: ?wallets=0x1,0x2,0x3 (comma-separated, max 100)
 pop.get("/eligibility/:collection", async (c) => {
-  const collection = normalizeAddress("STARKNET", c.req.param("collection"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const collection = normalizeAddress(chain, c.req.param("collection"));
   const walletsParam = c.req.query("wallets");
 
   if (!walletsParam) {
@@ -56,7 +61,7 @@ pop.get("/eligibility/:collection", async (c) => {
   if (rawWallets.length > 100) {
     return c.json({ error: "Max 100 wallets per batch request" }, 400);
   }
-  const wallets = rawWallets.map((w) => normalizeAddress("STARKNET", w));
+  const wallets = rawWallets.map((w) => normalizeAddress(chain, w));
 
   if (wallets.length === 0) {
     return c.json({ error: "No valid wallet addresses provided" }, 400);
@@ -65,14 +70,14 @@ pop.get("/eligibility/:collection", async (c) => {
   const [allowlistEntries, tokens] = await Promise.all([
     prisma.popAllowlist.findMany({
       where: {
-        chain: "STARKNET",
+        chain,
         collectionAddress: collection,
         walletAddress: { in: wallets },
       },
       select: { walletAddress: true, allowed: true },
     }),
     prisma.tokenBalance.findMany({
-      where: { chain: "STARKNET", contractAddress: collection, owner: { in: wallets }, amount: { not: "0" } },
+      where: { chain, contractAddress: collection, owner: { in: wallets }, amount: { not: "0" } },
       select: { owner: true, tokenId: true },
     }),
   ]);

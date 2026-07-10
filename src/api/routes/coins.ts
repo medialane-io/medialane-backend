@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { publicCache } from "../middleware/publicCache.js";
-import { parseChainFilter } from "../utils/chainFilter.js";
+import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
@@ -124,9 +124,11 @@ coins.get("/", publicCache(30), async (c) => {
 
 // GET /v1/coins/:contract — single coin
 coins.get("/:contract", publicCache(30), async (c) => {
-  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const contract = normalizeAddress(chain, c.req.param("contract"));
   const coin = await prisma.coin.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    where: { chain_contractAddress: { chain, contractAddress: contract } },
   });
   if (!coin) return c.json({ error: "Coin not found" }, 404);
   return c.json({ data: serializeCoin(coin) });

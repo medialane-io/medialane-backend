@@ -3,6 +3,7 @@ import { publicCache } from "../middleware/publicCache.js";
 import prisma from "../../db/client.js";
 import type { RawSearchTokenRow, RawSearchCollectionRow } from "../utils/rawTypes.js";
 import { composeAmountDisplay } from "../utils/serialize.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 
 const search = new Hono();
 
@@ -14,6 +15,8 @@ search.get("/", publicCache(60), async (c) => {
   }
 
   const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
   const [tokenRows, collectionRows, creatorRows] = await Promise.all([
     prisma.$queryRaw<RawSearchTokenRow[]>`
@@ -23,7 +26,7 @@ search.get("/", publicCache(60), async (c) => {
                plainto_tsquery('english', ${q})
              ) AS rank
       FROM "Token"
-      WHERE chain = 'STARKNET'
+      WHERE chain = ${chain}::"Chain"
         AND "isHidden" = false
         AND "contractAddress" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)
         AND to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId")
@@ -38,7 +41,7 @@ search.get("/", publicCache(60), async (c) => {
                plainto_tsquery('english', ${q})
              ) AS rank
       FROM "Collection"
-      WHERE chain = 'STARKNET'
+      WHERE chain = ${chain}::"Chain"
         AND "isHidden" = false
         AND "contractAddress" NOT IN (
           SELECT c."contractAddress" FROM "Collection" c

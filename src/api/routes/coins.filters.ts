@@ -6,11 +6,14 @@ import { normalizeAddress } from "@medialane/sdk";
 /** Where-clause for the PUBLIC coin list (GET /v1/coins). Hides hidden coins. */
 export function buildCoinListWhere(opts: { service?: string; creator?: string; chainFilter?: { chain: import("@prisma/client").Chain } | "all" }) {
   const cf = opts.chainFilter ?? { chain: "STARKNET" as const };
+  // creator is an address — chain-ambiguous under "all", so normalize against
+  // the selected chain and fall back to Starknet for the aggregate view.
+  const creatorChain = cf === "all" ? "STARKNET" : cf.chain;
   return {
     ...(cf === "all" ? {} : { chain: cf.chain }),
     isHidden: false,
     ...(opts.service ? { service: opts.service } : {}),
-    ...(opts.creator ? { creator: normalizeAddress("STARKNET", opts.creator) } : {}),
+    ...(opts.creator ? { creator: normalizeAddress(creatorChain, opts.creator) } : {}),
   };
 }
 

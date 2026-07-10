@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { publicCache } from "../middleware/publicCache.js";
 import { z } from "zod";
 import prisma from "../../db/client.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
@@ -15,15 +16,17 @@ const drop = new Hono<AppEnv>();
 // Returns how many tokens the wallet has minted from a drop collection,
 // plus the total minted across all wallets.
 drop.get("/mint-status/:collection/:wallet", async (c) => {
-  const collection = normalizeAddress("STARKNET", c.req.param("collection"));
-  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const collection = normalizeAddress(chain, c.req.param("collection"));
+  const wallet = normalizeAddress(chain, c.req.param("wallet"));
 
   const [mintedByWallet, totalMinted] = await Promise.all([
     prisma.tokenBalance.count({
-      where: { chain: "STARKNET", contractAddress: collection, owner: wallet, amount: { not: "0" } },
+      where: { chain, contractAddress: collection, owner: wallet, amount: { not: "0" } },
     }),
     prisma.token.count({
-      where: { chain: "STARKNET", contractAddress: collection },
+      where: { chain, contractAddress: collection },
     }),
   ]);
 
@@ -118,14 +121,16 @@ drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => 
 // GET /v1/drop/:contract/info
 // Returns collection metadata merged with claim conditions.
 drop.get("/:contract/info", publicCache(30), async (c) => {
-  const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const contractAddress = normalizeAddress(chain, c.req.param("contract"));
 
   const [collection, conditions] = await Promise.all([
     prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
+      where: { chain_contractAddress: { chain, contractAddress } },
     }),
     prisma.dropClaimConditions.findUnique({
-      where: { chain_collectionAddress: { chain: "STARKNET", collectionAddress: contractAddress } },
+      where: { chain_collectionAddress: { chain, collectionAddress: contractAddress } },
     }),
   ]);
 

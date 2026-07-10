@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -62,16 +63,18 @@ const creatorProfileSchema = z.object({
 // ─── Collection Profile (public read, Clerk JWT or admin key for write) ──────
 
 profiles.get("/collections/:contract/profile", async (c) => {
-  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const contract = normalizeAddress(chain, c.req.param("contract"));
 
   // Verify collection exists first
   const collection = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    where: { chain_contractAddress: { chain, contractAddress: contract } },
   });
   if (!collection) return c.json({ error: "Collection not found" }, 404);
 
   const profile = await prisma.collectionProfile.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    where: { chain_contractAddress: { chain, contractAddress: contract } },
     select: {
       id: true, contractAddress: true, chain: true,
       displayName: true, description: true, image: true, bannerImage: true,

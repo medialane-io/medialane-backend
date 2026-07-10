@@ -7,6 +7,7 @@ import { serializeOrder, serializeToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
+import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFilter.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -35,8 +36,10 @@ tokens.get("/", async (c) => {
   const sort  = c.req.query("sort") === "oldest" ? "oldest" : "recent";
   const ipTypeSlug = (c.req.query("ipType") ?? "").toLowerCase().trim();
   const skip  = (page - 1) * limit;
+  const chainFilter = parseChainFilter(c.req.query("chain"));
+  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
 
-  const where: any = { chain: "STARKNET", isHidden: false };
+  const where: any = { ...chainWhere(chainFilter), isHidden: false };
 
   if (ipTypeSlug) {
     if (ipTypeSlug === "nft") {
@@ -65,9 +68,8 @@ tokens.get("/", async (c) => {
     data.length > 0
       ? await prisma.order.findMany({
           where: {
-            chain: "STARKNET",
             status: "ACTIVE",
-            OR: data.map((t) => ({ nftContract: t.contractAddress, nftTokenId: t.tokenId })),
+            OR: data.map((t) => ({ chain: t.chain, nftContract: t.contractAddress, nftTokenId: t.tokenId })),
           },
         })
       : [];
@@ -91,6 +93,8 @@ tokens.get("/", async (c) => {
 // GET /v1/tokens/batch — fetch multiple tokens by contract:tokenId pairs
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/batch", async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const itemsParam = c.req.query("items") ?? "";
   const pairs = itemsParam
     .split(",")
@@ -109,7 +113,7 @@ tokens.get("/batch", async (c) => {
       const contract = p.slice(0, colonIdx);
       const tokenId = p.slice(colonIdx + 1);
       return contract && tokenId
-        ? { contractAddress: normalizeAddress("STARKNET", contract), tokenId }
+        ? { contractAddress: normalizeAddress(chain, contract), tokenId }
         : null;
     })
     .filter((x): x is { contractAddress: string; tokenId: string } => x !== null);
@@ -120,7 +124,7 @@ tokens.get("/batch", async (c) => {
 
   const results = await prisma.token.findMany({
     where: {
-      chain: "STARKNET",
+      chain,
       OR: parsed.map((p) => ({
         contractAddress: p.contractAddress,
         tokenId: p.tokenId,
@@ -135,26 +139,28 @@ tokens.get("/batch", async (c) => {
 // GET /v1/tokens/owned/:address  — must be registered BEFORE /:contract/:tokenId
 tokens.get("/owned/:address", async (c) => {
   const { address } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
-  const owner = normalizeAddress("STARKNET", address);
+  const owner = normalizeAddress(chain, address);
 
   // Query via TokenBalance (works for ERC-721 and ERC-1155 — amount > 0 = current holder)
   const [balanceRows, total] = await Promise.all([
     prisma.tokenBalance.findMany({
-      where: { chain: "STARKNET", owner, amount: { not: "0" } },
+      where: { chain, owner, amount: { not: "0" } },
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
       select: { contractAddress: true, tokenId: true, amount: true },
     }),
-    prisma.tokenBalance.count({ where: { chain: "STARKNET", owner, amount: { not: "0" } } }),
+    prisma.tokenBalance.count({ where: { chain, owner, amount: { not: "0" } } }),
   ]);
 
   const pairs = balanceRows.map((b) => ({ contractAddress: b.contractAddress, tokenId: b.tokenId }));
   const data = pairs.length > 0
     ? await prisma.token.findMany({
-        where: { chain: "STARKNET", isHidden: false, OR: pairs },
+        where: { chain, isHidden: false, OR: pairs },
         include: { collection: { select: { standard: true } } },
       })
     : [];
@@ -163,7 +169,7 @@ tokens.get("/owned/:address", async (c) => {
   const activeOrdersAll = data.length > 0
     ? await prisma.order.findMany({
         where: {
-          chain: "STARKNET",
+          chain,
           status: "ACTIVE",
           OR: data.map((t) => ({ nftContract: t.contractAddress, nftTokenId: t.tokenId })),
         },
@@ -190,7 +196,9 @@ tokens.get("/owned/:address", async (c) => {
 // GET /v1/tokens/:contract/:tokenId/comments
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/:contract/:tokenId/comments", async (c) => {
-  const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const contract = normalizeAddress(chain, c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
@@ -198,7 +206,7 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
 
   const [comments, total] = await Promise.all([
     prisma.comment.findMany({
-      where: { chain: "STARKNET", contractAddress: contract, tokenId, isHidden: false },
+      where: { chain, contractAddress: contract, tokenId, isHidden: false },
       orderBy: { blockTimestamp: "desc" },
       skip,
       take: limit,
@@ -215,7 +223,7 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
       },
     }),
     prisma.comment.count({
-      where: { chain: "STARKNET", contractAddress: contract, tokenId, isHidden: false },
+      where: { chain, contractAddress: contract, tokenId, isHidden: false },
     }),
   ]);
 
@@ -232,6 +240,8 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
 // GET /v1/tokens/:contract/:tokenId/remixes — public list of minted remixes
 // Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/:contract/:tokenId/remixes", async (c) => {
+  // RemixOffer is platform-layer workflow state without a chain axis (the
+  // remix flow is Starknet-only today) — pinned until the table gains chain.
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
@@ -272,12 +282,14 @@ tokens.get("/:contract/:tokenId/remixes", async (c) => {
 // GET /v1/tokens/:contract/:tokenId
 tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const waitParam = c.req.query("wait");
   const wait = waitParam === "true" || waitParam === "1";
-  const contractAddress = normalizeAddress("STARKNET", contract);
+  const contractAddress = normalizeAddress(chain, contract);
 
   let token = await prisma.token.findUnique({
-    where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
+    where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
     include: { collection: { select: { standard: true } } },
   });
 
@@ -295,7 +307,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
       ]);
       if (metadata) {
         await prisma.token.update({
-          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
+          where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
           data: {
             metadataStatus: "FETCHED",
             name: (metadata.name as string) ?? null,
@@ -305,24 +317,24 @@ tokens.get("/:contract/:tokenId", async (c) => {
           },
         });
         token = await prisma.token.findUnique({
-          where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress, tokenId } },
+          where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
           include: { collection: { select: { standard: true } } },
         }) ?? token;
       }
     } else {
       // Enqueue async — best-effort, worker deduplicates internally
-      worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId });
+      worker.enqueue({ type: "METADATA_FETCH", chain, contractAddress, tokenId });
     }
   }
 
   // Load active orders separately (relation removed for multichain schema)
   const [activeOrders, balances] = await Promise.all([
     prisma.order.findMany({
-      where: { chain: "STARKNET", nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
+      where: { chain, nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
       take: 5,
     }),
     prisma.tokenBalance.findMany({
-      where: { chain: "STARKNET", contractAddress, tokenId, amount: { not: "0" } },
+      where: { chain, contractAddress, tokenId, amount: { not: "0" } },
       select: { owner: true, amount: true },
       orderBy: { amount: "desc" },
       take: 50,
@@ -335,24 +347,26 @@ tokens.get("/:contract/:tokenId", async (c) => {
 // GET /v1/tokens/:contract/:tokenId/history
 tokens.get("/:contract/:tokenId/history", async (c) => {
   const { contract, tokenId } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
-  const contractLower = normalizeAddress("STARKNET", contract);
+  const contractLower = normalizeAddress(chain, contract);
 
   const [transfers, orders, fills] = await Promise.all([
     prisma.transfer.findMany({
-      where: { chain: "STARKNET", contractAddress: contractLower, tokenId },
+      where: { chain, contractAddress: contractLower, tokenId },
       orderBy: { blockNumber: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
     prisma.order.findMany({
-      where: { chain: "STARKNET", nftContract: contractLower, nftTokenId: tokenId },
+      where: { chain, nftContract: contractLower, nftTokenId: tokenId },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
     prisma.orderFill.findMany({
-      where: { chain: "STARKNET", nftContract: contractLower, nftTokenId: tokenId },
+      where: { chain, nftContract: contractLower, nftTokenId: tokenId },
       orderBy: { createdAt: "desc" },
       take: 20,
     }),

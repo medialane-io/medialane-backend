@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { parseChainFilter } from "../utils/chainFilter.js";
+import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
@@ -30,7 +30,7 @@ function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
   if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
   if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
   if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress("STARKNET", offerer)}`);
+  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, offerer)}`);
   if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
   if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
   conditions.push(Prisma.sql`NOT EXISTS (
@@ -81,6 +81,9 @@ orders.get("/", async (c) => {
     query.data;
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  if (offerer && chainFilter === "all") {
+    return c.json({ error: "offerer filter requires a single chain" }, 400);
+  }
 
   const skip = (page - 1) * limit;
 
@@ -130,9 +133,11 @@ orders.get("/counter-offers", async (c) => {
     return c.json({ error: "originalOrderHash or sellerAddress is required" }, 400);
   }
 
-  const where: Record<string, unknown> = { chain: "STARKNET", parentOrderHash: { not: null } };
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const where: Record<string, unknown> = { chain, parentOrderHash: { not: null } };
   if (originalOrderHash) where.parentOrderHash = originalOrderHash;
-  if (sellerAddress) where.offerer = normalizeAddress("STARKNET", sellerAddress);
+  if (sellerAddress) where.offerer = normalizeAddress(chain, sellerAddress);
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
@@ -154,8 +159,10 @@ orders.get("/counter-offers", async (c) => {
 // GET /v1/orders/:orderHash
 orders.get("/:orderHash", async (c) => {
   const { orderHash } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const order = await prisma.order.findUnique({
-    where: { chain_orderHash: { chain: "STARKNET", orderHash } },
+    where: { chain_orderHash: { chain, orderHash } },
   });
   if (!order) return c.json({ error: "Order not found" }, 404);
   const counterFlags = await counterOfferFlags(prisma, [order]);
@@ -165,7 +172,9 @@ orders.get("/:orderHash", async (c) => {
 // GET /v1/orders/token/:contract/:tokenId
 orders.get("/token/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
-  const normalizedContract = normalizeAddress("STARKNET", contract);
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const normalizedContract = normalizeAddress(chain, contract);
 
   const [hiddenToken, hiddenCollection] = await Promise.all([
     prisma.token.findFirst({
@@ -183,7 +192,7 @@ orders.get("/token/:contract/:tokenId", async (c) => {
 
   const data = await prisma.order.findMany({
     where: {
-      chain: "STARKNET",
+      chain,
       nftContract: normalizedContract,
       nftTokenId: tokenId,
       status: "ACTIVE",
@@ -197,9 +206,11 @@ orders.get("/token/:contract/:tokenId", async (c) => {
 // GET /v1/orders/received/:address — active ERC20 offers on tokens the address currently holds
 orders.get("/received/:address", async (c) => {
   const { address } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const page = Number(c.req.query("page") ?? 1);
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-  const normalizedAddress = normalizeAddress("STARKNET", address);
+  const normalizedAddress = normalizeAddress(chain, address);
   const offset = (page - 1) * limit;
 
   const [data, countRows] = await Promise.all([
@@ -207,12 +218,12 @@ orders.get("/received/:address", async (c) => {
       SELECT o.*
       FROM "Order" o
       JOIN "TokenBalance" tb
-        ON tb.chain = 'STARKNET'
+        ON tb.chain = ${chain}::"Chain"
         AND tb."contractAddress" = o."nftContract"
         AND tb."tokenId" = o."nftTokenId"
         AND tb.owner = ${normalizedAddress}
         AND tb.amount::numeric > 0
-      WHERE o.chain = 'STARKNET'
+      WHERE o.chain = ${chain}::"Chain"
         AND o."offerItemType" = 'ERC20'
         AND o.status = 'ACTIVE'::"OrderStatus"
         AND o."nftContract" IS NOT NULL
@@ -224,12 +235,12 @@ orders.get("/received/:address", async (c) => {
       SELECT COUNT(o.id)::bigint AS count
       FROM "Order" o
       JOIN "TokenBalance" tb
-        ON tb.chain = 'STARKNET'
+        ON tb.chain = ${chain}::"Chain"
         AND tb."contractAddress" = o."nftContract"
         AND tb."tokenId" = o."nftTokenId"
         AND tb.owner = ${normalizedAddress}
         AND tb.amount::numeric > 0
-      WHERE o.chain = 'STARKNET'
+      WHERE o.chain = ${chain}::"Chain"
         AND o."offerItemType" = 'ERC20'
         AND o.status = 'ACTIVE'::"OrderStatus"
         AND o."nftContract" IS NOT NULL
@@ -247,17 +258,20 @@ orders.get("/received/:address", async (c) => {
 // GET /v1/orders/user/:address
 orders.get("/user/:address", async (c) => {
   const { address } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
+  const offererAddr = normalizeAddress(chain, address);
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
-      where: { chain: "STARKNET", offerer: normalizeAddress("STARKNET", address) },
+      where: { chain, offerer: offererAddr },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where: { chain: "STARKNET", offerer: normalizeAddress("STARKNET", address) } }),
+    prisma.order.count({ where: { chain, offerer: offererAddr } }),
   ]);
 
   const [tokenMeta, counterFlags] = await Promise.all([

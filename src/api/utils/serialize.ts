@@ -26,16 +26,16 @@ export function composeAmountDisplay(
 
 /** Batch-fetch token name/image/description for a list of orders (single query). */
 export async function batchTokenMeta(
-  orders: { nftContract: string | null; nftTokenId: string | null }[]
+  orders: { chain: import("@prisma/client").Chain; nftContract: string | null; nftTokenId: string | null }[]
 ): Promise<Map<string, { name: string | null; image: string | null; description: string | null }>> {
   const pairs = orders
     .filter((o) => o.nftContract && o.nftTokenId)
-    .map((o) => ({ contractAddress: o.nftContract!, tokenId: o.nftTokenId! }));
+    .map((o) => ({ chain: o.chain, contractAddress: o.nftContract!, tokenId: o.nftTokenId! }));
 
   if (!pairs.length) return new Map();
 
   const tokens = await prisma.token.findMany({
-    where: { chain: "STARKNET", OR: pairs },
+    where: { OR: pairs },
     select: { contractAddress: true, tokenId: true, name: true, image: true, description: true },
   });
 

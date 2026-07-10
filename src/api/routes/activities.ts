@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { publicCache } from "../middleware/publicCache.js";
-import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
+import { parseSingleChain, chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
@@ -24,15 +24,16 @@ async function batchActivityTokenMeta(
 ): Promise<Map<string, { name: string | null; image: string | null }>> {
   const pairs = feed
     .map((item) => ({
+      chain: item.chain,
       contractAddress: item.contractAddress ?? item.nftContract,
       tokenId: item.tokenId ?? item.nftTokenId,
     }))
-    .filter((p) => p.contractAddress && p.tokenId);
+    .filter((p) => p.chain && p.contractAddress && p.tokenId);
 
   if (!pairs.length) return new Map();
 
   const tokens = await prisma.token.findMany({
-    where: { chain: "STARKNET", OR: pairs },
+    where: { OR: pairs },
     select: { contractAddress: true, tokenId: true, name: true, image: true },
   });
 
@@ -192,10 +193,12 @@ activities.get("/", publicCache(15), async (c) => {
 // GET /v1/activities/:address
 activities.get("/:address", publicCache(15), async (c) => {
   const { address } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
   const skip = (page - 1) * limit;
-  const addr = normalizeAddress("STARKNET", address);
+  const addr = normalizeAddress(chain, address);
 
   // Two cheap indexed lookups — skip full hidden-list fetch when nothing is hidden
   const [anyHiddenCollection, anyHiddenToken] = await Promise.all([
@@ -226,12 +229,12 @@ activities.get("/:address", publicCache(15), async (c) => {
     hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined;
 
   const transferWhere: any = {
-    chain: "STARKNET",
+    chain,
     OR: [{ fromAddress: addr }, { toAddress: addr }],
   };
   if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
 
-  const orderWhere: any = { chain: "STARKNET", OR: [{ offerer: addr }, { fulfiller: addr }] };
+  const orderWhere: any = { chain, OR: [{ offerer: addr }, { fulfiller: addr }] };
   if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
 
   const [transfers, orders] = await Promise.all([
