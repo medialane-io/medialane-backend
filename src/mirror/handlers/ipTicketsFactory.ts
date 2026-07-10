@@ -45,9 +45,10 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
  *   keys[2] = owner             (ContractAddress)
  *
  * Event data layout (ByteArray fields):
- *   data[0..n] = name     (ByteArray)
- *   data[n..m] = symbol   (ByteArray)
- *   data[m..p] = base_uri (ByteArray)
+ *   data[0..n] = name   (ByteArray)
+ *   data[n..m] = symbol (ByteArray)
+ *
+ * No base_uri — IPTicketCollection uses per-event metadata_uri, not a base URI.
  */
 export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
@@ -71,8 +72,7 @@ export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent)
 
     const dataFelts = (event.data ?? []).map((d) => num.toHex(d));
     const { value: name, nextOffset: afterName } = decodeByteArray(dataFelts, 0);
-    const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(dataFelts, afterName);
-    const { value: baseUri } = decodeByteArray(dataFelts, afterSymbol);
+    const { value: symbol } = decodeByteArray(dataFelts, afterName);
 
     await upsertCollectionFromFactory(prisma, {
       chain: "STARKNET",
@@ -81,7 +81,7 @@ export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent)
       standard: "ERC1155",
       name: name || null,
       symbol: symbol || null,
-      baseUri: baseUri || null,
+      baseUri: null,
       owner,
       startBlock,
     });
@@ -92,7 +92,7 @@ export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent)
       contractAddress: collectionAddress,
     });
 
-    log.info({ collectionAddress, owner, name, symbol, baseUri, txHash }, "IP Tickets collection deployed and indexed");
+    log.info({ collectionAddress, owner, name, symbol, txHash }, "IP Tickets collection deployed and indexed");
   } catch (err) {
     log.error({ err, txHash }, "handleIPTicketsCollectionDeployed failed");
   }
