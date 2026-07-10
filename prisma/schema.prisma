@@ -527,8 +527,6 @@ model ApiKey {
   appSource           AppSource?
   status              ApiKeyStatus @default(ACTIVE)
   lastUsedAt          DateTime?
-  monthlyRequestCount Int          @default(0)
-  monthlyResetAt      DateTime     @default(now())
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 

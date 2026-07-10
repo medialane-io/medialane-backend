@@ -236,7 +236,6 @@ admin.get("/tenants/:id/keys", async (c) => {
       appSource: true,
       status: true,
       lastUsedAt: true,
-      monthlyRequestCount: true,
       createdAt: true,
     },
   });

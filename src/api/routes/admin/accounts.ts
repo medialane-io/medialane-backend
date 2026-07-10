@@ -137,14 +137,17 @@ export function registerAccountRoutes(admin: Hono) {
     return c.json({ data: { id: updated.id, creditBalance: updated.creditBalance } });
   });
 
-  // GET /admin/accounts/:id/usage — real usage signal from ApiKey counters.
+  // GET /admin/accounts/:id/usage — per-key last-use telemetry. The old
+  // monthly request counters were FREE-tier quota state; nothing has written
+  // them since x402 credits became the meter (no free tier), so they were
+  // dropped rather than served stale. Usage-in-credits lives on the Payment
+  // ledger + Account.creditBalance.
   admin.get("/accounts/:id/usage", async (c) => {
     const keys = await prisma.apiKey.findMany({
       where: { accountId: c.req.param("id") },
       orderBy: { createdAt: "desc" },
-      select: { prefix: true, label: true, status: true, lastUsedAt: true, monthlyRequestCount: true, monthlyResetAt: true },
+      select: { prefix: true, label: true, status: true, lastUsedAt: true },
     });
-    const totalMonthlyRequests = keys.reduce((n, k) => n + k.monthlyRequestCount, 0);
-    return c.json({ data: { totalMonthlyRequests, keys } });
+    return c.json({ data: { keys } });
   });
 }

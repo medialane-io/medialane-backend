@@ -26,8 +26,6 @@ export type AuthedAccount = {
 export type AuthedApiKey = {
   id: string;
   status: ApiKeyStatus;
-  monthlyRequestCount: number;
-  monthlyResetAt: Date;
   /** Legacy scoping link — null for account-native keys; removed in Phase D. */
   tenant: AuthedTenant | null;
   account: AuthedAccount;

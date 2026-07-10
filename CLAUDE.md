@@ -117,22 +117,25 @@ Pay-per-use metering on the API. The product is metered; first-party apps run on
 
 ## Rate Limiting (`src/api/middleware/rateLimit.ts`)
 
-**Keyed by API key ID** (not IP).
+**Keyed by API key ID** (not IP). One flat limit for every key: **3,000
+requests per minute**, tracked in `RedisRateLimitStore` when `REDIS_URL` is set
+(multi-instance safe), otherwise `InMemoryRateLimitStore` (per-process —
+correct on today's single-replica Railway deploy). **There is no free tier and
+no monthly quota**: x402 credits meter every `/v1` call (see the x402 section);
+the old FREE 50/month DB counters (`ApiKey.monthlyRequestCount`/
+`monthlyResetAt`) were dropped 2026-07-10 (migration
+`20260710210000_drop_free_tier_quota_counters`) after sitting frozen with no
+writer. `ApiKey.lastUsedAt` is telemetry, throttled to at most one write per
+key per minute (`apiKeyAuth.ts` `touchLastUsed`) — never per-request.
 
-| Plan | Limit | Window | How tracked |
-|---|---|---|---|
-| FREE | 50 requests | per calendar month | Atomic Postgres `UPDATE … WHERE count < limit RETURNING` on `ApiKey.monthlyRequestCount`. DB-backed, multi-instance safe. |
-| PREMIUM | 3,000 requests | per minute | `RedisRateLimitStore` when `REDIS_URL` is set (multi-instance safe); otherwise falls back to `InMemoryRateLimitStore` (per-process, single-replica only). Store selected in `src/api/middleware/rateLimit.ts:56`. |
-
-> **Multi-replica deploys MUST set `REDIS_URL`.** Without it the PREMIUM counter is per-process — N replicas means N× the documented limit and FREE-vs-PREMIUM headers drift. The FREE path is already multi-instance safe via the DB.
+> **Multi-replica deploys MUST set `REDIS_URL`** — without it the per-minute
+> counter is per-process, so N replicas means N× the documented limit.
 
 Response headers on every `/v1/*` response:
-- `X-RateLimit-Limit` — 50 (FREE) or 3000 (PREMIUM)
+- `X-RateLimit-Limit` — 3000
 - `X-RateLimit-Remaining`
 - `X-RateLimit-Reset` — Unix timestamp
 - `Retry-After` — added on 429
-
-> RUNBOOK.md incorrectly stated FREE = 60 req/min. The actual code is 50 req/month from DB.
 
 ---
 

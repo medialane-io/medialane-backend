@@ -50,7 +50,7 @@ const gate = composeMiddleware([apiKeyAuth, apiKeyRateLimit(), meter()]);
 
 /**
  * The tenant-key gate for every `/v1/*` route: authenticate, apply the
- * FREE-tier monthly quota, then x402-meter — except the explicit public
+ * per-minute rate limit, then x402-meter — except the explicit public
  * paths above. Mount this FIRST on `/v1/*`, before any `/v1/*` router, so
  * gating no longer depends on registration order (2026-06-30 audit + design
  * spec — this replaced a pattern where routers mounted before the old

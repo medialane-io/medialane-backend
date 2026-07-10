@@ -21,12 +21,27 @@ import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("middleware:apiKeyAuth");
 
+// lastUsedAt is telemetry, not a ledger — writing it on every request turns
+// each first-party app's key into a hot row (P-1, 2026-07-10 audit). Throttle
+// to at most one write per key per interval; the map is bounded by the number
+// of live keys.
+const LAST_USED_WRITE_INTERVAL_MS = 60_000;
+const lastUsedWrites = new Map<string, number>();
+
+function touchLastUsed(keyId: string): void {
+  const now = Date.now();
+  if (now - (lastUsedWrites.get(keyId) ?? 0) < LAST_USED_WRITE_INTERVAL_MS) return;
+  lastUsedWrites.set(keyId, now);
+  // Fire-and-forget — never block the request
+  prisma.apiKey
+    .update({ where: { id: keyId }, data: { lastUsedAt: new Date() } })
+    .catch((err) => log.warn({ err }, "Failed to update lastUsedAt"));
+}
+
 const KEY_SELECT = {
   id: true,
   prefix: true,
   status: true,
-  monthlyRequestCount: true,
-  monthlyResetAt: true,
   tenant: {
     select: { id: true, name: true, email: true, plan: true, status: true },
   },
@@ -81,10 +96,7 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
 
-  // Fire-and-forget lastUsedAt update — never block the request
-  prisma.apiKey
-    .update({ where: { id: apiKey.id }, data: { lastUsedAt: new Date() } })
-    .catch((err) => log.warn({ err }, "Failed to update lastUsedAt"));
+  touchLastUsed(apiKey.id);
 
   // account is non-null past the guard above; override the nullable select type.
   c.set("apiKey", { ...apiKey, account: apiKey.account });
