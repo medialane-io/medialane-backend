@@ -1,0 +1,99 @@
+import { num } from "starknet";
+import prisma from "../../db/client.js";
+import { normalizeAddress } from "../../utils/starknet.js";
+import { upsertCollectionFromFactory } from "../../utils/collection.js";
+import { ZERO_ADDRESS } from "../../config/constants.js";
+import { worker } from "../../orchestrator/worker.js";
+import { createLogger } from "../../utils/logger.js";
+import type { RawStarknetEvent } from "../../types/starknet.js";
+
+const log = createLogger("mirror:ipTicketsFactory");
+
+function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
+  if (offset >= felts.length) return { value: "", nextOffset: offset };
+  const dataLen = Number(BigInt(felts[offset]));
+  if (felts.length < offset + 1 + dataLen + 2) return { value: "", nextOffset: felts.length };
+
+  const pendingWord = BigInt(felts[offset + 1 + dataLen] ?? "0x0");
+  const pendingWordLen = Number(BigInt(felts[offset + 1 + dataLen + 1] ?? "0"));
+  const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
+  let byteOffset = 0;
+
+  for (let i = 0; i < dataLen; i++) {
+    const value = BigInt(felts[offset + 1 + i]);
+    for (let j = 0; j < 31; j++) {
+      bytes[byteOffset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
+    }
+  }
+
+  for (let j = 0; j < pendingWordLen; j++) {
+    bytes[byteOffset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
+  }
+
+  return {
+    value: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+    nextOffset: offset + 1 + dataLen + 2,
+  };
+}
+
+/**
+ * Handle a CollectionDeployed event from the IP Tickets Collection factory.
+ *
+ * Event key layout:
+ *   keys[0] = selector("CollectionDeployed")
+ *   keys[1] = collection_address (ContractAddress)
+ *   keys[2] = owner             (ContractAddress)
+ *
+ * Event data layout (ByteArray fields):
+ *   data[0..n] = name     (ByteArray)
+ *   data[n..m] = symbol   (ByteArray)
+ *   data[m..p] = base_uri (ByteArray)
+ */
+export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent): Promise<void> {
+  const txHash = event.transaction_hash ?? "";
+  try {
+    const keys = event.keys.map((k) => num.toHex(k));
+
+    if (keys.length < 3) {
+      log.warn({ txHash }, "CollectionDeployed: unexpected key length, skipping");
+      return;
+    }
+
+    const collectionAddress = normalizeAddress("STARKNET", keys[1]);
+    const owner = normalizeAddress("STARKNET", keys[2]);
+
+    if (collectionAddress === ZERO_ADDRESS) {
+      log.warn({ txHash }, "CollectionDeployed has zero collection_address, skipping");
+      return;
+    }
+
+    const startBlock = BigInt(event.block_number ?? 0);
+
+    const dataFelts = (event.data ?? []).map((d) => num.toHex(d));
+    const { value: name, nextOffset: afterName } = decodeByteArray(dataFelts, 0);
+    const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(dataFelts, afterName);
+    const { value: baseUri } = decodeByteArray(dataFelts, afterSymbol);
+
+    await upsertCollectionFromFactory(prisma, {
+      chain: "STARKNET",
+      contractAddress: collectionAddress,
+      service: "ip-tickets",
+      standard: "ERC1155",
+      name: name || null,
+      symbol: symbol || null,
+      baseUri: baseUri || null,
+      owner,
+      startBlock,
+    });
+
+    worker.enqueue({
+      type: "COLLECTION_METADATA_FETCH",
+      chain: "STARKNET",
+      contractAddress: collectionAddress,
+    });
+
+    log.info({ collectionAddress, owner, name, symbol, baseUri, txHash }, "IP Tickets collection deployed and indexed");
+  } catch (err) {
+    log.error({ err, txHash }, "handleIPTicketsCollectionDeployed failed");
+  }
+}

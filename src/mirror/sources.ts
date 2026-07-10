@@ -13,6 +13,7 @@ import {
   STARKNET_DROP_FACTORY_CONTRACT,
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
   STARKNET_NFTCOMMENTS_CONTRACT,
+  STARKNET_IP_TICKETS_FACTORY_CONTRACT,
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
@@ -32,6 +33,7 @@ import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handler
 import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
 import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
+import { handleIPTicketsCollectionDeployed } from "./handlers/ipTicketsFactory.js";
 import type { Chain } from "@prisma/client";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
@@ -119,6 +121,13 @@ async function applyIp1155Factory(events: RawStarknetEvent[], ctx: SourceContext
   }
 }
 
+async function applyIpTicketsFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
+  for (const event of events) {
+    await handleIPTicketsCollectionDeployed(event);
+    if (event.keys?.[1]) ctx.affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+  }
+}
+
 async function applyCreatorCoinFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
   for (const event of events) {
     await handleCreatorCoinCreated(event);
@@ -145,6 +154,7 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], apply: applyPopFactory },
   { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], apply: applyDropFactory },
   { id: "factory:mip-erc1155", scope: { kind: "contract", address: STARKNET_COLLECTION_1155_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], apply: applyIp1155Factory },
+  { id: "factory:ip-tickets", scope: { kind: "contract", address: STARKNET_IP_TICKETS_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], apply: applyIpTicketsFactory },
   { id: "factory:creator-coin", scope: { kind: "contract", address: STARKNET_CREATOR_COIN_FACTORY_CONTRACT }, selectors: [hex(CREATOR_COIN_CREATED_SELECTOR)], cadenceMs: env.CREATOR_COIN_POLL_INTERVAL_MS, apply: applyCreatorCoinFactory },
   { id: "allowlist:pop", scope: { kind: "collections", service: "pop-protocol" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyPopAllowlist },
   { id: "allowlist:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyDropAllowlist },
