@@ -9,6 +9,21 @@ const CURRENCY_DECIMALS: Record<string, number> = {
   WBTC: 8,
 };
 
+/**
+ * Compose a stored stats amount (numeric-only decimal string) with its
+ * currency into the API's display shape ("1.500000 USDC"). The DB keeps the
+ * two apart so `::numeric` sorts are valid SQL; this is the ONE place they
+ * are joined back together. A value with no currency is returned as-is
+ * (pre-split legacy rows); no value → null.
+ */
+export function composeAmountDisplay(
+  value: string | null | undefined,
+  currency: string | null | undefined
+): string | null {
+  if (value == null || value === "") return null;
+  return currency ? `${value} ${currency}` : value;
+}
+
 /** Batch-fetch token name/image/description for a list of orders (single query). */
 export async function batchTokenMeta(
   orders: { nftContract: string | null; nftTokenId: string | null }[]

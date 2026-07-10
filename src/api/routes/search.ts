@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import type { RawSearchTokenRow, RawSearchCollectionRow } from "../utils/rawTypes.js";
+import { composeAmountDisplay } from "../utils/serialize.js";
 
 const search = new Hono();
 
@@ -30,7 +31,7 @@ search.get("/", async (c) => {
       LIMIT ${limit}
     `,
     prisma.$queryRaw<RawSearchCollectionRow[]>`
-      SELECT "contractAddress", name, image, "totalSupply", "floorPrice", "holderCount", "collectionId",
+      SELECT "contractAddress", name, image, "totalSupply", "floorPrice", "floorCurrency", "holderCount", "collectionId",
              ts_rank(
                to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress"),
                plainto_tsquery('english', ${q})
@@ -60,9 +61,13 @@ search.get("/", async (c) => {
     `,
   ]);
 
-  // Strip rank field before returning
+  // Strip rank; compose floorPrice into the API display shape (value + currency
+  // live in separate columns so numeric sorts stay valid SQL).
   const tokens = tokenRows.map(({ rank: _rank, ...rest }) => rest);
-  const collections = collectionRows.map(({ rank: _rank, ...rest }) => rest);
+  const collections = collectionRows.map(({ rank: _rank, floorCurrency, ...rest }) => ({
+    ...rest,
+    floorPrice: composeAmountDisplay(rest.floorPrice, floorCurrency),
+  }));
 
   return c.json({
     data: {

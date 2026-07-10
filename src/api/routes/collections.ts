@@ -6,7 +6,7 @@ import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTyp
 import prisma from "../../db/client.js";
 import { authMiddleware } from "../middleware/adminSecretAuth.js";
 import { env } from "../../config/env.js";
-import { serializeToken } from "../utils/serialize.js";
+import { serializeToken, composeAmountDisplay } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
 import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
@@ -124,7 +124,10 @@ collections.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  // floor and volume are String? columns — need ::numeric cast via raw SQL
+  // floor and volume are numeric-only String? columns (currency lives in
+  // floorCurrency/volumeCurrency) — sorted with a ::numeric cast via raw SQL.
+  // Caveat: values are compared across currencies un-normalized (same caveat
+  // as the /v1/orders price sort).
   if (sort === "floor" || sort === "volume") {
     const conditions: Prisma.Sql[] = [Prisma.sql`"isHidden" = false`];
     if (chainFilter !== "all") conditions.push(Prisma.sql`chain = ${chainFilter.chain}::"Chain"`);
@@ -624,8 +627,8 @@ function serializeCollection(c: any) {
     isHidden: c.isHidden,
     service: c.service ?? null,
     claimedBy: c.claimedBy ?? null,
-    floorPrice: c.floorPrice,
-    totalVolume: c.totalVolume,
+    floorPrice: composeAmountDisplay(c.floorPrice, c.floorCurrency),
+    totalVolume: composeAmountDisplay(c.totalVolume, c.volumeCurrency),
     holderCount: c.holderCount,
     totalSupply: c.totalSupply,
     createdAt: c.createdAt,

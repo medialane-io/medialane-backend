@@ -43,85 +43,62 @@ export async function handleStatsUpdate(payload: {
     totalSupply = await prisma.token.count({ where: { chain, contractAddress } });
   }
 
-  // Calculate floor price from active listing orders only.
-  // Bids (offerItemType = "ERC20") are excluded — their considerationToken is the NFT address,
-  // not a currency, so they cannot be priced correctly here. Floor price = cheapest active listing.
-  const activeOrders = await prisma.order.findMany({
-    where: {
-      chain,
-      nftContract: contractAddress,
-      status: "ACTIVE",
-      offerItemType: { in: ["ERC721", "ERC1155"] },
-      endTime: { gt: BigInt(Math.floor(Date.now() / 1000)) },
-      priceRaw: { not: null },
-    },
-    select: { priceRaw: true, considerationToken: true },
-  });
+  // Floor price = cheapest active listing, resolved in ONE indexed query.
+  // Bids (offerItemType = "ERC20") are excluded — their considerationToken is
+  // the NFT address, not a currency. Zero prices are excluded so a "0" listing
+  // can't mask real ones. The numeric regex guard keeps a malformed priceRaw
+  // from failing the whole query.
+  const floorRows = await prisma.$queryRaw<{ priceRaw: string; considerationToken: string | null }[]>`
+    SELECT "priceRaw", "considerationToken"
+    FROM "Order"
+    WHERE chain = ${chain}::"Chain"
+      AND "nftContract" = ${contractAddress}
+      AND status = 'ACTIVE'
+      AND "offerItemType" IN ('ERC721', 'ERC1155')
+      AND "endTime" > ${BigInt(Math.floor(Date.now() / 1000))}
+      AND "priceRaw" ~ '^[0-9]+$'
+      AND "priceRaw"::numeric > 0
+    ORDER BY "priceRaw"::numeric ASC
+    LIMIT 1
+  `;
 
+  // Stored shape: numeric-only decimal string + currency in its own column —
+  // display composition happens at the serializer edge, never in the DB.
+  // Unknown/missing currency → both null (raw wei is never stored).
   let floorPrice: string | null = null;
-  // Filter out zero or missing prices before sorting — a priceRaw of "0" would
-  // otherwise always win as the floor, masking real listings.
-  const positiveOrders = activeOrders.filter((o) => {
-    try { return BigInt(o.priceRaw ?? "0") > 0n; } catch { return false; }
-  });
-  if (positiveOrders.length > 0) {
-    // Sort numerically — priceRaw is stored as a decimal string
-    positiveOrders.sort((a, b) => {
-      const aVal = BigInt(a.priceRaw ?? "0");
-      const bVal = BigInt(b.priceRaw ?? "0");
-      return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-    });
-    const floor = positiveOrders[0];
-    if (floor.priceRaw) {
-      const token = floor.considerationToken
-        ? getTokenByAddress(floor.considerationToken)
-        : null;
-      if (token) {
-        floorPrice = `${formatAmount(floor.priceRaw, token.decimals)} ${token.symbol}`;
-      }
-      // token is null: considerationToken missing or unrecognised — don't store raw wei
+  let floorCurrency: string | null = null;
+  const floor = floorRows[0];
+  if (floor?.considerationToken) {
+    const token = getTokenByAddress(floor.considerationToken);
+    if (token) {
+      floorPrice = formatAmount(floor.priceRaw, token.decimals);
+      floorCurrency = token.symbol;
     }
   }
 
-  // Calculate total volume from fulfillment events, grouped by currency token.
-  // ERC-1155 partial fills create multiple OrderFill rows for a single Order.
-  // Mirror the floorPrice approach: format as human-readable + symbol.
-  // If sales span multiple currencies, pick the one with the highest raw volume.
-  const fills = await prisma.orderFill.findMany({
-    where: { chain, nftContract: contractAddress },
-    select: { priceRaw: true, currencyToken: true },
-  });
-
-  const volumeByToken = new Map<string, bigint>();
-  for (const fill of fills) {
-    if (fill.priceRaw && fill.currencyToken) {
-      try {
-        const prev = volumeByToken.get(fill.currencyToken) ?? 0n;
-        volumeByToken.set(fill.currencyToken, prev + BigInt(fill.priceRaw));
-      } catch (err) {
-        log.warn(
-          { err, currencyToken: fill.currencyToken, priceRaw: fill.priceRaw },
-          "skipped fill in volume calc — unparseable priceRaw",
-        );
-      }
-    }
-  }
+  // Total volume = SUM of fills per currency, aggregated in SQL (ERC-1155
+  // partial fills are separate OrderFill rows). If sales span multiple
+  // currencies, keep the one with the highest raw volume.
+  const volumeRows = await prisma.$queryRaw<{ currencyToken: string; total: string }[]>`
+    SELECT "currencyToken", SUM("priceRaw"::numeric)::text AS total
+    FROM "OrderFill"
+    WHERE chain = ${chain}::"Chain"
+      AND "nftContract" = ${contractAddress}
+      AND "currencyToken" IS NOT NULL
+      AND "priceRaw" ~ '^[0-9]+$'
+    GROUP BY "currencyToken"
+    ORDER BY SUM("priceRaw"::numeric) DESC
+    LIMIT 1
+  `;
 
   let totalVolume: string | null = null;
-  if (volumeByToken.size > 0) {
-    let maxVol = 0n;
-    let dominantTokenAddr: string | null = null;
-    for (const [tokenAddr, vol] of volumeByToken) {
-      if (vol > maxVol) {
-        maxVol = vol;
-        dominantTokenAddr = tokenAddr;
-      }
-    }
-    if (dominantTokenAddr) {
-      const token = getTokenByAddress(dominantTokenAddr);
-      if (token) {
-        totalVolume = `${formatAmount(maxVol.toString(), token.decimals)} ${token.symbol}`;
-      }
+  let volumeCurrency: string | null = null;
+  const dominant = volumeRows[0];
+  if (dominant) {
+    const token = getTokenByAddress(dominant.currencyToken);
+    if (token) {
+      totalVolume = formatAmount(dominant.total, token.decimals);
+      volumeCurrency = token.symbol;
     }
   }
 
@@ -131,7 +108,9 @@ export async function handleStatsUpdate(payload: {
       holderCount,
       totalSupply,
       floorPrice,
+      floorCurrency,
       totalVolume,
+      volumeCurrency,
     },
   });
 

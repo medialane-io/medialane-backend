@@ -50,7 +50,9 @@ export interface RawCollectionRow {
   startBlock: bigint;
   isFeatured: boolean;
   floorPrice: string | null;
+  floorCurrency: string | null;
   totalVolume: string | null;
+  volumeCurrency: string | null;
   holderCount: number;
   totalSupply: number;
   createdAt: Date;
@@ -101,6 +103,7 @@ export interface RawSearchCollectionRow {
   image: string | null;
   totalSupply: number;
   floorPrice: string | null;
+  floorCurrency: string | null;
   holderCount: number;
   collectionId: string | null;
   rank: number;

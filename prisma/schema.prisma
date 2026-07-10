@@ -232,8 +232,13 @@ model Collection {
   startBlock      BigInt
   isFeatured      Boolean        @default(false)
   isHidden         Boolean          @default(false)
+  /// Derived stats cache (STATS_UPDATE). Numeric-only decimal strings — the
+  /// currency lives in its own column so `::numeric` sorts are valid SQL and
+  /// display formatting stays at the serializer edge.
   floorPrice      String?
+  floorCurrency   String?
   totalVolume     String?
+  volumeCurrency  String?
   holderCount     Int            @default(0)
   totalSupply     Int            @default(0)
   tokens          Token[]
