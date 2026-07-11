@@ -20,6 +20,7 @@ const log = createLogger("routes:remix-offers");
 const remixOffers = new Hono<AppEnv>();
 
 import { createSlidingWindow } from "../../utils/slidingWindow.js";
+import { verifyTransactionSucceeded, fetchReceiptEvents } from "../../utils/txVerifier.js";
 
 // 20 offer creations per 60s per wallet
 const checkOfferRateLimit = createSlidingWindow(20, 60_000);
@@ -381,6 +382,21 @@ remixOffers.post(
       return c.json({ error: "You do not own this token" }, 403);
     }
 
+    // The claimed mint must exist on-chain: same trust posture as intents
+    // (txVerifier), not a bare self-assertion. The receipt must have
+    // SUCCEEDED and contain at least one event emitted by the claimed remix
+    // contract — otherwise anyone could record arbitrary "remixes".
+    const remixContract = normalizeAddress("STARKNET", body.remixContract);
+    const verified = await verifyTransactionSucceeded(body.txHash);
+    if (verified.status !== "CONFIRMED") {
+      return c.json({ error: `Mint transaction not verified on-chain: ${verified.failReason ?? "not found"}` }, 400);
+    }
+    const receiptEvents = await fetchReceiptEvents(body.txHash);
+    const touchesRemixContract = receiptEvents.some((e) => e.from_address === remixContract);
+    if (!touchesRemixContract) {
+      return c.json({ error: "Transaction does not involve the claimed remix contract" }, 400);
+    }
+
     const offer = await prisma.remixOffer.create({
       data: {
         status: "SELF_MINTED",
@@ -393,7 +409,7 @@ remixOffers.post(
         commercial: body.commercial,
         derivatives: body.derivatives,
         royaltyPct: body.royaltyPct,
-        remixContract: normalizeAddress("STARKNET", body.remixContract),
+        remixContract,
         remixTokenId: body.remixTokenId,
         expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year sentinel
       },

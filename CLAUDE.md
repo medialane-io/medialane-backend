@@ -139,109 +139,35 @@ Response headers on every `/v1/*` response:
 
 ---
 
-## API Route Inventory (verified from source)
+## API Routes — read the source, not a table
 
-### Public
+The per-route inventory that used to live here (~100 rows) rotted repeatedly —
+routes were documented that no longer existed and vice versa. The source is
+the inventory:
 
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/health` | DB + indexer lag status |
+- **Routers:** `src/api/routes/*.ts` (one file per surface; `collections-sync.ts`
+  holds the collection write paths; `admin/` uses the registrar pattern —
+  `index.ts` mounts, each domain file exports `register<Domain>Routes(admin)`).
+- **Mounting + gating:** `src/api/server.ts` (order) + `tenantGate.ts` (the ONE
+  place public-vs-gated is decided — `PUBLIC_V1_PATHS`).
+- **Response conventions:** `{ data }` / `{ data, meta }` / `{ error }`;
+  serializers in `src/api/utils/serialize.ts` (typed — drift from the SDK's
+  `Api*` types is a compile error).
 
-### Tenant (`x-api-key` required)
+Cross-cutting facts worth keeping here (the stuff a table can't tell you):
 
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/v1/orders` | `status`, `collection`, `currency`, `sort` (price_asc/price_desc/recent), `offerer`, `page`, `limit` (max 100) |
-| GET | `/v1/orders/:orderHash` | |
-| GET | `/v1/orders/token/:contract/:tokenId` | Active orders only |
-| GET | `/v1/orders/user/:address` | `page`, `limit` |
-| GET | `/v1/collections` | `page` (max clamped), `limit` (max 100), `?owner=address`, `?isKnown=true\|false`, `?sort=recent\|supply\|floor\|volume\|name` (default: `recent` = `createdAt DESC`). `floor`/`volume` use `$queryRaw` with `::numeric NULLS LAST`. |
-| GET | `/v1/collections/:contract` | |
-| GET | `/v1/collections/:contract/tokens` | `page`, `limit`. Each token carries `balances` (per-holder `owner`+`amount`) so clients can determine ownership from a list response (added 2026-05-20). |
-| GET | `/v1/tokens/owned/:address` | `page`, `limit` |
-| GET | `/v1/tokens/:contract/:tokenId` | `?wait=true` blocks 3s for JIT metadata |
-| GET | `/v1/tokens/:contract/:tokenId/history` | Mixed transfers + orders, sorted by timestamp |
-| GET | `/v1/tokens/:contract/:tokenId/comments` | On-chain comments for token. `page`, `limit`. Excludes `isHidden=true` comments. Returns `{ data: ApiComment[], meta }` |
-| GET | `/v1/activities` | `?type=transfer\|sale\|listing\|offer`, `page`, `limit` |
-| GET | `/v1/activities/:address` | `page`, `limit` |
-| GET | `/v1/search` | `?q=` (min 2 chars), `limit` (max 50). Returns `{ data: { tokens, collections }, query }` |
-| GET | `/v1/pop/eligibility/:collection/:wallet` | POP claim eligibility. Returns `{ isEligible, hasClaimed, tokenId }` |
-| GET | `/v1/pop/eligibility/:collection` | Batch eligibility. `?wallets=0x1,0x2` (max 100) |
-| GET | `/v1/drop/mint-status/:collection/:wallet` | Drop mint status. Returns `{ mintedByWallet, totalMinted }` |
-| POST | `/v1/drop/conditions` | **Clerk JWT required** (not just API key). Body: `{ collectionAddress, maxSupply, price, paymentToken, startTime, endTime, maxPerWallet }`. Ownership check: caller must match `collection.owner` or `collection.claimedBy`. |
-| GET | `/v1/drop/:contract/info` | Collection metadata merged with claim conditions. Public. |
-| POST | `/v1/intents/listing` | Rate limited 20/min per IP |
-| POST | `/v1/intents/offer` | Rate limited 20/min per IP |
-| POST | `/v1/intents/fulfill` | Rate limited 20/min per IP |
-| POST | `/v1/intents/cancel` | Rate limited 20/min per IP |
-| POST | `/v1/intents/mint` | `{ owner, collectionId, recipient, tokenUri, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` must be the collection owner; validated on-chain via `is_collection_owner` before intent is created |
-| POST | `/v1/intents/create-collection` | `{ owner, name, symbol, baseUri, image?: string, collectionContract? }` — SIGNED immediately, no SNIP-12. `owner` + `image` stored in `typedData` JSON, recovered by `COLLECTION_METADATA_FETCH` when collection is indexed. On-chain owner = wallet that executes the returned `calls`. |
-| GET | `/v1/intents/:id` | Auto-expires PENDING → EXPIRED on read |
-| PATCH | `/v1/intents/:id/signature` | `{ signature: string[] }` → status SIGNED, calls populated. Returns 400 for MINT/CREATE_COLLECTION |
-| GET | `/v1/metadata/signed-url` | Pinata presigned URL (30s TTL) |
-| POST | `/v1/metadata/upload` | JSON body → Pinata → `{ cid, url: "ipfs://..." }` |
-| POST | `/v1/metadata/upload-file` | Multipart `file` field → Pinata → `{ cid, url }` |
-| GET | `/v1/metadata/resolve` | `?uri=` — resolves ipfs://, data:, https:// |
-| GET | `/v1/collections/:contract/gated-content` | Clerk JWT + tenant API key required. Checks token ownership; returns `{ title, url, type }` to verified holders only; 403 for non-holders. `gatedContentUrl` is **never** exposed in public profile GET. |
-| GET | `/v1/collections/by-slug/:slug` | Resolve a vanity slug to a full collection. Returns 404 if slug not claimed/approved. |
-| GET | `/v1/collection-slug-claims/check/:slug` | Public availability check. Returns `{ available: boolean; reason?: string }`. No auth required. Mounted **before** global apiKeyAuth. |
-| POST | `/v1/collection-slug-claims` | Submit a slug claim. Clerk JWT required; caller must be collection `owner` or `claimedBy`. Body: `{ contractAddress, slug, notifyEmail? }`. |
-| GET | `/v1/collection-slug-claims/me` | Returns all slug claims submitted by the authenticated wallet. Clerk JWT required. |
-| POST | `/v1/users/register` | Frictionless account creation. Body: `{ walletAddress, walletType?, appSource?, chain? }`. Idempotent — returns existing Account if known. Tenant key only. |
-| POST | `/v1/users/me` | Upsert the JWT caller's Account (lazy onboarding for first-touch flows). identityAuth (Clerk JWT or SIWS). |
-| GET | `/v1/users/me` | Returns `{ walletAddress, accountId, publicId }` for JWT caller. 404 if unknown. identityAuth. |
-| GET | `/v1/users/count` | Account count with optional filters `?chain&appSource&walletType&since`. Used for grant reporting. Tenant key only. |
-| GET | `/v1/portal/me` | `{ id, name, email, plan, status }` |
-| GET | `/v1/portal/keys` | List keys (prefix only, no plaintext) |
-| POST | `/v1/portal/keys` | `{ label? }` — max 5 active; returns plaintext ONCE |
-| DELETE | `/v1/portal/keys/:id` | → status REVOKED |
-| GET | `/v1/rewards/config` | Reward configuration: 50-level ladder, enabled action XP values (for optimistic UI toasts), enabled badge catalog. Cacheable (max-age 300). Registered BEFORE `/:address` |
-| GET | `/v1/rewards/batch` | `?addresses=0x1,0x2` (1–50). Minimal `{ address, totalXp, currentLevel, currentLevelName, badgeColor }` per address (zeroed for unknown). For list surfaces — one call per page, never per row. Registered BEFORE `/:address` |
-| GET | `/v1/rewards/:address` | Score + level + progress + badges + XP breakdown for one address |
-| GET | `/v1/rewards` | Paginated leaderboard. `page`, `limit` (max 100) |
-| GET | `/v1/rewards/:address/events` | Point event history for an address. `page`, `limit` |
-| GET | `/v1/portal/webhooks` | **PREMIUM only** |
-| POST | `/v1/portal/webhooks` | **PREMIUM only**. `{ url, events[], label? }`. Returns secret ONCE (`whsec_...`) |
-| DELETE | `/v1/portal/webhooks/:id` | **PREMIUM only** → status DISABLED |
-
-### Admin (`API_SECRET_KEY` required)
-
-> **Structure (2026-05-18):** admin routes live in `src/api/routes/admin/` — `index.ts` (Hono instance, shared IP rate-limit, the two global `admin.use("*")` middlewares, registrar calls, default export) + `_shared.ts` + domain files `tenants.ts`, `collections.ts` (collections/tokens/indexer), `claims.ts`, `marketplace-ops.ts`, `moderation.ts`. Each domain file exports `register<Domain>Routes(admin)` and mutates the same instance (registrar pattern — add new admin routes to the matching domain file, never recreate the Hono instance). `adminRewards` is separate in `routes/rewards.ts`.
-
-| Method | Path | Notes |
-|---|---|---|
-| POST | `/admin/tenants` | Create tenant + initial key. Returns `plaintext` ONCE |
-| GET | `/admin/tenants` | List all tenants |
-| PATCH | `/admin/tenants/:id` | Update `plan` and/or `status` |
-| POST | `/admin/tenants/:id/keys` | Create additional key for tenant |
-| DELETE | `/admin/keys/:keyId` | Revoke any key (soft delete) |
-| POST | `/admin/tokens/:contract/:tokenId/refresh` | Force-sync token metadata (bypasses queue). Returns `{ metadataStatus, tokenUri, name }` |
-| POST | `/admin/collections` | Register new collection address + enqueue metadata fetch. Body: `{ contractAddress, startBlock?, chain? }` |
-| PATCH | `/admin/collections/:contract` | Update `isKnown`, `owner`, or any metadata field |
-| POST | `/admin/collections/backfill-metadata` | Enqueue `COLLECTION_METADATA_FETCH` for all PENDING/FAILED/unnamed/ownerless collections |
-| POST | `/admin/collections/backfill-registry` | Scan ALL `CollectionCreated` events on-chain + upsert every missing collection. Returns `{ inserted, skipped }` |
-| POST | `/admin/collections/:contract/refresh` | Force-trigger `COLLECTION_METADATA_FETCH` for one collection (uses upsert, can create from scratch) |
-| POST | `/admin/coins/add-external` | Add an external (unrug/partner) ERC-20 `Coin`. Verifies `is_memecoin` on the Unrug factory, reads name/symbol/decimals on-chain. Body: `{ contractAddress, owner?, startBlock? }` |
-| GET | `/admin/coins` | List coins (includes hidden — admins see everything). `?service=`, `?search=` (name/symbol insensitive + full address), `page`, `limit`. → `{ coins, total, page, limit }` |
-| PATCH | `/admin/coins/:contract` | Admin edit a `Coin`: `{ name?, symbol?, description?, image?, service?, creator?, isHidden? }`. `isHidden` is the durable removal lever — **no hard delete** (a Coin is a rebuildable on-chain projection) |
-| POST | `/admin/coins/:contract/refresh` | Re-read on-chain ERC-20 metadata (name/symbol/decimals) and upsert. Preserves `isHidden`/`service`/`creator`/`startBlock` |
-| GET | `/admin/collection-slug-claims` | List collection slug claims. `?status=PENDING\|APPROVED\|REJECTED`, `page`, `limit` |
-| PATCH | `/admin/collection-slug-claims/:id` | Approve or reject a slug claim. Body: `{ status: "APPROVED"\|"REJECTED", adminNotes? }`. On approve: writes slug to `CollectionProfile` (upsert) and rejects competing pending claims. |
-| GET | `/admin/comments` | List comments. `?hidden=true\|false`, `?author=address`, `?contract=address`, `page`, `limit` |
-| PATCH | `/admin/comments/:id/hide` | Set `isHidden = true` on a comment |
-| PATCH | `/admin/comments/:id/show` | Set `isHidden = false` on a comment |
-| POST | `/admin/pop/allowlist` | Bulk add wallets to `PopAllowlist`. Body: `{ collectionAddress, addresses[] }`. Works for both POP and COLLECTION_DROP collections. |
-| DELETE | `/admin/pop/allowlist` | Bulk remove wallets (sets `allowed=false`). Body: `{ collectionAddress, addresses[] }` |
-| GET | `/admin/rewards/config` | Read current DAO reward config (actions, multipliers, levels) |
-| PATCH | `/admin/rewards/levels/:level` | Update level name, XP threshold, badge color, description |
-| PATCH | `/admin/rewards/actions/:type` | Update action XP weight, daily cap, min value, enabled flag |
-| PATCH | `/admin/rewards/multipliers/:id` | Toggle or adjust a multiplier factor |
-| GET | `/admin/rewards/badges` | List all badge definitions |
-| PATCH | `/admin/rewards/badges/:key` | Update badge name, description, icon, color, enabled |
-| POST | `/admin/rewards/badges/:address` | Manually award a badge to an address. Body: `{ badgeKey, txHash? }` |
-| POST | `/admin/rewards/compute` | Trigger XP + badge computation in-process (single-flight guard shared with the scheduled loop; 409 if one is running). `?dry_run=true` to preview. Responds with `{ ok, elapsedMs, summary }` |
-
----
+- Every `/v1` read takes `?chain=` (lists: `parseChainFilter`, `all` allowed;
+  keyed/detail: `parseSingleChain`, `all` → 400). Omitted = STARKNET.
+- Tenant-independent list/stat GETs carry `Cache-Control` via `publicCache()`;
+  caller-scoped reads never do.
+- `/v1/intents/*` adds a 20/min-per-IP limiter on top of the key limit.
+- Routes needing a wallet identity use `identityAuth` (Clerk JWT or SIWS) IN
+  ADDITION to the tenant key; the SDK sends both headers (x-api-key priority).
+- Gated content: authorization is the ON-CHAIN holder check (07 §V), never the
+  DB; `gatedContentUrl` never appears in any public response.
+- `/admin/*` = `API_SECRET_KEY` (adminSecretAuth) or SNIP-12 signed requests
+  (adminSignatureAuth); `/admin/rewards` is a separate router in
+  `routes/rewards.ts`.
 
 ## Key Conventions
 
