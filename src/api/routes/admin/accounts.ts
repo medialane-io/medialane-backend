@@ -80,6 +80,30 @@ export function registerAccountRoutes(admin: Hono) {
     });
   });
 
+  // PATCH /admin/accounts/:id — update plan and/or status (suspend = every key
+  // on the account stops authenticating; apiKeyAuth checks account.status).
+  admin.patch("/accounts/:id", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = z.object({
+      plan: z.enum(["FREE", "PREMIUM"]).optional(),
+      status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
+    }).safeParse(body);
+    if (!parsed.success || (!parsed.data.plan && !parsed.data.status)) {
+      return c.json({ error: "Provide plan and/or status" }, 400);
+    }
+    try {
+      const account = await prisma.account.update({
+        where: { id: c.req.param("id") },
+        data: parsed.data,
+        select: { id: true, plan: true, status: true, creditBalance: true },
+      });
+      log.info({ accountId: account.id, ...parsed.data }, "admin account update");
+      return c.json({ data: account });
+    } catch {
+      return c.json({ error: "Account not found" }, 404);
+    }
+  });
+
   // POST /admin/accounts/resolve — find-or-create the Account for a wallet.
   admin.post("/accounts/resolve", async (c) => {
     const body = await c.req.json().catch(() => null);
