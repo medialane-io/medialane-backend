@@ -24,6 +24,8 @@ import { toErrorMessage } from "../../../utils/error.js";
 import { getClientIp } from "./_shared.js";
 import { registerTenantRoutes } from "./tenants.js";
 import { registerCollectionRoutes } from "./collections.js";
+import { registerTokenOpsRoutes } from "./token-ops.js";
+import { registerCoinRoutes } from "./coins.js";
 import { registerClaimRoutes } from "./claims.js";
 import { registerMarketplaceOpsRoutes } from "./marketplace-ops.js";
 import { registerModerationRoutes } from "./moderation.js";
@@ -57,6 +59,8 @@ admin.use("*", async (c, next) => {
 registerTenantRoutes(admin);
 registerAccountRoutes(admin);
 registerCollectionRoutes(admin);
+registerTokenOpsRoutes(admin);
+registerCoinRoutes(admin);
 registerClaimRoutes(admin);
 registerMarketplaceOpsRoutes(admin);
 registerModerationRoutes(admin);

@@ -1,6 +1,6 @@
 import prisma from "../../db/client.js";
-import type { Order, Token, TokenStandard } from "@prisma/client";
-import type { RawOrderRow, RawTokenRow } from "./rawTypes.js";
+import type { Collection, Order, Token, TokenStandard } from "@prisma/client";
+import type { RawCollectionRow, RawOrderRow, RawTokenRow } from "./rawTypes.js";
 
 /** What the order serializer needs — satisfied by Prisma Order and RawOrderRow. */
 export type SerializableOrder = Order | RawOrderRow;
@@ -55,6 +55,55 @@ export async function batchTokenMeta(
       { name: t.name, image: t.image, description: t.description },
     ])
   );
+}
+
+type SerializableCollectionProfile = {
+  hasGatedContent: boolean;
+  gatedContentTitle: string | null;
+  slug: string | null;
+  image: string | null;
+  displayName: string | null;
+  description: string | null;
+} | null;
+
+export function serializeCollection(
+  c: (Collection | RawCollectionRow) & { profile?: SerializableCollectionProfile }
+) {
+  const profile = c.profile ?? null;
+  return {
+    id: c.id,
+    chain: c.chain,
+    contractAddress: c.contractAddress,
+    collectionId: c.collectionId ?? null,
+    name: c.name,
+    symbol: c.symbol,
+    description: c.description,
+    image: c.image,
+    owner: c.owner ?? null,
+    startBlock: c.startBlock.toString(),
+    metadataStatus: c.metadataStatus,
+    standard: c.standard,
+    isFeatured: c.isFeatured,
+    isHidden: c.isHidden,
+    service: c.service ?? null,
+    claimedBy: c.claimedBy ?? null,
+    floorPrice: composeAmountDisplay(c.floorPrice, c.floorCurrency),
+    totalVolume: composeAmountDisplay(c.totalVolume, c.volumeCurrency),
+    holderCount: c.holderCount,
+    totalSupply: c.totalSupply,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    profile: profile
+      ? {
+          hasGatedContent: profile.hasGatedContent,
+          gatedContentTitle: profile.gatedContentTitle ?? null,
+          slug: profile.slug ?? null,
+          image: profile.image ?? null,
+          displayName: profile.displayName ?? null,
+          description: profile.description ?? null,
+        }
+      : null,
+  };
 }
 
 export function serializeToken(
