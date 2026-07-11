@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import {
   parseAdminHeaders, buildAdminSessionTypedData, verifyAdminRequestSig,
   sessionKeyHashOf, ADMIN_SCOPE,
-} from "@medialane/sdk";
+} from "@medialane/sdk/starknet";
 import type { AppEnv } from "../../types/hono.js";
 import { verifyWalletSignature as realVerify } from "../../auth/verify.js";
 import { isAdmin as realIsAdmin } from "../../auth/adminRole.js";

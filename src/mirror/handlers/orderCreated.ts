@@ -1,6 +1,6 @@
 import { Contract, hash, num } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
-import { IPMarketplaceABI } from "@medialane/sdk";
+import { IPMarketplaceABI } from "@medialane/sdk/starknet";
 import { postRpc } from "../../utils/rpcFetch.js";
 import {
   STARKNET_MARKETPLACE_721_CONTRACT,

@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
-import { createAdminSessionGrant, encodeAdminHeaders, type AdminSession } from "@medialane/sdk";
+import { createAdminSessionGrant, encodeAdminHeaders, type AdminSession } from "@medialane/sdk/starknet";
 import { createAdminSignatureAuth, type AdminSigDeps } from "./adminSignatureAuth.js";
 
 const FIXED_NOW = 1_700_000_000_000;
