@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { pollContractEvents } from "./poller.js";
 import { loadSourceCursor } from "./cursor.js";
+import { mapWithConcurrency } from "../utils/retry.js";
 import {
   STARKNET_MARKETPLACE_721_CONTRACT,
   STARKNET_MARKETPLACE_1155_CONTRACT,
@@ -77,6 +78,9 @@ export interface SourceFetch {
 }
 
 const hex = (selector: string) => num.toHex(selector);
+
+/** Max in-flight getEvents calls when a source fans out over Collection rows. */
+const COLLECTION_POLL_CONCURRENCY = 8;
 
 const MARKETPLACE_SELECTORS = [
   hex(ORDER_CREATED_SELECTOR),
@@ -213,17 +217,18 @@ export async function fetchDueSources(params: {
             : { chain, startBlock: { lte: BigInt(toBlock) } },
           select: { contractAddress: true },
         });
+        // Bounded fan-out: one getEvents call per collection, at most
+        // COLLECTION_POLL_CONCURRENCY in flight — the burst stays flat as the
+        // collection count grows (the pattern every chain ingestor follows).
         events = (
-          await Promise.all(
-            collections.map((c) =>
-              pollContractEvents({
-                address: c.contractAddress,
-                fromBlock: from,
-                toBlock,
-                keys: [source.selectors],
-                maxPages: source.maxPages,
-              })
-            )
+          await mapWithConcurrency(collections, COLLECTION_POLL_CONCURRENCY, (c) =>
+            pollContractEvents({
+              address: c.contractAddress,
+              fromBlock: from,
+              toBlock,
+              keys: [source.selectors],
+              maxPages: source.maxPages,
+            })
           )
         ).flat();
       }
