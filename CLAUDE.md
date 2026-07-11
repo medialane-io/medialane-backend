@@ -420,7 +420,7 @@ gate).
 
 **Engine**: `src/rewards/compute.ts` (`computeRewards({ dryRun?, skipBadges? })`) — batch truncate-rebuild from indexed data, writes in ONE transaction (a crash leaves previous scores intact). `src/scripts/compute-rewards.ts` is a thin CLI wrapper.
 
-**Scheduling**: `src/orchestrator/rewardsCompute.ts` — `startRewardsComputeLoop()` recomputes every `REWARDS_COMPUTE_INTERVAL_MS` (default 15 min); `runComputeGuarded()` is the single-flight guard shared with `POST /admin/rewards/compute` (409 when concurrent).
+**Scheduling**: `src/orchestrator/rewardsCompute.ts` — `startRewardsComputeLoop()` runs one compute ~2 min after boot, then every `REWARDS_COMPUTE_INTERVAL_MS` (**default 24 h** since 2026-07-11 — the compute is a full-history truncate-rebuild, so it runs daily, not every 15 min; app copy should say "rewards are recalculated daily"). On-demand: `POST /admin/rewards/compute`. `runComputeGuarded()` is the single-flight guard shared with the admin route (409 when concurrent).
 
 **Partition invariant** (`src/rewards/partition.ts`, unit-tested): one on-chain action earns XP for exactly one action type. Mint Transfers and Collection creations are classified by `Collection.service`: issuance (`mip-erc721`/`mip-erc1155`/`ip-erc721`) → `mint_asset`/`create_collection`; `ip-tickets` → `buy_ticket`/`create_ticket_collection`; `ip-club` → `join_club`/`create_club`; drop/pop mints belong to `claim_drop`/`claim_pop` and their creations to `launch_launchpad`; `external-*` scores nothing. Sponsorship (`SponsorshipOffer/Bid/License`) and creator coins (`Coin`, `launch_coin`) have dedicated gatherers.
 
