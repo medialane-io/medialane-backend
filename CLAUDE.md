@@ -195,8 +195,6 @@ Response headers on every `/v1/*` response:
 | GET | `/v1/portal/keys` | List keys (prefix only, no plaintext) |
 | POST | `/v1/portal/keys` | `{ label? }` — max 5 active; returns plaintext ONCE |
 | DELETE | `/v1/portal/keys/:id` | → status REVOKED |
-| GET | `/v1/portal/usage/recent` | Last 10 UsageLog rows |
-| GET | `/v1/portal/usage` | 30 days grouped by day `{ day: "YYYY-MM-DD", requests }[]` |
 | GET | `/v1/rewards/config` | Reward configuration: 50-level ladder, enabled action XP values (for optimistic UI toasts), enabled badge catalog. Cacheable (max-age 300). Registered BEFORE `/:address` |
 | GET | `/v1/rewards/batch` | `?addresses=0x1,0x2` (1–50). Minimal `{ address, totalXp, currentLevel, currentLevelName, badgeColor }` per address (zeroed for unknown). For list surfaces — one call per page, never per row. Registered BEFORE `/:address` |
 | GET | `/v1/rewards/:address` | Score + level + progress + badges + XP breakdown for one address |
@@ -217,7 +215,6 @@ Response headers on every `/v1/*` response:
 | PATCH | `/admin/tenants/:id` | Update `plan` and/or `status` |
 | POST | `/admin/tenants/:id/keys` | Create additional key for tenant |
 | DELETE | `/admin/keys/:keyId` | Revoke any key (soft delete) |
-| GET | `/admin/usage` | `?tenantId=` (optional), `?days=` (max 90, default 30) |
 | POST | `/admin/tokens/:contract/:tokenId/refresh` | Force-sync token metadata (bypasses queue). Returns `{ metadataStatus, tokenUri, name }` |
 | POST | `/admin/collections` | Register new collection address + enqueue metadata fetch. Body: `{ contractAddress, startBlock?, chain? }` |
 | PATCH | `/admin/collections/:contract` | Update `isKnown`, `owner`, or any metadata field |
@@ -342,10 +339,7 @@ There is no `buildFeeCall`, no `src/config/fee.ts`, and no `FEE_ENABLED`/
 `FEE_FUND_ADDRESS`/`FEE_MARKETPLACE_BPS` in this codebase — don't go looking
 for them, and don't "fix" the missing fee call in `buildFulfillOrderIntent`.
 
-**Collection-token balances.** `GET /v1/collections/:contract/tokens` now batch-
-queries `TokenBalance` and includes per-token `balances` in the list response.
-
-**Collection-token balances.** `GET /v1/collections/:contract/tokens` now batch-
+**Collection-token balances.** `GET /v1/collections/:contract/tokens` batch-
 queries `TokenBalance` and includes per-token `balances` in the list response.
 Previously `balances` was `null` on list responses, so clients (e.g. the io
 collection page) couldn't tell which tokens the viewer owns. One indexed query
@@ -556,7 +550,7 @@ start_time, end_time, salt, nonce, sig_len, sig[0], sig[1]
 
 ### Metadata
 - `?wait=true` on GET /tokens → JIT resolution, blocks up to 3s via `Promise.race`
-- Results (including failures) cached in `MetadataCache` to avoid repeat fetches
+- Results (including failures) recorded on `Token.metadataStatus` (FETCHED/FAILED) so dead URIs are not re-hammered; the `metadataRetryLoop` re-enqueues FAILED rows on a schedule
 - Pinata free plan: `pin_by_cid` not supported → METADATA_PIN jobs always fail
 
 ### Cairo ByteArray decoding (CRITICAL — two fixed incidents)
@@ -607,7 +601,7 @@ Prisma v5 + PostgreSQL.
 
 > **CRITICAL**: When adding a field to `schema.prisma`, you MUST also run `db:migrate` to generate a migration SQL file. Editing the schema alone does NOT update the production DB. Railway runs `prisma migrate deploy` on startup — if no migration file exists, the new column is absent in prod and any Prisma call that touches it will throw a runtime error (e.g. "column does not exist"). This caused a P0 incident on 2026-03-12 where `reaperAttempts`, `attemptCount`, and `isTerminal` were added to the schema without a migration, breaking all `job.create` calls and stalling the entire indexer/orchestrator.
 
-Key tables: `Tenant`, `ApiKey`, `Order`, `Token`, `Collection`, `Transfer`, `Comment`, `Job`, `IndexerCursor`, `MetadataCache`, `UsageLog`, `WebhookEndpoint`, `TransactionIntent`, `AuditLog`, `Report`
+Key tables (39 models — see `prisma/schema.prisma`): `Order`/`OrderFill`, `Token`/`TokenBalance`, `Collection`/`CollectionProfile`, `Coin`, `Transfer`, `Comment`, `IndexerCursor`/`SourceCursor`, `TransactionIntent`, `Account`/`Identity`/`AccountProfile`, `Tenant`/`ApiKey`/`Payment`, `WebhookEndpoint`/`WebhookDelivery`, `Report`, rewards tables. (`Job`, `MetadataCache`, `UsageLog`, `AuditLog` no longer exist — dropped along the way; don't go looking for them.)
 
 psql on this machine: `/opt/homebrew/Cellar/postgresql@16/16.13/bin/psql`
 
@@ -615,16 +609,8 @@ psql on this machine: `/opt/homebrew/Cellar/postgresql@16/16.13/bin/psql`
 -- Indexer progress
 SELECT "lastBlock", "updatedAt" FROM "IndexerCursor" WHERE id = 'singleton';
 
--- Pending/failed jobs
-SELECT type, status, attempts, error FROM "Job"
-WHERE status IN ('PENDING', 'FAILED') ORDER BY "createdAt" DESC LIMIT 20;
-
 -- Metadata status
 SELECT "metadataStatus", COUNT(*) FROM "Token" GROUP BY "metadataStatus";
-
--- Reset stuck jobs
-UPDATE "Job" SET status = 'PENDING'
-WHERE status = 'PROCESSING' AND "updatedAt" < NOW() - INTERVAL '10 minutes';
 ```
 
 ---
@@ -669,11 +655,12 @@ Note: USDC.e (bridged) removed from active token list. `"USDC.E": 6` retained in
 
 ## Key Contracts (mainnet)
 
-> **Source of truth for marketplace addresses = SDK `chains.ts` (`coordinates.SN_MAIN`) + prod Railway env, NOT this file.** This section has gone stale twice now (once pre-redesign, caught 2026-06; again after the 2026-06-26 core-protocol redeploy, caught 2026-07-06) — **always re-check `getCoordinates("STARKNET")` in the installed SDK version before trusting anything below.**
-- **Marketplace ERC-721** (redeployed 2026-06-26, SDK v0.43.0): `0x03eda9a2b6ad90845a43591bac8083ebaf677d51fdf20f503b2c01889e3131fc` (startBlock 11198146) — supersedes the 2026-05-31 `0x069cf539…` venue
-- **Marketplace ERC-1155** (redeployed 2026-06-26): `0x07c4ce1c19ea48cc11135ed22b19ff745f5aec508c3828593002e4f76fdb1b38` (startBlock 11198267) — supersedes the 2026-05-31 `0x040cd7b3…` venue
-- **MIP IPCollection registry (ERC-721)** (redeployed 2026-06-26): `0x0225c3ae09506b8d97adc39649ca740dad5aac195b7f5f0441cc1852947acaea` (startBlock 11198496) — supersedes the v0.4.0 `0x0322cb71…` registry
-- **IP-Programmable-ERC1155-Collections factory** (redeployed 2026-06-26): `0x015368976d46fae5bfa1c58600f641d5aa5dbbf53ebc6b78aa3922194aad3551` (startBlock 11199527) — supersedes the v0.3.0 `0x0083543c…` factory (which itself had superseded the retired v0.2.0 `0x067064…`); every prior-version factory's collections reclassify `external-erc1155`/`external-erc721` (read-only) per the protocol-upgrade routine
+**This file carries no address table on purpose — it went stale twice.** The
+single source for every contract address / class hash / start block is the
+installed SDK's `getCoordinates("STARKNET")` (`@medialane/sdk` `chains.ts`);
+the deploy record is `medialane-core/docs/deployments.md`.
+
+Durable facts that belong here:
 - NFTComments: set via `COMMENTS_CONTRACT_ADDRESS` env (the deployed instance) — **not** `0x024f97…62799` (undeployed; caused the 2026-05-17 comments outage)
 - Indexer start block: `9196722`
 - SNIP-12 domain ERC-721: `{ name: "Medialane", version: "5", revision: "1" }` (bumped 4→5 in the 2026-06-26 redeploy)
