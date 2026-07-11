@@ -24,6 +24,62 @@ const log = createLogger("routes:admin:accounts");
 const starknetScheme = new StarknetUsdcScheme();
 
 export function registerAccountRoutes(admin: Hono) {
+  // GET /admin/accounts — paginated account list for the portal admin console
+  // (replaces the tenant list; Phase D). ?q= filters by id, name/email of a
+  // linked identity, or wallet address.
+  admin.get("/accounts", async (c) => {
+    const page = Math.max(1, Number(c.req.query("page") ?? 1));
+    const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 50)));
+    const q = c.req.query("q")?.trim();
+
+    const where = q
+      ? {
+          OR: [
+            { id: q },
+            { publicId: q },
+            { identities: { some: { OR: [
+              { address: { contains: q.toLowerCase() } },
+              { email: { equals: q, mode: "insensitive" as const } },
+            ] } } },
+          ],
+        }
+      : {};
+
+    const [accounts, total] = await Promise.all([
+      prisma.account.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, publicId: true, type: true, plan: true, status: true,
+          creditBalance: true, createdAt: true,
+          identities: {
+            select: { scheme: true, provider: true, chain: true, address: true, email: true },
+            take: 3,
+          },
+          _count: { select: { apiKeys: true } },
+        },
+      }),
+      prisma.account.count({ where }),
+    ]);
+
+    return c.json({
+      data: accounts.map((a) => ({
+        id: a.id,
+        publicId: a.publicId,
+        type: a.type,
+        plan: a.plan,
+        status: a.status,
+        creditBalance: a.creditBalance,
+        createdAt: a.createdAt,
+        identities: a.identities,
+        keyCount: a._count.apiKeys,
+      })),
+      meta: { page, limit, total },
+    });
+  });
+
   // POST /admin/accounts/resolve — find-or-create the Account for a wallet.
   admin.post("/accounts/resolve", async (c) => {
     const body = await c.req.json().catch(() => null);
