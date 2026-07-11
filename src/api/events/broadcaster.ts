@@ -1,6 +1,6 @@
 import type { Chain } from "@prisma/client";
 import prisma from "../../db/client.js";
-import { serializeOrder } from "../utils/serialize.js";
+import { serializeOrder, type SerializableOrder } from "../utils/serialize.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("events:broadcaster");
@@ -41,7 +41,7 @@ export function buildTransferEvent(t: {
   };
 }
 
-export function buildOrderEvent(o: { chain: Chain; status: string; updatedAt: Date } & Record<string, unknown>): SseEvent {
+export function buildOrderEvent(o: SerializableOrder): SseEvent {
   const eventType =
     o.status === "FULFILLED" ? "order.fulfilled" :
     o.status === "CANCELLED" ? "order.cancelled" :

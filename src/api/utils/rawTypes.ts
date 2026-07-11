@@ -1,4 +1,4 @@
-import type { Chain, OrderStatus, MetadataStatus } from "@prisma/client";
+import type { Chain, OrderStatus, MetadataStatus, TokenStandard } from "@prisma/client";
 
 /** Raw row returned by SELECT * FROM "Order" via $queryRaw */
 export interface RawOrderRow {
@@ -30,6 +30,11 @@ export interface RawOrderRow {
   priceRaw: string | null;
   priceFormatted: string | null;
   currencySymbol: string | null;
+  parentOrderHash: string | null;
+  counterOfferMessage: string | null;
+  marketplaceContract: string | null;
+  marketplaceService: string | null;
+  remainingAmount: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +54,12 @@ export interface RawCollectionRow {
   metadataStatus: MetadataStatus;
   startBlock: bigint;
   isFeatured: boolean;
+  isHidden: boolean;
+  standard: TokenStandard;
+  service: string;
+  claimedBy: string | null;
+  deletedAt: Date | null;
+  deletedBy: string | null;
   floorPrice: string | null;
   floorCurrency: string | null;
   totalVolume: string | null;

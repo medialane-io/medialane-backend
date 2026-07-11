@@ -1,4 +1,14 @@
 import prisma from "../../db/client.js";
+import type { Order, Token, TokenStandard } from "@prisma/client";
+import type { RawOrderRow, RawTokenRow } from "./rawTypes.js";
+
+/** What the order serializer needs — satisfied by Prisma Order and RawOrderRow. */
+export type SerializableOrder = Order | RawOrderRow;
+/** What the token serializer needs — Prisma Token (or a raw row) plus the joined standard. */
+export type SerializableToken = (Token | RawTokenRow) & {
+  collection?: { standard: TokenStandard | null } | null;
+  owner?: string | null;
+};
 
 const CURRENCY_DECIMALS: Record<string, number> = {
   USDC: 6,
@@ -48,8 +58,8 @@ export async function batchTokenMeta(
 }
 
 export function serializeToken(
-  token: any,
-  activeOrders: any[],
+  token: SerializableToken,
+  activeOrders: SerializableOrder[],
   balances?: Array<{ owner: string; amount: string }>
 ) {
   return {
@@ -110,7 +120,7 @@ export async function counterOfferFlags(
 }
 
 export function serializeOrder(
-  o: any,
+  o: SerializableOrder,
   tokenData?: { name: string | null; image: string | null; description: string | null } | null,
   hasActiveCounterOffer?: boolean,
 ) {

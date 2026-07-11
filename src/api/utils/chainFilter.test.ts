@@ -16,6 +16,10 @@ describe("parseChainFilter", () => {
   test("invalid → null", () => {
     expect(parseChainFilter("dogecoin")).toBeNull();
   });
+  test("BITCOIN is rejected until rows can exist (normalizeAddress throws for it)", () => {
+    expect(parseChainFilter("bitcoin")).toBeNull();
+    expect(parseSingleChain("bitcoin")).toBeNull();
+  });
   test("chainWhere builds the clause", () => {
     expect(chainWhere({ chain: "STARKNET" as any })).toEqual({ chain: "STARKNET" });
   });

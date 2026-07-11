@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { publicCache } from "../middleware/publicCache.js";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Collection } from "@prisma/client";
 import { chainWhere, parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
 import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
@@ -619,7 +619,18 @@ collections.post("/", authMiddleware, async (c) => {
 });
 
 
-function serializeCollection(c: any) {
+type SerializableCollectionProfile = {
+  hasGatedContent: boolean;
+  gatedContentTitle: string | null;
+  slug: string | null;
+  image: string | null;
+  displayName: string | null;
+  description: string | null;
+} | null;
+
+function serializeCollection(
+  c: (Collection | RawCollectionRow) & { profile?: SerializableCollectionProfile }
+) {
   const profile = c.profile ?? null;
   return {
     id: c.id,

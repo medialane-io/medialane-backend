@@ -42,15 +42,15 @@ async function batchActivityTokenMeta(
   );
 }
 
-// GET /v1/activities
-activities.get("/", publicCache(15), async (c) => {
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
-  const type = c.req.query("type");
-
-  const skip = (page - 1) * limit;
-
-  // Two cheap indexed lookups — skip full hidden-list fetch when nothing is hidden
+/**
+ * Moderation filter shared by both activity feeds: contracts/tokens flagged
+ * isHidden are excluded from results. Two cheap indexed findFirst probes skip
+ * the full list fetch when nothing is hidden (the common case).
+ */
+async function loadHiddenContentFilter(): Promise<{
+  hiddenTokenSet: Set<string>;
+  hiddenContractFilter: { notIn: string[] } | undefined;
+}> {
   const [anyHiddenCollection, anyHiddenToken] = await Promise.all([
     prisma.collection.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
     prisma.token.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
@@ -75,8 +75,21 @@ activities.get("/", publicCache(15), async (c) => {
     hiddenToks.forEach((t) => hiddenTokenSet.add(`${t.contractAddress}:${t.tokenId}`));
   }
 
-  const hiddenContractFilter =
-    hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined;
+  return {
+    hiddenTokenSet,
+    hiddenContractFilter: hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined,
+  };
+}
+
+// GET /v1/activities
+activities.get("/", publicCache(15), async (c) => {
+  const page = Number(c.req.query("page") ?? 1);
+  const limit = Number(c.req.query("limit") ?? 20);
+  const type = c.req.query("type");
+
+  const skip = (page - 1) * limit;
+
+  const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
 
   // "mint" and "transfer" both come from the Transfer table; mints have fromAddress = ZERO_ADDRESS
   const wantTransfers = !type || type === "transfer" || type === "mint";
@@ -200,33 +213,7 @@ activities.get("/:address", publicCache(15), async (c) => {
   const skip = (page - 1) * limit;
   const addr = normalizeAddress(chain, address);
 
-  // Two cheap indexed lookups — skip full hidden-list fetch when nothing is hidden
-  const [anyHiddenCollection, anyHiddenToken] = await Promise.all([
-    prisma.collection.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
-    prisma.token.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
-  ]);
-
-  const hiddenContracts: string[] = [];
-  const hiddenTokenSet = new Set<string>();
-
-  if (anyHiddenCollection || anyHiddenToken) {
-    const [hiddenCols, hiddenToks] = await Promise.all([
-      anyHiddenCollection
-        ? prisma.collection.findMany({ where: { isHidden: true }, select: { contractAddress: true } })
-        : [],
-      anyHiddenToken
-        ? prisma.token.findMany({
-            where: { isHidden: true },
-            select: { contractAddress: true, tokenId: true },
-          })
-        : [],
-    ]);
-    hiddenContracts.push(...hiddenCols.map((c) => c.contractAddress));
-    hiddenToks.forEach((t) => hiddenTokenSet.add(`${t.contractAddress}:${t.tokenId}`));
-  }
-
-  const hiddenContractFilter =
-    hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined;
+  const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
 
   const transferWhere: any = {
     chain,

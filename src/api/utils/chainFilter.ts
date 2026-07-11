@@ -1,6 +1,10 @@
 import type { Chain } from "@prisma/client";
 
-const CHAINS = new Set(["STARKNET", "ETHEREUM", "SOLANA", "BASE", "STELLAR", "BITCOIN"]);
+// The chains a read filter accepts — the Prisma enum MINUS Bitcoin: no
+// ingestor writes BITCOIN rows and normalizeAddress throws for it (chain-
+// sovereignty: Bitcoin is Horizon-gated), so accepting it turned keyed reads
+// into 500s. Re-add when Bitcoin rows can actually exist.
+const CHAINS = new Set(["STARKNET", "ETHEREUM", "SOLANA", "BASE", "STELLAR"]);
 
 /**
  * Parse the `?chain=` read filter (platform-federation spec §3.4).
