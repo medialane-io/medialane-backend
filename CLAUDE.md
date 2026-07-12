@@ -78,7 +78,7 @@ In-process retry: max 3 attempts, linear backoff (`RETRY_BASE_MS * attempts`). C
 ### HTTP API (`src/api/`)
 - Hono on `PORT` (default 3000)
 - `/health` — public, no auth
-- `/v1/*` — tenant API key required (see Auth)
+- `/v1/*` — account API key required (see Auth)
 - `/admin/*` — `API_SECRET_KEY` header required (via `authMiddleware`)
 - `/v1/portal/*` — tenant key required; **excluded from monthly quota count**
 - `/v1/intents/*` — also rate-limited to 20 req/min per IP (additional middleware)
@@ -95,9 +95,9 @@ Authorization: Bearer ml_live_...
 
 **`x-api-key` takes priority over `Authorization: Bearer`**. Some routes (e.g. `PATCH /v1/creators/:wallet/profile`) require both a tenant key (`apiKeyAuth`) and a Clerk JWT (`clerkAuth`). The SDK sends both simultaneously: `x-api-key: ml_live_...` + `Authorization: Bearer <clerkToken>`. Reading `Authorization` first would cause the Clerk JWT to be treated as the API key and fail. Do not change this priority.
 
-Lookup: `hashApiKey(raw)` → DB lookup on `ApiKey.keyHash`. Rejected if key `status !== "ACTIVE"` or tenant `status !== "ACTIVE"` (SUSPENDED tenants → 401 even with valid key). `lastUsedAt` updated fire-and-forget (non-blocking).
+Lookup: `hashApiKey(raw)` → DB lookup on `ApiKey.keyHash`. Rejected if key `status !== "ACTIVE"` or the linked `Account.status !== "ACTIVE"` (SUSPENDED accounts → 401 even with a valid key). `lastUsedAt` is telemetry, written at most once per key per minute.
 
-PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error: "Upgrade required", requiredPlan: "PREMIUM" }` for FREE tenants.
+PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error: "Upgrade required", requiredPlan: "PREMIUM" }` for FREE-plan accounts.
 
 ---
 
@@ -108,9 +108,9 @@ Pay-per-use metering on the API. The product is metered; first-party apps run on
 - **`meter()` middleware** (`src/api/middleware/meter.ts`) runs on **all `/v1/*`** after `apiKeyAuth`. Resolves a per-route credit cost (`src/payments/pricing.ts`; `/v1/portal` + `/v1/auth` are unmetered), atomically debits `Tenant.creditBalance` (`src/payments/credits.ts`), and returns **HTTP 402** + an x402 `paymentRequirements` body when funds are insufficient. **No free tier** — the first unfunded call returns 402 by design.
 - **x402 funding** (`src/payments/x402.ts` + `src/payments/schemes/starknet.ts`): agent retries with an `X-PAYMENT` header carrying a Starknet USDC transfer's `txHash`. `settlePayment` verifies the transfer on-chain (transfer-and-verify push), credits `usd × CREDITS_PER_USDC × mdlnMultiplier`. **Replay-safe: `Payment.proofNonce = txHash`** — one on-chain transfer credits exactly once across all paths.
 - **Settlement** = **native USDC** `0x033068f6…` on Starknet → the **Creator's Fund** treasury `0x064c5174…`. Config in `src/config/x402.ts` + `env.ts` (`STARKNET_USDC_CONTRACT`, `STARKNET_X402_TREASURY`, `STARKNET_MDLN_CONTRACT` — chain-prefixed for multichain readiness). `x402Config` reads the validated `env` (single source).
-- **Endpoints:** `GET /.well-known/x402` + `GET /v1/pricing` (public discovery, `src/api/routes/x402.ts`); `GET /v1/portal/me` returns `creditBalance`; `POST /v1/portal/credits/fund {txHash}` (console top-up — verifies via the x402 scheme); `GET /v1/portal/credits/history`; `POST /admin/tenants/:id/credits {amount}` (admin grant/adjust).
+- **Endpoints:** `GET /.well-known/x402` + `GET /v1/pricing` (public discovery, `src/api/routes/x402.ts`); `GET /v1/portal/me` returns `creditBalance`; `POST /v1/portal/credits/fund {txHash}` (console top-up — verifies via the x402 scheme); `GET /v1/portal/credits/history`; `POST /admin/accounts/:id/credits/grant {amount}` (admin grant/adjust).
 - **Per-app accounts:** each first-party app has its **own Account + key + credit balance** (blast-radius isolation + per-app attribution via `ApiKey.appSource`). Provision/adjust via the portal admin console or `/admin/accounts/*` (Phase D 2026-07-12 dropped the Tenant model and the `seed-app-tenants` script — the Account is the only billing identity).
-- **Schema:** `Tenant.creditBalance` (Int, default 0 → external tenants pay) + append-only `Payment` ledger (unique `proofNonce`). Migrations `20260617000000_x402_credits_and_payments`, `20260618000000_add_appsource_dao`, `20260618120000_zero_overgranted_credits`.
+- **Schema:** `Account.creditBalance` (Int, default 0 → external accounts pay) + append-only `Payment` ledger (unique `proofNonce`). Original migrations `20260617000000_x402_credits_and_payments` → Account-native since the Phase D cutover (`20260712000000_drop_tenant_cutover`).
 - **Tests:** dependency-injection (not `mock.module` — it leaks process-globally); `test/env-setup.ts` preload via `bunfig.toml` so env validation passes under `bun test`.
 
 ---
@@ -233,7 +233,7 @@ Spec: `medialane-core/docs/specs/2026-06-14-coin-collection-split-design.md`; st
   List filters: `?service=`, `?creator=` (the dapp's "my coins" / `/portfolio/coins`), `page`, `limit`.
   Where-clauses are pure + unit-tested in `src/api/routes/coins.filters.ts`.
 - **`POST /v1/coins/sync` (`src/api/routes/coins.ts`)** — the **PRIMARY** index path
-  (tenant-authed). Verifies `is_creator_coin(addr)` on the Factory, reads name/symbol/decimals
+  (API-key-authed). Verifies `is_creator_coin(addr)` on the Factory, reads name/symbol/decimals
   (OZ-0.8 ERC-20 felt252), then `upsertCoin(service "creator-coin")`. Idempotent. The dapp calls
   this on launch so the coin appears immediately.
 - **`PATCH /v1/coins/:contract`** — creator-authed coin profile (image/description); the creator
@@ -367,7 +367,7 @@ gate).
 
 - `GET /v1/collections/:contract/profile` — public; returns `hasGatedContent` + `gatedContentTitle` only. **Never returns `gatedContentUrl`.**
 - `PATCH /v1/collections/:contract/profile` — accepts `gatedContentTitle`, `gatedContentUrl`, `gatedContentType` (enum values: `VIDEO | STREAM | AUDIO | DOCUMENT | LINK`).
-- `GET /v1/collections/:contract/gated-content` — Clerk JWT + tenant API key; **authorization comes from on-chain `balance_of` (ERC-721) or `balance_of_batch` over indexed token IDs (ERC-1155)** — NOT from `TokenBalance` cache. This was changed 2026-05-27 (PR #45) to satisfy `07-identity §V` (the indexer is a cache, not an authority — a missed Transfer would lock out a real holder). RPC failure returns **503**, never falls back to the DB. Returns `{ title, url, type }` to holders; 403 for non-holders; 404 if collection not indexed yet.
+- `GET /v1/collections/:contract/gated-content` — Clerk JWT + account API key; **authorization comes from on-chain `balance_of` (ERC-721) or `balance_of_batch` over indexed token IDs (ERC-1155)** — NOT from `TokenBalance` cache. This was changed 2026-05-27 (PR #45) to satisfy `07-identity §V` (the indexer is a cache, not an authority — a missed Transfer would lock out a real holder). RPC failure returns **503**, never falls back to the DB. Returns `{ title, url, type }` to holders; 403 for non-holders; 404 if collection not indexed yet.
 
 ### SIWS — counterfactual smart-wallet handling (added 2026-05-27)
 
