@@ -48,8 +48,11 @@ collections.get("/", publicCache(30), async (c) => {
 
   // floor and volume are numeric-only String? columns (currency lives in
   // floorCurrency/volumeCurrency) — sorted with a ::numeric cast via raw SQL.
-  // Caveat: values are compared across currencies un-normalized (same caveat
-  // as the /v1/orders price sort).
+  // Cross-currency semantics: values in different currencies are not
+  // comparable without an oracle (deliberately no new infra), so the sort
+  // GROUPS by currency — canonical USDC first, then the rest — and orders
+  // correctly within each group. Full USD normalization is a future product
+  // decision (audit #12).
   if (sort === "floor" || sort === "volume") {
     const conditions: Prisma.Sql[] = [Prisma.sql`"isHidden" = false`];
     if (chainFilter !== "all") conditions.push(Prisma.sql`chain = ${chainFilter.chain}::"Chain"`);
@@ -70,8 +73,8 @@ collections.get("/", publicCache(30), async (c) => {
     const whereClause = Prisma.join(conditions, " AND ");
 
     const orderExpr = sort === "floor"
-      ? Prisma.sql`"floorPrice"::numeric ASC NULLS LAST`
-      : Prisma.sql`"totalVolume"::numeric DESC NULLS LAST`;
+      ? Prisma.sql`("floorCurrency" = 'USDC') DESC NULLS LAST, "floorCurrency" ASC NULLS LAST, "floorPrice"::numeric ASC NULLS LAST`
+      : Prisma.sql`("volumeCurrency" = 'USDC') DESC NULLS LAST, "volumeCurrency" ASC NULLS LAST, "totalVolume"::numeric DESC NULLS LAST`;
 
     const [data, rawTotal] = await Promise.all([
       prisma.$queryRaw<RawCollectionRow[]>`
