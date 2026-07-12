@@ -3,7 +3,7 @@ import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
-import { tenantGate } from "./middleware/tenantGate.js";
+import { apiKeyGate } from "./middleware/apiKeyGate.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
@@ -52,15 +52,15 @@ export function createApp(): Hono<AppEnv> {
   app.route("/admin", admin);
   app.route("/admin/rewards", adminRewards);
 
-  // All /v1/* routes require a tenant API key (auth, FREE-tier quota, x402
-  // metering) except the explicit public paths listed inside tenantGate
+  // All /v1/* routes require an account API key (auth, rate limit, x402
+  // metering) except the explicit public paths listed inside apiKeyGate
   // itself. Mounted FIRST on /v1/* so gating no longer depends on the order
   // routers are registered below — see
   // medialane-core/docs/specs/2026-06-30-tenant-gate-global-middleware-design.md.
-  app.use("/v1/*", tenantGate);
+  app.use("/v1/*", apiKeyGate);
 
   // Claims routers — some routes (e.g. the /check/:x availability checks,
-  // /v1/users/me) are exempted inside tenantGate; everything else here is
+  // /v1/users/me) are exempted inside apiKeyGate; everything else here is
   // tenant-gated by the mount above, then layers its own Clerk JWT/SIWS auth.
   app.route("/v1/collections/claim", claims);
   app.route("/v1/username-claims", usernameClaims);

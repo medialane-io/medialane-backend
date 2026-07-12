@@ -42,10 +42,7 @@ const KEY_SELECT = {
   id: true,
   prefix: true,
   status: true,
-  tenant: {
-    select: { id: true, name: true, email: true, plan: true, status: true },
-  },
-  // The billing identity (07-identity §III) — credits + plan live here now.
+  // The billing identity (07-identity §III) — credits + plan live here.
   account: {
     select: { id: true, plan: true, status: true, creditBalance: true },
   },
@@ -76,32 +73,16 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     select: KEY_SELECT,
   });
 
-  // Key is valid only if active AND bound to an active Account. The Account is the
-  // billing identity (07 §III) — every key has one post-cutover (deploy-chain
-  // backfill guarantees it). A still-present Tenant link is checked when set, but
-  // is no longer required (account-native keys have none).
-  // Diagnostic: an active key with a tenant but no Account is a backfill straggler
-  // (corrupt tenant row). Surface it in logs so the rare case is traceable — the
-  // next deploy's (idempotent) backfill re-attempts the link.
-  if (apiKey && apiKey.status === "ACTIVE" && !apiKey.account && apiKey.tenant?.status === "ACTIVE") {
-    log.warn(
-      { keyId: apiKey.id, tenantId: apiKey.tenant.id },
-      "active API key has no linked Account (backfill straggler) — returning 401; re-run the deploy backfill to link it",
-    );
-  }
-  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.account || apiKey.account.status !== "ACTIVE") {
-    return c.json({ error: "Invalid or revoked API key" }, 401);
-  }
-  if (apiKey.tenant && apiKey.tenant.status !== "ACTIVE") {
+  // Key is valid only if active AND bound to an active Account — the billing
+  // identity (07 §III). Tenant is gone (Phase D cutover, 2026-07-12).
+  if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.account.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
 
   touchLastUsed(apiKey.id);
 
-  // account is non-null past the guard above; override the nullable select type.
-  c.set("apiKey", { ...apiKey, account: apiKey.account });
+  c.set("apiKey", apiKey);
   c.set("account", apiKey.account);
-  if (apiKey.tenant) c.set("tenant", apiKey.tenant);
 
   await next();
 };

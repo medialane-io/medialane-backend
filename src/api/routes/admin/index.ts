@@ -22,7 +22,6 @@ import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "
 import { InMemoryRateLimitStore } from "../../middleware/rateLimit.js";
 import { toErrorMessage } from "../../../utils/error.js";
 import { getClientIp } from "./_shared.js";
-import { registerTenantRoutes } from "./tenants.js";
 import { registerCollectionRoutes } from "./collections.js";
 import { registerTokenOpsRoutes } from "./token-ops.js";
 import { registerCoinRoutes } from "./coins.js";
@@ -56,7 +55,6 @@ admin.use("*", async (c, next) => {
 });
 
 // Domain route registrars — same `admin` instance, original registration order.
-registerTenantRoutes(admin);
 registerAccountRoutes(admin);
 registerCollectionRoutes(admin);
 registerTokenOpsRoutes(admin);

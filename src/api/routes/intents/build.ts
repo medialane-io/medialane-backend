@@ -1,7 +1,7 @@
 // POST /v1/intents/<type> — the eight intent creation endpoints. Each one:
 //   1. Validates the body against its schema (from _shared.ts).
 //   2. Calls into orchestrator/intent.ts to build typedData + calldata.
-//   3. Persists a TransactionIntent row scoped to the caller's tenant.
+//   3. Persists a TransactionIntent row scoped to the caller's Account.
 //
 // Lifecycle (GET/PATCH/POST on /:id) lives in lifecycle.ts; background
 // verification + hydration lives in settle.ts.
@@ -50,7 +50,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         data: {
           type: "CREATE_LISTING",
           requester: normalizeAddress("STARKNET", parsed.data.offerer),
-          tenantId: c.get("tenant")?.id ?? null,
+          accountId: c.get("account").id,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
           expiresAt,
@@ -84,7 +84,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         data: {
           type: "MAKE_OFFER",
           requester: normalizeAddress("STARKNET", parsed.data.offerer),
-          tenantId: c.get("tenant")?.id ?? null,
+          accountId: c.get("account").id,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
           expiresAt,
@@ -162,7 +162,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           data: {
             type: "COUNTER_OFFER",
             requester: normalizedSeller,
-            tenantId: c.get("tenant")?.id ?? null,
+            accountId: c.get("account").id,
             typedData: typedData as unknown as PrismaTypes.InputJsonValue,
             calls: calls as PrismaTypes.InputJsonValue,
             expiresAt,
@@ -218,7 +218,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         data: {
           type: "FULFILL_ORDER",
           requester: normalizeAddress("STARKNET", parsed.data.fulfiller),
-          tenantId: c.get("tenant")?.id ?? null,
+          accountId: c.get("account").id,
           typedData: {},
           calls: calls as PrismaTypes.InputJsonValue,
           status: "SIGNED",
@@ -260,7 +260,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         data: {
           type: "CANCEL_ORDER",
           requester: normalizeAddress("STARKNET", parsed.data.offerer),
-          tenantId: c.get("tenant")?.id ?? null,
+          accountId: c.get("account").id,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
           orderHash: parsed.data.orderHash,
@@ -292,7 +292,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         data: {
           type: "MINT",
           requester: normalizeAddress("STARKNET", parsed.data.owner),
-          tenantId: c.get("tenant")?.id ?? null,
+          accountId: c.get("account").id,
           typedData: {},
           calls: calls as PrismaTypes.InputJsonValue,
           status: "SIGNED",
@@ -329,7 +329,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         data: {
           type: "CREATE_COLLECTION",
           requester: normalizeAddress("STARKNET", parsed.data.owner),
-          tenantId: c.get("tenant")?.id ?? null,
+          accountId: c.get("account").id,
           typedData: {
             name: parsed.data.name,
             description: parsed.data.description ?? null,
@@ -360,7 +360,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     const { fulfiller, orderHashes } = parsed.data;
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
     const normalizedFulfiller = normalizeAddress("STARKNET", fulfiller);
-    const tenantId = c.get("tenant")?.id ?? null;
+    const accountId = c.get("account").id;
 
     // 1) Batch existence check — one query instead of N findFirst calls. Guard:
     //    if the order isn't indexed yet we cannot safely determine ERC721 vs
@@ -411,7 +411,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           data: successful.map((b) => ({
             type: "FULFILL_ORDER" as const,
             requester: normalizedFulfiller,
-            tenantId,
+            accountId,
             typedData: {},
             calls: b.calls as PrismaTypes.InputJsonValue,
             status: "SIGNED" as const,

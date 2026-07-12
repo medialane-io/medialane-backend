@@ -14,7 +14,7 @@ export async function fanoutWebhooks(
     where: {
       status: "ACTIVE",
       events: { has: eventType },
-      tenant: { status: "ACTIVE" },
+      account: { status: "ACTIVE" },
     },
     select: { id: true },
   });

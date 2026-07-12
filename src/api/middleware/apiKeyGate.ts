@@ -5,7 +5,7 @@ import { apiKeyRateLimit } from "./rateLimit.js";
 import { meter } from "./meter.js";
 
 /**
- * Paths under `/v1/*` that intentionally bypass tenant-key auth entirely.
+ * Paths under `/v1/*` that intentionally bypass API-key auth entirely.
  * This is the ONE place that decision is made — not mount order in server.ts.
  * Keep in sync with `medialane-sdk/src/api/client.ts`: every call site NOT
  * listed here is expected to send `x-api-key`.
@@ -49,14 +49,14 @@ function composeMiddleware(handlers: readonly MiddlewareHandler<AppEnv>[]): Midd
 const gate = composeMiddleware([apiKeyAuth, apiKeyRateLimit(), meter()]);
 
 /**
- * The tenant-key gate for every `/v1/*` route: authenticate, apply the
+ * The API-key gate for every `/v1/*` route: authenticate, apply the
  * per-minute rate limit, then x402-meter — except the explicit public
  * paths above. Mount this FIRST on `/v1/*`, before any `/v1/*` router, so
  * gating no longer depends on registration order (2026-06-30 audit + design
  * spec — this replaced a pattern where routers mounted before the old
  * per-path `app.use` chain silently skipped it for months).
  */
-export const tenantGate: MiddlewareHandler<AppEnv> = async (c, next) => {
+export const apiKeyGate: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (isPublicV1Path(c.req.method, c.req.path)) return next();
   return gate(c, next);
 };

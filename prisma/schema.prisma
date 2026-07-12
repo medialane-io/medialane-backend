@@ -425,16 +425,6 @@ model TokenBalance {
   @@index([chain, contractAddress, tokenId])
 }
 
-enum TenantPlan {
-  FREE
-  PREMIUM
-}
-
-enum TenantStatus {
-  ACTIVE
-  SUSPENDED
-}
-
 enum ApiKeyStatus {
   ACTIVE
   REVOKED
@@ -477,7 +467,7 @@ model TransactionIntent {
   type      IntentType
   status    IntentStatus @default(PENDING)
   requester String
-  tenantId  String?       // set at creation; used to scope PATCH endpoints to the creating tenant
+  accountId String?       // set at creation; scopes reads/PATCH to the creating Account (null = pre-cutover row, expires within the 24h TTL)
   typedData Json
   calls     Json
   signature String[]
@@ -494,29 +484,10 @@ model TransactionIntent {
   @@index([expiresAt, status])
 }
 
-model Tenant {
-  id        String            @id @default(cuid())
-  name      String
-  email     String            @unique
-  plan      TenantPlan        @default(FREE)
-  status    TenantStatus      @default(ACTIVE)
-  creditBalance Int           @default(0)
-  apiKeys   ApiKey[]
-  webhooks  WebhookEndpoint[]
-  payments  Payment[]
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-
-  @@index([status])
-  @@index([plan])
-}
-
 model ApiKey {
   id                  String       @id @default(cuid())
-  tenantId            String?
-  tenant              Tenant?      @relation(fields: [tenantId], references: [id])
-  accountId           String?
-  account             Account?     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId           String
+  account             Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
   prefix              String
   keyHash             String       @unique
   label               String       @default("")
@@ -530,7 +501,6 @@ model ApiKey {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
-  @@index([tenantId])
   @@index([accountId])
   @@index([status])
   @@index([appSource])
@@ -538,10 +508,8 @@ model ApiKey {
 
 model WebhookEndpoint {
   id         String                @id @default(cuid())
-  tenantId   String?
-  tenant     Tenant?               @relation(fields: [tenantId], references: [id])
-  accountId  String?
-  account    Account?              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account               @relation(fields: [accountId], references: [id], onDelete: Cascade)
   url        String
   secret     String
   events     WebhookEventType[]
@@ -550,7 +518,6 @@ model WebhookEndpoint {
   createdAt  DateTime              @default(now())
   updatedAt  DateTime              @updatedAt
 
-  @@index([tenantId])
   @@index([accountId])
   @@index([status])
 }
@@ -655,8 +622,7 @@ enum AccountRole {
   PARTNER
 }
 
-// Billing plan + status for an Account (07-identity §III). Replaces TenantPlan/
-// TenantStatus, which are dropped with the Tenant model in the cutover phase.
+// Billing plan + status for an Account (07-identity §III).
 enum Plan {
   FREE
   PREMIUM
@@ -676,7 +642,7 @@ model Account {
   updatedAt DateTime      @updatedAt
 
   // Billing/metering state — API keys + credits are platform-layer Account
-  // state (07-identity §III). Collapses the former separate Tenant model.
+  // state (07-identity §III).
   plan          Plan          @default(FREE)
   status        AccountStatus @default(ACTIVE)
   creditBalance Int           @default(0)
@@ -930,10 +896,8 @@ model ServiceContract {
 /// never double-granted.
 model Payment {
   id             String        @id @default(cuid())
-  tenantId       String?
-  tenant         Tenant?       @relation(fields: [tenantId], references: [id])
-  accountId      String?
-  account        Account?      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
   scheme         String // "starknet-transfer"
   network        String // "starknet"
   asset          String // USDC contract
@@ -945,7 +909,6 @@ model Payment {
   proofNonce     String        @unique
   createdAt      DateTime      @default(now())
 
-  @@index([tenantId])
   @@index([accountId])
 }
 

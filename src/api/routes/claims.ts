@@ -15,11 +15,11 @@ const claims = new Hono<AppEnv>();
 
 import { createSlidingWindow } from "../../utils/slidingWindow.js";
 
-// 10 requests per 60s per tenant ID
+// 10 requests per 60s per account ID
 const checkRateLimit = createSlidingWindow(10, 60_000);
 
 // Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
-// on /v1/* by tenantGate (src/api/middleware/tenantGate.ts), mounted before
+// on /v1/* by apiKeyGate (src/api/middleware/apiKeyGate.ts), mounted before
 // this router in server.ts — no per-route wiring needed here.
 
 // ─── PATH 1: On-chain auto claim ────────────────────────────────────────────
@@ -42,9 +42,9 @@ claims.post(
       return c.json({ error: "Wallet address does not match authenticated session" }, 403);
     }
 
-    // Rate limit: 10 claim attempts per minute per tenant
-    const tenantId = c.get("tenant")?.id ?? "unknown";
-    if (!checkRateLimit(`claim:${tenantId}`)) {
+    // Rate limit: 10 claim attempts per minute per account
+    const accountId = c.get("account").id;
+    if (!checkRateLimit(`claim:${accountId}`)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
@@ -218,9 +218,9 @@ claims.post(
     const normContract = normalizeAddress("STARKNET", contractAddress);
     const normWallet = walletAddress ? normalizeAddress("STARKNET", walletAddress) : null;
 
-    // Rate limit: 10 requests per minute per tenant
-    const tenantId = c.get("tenant")?.id ?? "unknown";
-    if (!checkRateLimit(`request:${tenantId}`)) {
+    // Rate limit: 10 requests per minute per account
+    const accountId = c.get("account").id;
+    if (!checkRateLimit(`request:${accountId}`)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 

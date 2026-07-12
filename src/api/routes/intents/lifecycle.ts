@@ -1,7 +1,7 @@
 // Lifecycle routes — read + transition an existing intent's state.
 //   GET    /v1/intents/:id            — read (auto-expires PENDING past TTL on read)
 //   PATCH  /v1/intents/:id/signature  — submit signature, populate calldata (ChipiPay flow)
-//   POST   /v1/intents/:id/hydrate    — tenant-safe repair for confirmed marketplace txs
+//   POST   /v1/intents/:id/hydrate    — account-safe repair for confirmed marketplace txs
 //   PATCH  /v1/intents/:id/confirm    — submit tx hash; verifyAndSettle runs fire-and-forget
 //
 // Creation routes (POST /v1/intents/<type>) live in build.ts; settlement
@@ -32,9 +32,9 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    // Tenant isolation: only the tenant that created the intent can read it
-    const callerTenantId = c.get("tenant")?.id;
-    if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    // Account isolation: only the account that created the intent can read it
+    const callerAccountId = c.get("account").id;
+    if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -63,9 +63,9 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    // Ownership check — tenantId is set on all new intents; null means a pre-migration intent
-    const callerTenantId = c.get("tenant")?.id;
-    if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    // Ownership check — accountId is set on all new intents; null means a pre-cutover intent
+    const callerAccountId = c.get("account").id;
+    if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -93,14 +93,14 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: updated });
   });
 
-  // POST /v1/intents/:id/hydrate — tenant-safe repair for confirmed marketplace txs
+  // POST /v1/intents/:id/hydrate — account-safe repair for confirmed marketplace txs
   intents.post("/:id/hydrate", async (c) => {
     const { id } = c.req.param();
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    const callerTenantId = c.get("tenant")?.id;
-    if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    const callerAccountId = c.get("account").id;
+    if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -147,9 +147,9 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    // Ownership check — tenantId is set on all new intents; null means a pre-migration intent
-    const callerTenantId = c.get("tenant")?.id;
-    if (intent.tenantId && callerTenantId && intent.tenantId !== callerTenantId) {
+    // Ownership check — accountId is set on all new intents; null means a pre-cutover intent
+    const callerAccountId = c.get("account").id;
+    if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 

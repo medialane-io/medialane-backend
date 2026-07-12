@@ -7,7 +7,7 @@ import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
 // Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
-// on /v1/* by tenantGate (src/api/middleware/tenantGate.ts), mounted before
+// on /v1/* by apiKeyGate (src/api/middleware/apiKeyGate.ts), mounted before
 // this router in server.ts — no per-route wiring needed here. `GET /:id` is
 // tenant-gated too (the SDK always sends x-api-key there); only its Clerk
 // participant check is optional.

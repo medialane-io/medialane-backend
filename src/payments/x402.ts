@@ -65,14 +65,14 @@ export interface SettleResult {
 }
 
 /**
- * Verify an X-PAYMENT against `scheme` and, if valid, credit the tenant. Replays
+ * Verify an X-PAYMENT against `scheme` and, if valid, credit the account. Replays
  * are absorbed by the unique `proofNonce` on Payment — a unique violation means
  * the proof was already credited, which we treat as success-idempotent.
  *
  * Payer binding: the verified on-chain payer (`v.payer`) must be a wallet
  * Identity already linked to `accountId`. Without this, the public, observable
  * nature of an on-chain transfer (visible in mempool/explorer before the
- * legitimate funder's API call lands) would let any other tenant race to claim
+ * legitimate funder's API call lands) would let any other account race to claim
  * someone else's transfer for their own account — see the 2026-06-30 audit.
  */
 export async function settlePayment(

@@ -37,7 +37,7 @@ usernameClaims.get("/check/:username", async (c) => {
 
 // ─── POST /v1/username-claims ─────────────────────────────────────────────────
 // Submit a username claim for DAO review.
-// Auth: standard API key (global tenantGate) + Clerk JWT.
+// Auth: standard API key (global apiKeyGate) + Clerk JWT.
 
 usernameClaims.post(
   "/",

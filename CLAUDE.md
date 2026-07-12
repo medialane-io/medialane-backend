@@ -87,7 +87,7 @@ In-process retry: max 3 attempts, linear backoff (`RETRY_BASE_MS * attempts`). C
 
 ## Auth
 
-Two accepted formats (both checked by `apiKeyAuth` middleware):
+Two accepted formats (both checked by `apiKeyAuth` middleware; the key resolves to an **Account** — the Tenant model was dropped 2026-07-12, Phase D):
 ```
 x-api-key: ml_live_...
 Authorization: Bearer ml_live_...
@@ -109,7 +109,7 @@ Pay-per-use metering on the API. The product is metered; first-party apps run on
 - **x402 funding** (`src/payments/x402.ts` + `src/payments/schemes/starknet.ts`): agent retries with an `X-PAYMENT` header carrying a Starknet USDC transfer's `txHash`. `settlePayment` verifies the transfer on-chain (transfer-and-verify push), credits `usd × CREDITS_PER_USDC × mdlnMultiplier`. **Replay-safe: `Payment.proofNonce = txHash`** — one on-chain transfer credits exactly once across all paths.
 - **Settlement** = **native USDC** `0x033068f6…` on Starknet → the **Creator's Fund** treasury `0x064c5174…`. Config in `src/config/x402.ts` + `env.ts` (`STARKNET_USDC_CONTRACT`, `STARKNET_X402_TREASURY`, `STARKNET_MDLN_CONTRACT` — chain-prefixed for multichain readiness). `x402Config` reads the validated `env` (single source).
 - **Endpoints:** `GET /.well-known/x402` + `GET /v1/pricing` (public discovery, `src/api/routes/x402.ts`); `GET /v1/portal/me` returns `creditBalance`; `POST /v1/portal/credits/fund {txHash}` (console top-up — verifies via the x402 scheme); `GET /v1/portal/credits/history`; `POST /admin/tenants/:id/credits {amount}` (admin grant/adjust).
-- **Per-app tenants:** each first-party app has its **own tenant + key + credit balance** (blast-radius isolation + per-app usage monitoring) — `bun run seed-app-tenants` (`AppSource` now includes `MEDIALANE_DAO`). Emails: dapp=`medialanedapp@gmail.com`, io=`medialaneio@gmail.com`, portal=`medialanexyz@gmail.com`, dao=`medialanedao@gmail.com`.
+- **Per-app accounts:** each first-party app has its **own Account + key + credit balance** (blast-radius isolation + per-app attribution via `ApiKey.appSource`). Provision/adjust via the portal admin console or `/admin/accounts/*` (Phase D 2026-07-12 dropped the Tenant model and the `seed-app-tenants` script — the Account is the only billing identity).
 - **Schema:** `Tenant.creditBalance` (Int, default 0 → external tenants pay) + append-only `Payment` ledger (unique `proofNonce`). Migrations `20260617000000_x402_credits_and_payments`, `20260618000000_add_appsource_dao`, `20260618120000_zero_overgranted_credits`.
 - **Tests:** dependency-injection (not `mock.module` — it leaks process-globally); `test/env-setup.ts` preload via `bunfig.toml` so env validation passes under `bun test`.
 
@@ -148,7 +148,7 @@ the inventory:
 - **Routers:** `src/api/routes/*.ts` (one file per surface; `collections-sync.ts`
   holds the collection write paths; `admin/` uses the registrar pattern —
   `index.ts` mounts, each domain file exports `register<Domain>Routes(admin)`).
-- **Mounting + gating:** `src/api/server.ts` (order) + `tenantGate.ts` (the ONE
+- **Mounting + gating:** `src/api/server.ts` (order) + `apiKeyGate.ts` (the ONE
   place public-vs-gated is decided — `PUBLIC_V1_PATHS`).
 - **Response conventions:** `{ data }` / `{ data, meta }` / `{ error }`;
   serializers in `src/api/utils/serialize.ts` (typed — drift from the SDK's

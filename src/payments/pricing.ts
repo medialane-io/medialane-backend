@@ -1,10 +1,10 @@
 /**
  * Per-request credit cost. Returns null for routes that must NOT be metered
- * (tenant self-service, auth). Everything else defaults to 1 (read); specific
+ * (account self-service, auth). Everything else defaults to 1 (read); specific
  * prefixes override upward per the published category model.
  */
 
-// Prefixes that are never metered (managed by the tenant's own key, no charge).
+// Prefixes that are never metered (managed by the account's own key, no charge).
 const UNMETERED_PREFIXES = ["/v1/portal", "/v1/auth"];
 
 // method + prefix → cost. First match wins; order most-specific first.
