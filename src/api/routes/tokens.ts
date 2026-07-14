@@ -35,6 +35,7 @@ tokens.get("/", async (c) => {
   const limit = Math.min(48, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const sort  = c.req.query("sort") === "oldest" ? "oldest" : "recent";
   const ipTypeSlug = (c.req.query("ipType") ?? "").toLowerCase().trim();
+  const derivatives = (c.req.query("derivatives") ?? "").toLowerCase().trim();
   const skip  = (page - 1) * limit;
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
@@ -50,6 +51,20 @@ tokens.get("/", async (c) => {
       if (canonical) where.ipType = canonical;
       // Unknown slug → no ipType filter (returns all tokens)
     }
+  }
+
+  // ?derivatives=allowed — only tokens whose creator-declared Derivatives
+  // trait permits remixing ("Allowed" or "Share-Alike"). Trait lives in the
+  // OpenSea-style attributes array; AND keeps it independent of the ipType OR.
+  if (derivatives === "allowed") {
+    where.AND = [
+      {
+        OR: [
+          { attributes: { array_contains: [{ trait_type: "Derivatives", value: "Allowed" }] } },
+          { attributes: { array_contains: [{ trait_type: "Derivatives", value: "Share-Alike" }] } },
+        ],
+      },
+    ];
   }
 
   const [data, total] = await Promise.all([
