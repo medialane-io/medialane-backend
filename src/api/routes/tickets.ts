@@ -11,7 +11,7 @@ const tickets = new Hono<AppEnv>();
 // GET /v1/tickets/:contract/:tokenId/validity/:wallet
 // Pure on-chain read — calls is_valid(token_id, holder) on the IPTicketCollection.
 // Returns { valid: boolean }: true iff holder has balance > 0 AND current time is
-// within the event's time window (or the window is open).
+// within the ticket's validity window (or the window is open).
 tickets.get("/:contract/:tokenId/validity/:wallet", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));

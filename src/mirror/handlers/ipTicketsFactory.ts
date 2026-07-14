@@ -48,7 +48,9 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
  *   data[0..n] = name   (ByteArray)
  *   data[n..m] = symbol (ByteArray)
  *
- * No base_uri — IPTicketCollection uses per-event metadata_uri, not a base URI.
+ * base_uri is not in the event — the collection exposes it on-chain and the
+ * COLLECTION_METADATA_FETCH job reads it (per-ticket metadata stays on each
+ * token's uri()).
  */
 export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
