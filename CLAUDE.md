@@ -314,7 +314,7 @@ Structural guarantees that the source-of-null bug class (silent `service: null` 
 | `ip-erc721` | Shared genesis ERC-721 contract |
 | `pop-protocol` | Soulbound proof-of-presence (POP factory) |
 | `drop-collection` | Timed-window collection drop (Drop factory) |
-| `ip-tickets` | Per-creator ERC-721 ticket collection (IPTicketCollectionFactory) |
+| `ip-tickets` | Per-creator ERC-1155 tickets collection (IPTicketCollectionFactory; redesigned contract deployed 2026-07-14, prior collections re-tagged `external-erc1155`) |
 | `ip-club` | Per-club soulbound membership NFT (IPClubNFT, deployed from the single `IPClub` registry) |
 | `external-erc721` | Any ERC-721 contract not deployed via a Medialane service |
 | `external-erc1155` | Any ERC-1155 contract not deployed via a Medialane service |
