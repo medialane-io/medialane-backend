@@ -32,6 +32,7 @@ import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
 import { rewards, adminRewards } from "./routes/rewards.js";
 import tickets from "./routes/tickets.js";
+import sponsorship from "./routes/sponsorship.js";
 import { x402Discovery } from "./routes/x402.js";
 
 export function createApp(): Hono<AppEnv> {
@@ -90,6 +91,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/pop", pop);
   app.route("/v1/drop", drop);
   app.route("/v1/tickets", tickets);
+  app.route("/v1/sponsorship", sponsorship);
   app.route("/v1/rewards", rewards);
 
   // 404 fallback

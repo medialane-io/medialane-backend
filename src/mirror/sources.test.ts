@@ -35,7 +35,10 @@ describe("EVENT_SOURCES", () => {
   test("only slow-cadence sources use a durable cursor", () => {
     for (const s of EVENT_SOURCES) {
       if (s.cadenceMs === undefined) continue;
-      expect(["transfers", "allowlist:pop", "allowlist:drop", "factory:creator-coin"]).toContain(s.id);
+      expect([
+        "transfers", "allowlist:pop", "allowlist:drop", "factory:creator-coin",
+        "factory:pop", "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
+      ]).toContain(s.id);
     }
   });
 });

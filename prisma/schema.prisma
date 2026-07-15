@@ -425,6 +425,115 @@ model TokenBalance {
   @@index([chain, contractAddress, tokenId])
 }
 
+// ── IP Sponsorship v3 ──────────────────────────────────────────────────────────
+// IPSponsorship is one contract, indexed as a Collection (service: "ip-sponsorship",
+// standard: ERC721) — the issued license is a real ERC-721 on that same address, so
+// current ownership/transfers ride the generic Token/TokenBalance/Transfer pipeline
+// like any other collection. These four tables cover only what does NOT fit that
+// generic shape: the pre-mint offer/bid/proposal negotiation lifecycle, and the
+// license-specific facts (expiresAt/transferable/assetContract/assetTokenId) that
+// exist ONLY in the LicenseMinted event — the contract itself does not store them
+// on-chain (soft-enforced licensing; see mediolano-contracts PR #156/#158).
+
+model SponsorshipOffer {
+  id               String   @id @default(cuid())
+  chain            Chain    @default(STARKNET)
+  contractAddress  String
+  offerId          String
+  author           String
+  nftContract      String
+  tokenId          String
+  minAmount        String
+  duration         Int
+  paymentToken     String
+  licenseTermsUri  String
+  transferable     Boolean
+  royaltyBps       Int
+  /// Restricts acceptance to one invited sponsor; null = open bidding.
+  specificSponsor  String?
+  open             Boolean  @default(true)
+  bids             SponsorshipBid[]
+  createdAtChain   DateTime
+  updatedAt        DateTime @updatedAt
+
+  @@unique([chain, contractAddress, offerId])
+  @@index([chain, contractAddress, open])
+  @@index([chain, author])
+  @@index([chain, nftContract, tokenId])
+}
+
+model SponsorshipBid {
+  id               String           @id @default(cuid())
+  chain            Chain            @default(STARKNET)
+  contractAddress  String
+  offerId          String
+  sponsor          String
+  amount           String
+  placedAtChain    DateTime
+  offer            SponsorshipOffer @relation(fields: [chain, contractAddress, offerId], references: [chain, contractAddress, offerId])
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([chain, contractAddress, offerId, sponsor])
+  @@index([chain, sponsor])
+}
+
+model SponsorshipProposal {
+  id               String   @id @default(cuid())
+  chain            Chain    @default(STARKNET)
+  contractAddress  String
+  proposalId       String
+  proposer         String
+  nftContract      String
+  tokenId          String
+  amount           String
+  duration         Int
+  /// Acceptance deadline; null = no deadline.
+  validUntil       DateTime?
+  paymentToken     String
+  licenseTermsUri  String
+  transferable     Boolean
+  royaltyBps       Int
+  open             Boolean  @default(true)
+  /// Set when closed — true if accepted, false if withdrawn/rejected. Null while open.
+  accepted         Boolean?
+  createdAtChain   DateTime
+  closedAtChain    DateTime?
+  updatedAt        DateTime @updatedAt
+
+  @@unique([chain, contractAddress, proposalId])
+  @@index([chain, contractAddress, open])
+  @@index([chain, proposer])
+  @@index([chain, nftContract, tokenId])
+}
+
+model SponsorshipLicense {
+  id               String    @id @default(cuid())
+  chain            Chain     @default(STARKNET)
+  contractAddress  String
+  /// The ERC-721 token id on this same contract — joins to Token.tokenId for
+  /// current-owner/transfer history via the generic pipeline.
+  tokenId          String
+  author           String
+  /// The initial recipient at mint. Current holder lives on Token/TokenBalance.
+  recipient        String
+  assetContract    String
+  assetTokenId     String
+  /// Declarative only — carried here from the LicenseMinted event, never
+  /// contract-enforced against a transfer (soft-enforced licensing).
+  expiresAt        DateTime
+  transferable     Boolean
+  royaltyBps       Int
+  licenseTermsUri  String
+  /// Provenance — exactly one is set, matching the accept path that minted this license.
+  offerId          String?
+  proposalId       String?
+  mintedAtChain    DateTime
+
+  @@unique([chain, contractAddress, tokenId])
+  @@index([chain, author])
+  @@index([chain, assetContract, assetTokenId])
+}
+
 enum ApiKeyStatus {
   ACTIVE
   REVOKED

@@ -15,6 +15,8 @@ import {
   STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
   STARKNET_NFTCOMMENTS_CONTRACT,
   STARKNET_IP_TICKETS_FACTORY_CONTRACT,
+  STARKNET_IP_CLUB_FACTORY_CONTRACT,
+  STARKNET_IP_SPONSORSHIP_CONTRACT,
   ORDER_CREATED_SELECTOR,
   ORDER_FULFILLED_SELECTOR,
   ORDER_CANCELLED_SELECTOR,
@@ -24,10 +26,20 @@ import {
   TRANSFER_BATCH_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
   COLLECTION_DEPLOYED_SELECTOR,
+  CLUB_DEPLOYED_SELECTOR,
   COMMENT_ADDED_SELECTOR,
   POP_ALLOWLIST_UPDATED_SELECTOR,
   DROP_CREATED_SELECTOR,
   CREATOR_COIN_CREATED_SELECTOR,
+  OFFER_CREATED_SELECTOR,
+  OFFER_STATUS_UPDATED_SELECTOR,
+  BID_PLACED_SELECTOR,
+  BID_RETRACTED_SELECTOR,
+  SPONSORSHIP_ACCEPTED_SELECTOR,
+  PROPOSAL_CREATED_SELECTOR,
+  PROPOSAL_CLOSED_SELECTOR,
+  PROPOSAL_ACCEPTED_SELECTOR,
+  LICENSE_MINTED_SELECTOR,
 } from "../config/constants.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
@@ -35,6 +47,8 @@ import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFa
 import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { handleIPTicketsCollectionDeployed } from "./handlers/ipTicketsFactory.js";
+import { handleIPClubDeployed } from "./handlers/ipClubFactory.js";
+import { applySponsorship } from "./handlers/sponsorship.js";
 import type { Chain } from "@prisma/client";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
@@ -132,6 +146,13 @@ async function applyIpTicketsFactory(events: RawStarknetEvent[], ctx: SourceCont
   }
 }
 
+async function applyIpClubFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
+  for (const event of events) {
+    await handleIPClubDeployed(event);
+    if (event.keys?.[1]) ctx.affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+  }
+}
+
 async function applyCreatorCoinFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
   for (const event of events) {
     await handleCreatorCoinCreated(event);
@@ -155,10 +176,26 @@ export const EVENT_SOURCES: EventSource[] = [
   // volume flat (one call per collection per interval, not per tick).
   { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: [hex(TRANSFER_SELECTOR), hex(TRANSFER_SINGLE_SELECTOR), hex(TRANSFER_BATCH_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], apply: applyComments },
-  { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], apply: applyPopFactory },
+  // Launchpad services (POP, Drop's allowlist aside, Tickets, Club, Sponsorship)
+  // are low-traffic relative to the marketplace/mip-erc721 core tick — all
+  // share LAUNCHPAD_POLL_INTERVAL_MS (default 50s) instead of polling every
+  // ~10s main tick.
+  { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyPopFactory },
   { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], apply: applyDropFactory },
   { id: "factory:mip-erc1155", scope: { kind: "contract", address: STARKNET_COLLECTION_1155_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], apply: applyIp1155Factory },
-  { id: "factory:ip-tickets", scope: { kind: "contract", address: STARKNET_IP_TICKETS_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], apply: applyIpTicketsFactory },
+  { id: "factory:ip-tickets", scope: { kind: "contract", address: STARKNET_IP_TICKETS_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIpTicketsFactory },
+  { id: "factory:ip-club", scope: { kind: "contract", address: STARKNET_IP_CLUB_FACTORY_CONTRACT }, selectors: [hex(CLUB_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIpClubFactory },
+  {
+    id: "ip-sponsorship",
+    scope: { kind: "contract", address: STARKNET_IP_SPONSORSHIP_CONTRACT },
+    selectors: [
+      hex(OFFER_CREATED_SELECTOR), hex(OFFER_STATUS_UPDATED_SELECTOR), hex(BID_PLACED_SELECTOR),
+      hex(BID_RETRACTED_SELECTOR), hex(SPONSORSHIP_ACCEPTED_SELECTOR), hex(PROPOSAL_CREATED_SELECTOR),
+      hex(PROPOSAL_CLOSED_SELECTOR), hex(PROPOSAL_ACCEPTED_SELECTOR), hex(LICENSE_MINTED_SELECTOR),
+    ],
+    cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS,
+    apply: applySponsorship,
+  },
   { id: "factory:creator-coin", scope: { kind: "contract", address: STARKNET_CREATOR_COIN_FACTORY_CONTRACT }, selectors: [hex(CREATOR_COIN_CREATED_SELECTOR)], cadenceMs: env.CREATOR_COIN_POLL_INTERVAL_MS, apply: applyCreatorCoinFactory },
   { id: "allowlist:pop", scope: { kind: "collections", service: "pop-protocol" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyPopAllowlist },
   { id: "allowlist:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyDropAllowlist },

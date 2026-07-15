@@ -315,7 +315,8 @@ Structural guarantees that the source-of-null bug class (silent `service: null` 
 | `pop-protocol` | Soulbound proof-of-presence (POP factory) |
 | `drop-collection` | Timed-window collection drop (Drop factory) |
 | `ip-tickets` | Per-creator ERC-1155 tickets collection (IPTicketCollectionFactory; redesigned contract deployed 2026-07-14, prior collections re-tagged `external-erc1155`) |
-| `ip-club` | Per-club soulbound membership NFT (IPClubNFT, deployed from the single `IPClub` registry) |
+| `ip-club` | Per-creator soulbound membership NFT (IPClubCollection, deployed via IPClubFactory — factory pattern since 2026-07-12; superseded the earlier single-registry `IPClubNFT` model) |
+| `ip-sponsorship` | The single IPSponsorship contract (registry + license collection, no factory — v3 redesign, deployed 2026-07-15) |
 | `external-erc721` | Any ERC-721 contract not deployed via a Medialane service |
 | `external-erc1155` | Any ERC-1155 contract not deployed via a Medialane service |
 | `medialane-marketplace-erc721` | Marketplace venue (orders only) |
@@ -323,12 +324,20 @@ Structural guarantees that the source-of-null bug class (silent `service: null` 
 
 Legacy collections from prior contract redeployments are tagged `external-*` (the platform can no longer mint to them via the current factories, so they're operationally equivalent to true externals). When a future contract version ships, the corresponding existing rows get re-tagged `external-*` in the redeploy SQL.
 
-`ip-sponsorship` deliberately has **no** `Collection.service` entry — `IPSponsorship` is a
-single contract with no factory and mints nothing itself, so offers/bids/licenses live in
-their own dedicated tables (`SponsorshipOffer`/`SponsorshipBid`/`SponsorshipLicense`), not
-the Collection model. Its receipt NFT is minted through a separate `ip-erc721`-class
-instance and is non-authoritative (`IPSponsorship.is_license_valid()` on-chain is the sole
-gate).
+**`ip-sponsorship` (v3, corrected 2026-07-15 — supersedes the note below this repo carried since
+the 2026-07-02 v2 design).** `IPSponsorship` mints its own license internally (embeds
+`ERC721Component` directly — no separate license contract, no receipt-via-`ip-erc721` pattern).
+It **is** indexed as a `Collection` (one row, `service: "ip-sponsorship"`, `standard: "ERC721"`)
+so the issued license rides the generic Token/TokenBalance/Transfer pipeline like any other
+collection — current ownership is never duplicated elsewhere. Four companion tables
+(`SponsorshipOffer`/`SponsorshipBid`/`SponsorshipProposal`/`SponsorshipLicense`,
+`src/mirror/handlers/sponsorship.ts`) cover only what doesn't fit that generic shape: the
+pre-mint offer/bid/proposal negotiation lifecycle, and the license-specific facts
+(`expiresAt`/`transferable`/`assetContract`/`assetTokenId`) that exist **only** in the
+`LicenseMinted` event — soft-enforced licensing means the contract itself stores none of them,
+so if the indexer doesn't capture them at mint time they're gone. Routes: `/v1/sponsorship/*`
+(`src/api/routes/sponsorship.ts`). Indexed on the shared `LAUNCHPAD_POLL_INTERVAL_MS` cadence
+(50s default) alongside POP/Tickets/Club — see `src/mirror/sources.ts`.
 
 ### Rewards & Ranking System (added 2026-05-12; Rewards 2.0 2026-07-04)
 
