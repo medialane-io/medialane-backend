@@ -79,7 +79,7 @@ export async function handleIPClubDeployed(event: RawStarknetEvent): Promise<voi
       chain: "STARKNET",
       contractAddress: collectionAddress,
       service: "ip-club",
-      standard: "ERC721",
+      standard: "ERC1155",
       name: name || null,
       symbol: symbol || null,
       baseUri: null,
