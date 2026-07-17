@@ -314,7 +314,7 @@ Structural guarantees that the source-of-null bug class (silent `service: null` 
 | `ip-erc721` | Shared genesis ERC-721 contract |
 | `pop-protocol` | Soulbound proof-of-presence (POP factory) |
 | `drop-collection` | Timed-window collection drop (Drop factory) |
-| `ip-tickets` | Per-creator ERC-1155 tickets collection (IPTicketCollectionFactory; redesigned contract deployed 2026-07-14, prior collections re-tagged `external-erc1155`) |
+| `ip-tickets` | Per-creator ERC-1155 tickets collection (IPTicketCollectionFactory; v5 deployed 2026-07-16 — `ticket_count` view replaces the sequential `get_ticket` probe loop, window-gated validity; v4 collections re-tagged `external-erc1155` via `PATCH /admin/collections/:contract` on the 2026-07-16/17 cutover, same pattern as the 2026-07-14 v3→v4 cutover before it) |
 | `ip-club` | Per-creator ERC-1155 membership-tier collection (IPClubCollectionFactory; rebuilt contract deployed 2026-07-16, prior collections re-tagged `external-erc721`) |
 | `ip-sponsorship` | The single IPSponsorship contract (registry + license collection, no factory — v3 redesign, deployed 2026-07-15) |
 | `external-erc721` | Any ERC-721 contract not deployed via a Medialane service |
@@ -406,6 +406,27 @@ The mirror now polls the collection registry for `CollectionCreated` events on e
 - `OrderCreated` keys = `[selector, order_hash, offerer]` — no order params in event
 - Must call `get_order_details(order_hash)` on-chain to get full `OrderParameters`
 - ERC-721 Transfer tokenId = u256 split: keys[3] = low, keys[4] = high
+
+### Activity feed token enrichment requires `chain` on every mapped item (fixed 2026-07-17)
+
+`GET /v1/activities` and `GET /v1/activities/:address` (`src/api/routes/activities.ts`)
+build `rawFeed` by `.map()`-ing raw `Transfer`/`Order` rows into a flat shape, then call
+`batchActivityTokenMeta(feed)` to look up each item's `Token.name`/`image` via
+`prisma.token.findMany({ where: { OR: pairs } })` where `pairs` is
+`{ chain, contractAddress, tokenId }` per item. The `.map()` callbacks building
+`rawFeed` **never copied the row's own `chain` field onto the mapped object** — every
+`item.chain` was `undefined`, so `pairs.filter((p) => p.chain && ...)` dropped every
+single row, the lookup `Map` was always empty, and **every** activity returned
+`token: null` regardless of whether the token had real indexed metadata — no error,
+no partial failure, just silently blank images/names platform-wide on both apps'
+`/activities` pages (and any `ActivityCard`/`ActivityRow` consumer) since whenever this
+route was written. Confirmed via a live prod token with `name: "Tickets v5"` + a valid
+`image` returning `token: null` from the API. Fix: `chain: t.chain` / `chain: o.chain`
+in both `.map()` callbacks (duplicated at both route handlers — `Transfer`/`Order` are
+returned unselected, so `.chain` is already on the row, it just wasn't forwarded).
+**Any new field added to `batchActivityTokenMeta`'s lookup key must be forwarded from
+the raw Prisma row in *both* `rawFeed` builders**, or it silently zeroes the whole
+enrichment the same way.
 
 ### Listing vs bid
 - Listing: `offer.item_type = ERC721/ERC1155`, `consideration.item_type = ERC20` → nftContract = offer.token
