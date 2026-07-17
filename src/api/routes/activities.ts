@@ -150,6 +150,7 @@ activities.get("/", publicCache(15), async (c) => {
       .filter((t) => !saleTxHashes.has(t.txHash)) // suppress transfer rows that belong to a sale
       .map((t) => ({
         type: transferType(t.fromAddress),
+        chain: t.chain,
         contractAddress: t.contractAddress,
         tokenId: t.tokenId,
         from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
@@ -168,6 +169,7 @@ activities.get("/", publicCache(15), async (c) => {
           : o.status === "ACTIVE"
           ? "listing"
           : "cancelled",
+      chain: o.chain,
       orderHash: o.orderHash,
       nftContract: o.nftContract,
       nftTokenId: o.nftTokenId,
@@ -251,6 +253,7 @@ activities.get("/:address", publicCache(15), async (c) => {
       .filter((t) => !saleTxHashes.has(t.txHash))
       .map((t) => ({
         type: transferType(t.fromAddress),
+        chain: t.chain,
         contractAddress: t.contractAddress,
         tokenId: t.tokenId,
         from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
@@ -269,6 +272,7 @@ activities.get("/:address", publicCache(15), async (c) => {
           : o.status === "ACTIVE"
           ? "listing"
           : "cancelled",
+      chain: o.chain,
       orderHash: o.orderHash,
       nftContract: o.nftContract,
       nftTokenId: o.nftTokenId,
