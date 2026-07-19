@@ -181,8 +181,8 @@ export const EVENT_SOURCES: EventSource[] = [
   // share LAUNCHPAD_POLL_INTERVAL_MS (default 50s) instead of polling every
   // ~10s main tick.
   { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyPopFactory },
-  { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], apply: applyDropFactory },
-  { id: "factory:mip-erc1155", scope: { kind: "contract", address: STARKNET_COLLECTION_1155_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], apply: applyIp1155Factory },
+  { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropFactory },
+  { id: "factory:mip-erc1155", scope: { kind: "contract", address: STARKNET_COLLECTION_1155_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIp1155Factory },
   { id: "factory:ip-tickets", scope: { kind: "contract", address: STARKNET_IP_TICKETS_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIpTicketsFactory },
   { id: "factory:ip-club", scope: { kind: "contract", address: STARKNET_IP_CLUB_FACTORY_CONTRACT }, selectors: [hex(CLUB_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIpClubFactory },
   {

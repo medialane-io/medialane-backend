@@ -37,7 +37,8 @@ describe("EVENT_SOURCES", () => {
       if (s.cadenceMs === undefined) continue;
       expect([
         "transfers", "allowlist:pop", "allowlist:drop", "factory:creator-coin",
-        "factory:pop", "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
+        "factory:pop", "factory:drop", "factory:mip-erc1155",
+        "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
       ]).toContain(s.id);
     }
   });
