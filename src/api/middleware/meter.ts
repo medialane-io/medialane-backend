@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
 import { costForRequest as defaultCostForRequest } from "../../payments/pricing.js";
-import { debitCredits as defaultDebitCredits } from "../../payments/credits.js";
+import { debitCredits as defaultDebitCredits, refundCredits as defaultRefundCredits } from "../../payments/credits.js";
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -14,6 +14,7 @@ const SCHEMES = [new StarknetUsdcScheme()];
 export interface MeterDeps {
   costForRequest: typeof defaultCostForRequest;
   debitCredits: typeof defaultDebitCredits;
+  refundCredits: typeof defaultRefundCredits;
   settlePayment: typeof defaultSettlePayment;
 }
 
@@ -25,9 +26,10 @@ export interface MeterDeps {
 export function meter(deps: MeterDeps = {
   costForRequest: defaultCostForRequest,
   debitCredits: defaultDebitCredits,
+  refundCredits: defaultRefundCredits,
   settlePayment: defaultSettlePayment,
 }): MiddlewareHandler<AppEnv> {
-  const { costForRequest, debitCredits, settlePayment } = deps;
+  const { costForRequest, debitCredits, refundCredits, settlePayment } = deps;
   return async (c, next) => {
     const cost = costForRequest(c.req.method, c.req.path);
     if (cost === null) return next(); // unmetered route
@@ -70,7 +72,24 @@ export function meter(deps: MeterDeps = {
 
     c.header("X-Credits-Remaining", "deducted"); // exact remaining is read via /v1/portal/me
     log.debug({ account: account.id, cost, path: c.req.path }, "metered");
-    return next();
+
+    // The debit above is a RESERVATION. Charge stands for a 2xx (work delivered)
+    // or a 4xx (caller's bad input). Refund only when WE failed the caller — an
+    // uncaught error, or a handler that returned 5xx — so our own faults never
+    // show up as a charge on a paying agent's ledger. See credits.refundCredits.
+    try {
+      await next();
+    } catch (err) {
+      await refundCredits(account.id, cost).catch((refundErr) =>
+        log.error({ refundErr, account: account.id, cost, path: c.req.path }, "refund after thrown handler failed"),
+      );
+      throw err;
+    }
+    if (c.res.status >= 500) {
+      await refundCredits(account.id, cost).catch((refundErr) =>
+        log.error({ refundErr, account: account.id, cost, path: c.req.path }, "refund after 5xx failed"),
+      );
+    }
   };
 }
 

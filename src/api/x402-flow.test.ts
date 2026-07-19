@@ -22,6 +22,9 @@ describe("x402 end-to-end", () => {
         }
         return false;
       },
+      refundCredits: async (_t: string, cost: number) => {
+        balance += cost; // release the reservation back to the balance
+      },
       settlePayment: async () => {
         balance += 100; // simulate a verified USDC payment funding 100 credits
         return { ok: true, creditedAmount: 100 };

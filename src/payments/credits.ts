@@ -30,6 +30,24 @@ export async function debitCredits(
   return res.count > 0;
 }
 
+/**
+ * Release a reservation taken by {@link debitCredits} when the request the
+ * caller paid for failed on OUR side (5xx / uncaught error). This is NOT a
+ * settlement — no money moved and no `Payment` ledger row is written; it just
+ * increments the balance back by `cost`. 4xx (caller's bad input) is NOT
+ * refunded. See `meter()` for the policy.
+ */
+export async function refundCredits(
+  accountId: string,
+  cost: number,
+  db: CreditsDb = prismaDefault as unknown as CreditsDb,
+): Promise<void> {
+  await db.account.update({
+    where: { id: accountId },
+    data: { creditBalance: { increment: cost } },
+  });
+}
+
 export interface CreditInput {
   accountId: string;
   amountAtomic: bigint; // USDC atomic units paid

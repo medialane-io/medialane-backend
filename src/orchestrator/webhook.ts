@@ -2,7 +2,8 @@ import { createHmac } from "crypto";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
-import { isPrivateOrInsecureUrl } from "../utils/ssrf.js";
+import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
+import { readTextCapped } from "../utils/httpBody.js";
 
 const log = createLogger("orchestrator:webhook");
 
@@ -35,21 +36,30 @@ export async function processDelivery(deliveryId: string): Promise<void> {
     return;
   }
 
-  // Re-validate the URL at delivery time. portal.ts checks `isPrivateOrInsecureUrl` at
-  // create-time, but DNS resolution at delivery time can land on a private IP (DNS
-  // rebinding). Re-checking the URL string catches the "endpoint owner edited DNS to
-  // point at internal infra after registration" case; full DNS-pinning would also need
-  // to validate the resolved IP at fetch time.
+  // Re-validate the URL at delivery time. portal.ts checks the URL string at
+  // create-time, but a public-looking host can point its DNS at an internal IP
+  // after registration (rebinding). Two layers, mirroring the metadata path
+  // (src/discovery/index.ts): (1) the literal host/IP string check, then
+  // (2) actually resolve the hostname and reject if any address is private.
+  // The fetch below also uses redirect:"manual" so a 3xx to an internal URL is
+  // never followed. Residual gap (same as metadata): the resolve→fetch race is
+  // not IP-pinned; full closure needs a connect-time dispatcher.
+  let ssrfBlockReason: string | null = null;
   if (isPrivateOrInsecureUrl(delivery.endpoint.url)) {
+    ssrfBlockReason = "URL fails SSRF re-validation at delivery time";
+  } else if (await resolvesToPrivateHost(new URL(delivery.endpoint.url).hostname)) {
+    ssrfBlockReason = "URL hostname resolves to a private address";
+  }
+  if (ssrfBlockReason) {
     log.warn(
-      { deliveryId, endpointId: delivery.endpoint.id, url: delivery.endpoint.url },
+      { deliveryId, endpointId: delivery.endpoint.id, url: delivery.endpoint.url, reason: ssrfBlockReason },
       "Webhook URL fails SSRF re-validation at delivery time — terminating delivery",
     );
     await prisma.webhookDelivery.update({
       where: { id: deliveryId },
       data: {
         isTerminal: true,
-        responseBody: "URL fails SSRF re-validation at delivery time",
+        responseBody: ssrfBlockReason,
       },
     });
     return;
@@ -82,11 +92,15 @@ export async function processDelivery(deliveryId: string): Promise<void> {
       },
       body,
       signal: controller.signal,
+      // Never follow a redirect — a 3xx to an internal URL would defeat the
+      // SSRF checks above. A redirecting endpoint is treated as a failed
+      // delivery (res.ok is false for 3xx).
+      redirect: "manual",
     });
 
     statusCode = res.status;
-    const rawBody = await res.text().catch(() => "");
-    responseBody = rawBody.slice(0, MAX_RESPONSE_BODY);
+    const { text: rawBody } = await readTextCapped(res, MAX_RESPONSE_BODY).catch(() => ({ text: "" }));
+    responseBody = rawBody;
 
     await prisma.webhookDelivery.update({
       where: { id: deliveryId },

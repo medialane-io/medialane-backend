@@ -1,8 +1,13 @@
 import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
+import { readTextCapped } from "../utils/httpBody.js";
 
 const log = createLogger("fetcher");
 const DEFAULT_TIMEOUT_MS = 10_000;
+// Metadata JSON is small (name/description/attributes/image URI). Cap the
+// response so a hostile token_uri host can't OOM the indexer with a huge body
+// — a truncated object won't parse, so we reject rather than partial-parse.
+const MAX_METADATA_BYTES = 512 * 1024; // 512 KB, matches the upload-route cap
 
 /**
  * Fetch a URL with a timeout, returning parsed JSON or null.
@@ -35,8 +40,12 @@ export async function fetchJson(
       return null;
     }
 
-    const json = await res.json();
-    return json as Record<string, unknown>;
+    const { text, truncated } = await readTextCapped(res, MAX_METADATA_BYTES);
+    if (truncated) {
+      log.warn({ url, maxBytes: MAX_METADATA_BYTES }, "Metadata body exceeded size cap — rejecting");
+      return null;
+    }
+    return JSON.parse(text) as Record<string, unknown>;
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
       log.warn({ url }, "Request timed out");
