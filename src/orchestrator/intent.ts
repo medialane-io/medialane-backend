@@ -12,7 +12,7 @@ import {
   build1155OrderTypedData,
   buildCancellationTypedData,
   build1155CancellationTypedData,
-} from "@medialane/sdk";
+} from "@medialane/sdk/starknet";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,

@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { ADMIN_HEADERS } from "@medialane/sdk";
+import { ADMIN_HEADERS } from "@medialane/sdk/starknet";
 import type { AppEnv } from "../../types/hono.js";
 import { adminOrPortalAccountAuth } from "./adminSecretAuth.js";
 import { adminSignatureAuth } from "./adminSignatureAuth.js";

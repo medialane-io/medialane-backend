@@ -10,7 +10,7 @@ import {
   build1155OrderTypedData,
   buildCancellationTypedData,
   build1155CancellationTypedData,
-} from "@medialane/sdk";
+} from "@medialane/sdk/starknet";
 
 const CHAIN_ID = "SN_MAIN";
 const names = (defs: readonly { name: string }[]) => defs.map((f) => f.name);
