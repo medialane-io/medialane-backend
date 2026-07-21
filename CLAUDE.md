@@ -44,7 +44,7 @@ Starknet RPC → Mirror (Indexer) → PostgreSQL ← Orchestrator
 ```
 
 ### Mirror (`src/mirror/`)
-- Polls marketplace contract every `INDEXER_POLL_INTERVAL_MS` (default 6s)
+- Polls marketplace contract every `INDEXER_POLL_INTERVAL_MS` (code default **30s** — raised from 10s for the pre-launch/low-traffic phase, 2026-07-19; Railway env overrides). Slow-cadence sources: `LAUNCHPAD_POLL_INTERVAL_MS` + `CREATOR_COIN_POLL_INTERVAL_MS` default **5min**, `TRANSFER_POLL_INTERVAL_MS` **5min**. All launchpad factories (POP/Drop/Tickets/Club/Sponsorship/mip-1155) share the launchpad cadence — `factory:drop` and `factory:mip-erc1155` were every-tick by omission until 2026-07-19.
 - Batches of `INDEXER_BLOCK_BATCH_SIZE` (default 500 blocks)
 - Each tick: `poller.ts` fetches events → `parser.ts` parses felts → atomic DB write + cursor advance → enqueues `METADATA_FETCH` + `STATS_UPDATE` jobs
 - `IndexerCursor` singleton tracks `lastBlock`. `reset-cursor` moves it back (does not delete data)
@@ -105,7 +105,7 @@ PREMIUM-only endpoints use `requirePlan("PREMIUM")` middleware → 403 `{ error:
 
 Pay-per-use metering on the API. The product is metered; first-party apps run on **granted credits**, external agents/devs **pay per call via x402**. Spec: `medialane-core/docs/specs/2026-06-17-x402-agent-payments-design.md`.
 
-- **`meter()` middleware** (`src/api/middleware/meter.ts`) runs on **all `/v1/*`** after `apiKeyAuth`. Resolves a per-route credit cost (`src/payments/pricing.ts`; `/v1/portal` + `/v1/auth` are unmetered), atomically debits `Tenant.creditBalance` (`src/payments/credits.ts`), and returns **HTTP 402** + an x402 `paymentRequirements` body when funds are insufficient. **No free tier** — the first unfunded call returns 402 by design.
+- **`meter()` middleware** (`src/api/middleware/meter.ts`) runs on **all `/v1/*`** after `apiKeyAuth`. Resolves a per-route credit cost (`src/payments/pricing.ts`; `/v1/portal` + `/v1/auth` are unmetered), atomically debits `Account.creditBalance` (`src/payments/credits.ts`), and returns **HTTP 402** + an x402 `paymentRequirements` body when funds are insufficient. **No free tier** — the first unfunded call returns 402 by design. **The debit is a reservation**: it's refunded (`refundCredits`, a balance increment — no `Payment` ledger row) when the request fails on OUR side (an uncaught error or a `5xx` response); a `2xx` or `4xx` (caller's bad input) keeps the charge.
 - **x402 funding** (`src/payments/x402.ts` + `src/payments/schemes/starknet.ts`): agent retries with an `X-PAYMENT` header carrying a Starknet USDC transfer's `txHash`. `settlePayment` verifies the transfer on-chain (transfer-and-verify push), credits `usd × CREDITS_PER_USDC × mdlnMultiplier`. **Replay-safe: `Payment.proofNonce = txHash`** — one on-chain transfer credits exactly once across all paths.
 - **Settlement** = **native USDC** `0x033068f6…` on Starknet → the **Creator's Fund** treasury `0x064c5174…`. Config in `src/config/x402.ts` + `env.ts` (`STARKNET_USDC_CONTRACT`, `STARKNET_X402_TREASURY`, `STARKNET_MDLN_CONTRACT` — chain-prefixed for multichain readiness). `x402Config` reads the validated `env` (single source).
 - **Endpoints:** `GET /.well-known/x402` + `GET /v1/pricing` (public discovery, `src/api/routes/x402.ts`); `GET /v1/portal/me` returns `creditBalance`; `POST /v1/portal/credits/fund {txHash}` (console top-up — verifies via the x402 scheme); `GET /v1/portal/credits/history`; `POST /admin/accounts/:id/credits/grant {amount}` (admin grant/adjust).
@@ -240,9 +240,10 @@ Spec: `medialane-core/docs/specs/2026-06-14-coin-collection-split-design.md`; st
   is `coin.creator` (trustless — from the factory event).
 - **Factory poller (backstop)** — `pollCreatorCoinFactoryEvents` (`src/mirror/`) parses
   `CreatorCoinCreated` on its **own decoupled cadence** (`CREATOR_COIN_POLL_INTERVAL_MS`,
-  default **50s**) with its own block cursor (`_lastCreatorCoinBlock`) — the main mirror loop
-  runs **10s** (`INDEXER_POLL_INTERVAL_MS`, set in Railway env, which OVERRIDES the code
-  default). Env: `CREATOR_COIN_FACTORY_ADDRESS` (default `0x50fa80…`), `CREATOR_COIN_START_BLOCK`
+  code default **5min**) with its own block cursor (`_lastCreatorCoinBlock`) — the main mirror
+  loop runs on `INDEXER_POLL_INTERVAL_MS` (code default **30s**; **set in Railway env, which
+  OVERRIDES the code default** — check Railway for the live value). Env:
+  `CREATOR_COIN_FACTORY_ADDRESS` (default `0x50fa80…`), `CREATOR_COIN_START_BLOCK`
   (10474544). Forward-indexing only.
 - **Metadata** — the `collectionMetadata` handler has an ERC-20 branch (marks `FETCHED`; no
   `token_uri`/`base_uri`).
