@@ -5,7 +5,7 @@ import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
-import type { SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense } from "@prisma/client";
+import type { SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
 
 const sponsorship = new Hono<AppEnv>();
 
@@ -29,17 +29,34 @@ function parsePage(c: { req: { query: (k: string) => string | undefined } }) {
   return { page, limit };
 }
 
-// GET /v1/sponsorship/offers — ?nftContract=, ?author=, ?open=true|false, ?chain=, ?page, ?limit
+/** Resolves the caller's currently-owned (contractAddress, tokenId) pairs via
+ *  TokenBalance — same authority `licenses?holder=` already uses (current
+ *  ownership, not who created the offer/proposal). Returns `undefined` when
+ *  `ownerRaw` is absent, so the where-builder's `ownedPairs` stays optional. */
+async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined) {
+  if (!ownerRaw) return undefined;
+  const owner = normalizeAddress(chain, ownerRaw);
+  const held = await prisma.tokenBalance.findMany({
+    where: { chain, owner, amount: { not: "0" } },
+    select: { contractAddress: true, tokenId: true },
+  });
+  return held.map((t) => ({ contractAddress: t.contractAddress, tokenId: t.tokenId }));
+}
+
+// GET /v1/sponsorship/offers — ?nftContract=, ?author=, ?owner=, ?open=true|false, ?chain=, ?page, ?limit
 sponsorship.get("/offers", publicCache(15), async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
   const { page, limit } = parsePage(c);
   const openRaw = c.req.query("open");
+  const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
+  const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
   const where = buildOfferListWhere({
     chainFilter,
     nftContract: c.req.query("nftContract") ?? undefined,
     author: c.req.query("author") ?? undefined,
     open: openRaw === undefined ? undefined : openRaw === "true",
+    ownedPairs,
   });
   const [rows, total] = await Promise.all([
     prisma.sponsorshipOffer.findMany({ where, orderBy: { createdAtChain: "desc" }, skip: (page - 1) * limit, take: limit }),
@@ -68,17 +85,20 @@ sponsorship.get("/offers/:offerId/bids", publicCache(15), async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-// GET /v1/sponsorship/proposals — ?nftContract=, ?proposer=, ?open=true|false, ?chain=, ?page, ?limit
+// GET /v1/sponsorship/proposals — ?nftContract=, ?proposer=, ?owner=, ?open=true|false, ?chain=, ?page, ?limit
 sponsorship.get("/proposals", publicCache(15), async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
   const { page, limit } = parsePage(c);
   const openRaw = c.req.query("open");
+  const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
+  const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
   const where = buildProposalListWhere({
     chainFilter,
     nftContract: c.req.query("nftContract") ?? undefined,
     proposer: c.req.query("proposer") ?? undefined,
     open: openRaw === undefined ? undefined : openRaw === "true",
+    ownedPairs,
   });
   const [rows, total] = await Promise.all([
     prisma.sponsorshipProposal.findMany({ where, orderBy: { createdAtChain: "desc" }, skip: (page - 1) * limit, take: limit }),
