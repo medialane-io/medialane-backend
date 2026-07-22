@@ -5,12 +5,19 @@ import { normalizeAddress } from "@medialane/sdk";
 import type { Chain } from "@prisma/client";
 
 type ChainFilter = { chain: Chain } | "all";
+type OwnedPair = { contractAddress: string; tokenId: string };
+
+function ownedPairsOr(ownedPairs?: OwnedPair[]) {
+  if (!ownedPairs) return {};
+  return { OR: ownedPairs.map((p) => ({ nftContract: p.contractAddress, tokenId: p.tokenId })) };
+}
 
 export function buildOfferListWhere(opts: {
   chainFilter: ChainFilter;
   nftContract?: string;
   author?: string;
   open?: boolean;
+  ownedPairs?: OwnedPair[];
 }) {
   const cf = opts.chainFilter;
   const addrChain = cf === "all" ? "STARKNET" : cf.chain;
@@ -19,6 +26,7 @@ export function buildOfferListWhere(opts: {
     ...(opts.nftContract ? { nftContract: normalizeAddress(addrChain, opts.nftContract) } : {}),
     ...(opts.author ? { author: normalizeAddress(addrChain, opts.author) } : {}),
     ...(opts.open !== undefined ? { open: opts.open } : {}),
+    ...ownedPairsOr(opts.ownedPairs),
   };
 }
 
@@ -27,6 +35,7 @@ export function buildProposalListWhere(opts: {
   nftContract?: string;
   proposer?: string;
   open?: boolean;
+  ownedPairs?: OwnedPair[];
 }) {
   const cf = opts.chainFilter;
   const addrChain = cf === "all" ? "STARKNET" : cf.chain;
@@ -35,6 +44,7 @@ export function buildProposalListWhere(opts: {
     ...(opts.nftContract ? { nftContract: normalizeAddress(addrChain, opts.nftContract) } : {}),
     ...(opts.proposer ? { proposer: normalizeAddress(addrChain, opts.proposer) } : {}),
     ...(opts.open !== undefined ? { open: opts.open } : {}),
+    ...ownedPairsOr(opts.ownedPairs),
   };
 }
 
