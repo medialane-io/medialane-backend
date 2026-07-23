@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { Prisma, type Chain } from "@prisma/client";
 import { publicCache } from "../middleware/publicCache.js";
 import { parseSingleChain, chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
@@ -13,6 +14,48 @@ import {
 
 const activities = new Hono();
 
+/** Feed item built from a Transfer row — "mint" when fromAddress is the zero address. */
+interface TransferActivityItem {
+  type: "mint" | "transfer";
+  chain: Chain;
+  contractAddress: string;
+  tokenId: string;
+  from: string | null;
+  to: string;
+  blockNumber: string;
+  amount: string;
+  txHash: string;
+  timestamp: Date;
+}
+
+/** Feed item built from an Order row. */
+interface OrderActivityItem {
+  type: "sale" | "offer" | "listing" | "cancelled";
+  chain: Chain;
+  orderHash: string;
+  nftContract: string | null;
+  nftTokenId: string | null;
+  offerer: string;
+  fulfiller: string | null;
+  price: { raw: string | null; formatted: string | null; currency: string | null };
+  tokenStandard: string;
+  txHash: string;
+  timestamp: Date;
+}
+
+type ActivityFeedItem = TransferActivityItem | OrderActivityItem;
+
+function isTransferActivityItem(item: ActivityFeedItem): item is TransferActivityItem {
+  return item.type === "mint" || item.type === "transfer";
+}
+
+/** The (contract, tokenId) pair an activity item refers to — field names differ
+ *  by which table the item came from (Transfer vs Order). */
+function activityItemToken(item: ActivityFeedItem): { contract: string | null; tokenId: string | null } {
+  if (isTransferActivityItem(item)) return { contract: item.contractAddress, tokenId: item.tokenId };
+  return { contract: item.nftContract, tokenId: item.nftTokenId };
+}
+
 /** Classify a Transfer row as "mint" (fromAddress is zero) or "transfer". */
 function transferType(fromAddress: string): "mint" | "transfer" {
   return fromAddress === ZERO_ADDRESS ? "mint" : "transfer";
@@ -20,15 +63,15 @@ function transferType(fromAddress: string): "mint" | "transfer" {
 
 /** Fetch token name/image for a list of activity items (single DB query). */
 async function batchActivityTokenMeta(
-  feed: any[]
+  feed: ActivityFeedItem[]
 ): Promise<Map<string, { name: string | null; image: string | null }>> {
   const pairs = feed
-    .map((item) => ({
-      chain: item.chain,
-      contractAddress: item.contractAddress ?? item.nftContract,
-      tokenId: item.tokenId ?? item.nftTokenId,
-    }))
-    .filter((p) => p.chain && p.contractAddress && p.tokenId);
+    .map((item) => ({ chain: item.chain, ...activityItemToken(item) }))
+    .filter(
+      (p): p is { chain: Chain; contract: string; tokenId: string } =>
+        !!p.chain && !!p.contract && !!p.tokenId
+    )
+    .map((p) => ({ chain: p.chain, contractAddress: p.contract, tokenId: p.tokenId }));
 
   if (!pairs.length) return new Map();
 
@@ -108,12 +151,12 @@ activities.get("/", publicCache(15), async (c) => {
 
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
-  const transferWhere: any = { ...chainWhere(chainFilter) };
+  const transferWhere: Prisma.TransferWhereInput = { ...chainWhere(chainFilter) };
   if (type === "mint") transferWhere.fromAddress = ZERO_ADDRESS;
   if (type === "transfer") transferWhere.fromAddress = { not: ZERO_ADDRESS };
   if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
 
-  const orderWhere: any = { ...chainWhere(chainFilter), ...orderStatusFilter };
+  const orderWhere: Prisma.OrderWhereInput = { ...chainWhere(chainFilter), ...orderStatusFilter };
   if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
 
   const [transfers, orders, transferCount, orderCount] = await Promise.all([
@@ -140,15 +183,15 @@ activities.get("/", publicCache(15), async (c) => {
   // Collect txHashes of sale orders so we can suppress the redundant Transfer
   // row that the marketplace contract emits during a sale (same tx, misleading type).
   const saleTxHashes = new Set(
-    (orders as any[])
+    orders
       .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
       .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
   );
 
-  const rawFeed = [
-    ...(transfers as any[])
+  const rawFeed: ActivityFeedItem[] = [
+    ...transfers
       .filter((t) => !saleTxHashes.has(t.txHash)) // suppress transfer rows that belong to a sale
-      .map((t) => ({
+      .map((t): TransferActivityItem => ({
         type: transferType(t.fromAddress),
         chain: t.chain,
         contractAddress: t.contractAddress,
@@ -160,7 +203,7 @@ activities.get("/", publicCache(15), async (c) => {
         txHash: t.txHash,
         timestamp: t.createdAt,
       })),
-    ...(orders as any[]).map((o) => ({
+    ...orders.map((o): OrderActivityItem => ({
       type:
         isOrderSale(o)
           ? "sale"
@@ -181,14 +224,13 @@ activities.get("/", publicCache(15), async (c) => {
       timestamp: o.updatedAt,
     })),
   ]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
     .slice(0, limit);
 
   const feed =
     hiddenTokenSet.size > 0
       ? rawFeed.filter((item) => {
-          const contract = (item as any).contractAddress ?? (item as any).nftContract;
-          const tokenId = (item as any).tokenId ?? (item as any).nftTokenId;
+          const { contract, tokenId } = activityItemToken(item);
           return !hiddenTokenSet.has(`${contract}:${tokenId}`);
         })
       : rawFeed;
@@ -196,8 +238,7 @@ activities.get("/", publicCache(15), async (c) => {
   // Enrich feed items with token name/image
   const tokenMeta = await batchActivityTokenMeta(feed);
   const enrichedFeed = feed.map((item) => {
-    const contract = (item as any).contractAddress ?? (item as any).nftContract;
-    const tokenId = (item as any).tokenId ?? (item as any).nftTokenId;
+    const { contract, tokenId } = activityItemToken(item);
     const meta = tokenMeta.get(`${contract}-${tokenId}`);
     return { ...item, token: meta ? { name: meta.name, image: meta.image } : null };
   });
@@ -217,13 +258,13 @@ activities.get("/:address", publicCache(15), async (c) => {
 
   const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
 
-  const transferWhere: any = {
+  const transferWhere: Prisma.TransferWhereInput = {
     chain,
     OR: [{ fromAddress: addr }, { toAddress: addr }],
   };
   if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
 
-  const orderWhere: any = { chain, OR: [{ offerer: addr }, { fulfiller: addr }] };
+  const orderWhere: Prisma.OrderWhereInput = { chain, OR: [{ offerer: addr }, { fulfiller: addr }] };
   if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
 
   const [transfers, orders] = await Promise.all([
@@ -248,10 +289,10 @@ activities.get("/:address", publicCache(15), async (c) => {
       .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
   );
 
-  const rawFeed = [
+  const rawFeed: ActivityFeedItem[] = [
     ...transfers
       .filter((t) => !saleTxHashes.has(t.txHash))
-      .map((t) => ({
+      .map((t): TransferActivityItem => ({
         type: transferType(t.fromAddress),
         chain: t.chain,
         contractAddress: t.contractAddress,
@@ -263,7 +304,7 @@ activities.get("/:address", publicCache(15), async (c) => {
         txHash: t.txHash,
         timestamp: t.createdAt,
       })),
-    ...orders.map((o) => ({
+    ...orders.map((o): OrderActivityItem => ({
       type:
         isOrderSale(o)
           ? "sale"
@@ -284,14 +325,13 @@ activities.get("/:address", publicCache(15), async (c) => {
       timestamp: o.updatedAt,
     })),
   ]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
     .slice(0, limit);
 
   const feed =
     hiddenTokenSet.size > 0
       ? rawFeed.filter((item) => {
-          const contract = (item as any).contractAddress ?? (item as any).nftContract;
-          const tokenId = (item as any).tokenId ?? (item as any).nftTokenId;
+          const { contract, tokenId } = activityItemToken(item);
           return !hiddenTokenSet.has(`${contract}:${tokenId}`);
         })
       : rawFeed;
@@ -299,8 +339,7 @@ activities.get("/:address", publicCache(15), async (c) => {
   // Enrich feed items with token name/image
   const tokenMeta = await batchActivityTokenMeta(feed);
   const enrichedFeed = feed.map((item) => {
-    const contract = (item as any).contractAddress ?? (item as any).nftContract;
-    const tokenId = (item as any).tokenId ?? (item as any).nftTokenId;
+    const { contract, tokenId } = activityItemToken(item);
     const meta = tokenMeta.get(`${contract}-${tokenId}`);
     return { ...item, token: meta ? { name: meta.name, image: meta.image } : null };
   });

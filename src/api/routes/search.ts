@@ -14,7 +14,8 @@ search.get("/", publicCache(60), async (c) => {
     return c.json({ error: "q must be at least 2 characters" }, 400);
   }
 
-  const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
+  const limitParam = Number(c.req.query("limit") ?? 10);
+  const limit = Math.min(Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 10, 50);
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
