@@ -31,7 +31,12 @@ export function meter(deps: MeterDeps = {
 }): MiddlewareHandler<AppEnv> {
   const { costForRequest, debitCredits, refundCredits, settlePayment } = deps;
   return async (c, next) => {
-    const cost = costForRequest(c.req.method, c.req.path);
+    // getBody is only invoked by costForRequest for service-aware actionKeys
+    // (mint/create-collection) — Hono caches c.req.json(), so the route
+    // handler's own parse below still works.
+    const cost = await costForRequest(c.req.method, c.req.path, {
+      getBody: () => c.req.json().catch(() => null),
+    });
     if (cost === null) return next(); // unmetered route
 
     const account = c.get("account");

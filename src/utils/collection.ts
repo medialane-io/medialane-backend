@@ -34,6 +34,29 @@ export function getServiceByMarketplaceAddress(
 type Db = PrismaClient | Prisma.TransactionClient;
 
 /**
+ * Resolve the `service` a deployed collection contract belongs to. Shared by
+ * the intent builders (dispatch which entrypoint/ABI to call) and pricing
+ * (charge per service, `payments/pricing.ts`) — one lookup, one place, so the
+ * two never drift on what "this contract is service X" means.
+ *
+ * Returns null for an unindexed/external contract — callers decide the
+ * fallback (pricing falls back to "ALL"; intent builders should treat null
+ * as "not a Medialane-issued collection" and reject the request).
+ */
+export async function resolveServiceForContract(
+  db: Db,
+  chain: Chain,
+  contractAddress: string,
+): Promise<ServiceId | null> {
+  const addr = normalizeAddress(chain, contractAddress);
+  const collection = await db.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress: addr } },
+    select: { service: true },
+  });
+  return (collection?.service as ServiceId | undefined) ?? null;
+}
+
+/**
  * Runtime guard against unregistered service IDs. The compile-time `ServiceId`
  * type on the helper params catches typos already; this throw catches the
  * remaining case where a value flows in dynamically (e.g. from a request body

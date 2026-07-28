@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { PRICING_TABLE } from "../../payments/pricing.js";
+import { pricingTable } from "../../payments/pricing.js";
 import { x402Config, CREDITS_PER_USDC } from "../../config/x402.js";
 
 /**
@@ -8,7 +8,7 @@ import { x402Config, CREDITS_PER_USDC } from "../../config/x402.js";
  */
 export const x402Discovery = new Hono();
 
-function manifest() {
+async function manifest() {
   return {
     x402Version: 1,
     schemes: ["starknet-transfer"],
@@ -16,9 +16,9 @@ function manifest() {
     asset: x402Config.usdcContract,
     payTo: x402Config.treasury,
     creditsPerUsdc: CREDITS_PER_USDC,
-    pricing: PRICING_TABLE,
+    pricing: await pricingTable(),
   };
 }
 
-x402Discovery.get("/.well-known/x402", (c) => c.json(manifest()));
-x402Discovery.get("/v1/pricing", (c) => c.json(manifest()));
+x402Discovery.get("/.well-known/x402", async (c) => c.json(await manifest()));
+x402Discovery.get("/v1/pricing", async (c) => c.json(await manifest()));

@@ -15,6 +15,7 @@ import {
   buildCancelOrderIntent,
   buildMintIntent,
   buildCreateCollectionIntent,
+  buildCreateTierIntent,
   buildCounterOfferIntent,
 } from "../../../orchestrator/intent.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
@@ -29,6 +30,7 @@ import {
   cancelSchema,
   mintSchema,
   createCollectionSchema,
+  createTierSchema,
   counterOfferSchema,
   checkoutBodySchema,
 } from "./_shared.js";
@@ -345,6 +347,40 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build create-collection intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/create-tier — defines a ticket type (ip-tickets) or
+  // membership tier (ip-club) inside an already-deployed collection. MINT
+  // then mints copies of whichever tier this creates.
+  intents.post("/create-tier", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = createTierSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+
+    try {
+      const { calls } = await buildCreateTierIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+
+      // No SNIP-12 signature needed — calls are fully populated at creation.
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "CREATE_TIER",
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build create-tier intent");
       return c.json({ error: toErrorMessage(err) }, 500);
     }
   });

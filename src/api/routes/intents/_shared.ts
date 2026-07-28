@@ -5,6 +5,7 @@ import { z } from "zod";
 import { num } from "starknet";
 import { createLogger } from "../../../utils/logger.js";
 import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, getTokenByAddress } from "../../../config/constants.js";
+import { FACTORY_FAMILY_SERVICE_IDS, TIER_SERVICE_IDS } from "../../../orchestrator/intent.js";
 import type { parseEvents } from "../../../mirror/parser.js";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
 
@@ -46,12 +47,18 @@ export const cancelSchema = z.object({
 
 export const mintSchema = z.object({
   owner: starknetAddress,
-  collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string"),
   recipient: starknetAddress,
-  tokenUri: z.string().min(1),
-  // EIP-2981 royalty (bps, 0–10_000), receiver = creator. Optional for back-compat with
-  // pre-v0.4.0 app bundles (defaults to 0 = no royalty); the app caps input at 50% (5000).
+  // Registry mint (mip-erc721/ip-erc721, the default): collectionId + tokenUri required.
+  collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string").optional(),
+  tokenUri: z.string().min(1).optional(),
+  // EIP-2981 royalty (bps, 0–10_000), receiver = creator. Registry mint only. Optional for
+  // back-compat with pre-v0.4.0 app bundles (defaults to 0); the app caps input at 50% (5000).
   royaltyBps: z.number().int().min(0).max(10000).optional().default(0),
+  // Per-creator-factory mint (mip-erc1155/ip-tickets/ip-club, resolved from collectionContract):
+  // mip-erc1155 needs tokenUri (above) + value; ip-tickets/ip-club need an existing tokenId + amount.
+  tokenId: z.string().regex(/^\d+$/, "tokenId must be a non-negative integer string").optional(),
+  amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string").optional(),
+  value: z.string().regex(/^\d+$/, "value must be a non-negative integer string").optional(),
   collectionContract: starknetAddress.optional(),
 });
 
@@ -63,6 +70,20 @@ export const createCollectionSchema = z.object({
   description: z.string().optional(),
   image: z.string().optional(),
   collectionContract: starknetAddress.optional(),
+  // Omitted (default): registry entry for mip-erc721/ip-erc721. One of these
+  // deploys a new per-creator contract via that service's factory instead.
+  service: z.enum(FACTORY_FAMILY_SERVICE_IDS).optional(),
+});
+
+export const createTierSchema = z.object({
+  owner: starknetAddress,
+  collection: starknetAddress,
+  service: z.enum(TIER_SERVICE_IDS),
+  maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string"),
+  startTime: z.number().int().nonnegative().optional(),
+  endTime: z.number().int().nonnegative().optional(),
+  royaltyBps: z.number().int().min(0).max(10000).default(0),
+  metadataUri: z.string().min(1),
 });
 
 export const counterOfferSchema = z.object({

@@ -6,7 +6,7 @@ import { meter, type MeterDeps } from "./meter.js";
 // Stub deps — no module mocking, so nothing leaks across test files.
 function deps(over: Partial<MeterDeps> = {}): MeterDeps {
   return {
-    costForRequest: (_m: string, path: string) => (path.startsWith("/v1/portal") ? null : 1),
+    costForRequest: async (_m: string, path: string) => (path.startsWith("/v1/portal") ? null : 1),
     debitCredits: async () => true,
     refundCredits: async () => {},
     settlePayment: async () => ({ ok: true, creditedAmount: 100 }),

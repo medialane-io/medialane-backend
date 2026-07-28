@@ -559,6 +559,11 @@ enum IntentType {
   MINT
   CREATE_COLLECTION
   COUNTER_OFFER
+  // Defines a reusable ticket type / membership tier inside an already-
+  // deployed per-creator collection (ip-tickets, ip-club) — a setup step
+  // MINT doesn't have for those services. mip-erc721/ip-erc721 have no
+  // equivalent (a mint IS the definition, there's no separate tier).
+  CREATE_TIER
 }
 
 enum IntentStatus {
@@ -857,6 +862,32 @@ model RewardLevel {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// x402 credit cost per action — a business decision, not derived from gas.
+// Admin-editable without a deploy, same shape as RewardAction below.
+//
+// Matched most-specific first: (actionKey, chain, service) > (actionKey,
+// chain, "ALL") > (actionKey, "ALL", service) > (actionKey, "ALL", "ALL").
+// "ALL" is a wildcard sentinel, never a real chain/service value — mirrors
+// the existing `?chain=all` read-filter convention (chainFilter.ts) so this
+// table stays consistent with how the rest of the API already expresses
+// "no specific chain." `chain`/`service` are plain strings, not the `Chain`
+// enum or the SDK's ServiceDefinition — this table is a pricing MATCH
+// PATTERN, not an assertion of on-chain identity, so a typo just means the
+// rule never matches and resolution falls through to a less specific row
+// (safe failure mode) rather than a schema-level constraint failure.
+model PricingRule {
+  id        String   @id @default(cuid())
+  actionKey String                       // "read" | "intent:mint" | "intent:create-collection" | "intent:listing" | "intent:offer" | "intent:cancel" | "intent:fulfill" | "intent:counter-offer" | "intent:checkout"
+  chain     String   @default("ALL")     // a Chain enum value (e.g. "STARKNET"), or "ALL"
+  service   String   @default("ALL")     // a service id from the SDK registry (e.g. "mip-erc721"), or "ALL"
+  credits   Int
+  label     String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([actionKey, chain, service])
+  @@index([actionKey])
 }
 
 // Per-action XP weights — DAO-editable

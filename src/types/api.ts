@@ -79,12 +79,26 @@ export interface CancelOrderIntentBody {
 export interface MintIntentBody {
   /** Collection owner wallet address — must be the collection owner to mint */
   owner: string;
-  collectionId: string;
   recipient: string;
-  tokenUri: string;
-  /** EIP-2981 royalty in bps (0–10_000), receiver = creator. Defaults to 0 if omitted. */
+  /**
+   * Registry-style mint (mip-erc721/ip-erc721, the default when
+   * collectionContract is omitted or resolves to one of those services):
+   * required, plus tokenUri.
+   */
+  collectionId?: string;
+  tokenUri?: string;
+  /** EIP-2981 royalty in bps (0–10_000), receiver = creator. Registry mint only. */
   royaltyBps?: number;
-  /** Optional: override the default collection contract address */
+  /**
+   * Per-creator-factory mint (mip-erc1155/ip-tickets/ip-club, resolved from
+   * collectionContract's indexed service): mip-erc1155 needs tokenUri + value
+   * (mints a NEW edition); ip-tickets/ip-club need an existing tokenId + amount
+   * (mints more of an already-created tier — see CREATE_TIER for creating one).
+   */
+  tokenId?: string;
+  amount?: string;
+  value?: string;
+  /** Which collection to mint into. Omitted = the shared mip-erc721 registry. */
   collectionContract?: string;
 }
 
@@ -96,8 +110,30 @@ export interface CreateCollectionIntentBody {
   description?: string;
   /** Optional IPFS image URI (ipfs://...) for the collection cover image */
   image?: string;
-  /** Optional: override the default collection contract address */
+  /** Optional: override the default collection contract address (registry path only) */
   collectionContract?: string;
+  /**
+   * Which service's factory to deploy. Omitted = today's default (the shared
+   * mip-erc721 registry — no new deploy, just a registry entry). One of
+   * "mip-erc1155" | "ip-tickets" | "ip-club" deploys a new per-creator
+   * contract via that service's factory instead.
+   */
+  service?: string;
+}
+
+export interface CreateTierIntentBody {
+  /** Wallet that must own the collection — verified on-chain before building calldata. */
+  owner: string;
+  /** The deployed per-creator collection contract (from a prior CREATE_COLLECTION deploy). */
+  collection: string;
+  /** "ip-tickets" | "ip-club" — which entrypoint (create_ticket / create_membership) to call. */
+  service: string;
+  maxSupply: string;
+  /** Unix seconds. Omit both for a lifetime tier (tickets) / no validity window (club). */
+  startTime?: number;
+  endTime?: number;
+  royaltyBps: number;
+  metadataUri: string;
 }
 
 export interface SubmitSignatureBody {

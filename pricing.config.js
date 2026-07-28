@@ -1,0 +1,76 @@
+// ─────────────────────────────────────────────────────────────────────────
+// MEDIALANE API PRICING — edit this file, then run: bun run pricing:apply
+// (or, to push straight to production: bun run pricing:apply:prod)
+//
+// Prices are in USD. 1 credit = $0.01, so $0.05 = 5 credits. Changes are
+// live immediately after you run the apply script — no deploy needed.
+//
+// Every row below is ONE PRICE. `chain` and `service` are optional:
+//   - Leave them out to set the price for everything (the default).
+//   - Add `service` to price ONE service differently (e.g. edition mints
+//     cost more than single mints).
+//   - Add `chain` to price ONE chain differently (e.g. Ethereum gas costs
+//     more than Starknet). Only "STARKNET" is live today.
+//
+// More specific rows always win over the default. Delete a row to remove
+// that price — it falls back to the next most general row automatically.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const PRICING = [
+
+  // ── Reads ──────────────────────────────────────────────────────────────
+  { action: "read", usd: 0.01, note: "Any lookup / GET request" },
+
+  // ── Storage (IPFS via Pinata) ─────────────────────────────────────────
+  // Real pinning cost — was previously falling through to the "read" price
+  // ($0.01) unpriced. Caps: JSON up to 512KB, files (image/video/audio/pdf)
+  // up to 10MB.
+  { action: "metadata:upload-json", usd: 0.05, note: "Upload metadata JSON to IPFS (max 512KB)" },
+  { action: "metadata:upload-file", usd: 0.15, note: "Upload a media file to IPFS (max 10MB)" },
+
+  // ── Trading (marketplace) ─────────────────────────────────────────────
+  { action: "intent:listing",      usd: 0.05, note: "List an asset for sale" },
+  { action: "intent:offer",        usd: 0.05, note: "Make an offer" },
+  { action: "intent:cancel",       usd: 0.05, note: "Cancel an order" },
+  { action: "intent:fulfill",      usd: 0.50, note: "Buy / fulfill an order" },
+  { action: "intent:counter-offer",usd: 0.10, note: "Counter an offer" },
+  { action: "intent:checkout",     usd: 0.05, note: "Checkout" },
+
+  // ── Minting & creation — DEFAULT price (applies to every service below
+  //    unless you add a specific row for that service further down) ──────
+  { action: "intent:mint",             usd: 0.25, note: "Mint an asset — default" },
+  { action: "intent:create-collection",usd: 0.25, note: "Deploy a collection — default" },
+  { action: "intent:create-tier",      usd: 0.50, note: "Create a ticket type / membership tier — default" },
+
+  // ── Per-service prices ───────────────────────────────────────────────
+  // Uncomment a line and set its price to charge that ONE service
+  // differently from the default above.
+  //
+  // Deploy a collection (per-creator factory, or a registry entry):
+  // { action: "intent:create-collection", service: "mip-erc721",  usd: 0.20, note: "Deploy a new IP Collection" },
+  // { action: "intent:create-collection", service: "mip-erc1155", usd: 0.20, note: "Deploy a new NFT Editions collection" },
+  // { action: "intent:create-collection", service: "ip-tickets",  usd: 0.20, note: "Deploy a new IP Tickets collection" },
+  // { action: "intent:create-collection", service: "ip-club",     usd: 0.20, note: "Deploy a new IP Club collection" },
+  //
+  // Mint into a collection:
+  // { action: "intent:mint", service: "mip-erc721",  usd: 0.05, note: "IP Collection — single-edition mint" },
+  // { action: "intent:mint", service: "ip-erc721",   usd: 0.05, note: "Programmable IP (genesis) mint" },
+  // { action: "intent:mint", service: "mip-erc1155", usd: 0.10, note: "NFT Editions — new edition mint" },
+  // { action: "intent:mint", service: "ip-tickets",  usd: 0.05, note: "IP Tickets — mint more of an existing ticket type" },
+  // { action: "intent:mint", service: "ip-club",     usd: 0.05, note: "IP Club — mint more of an existing membership tier" },
+  //
+  // Create a ticket type / membership tier (before minting copies of it):
+   { action: "intent:create-tier", service: "ip-tickets", usd: 0.50, note: "Create a new ticket type" },
+   { action: "intent:create-tier", service: "ip-club",    usd: 0.50, note: "Create a new membership tier" },
+  //
+  // Other live services (pop-protocol, drop-collection, ip-sponsorship,
+  // creator-coin) still mint/claim entirely client-side — they don't route
+  // through this backend yet, so nothing here prices them.
+
+  // ── Per-chain prices ─────────────────────────────────────────────────
+  // Uncomment once a chain other than Starknet is live, to charge more
+  // where gas actually costs more.
+  //
+  // { action: "intent:mint", chain: "ETHEREUM", usd: 0.50, note: "Ethereum mint — gas costs more" },
+
+];
