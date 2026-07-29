@@ -813,7 +813,6 @@ model AccountProfile {
   displayName String?
   bio         String?
   avatarImage String?
-  bannerImage String?
   websiteUrl  String?
   twitterUrl  String?
   discordUrl  String?

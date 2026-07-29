@@ -58,7 +58,6 @@ const creatorProfileSchema = z.object({
   displayName: z.string().nullable().optional(),
   bio: z.string().nullable().optional(),
   avatarImage: z.string().nullable().optional(),
-  bannerImage: z.string().nullable().optional(),
   websiteUrl: urlField,
   twitterUrl: urlField,
   discordUrl: urlField,
@@ -274,16 +273,15 @@ profiles.get("/creators", async (c) => {
       displayName: p.displayName,
       bio: p.bio,
       avatarImage: p.avatarImage,
-      bannerImage: p.bannerImage,
       websiteUrl: p.websiteUrl,
       twitterUrl: p.twitterUrl,
       discordUrl: p.discordUrl,
       telegramUrl: p.telegramUrl,
     }));
 
-  // For creators without avatarImage and bannerImage, populate collectionImage
-  // from their first (most recent) collection — single batch query, no N+1.
-  const needsImage = creators.filter((c) => !c.avatarImage && !c.bannerImage);
+  // For creators without avatarImage, populate collectionImage from their
+  // first (most recent) collection — single batch query, no N+1.
+  const needsImage = creators.filter((c) => !c.avatarImage);
   const collectionImageMap = new Map<string, string>();
 
   if (needsImage.length > 0) {
@@ -303,7 +301,7 @@ profiles.get("/creators", async (c) => {
 
   const enriched = creators.map((c) => ({
     ...c,
-    collectionImage: (!c.avatarImage && !c.bannerImage)
+    collectionImage: !c.avatarImage
       ? (collectionImageMap.get(c.walletAddress) ?? null)
       : null,
   }));
@@ -331,7 +329,6 @@ profiles.get("/creators/by-username/:username", async (c) => {
     displayName: profile.displayName,
     bio: profile.bio,
     avatarImage: profile.avatarImage,
-    bannerImage: profile.bannerImage,
     websiteUrl: profile.websiteUrl,
     twitterUrl: profile.twitterUrl,
     discordUrl: profile.discordUrl,
@@ -364,7 +361,6 @@ profiles.get("/creators/:wallet/profile", async (c) => {
     displayName: profile.displayName,
     bio: profile.bio,
     avatarImage: profile.avatarImage,
-    bannerImage: profile.bannerImage,
     websiteUrl: profile.websiteUrl,
     twitterUrl: profile.twitterUrl,
     discordUrl: profile.discordUrl,
@@ -410,7 +406,6 @@ profiles.patch(
       displayName: profile.displayName,
       bio: profile.bio,
       avatarImage: profile.avatarImage,
-      bannerImage: profile.bannerImage,
       websiteUrl: profile.websiteUrl,
       twitterUrl: profile.twitterUrl,
       discordUrl: profile.discordUrl,
