@@ -87,6 +87,7 @@ export interface RawTokenRow {
   name: string | null;
   description: string | null;
   image: string | null;
+  animationUrl: string | null;
   attributes: unknown;
   ipType: string | null;
   licenseType: string | null;

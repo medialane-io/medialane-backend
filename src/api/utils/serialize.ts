@@ -124,6 +124,7 @@ export function serializeToken(
       name: token.name,
       description: token.description,
       image: token.image,
+      animationUrl: token.animationUrl,
       attributes: token.attributes,
       ipType: token.ipType,
       licenseType: token.licenseType,
