@@ -25,15 +25,20 @@ const log = createLogger("routes:profiles");
 
 const profiles = new Hono<AppEnv>();
 
-// Validates a URL field: must be http/https when present, null is allowed (clears the field).
-const urlField = z
-  .string()
-  .url()
-  .refine((v) => v.startsWith("https://") || v.startsWith("http://"), {
-    message: "URL must use http or https scheme",
-  })
-  .nullable()
-  .optional();
+// Validates a URL field: must be http/https when present, null/empty is allowed (clears the
+// field). Clients (e.g. a form with an untouched blank input) send "" rather than null/undefined
+// — normalize that to null before the `.url()` check, or a blank field 400s the whole request.
+const urlField = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+  z
+    .string()
+    .url()
+    .refine((v) => v.startsWith("https://") || v.startsWith("http://"), {
+      message: "URL must use http or https scheme",
+    })
+    .nullable()
+    .optional(),
+);
 
 const collectionProfileSchema = z.object({
   displayName: z.string().nullable().optional(),
