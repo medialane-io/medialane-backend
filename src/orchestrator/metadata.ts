@@ -161,6 +161,7 @@ export async function handleMetadataFetch(payload: {
         name: metadata?.name ?? null,
         description: metadata?.description ?? null,
         image: metadata?.image ?? null,
+        animationUrl: (metadata?.animation_url as string | undefined) ?? null,
         attributes: _attrs.length > 0 ? (_attrs as any) : undefined,
         ipType:
           (metadata?.properties as any)?.ip_type ??

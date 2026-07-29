@@ -328,6 +328,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
             name: (metadata.name as string) ?? null,
             description: (metadata.description as string) ?? null,
             image: (metadata.image as string) ?? null,
+            animationUrl: (metadata.animation_url as string) ?? null,
             attributes: (metadata.attributes as any) ?? undefined,
           },
         });

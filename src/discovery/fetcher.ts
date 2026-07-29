@@ -60,9 +60,18 @@ export async function fetchJson(
 
 function decodeDataUri(uri: string): Record<string, unknown> | null {
   try {
-    const base64Part = uri.split(",")[1];
-    if (!base64Part) return null;
-    const decoded = Buffer.from(base64Part, "base64").toString("utf-8");
+    // Split on the FIRST comma only — the payload (raw JSON) can itself
+    // contain commas, so `uri.split(",")[1]` silently truncated it.
+    const commaIndex = uri.indexOf(",");
+    if (commaIndex === -1) return null;
+    const header = uri.slice(0, commaIndex);
+    const payload = uri.slice(commaIndex + 1);
+    // `data:application/json,<raw>` (no `;base64`) is valid and used by
+    // gas-optimized on-chain renderers (e.g. gol_starknet) to skip the
+    // base64 cost — decode per the header, not unconditionally as base64.
+    const decoded = header.includes(";base64")
+      ? Buffer.from(payload, "base64").toString("utf-8")
+      : decodeURIComponent(payload);
     return JSON.parse(decoded);
   } catch {
     return null;
