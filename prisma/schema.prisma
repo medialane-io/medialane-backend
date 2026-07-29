@@ -198,6 +198,7 @@ model Token {
   name            String?
   description     String?
   image           String?
+  animationUrl    String?
   attributes      Json?
   ipType          String?
   licenseType     String?
