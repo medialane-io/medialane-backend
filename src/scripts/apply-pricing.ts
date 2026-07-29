@@ -2,16 +2,16 @@
  * Reads pricing.config.js (repo root — human-editable) and applies it to
  * PricingRule. Safe to re-run — upsert.
  *
- * Takes effect within 60 seconds: this script writes directly to the DB, so
- * an already-running server picks it up on its next pricing-cache refresh
- * (the cache TTL in payments/pricing.ts). Setting prices through the admin
- * API (PATCH /admin/pricing/:actionKey) instead applies instantly, since
- * that route invalidates the cache on write — use this file for reviewing
- * and setting many prices at once, the admin API for a single quick change.
+ * Runs automatically on every Railway deploy (railway.json's startCommand,
+ * right after seed-pricing.ts) — so the workflow to change a price is just
+ * "edit pricing.config.js, commit, push," the same as any other change.
+ * No Railway CLI or direct DB access needed; Railway's own deploy runtime
+ * already has DATABASE_URL. For a single urgent change without a full
+ * deploy, PATCH /admin/pricing/:actionKey applies instantly instead.
  *
  * Usage:
  *   bun run pricing:apply         # local DATABASE_URL
- *   bun run pricing:apply:prod    # Railway production DB
+ *   bun run pricing:apply:prod    # Railway production DB, via `railway run` (needs CLI access)
  */
 import prisma from "../db/client.js";
 import { x402Config, USDC_DECIMALS } from "../config/x402.js";
