@@ -57,3 +57,24 @@ export async function sendUsernameClaimRejected(to: string, username: string, ad
     log.error({ err }, "Failed to send rejection email");
   }
 }
+
+export async function sendProvisioningClaimEmail(to: string, claimUrl: string): Promise<void> {
+  const transporter = createTransporter();
+  if (!transporter) { log.warn("SMTP not configured — skipping provisioning claim email"); return; }
+  try {
+    await transporter.sendMail({
+      from: from(),
+      to,
+      subject: "An account is ready for you on Medialane",
+      html: `
+        <p>Hi there,</p>
+        <p>An account has been set up for you, with your assets already in it.</p>
+        <p>Claim it as your own — this takes a minute and confirms it belongs to you:<br>
+        <a href="${claimUrl}">${claimUrl}</a></p>
+        <p>— The Medialane Team</p>
+      `,
+    });
+  } catch (err) {
+    log.error({ err }, "Failed to send provisioning claim email");
+  }
+}
