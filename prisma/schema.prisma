@@ -380,6 +380,44 @@ model ClaimChallenge {
   @@index([walletAddress, contractAddress])
 }
 
+enum ProvisioningStatus {
+  PROVISIONED
+  CLAIM_PENDING
+  CLAIMED
+}
+
+model BusinessProvisioning {
+  id                 String             @id @default(cuid())
+  accountId          String
+  chain              Chain              @default(STARKNET)
+  walletAddress      String
+  recipientEmail     String
+  interimOwnerPubkey String
+  newOwnerPubkey     String?
+  status             ProvisioningStatus @default(PROVISIONED)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  account     Account                  @relation(fields: [accountId], references: [id])
+  claimTokens ProvisioningClaimToken[]
+
+  @@unique([chain, walletAddress])
+  @@index([accountId, status])
+}
+
+model ProvisioningClaimToken {
+  id             String    @id @default(cuid())
+  provisioningId String
+  token          String    @unique
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  provisioning BusinessProvisioning @relation(fields: [provisioningId], references: [id])
+
+  @@index([provisioningId])
+}
+
 model SiwsNonce {
   id            String   @id @default(cuid())
   chain         Chain    @default(STARKNET)
@@ -767,6 +805,7 @@ model Account {
   apiKeys    ApiKey[]
   webhooks   WebhookEndpoint[]
   payments   Payment[]
+  businessProvisioning BusinessProvisioning[]
 
   @@index([type])
   @@index([createdAt])
