@@ -106,6 +106,14 @@ export {
   type SupportedToken,
 } from "@medialane/sdk";
 
+// MediaWallet account-contract events (multiowner_account/events.cairo) —
+// used by wallet-native activity sync, not the bulk protocol indexer.
+export const ACCOUNT_CREATED_GUID_SELECTOR = hash.getSelectorFromName("AccountCreatedGuid");
+export const GUARDIAN_ADDED_GUID_SELECTOR = hash.getSelectorFromName("GuardianAddedGuid");
+export const ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR = hash.getSelectorFromName("EscapeOwnerTriggeredGuid");
+export const OWNER_ESCAPED_GUID_SELECTOR = hash.getSelectorFromName("OwnerEscapedGuid");
+export const ESCAPE_CANCELED_SELECTOR = hash.getSelectorFromName("EscapeCanceled");
+
 // IPFS gateways (in priority order)
 export const IPFS_GATEWAYS = [
   `https://${env.PINATA_GATEWAY}/ipfs`,

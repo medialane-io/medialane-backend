@@ -419,6 +419,47 @@ model ProvisioningClaimToken {
   @@index([provisioningId])
 }
 
+enum WalletActivityType {
+  SEND
+  RECEIVE
+  SWAP
+  DEPLOY
+  GUARDIAN_SET
+  GUARDIAN_TRIGGER_ESCAPE
+  GUARDIAN_COMPLETE_ESCAPE
+  GUARDIAN_CANCEL_ESCAPE
+}
+
+model WalletActivity {
+  id              String              @id @default(cuid())
+  chain           Chain               @default(STARKNET)
+  accountAddress  String
+  type            WalletActivityType
+  txHash          String
+  blockNumber     BigInt
+  timestamp       DateTime
+  tokenAddress    String?
+  amount          String?
+  counterparty    String?
+  tokenInAddress  String?
+  amountIn        String?
+  tokenOutAddress String?
+  amountOut       String?
+  createdAt       DateTime            @default(now())
+
+  @@unique([chain, txHash, type, accountAddress])
+  @@index([chain, accountAddress, timestamp])
+}
+
+model WalletActivityCursor {
+  chain           Chain    @default(STARKNET)
+  accountAddress  String
+  lastSyncedBlock BigInt
+  updatedAt       DateTime @updatedAt
+
+  @@id([chain, accountAddress])
+}
+
 model SiwsNonce {
   id            String   @id @default(cuid())
   chain         Chain    @default(STARKNET)
