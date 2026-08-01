@@ -61,7 +61,7 @@ only), nodemailer (existing `utils/mailer.ts`).
 - Create: a migration under `prisma/migrations/` (via `db:migrate`)
 
 **Interfaces:**
-- Produces: `ProvisioningStatus` enum (`PROVISIONED | CLAIM_PENDING | CLAIMED`),
+- Produces: `ProvisioningStatus` enum (`DEPLOYED | HANDOFF | TRANSFERRED`),
   `BusinessProvisioning` model, `ProvisioningClaimToken` model — consumed by every
   later task.
 
@@ -71,9 +71,9 @@ Add near the existing `CollectionClaim`/`ClaimChallenge` models (around line 370
 
 ```prisma
 enum ProvisioningStatus {
-  PROVISIONED
-  CLAIM_PENDING
-  CLAIMED
+  DEPLOYED
+  HANDOFF
+  TRANSFERRED
 }
 
 model BusinessProvisioning {
@@ -84,7 +84,7 @@ model BusinessProvisioning {
   recipientEmail     String
   interimOwnerPubkey String
   newOwnerPubkey     String?
-  status             ProvisioningStatus @default(PROVISIONED)
+  status             ProvisioningStatus @default(DEPLOYED)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -389,7 +389,7 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
   return {
     isAccountOwner: async () => true,
     createProvisioning: async (input) => {
-      const record: ProvisioningRecord = { id: "prov-1", status: "PROVISIONED", newOwnerPubkey: null, ...input };
+      const record: ProvisioningRecord = { id: "prov-1", status: "DEPLOYED", newOwnerPubkey: null, ...input };
       store.set(record.id, record);
       return record;
     },
@@ -400,13 +400,13 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
     },
     markClaimed: async (id) => {
       const r = store.get(id)!;
-      const updated = { ...r, status: "CLAIMED" as const };
+      const updated = { ...r, status: "TRANSFERRED" as const };
       store.set(id, updated);
       return updated;
     },
     recordNewOwnerPubkey: async (id, pubkey) => {
       const r = store.get(id)!;
-      const updated = { ...r, newOwnerPubkey: pubkey, status: "CLAIM_PENDING" as const };
+      const updated = { ...r, newOwnerPubkey: pubkey, status: "HANDOFF" as const };
       store.set(id, updated);
       return updated;
     },
@@ -434,7 +434,7 @@ describe("POST /v1/business/provisioning", () => {
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: ProvisioningRecord };
-    expect(body.data.status).toBe("PROVISIONED");
+    expect(body.data.status).toBe("DEPLOYED");
     expect(body.data.accountId).toBe("biz-1");
   });
 
@@ -566,9 +566,9 @@ const productionDeps: BusinessProvisioningDeps = {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
     return row && row.accountId === accountId ? row : null;
   },
-  markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "CLAIMED" } }),
+  markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
   recordNewOwnerPubkey: (id, newOwnerPubkey) =>
-    prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "CLAIM_PENDING" } }),
+    prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } }),
   createClaimToken: async ({ provisioningId }) => {
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -629,7 +629,7 @@ describe("GET /v1/business/provisioning/claim/:token", () => {
         token === "tok_1" ? { provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null } : null,
       getProvisioningById: async (id) =>
         id === "prov-1"
-          ? { id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "PROVISIONED" }
+          ? { id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "DEPLOYED" }
           : null,
     });
     const app = makeApp(deps);
@@ -663,7 +663,7 @@ describe("POST /v1/business/provisioning/claim/:token", () => {
       findClaimToken: async () => ({ provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null }),
       recordNewOwnerPubkey: async (id, pubkey) => {
         recorded = { id, pubkey };
-        return { id, accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "CLAIM_PENDING" };
+        return { id, accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "HANDOFF" };
       },
       consumeClaimToken: async (token) => { consumed = token; },
     });
@@ -796,10 +796,10 @@ Append to `business-provisioning.test.ts`:
 describe("POST /v1/business/provisioning/:id/complete", () => {
   const claimPendingRecord: ProvisioningRecord = {
     id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA",
-    recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0xNew", status: "CLAIM_PENDING",
+    recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0xNew", status: "HANDOFF",
   };
 
-  test("marks CLAIMED once the new owner is confirmed on-chain and the interim owner is gone", async () => {
+  test("marks TRANSFERRED once the new owner is confirmed on-chain and the interim owner is gone", async () => {
     const deps = fakeDeps({
       getProvisioningById: async (id, accountId) => (id === "prov-1" && accountId === "biz-1" ? claimPendingRecord : null),
       isAccountOwner: async (_chain, _wallet, pubkey) => pubkey === "0xNew",
@@ -808,7 +808,7 @@ describe("POST /v1/business/provisioning/:id/complete", () => {
     const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: ProvisioningRecord };
-    expect(body.data.status).toBe("CLAIMED");
+    expect(body.data.status).toBe("TRANSFERRED");
   });
 
   test("409s when the on-chain handoff isn't confirmed yet", async () => {
