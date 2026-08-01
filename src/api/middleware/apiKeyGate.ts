@@ -18,6 +18,8 @@ const PUBLIC_V1_PATHS: ReadonlyArray<{ method?: string; pattern: RegExp }> = [
   { method: "GET", pattern: /^\/v1\/users\/me$/ },
   { method: "POST", pattern: /^\/v1\/users\/me$/ },
   { pattern: /^\/v1\/auth\/siws\// },
+  { method: "GET", pattern: /^\/v1\/business\/provisioning\/claim\/[^/]+$/ },
+  { method: "POST", pattern: /^\/v1\/business\/provisioning\/claim\/[^/]+$/ },
 ];
 
 function isPublicV1Path(method: string, path: string): boolean {

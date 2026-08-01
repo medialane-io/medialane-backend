@@ -18,6 +18,7 @@ import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin/index.js";
 import claims from "./routes/claims.js";
+import { businessProvisioningRoutes } from "./routes/business-provisioning.js";
 import usernameClaims from "./routes/username-claims.js";
 import collectionSlugClaims from "./routes/collection-slug-claims.js";
 import users from "./routes/users.js";
@@ -63,6 +64,7 @@ export function createApp(): Hono<AppEnv> {
   // /v1/users/me) are exempted inside apiKeyGate; everything else here is
   // tenant-gated by the mount above, then layers its own Clerk JWT/SIWS auth.
   app.route("/v1/collections/claim", claims);
+  app.route("/v1/business/provisioning", businessProvisioningRoutes);
   app.route("/v1/username-claims", usernameClaims);
   app.route("/v1/collection-slug-claims", collectionSlugClaims);
   app.route("/v1/users", users);
