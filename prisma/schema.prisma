@@ -381,9 +381,9 @@ model ClaimChallenge {
 }
 
 enum ProvisioningStatus {
-  PROVISIONED
-  CLAIM_PENDING
-  CLAIMED
+  DEPLOYED
+  HANDOFF
+  TRANSFERRED
 }
 
 model BusinessProvisioning {
@@ -394,7 +394,7 @@ model BusinessProvisioning {
   recipientEmail     String
   interimOwnerPubkey String
   newOwnerPubkey     String?
-  status             ProvisioningStatus @default(PROVISIONED)
+  status             ProvisioningStatus @default(DEPLOYED)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 

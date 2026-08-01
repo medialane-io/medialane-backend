@@ -125,9 +125,9 @@ const productionDeps: BusinessProvisioningDeps = {
     return row && row.accountId === accountId ? row : null;
   },
   getProvisioningByIdUnscoped: (id) => prisma.businessProvisioning.findUnique({ where: { id } }),
-  markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "CLAIMED" } }),
+  markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
   recordNewOwnerPubkey: (id, newOwnerPubkey) =>
-    prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "CLAIM_PENDING" } }),
+    prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } }),
   createClaimToken: async ({ provisioningId }) => {
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
