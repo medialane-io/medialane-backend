@@ -703,6 +703,21 @@ would produce — a bare `"0xabc"` and a synthetic `"0xdifferent"` (not even
 valid hex) both fail silently/loudly for the same class of reason as the
 Task 3 fixture bug.
 
+**Corrected during execution (2026-08-01, found while starting the SDK
+follow-up plan):** the original version of this task returned raw Prisma
+rows straight into `c.json()`. Prisma's `blockNumber` is a native `BigInt`,
+and Hono's `c.json()` calls `JSON.stringify` internally, which throws
+unconditionally on `BigInt` — every non-empty response 500'd. Same pitfall
+`serializeOrder` already exists in this codebase to avoid (`CLAUDE.md`), just
+not applied here the first time. The original test fixture
+(`{ id, type, txHash } as never`, 3 of 15 fields, cast past the type checker)
+never exercised a real row shape, so it didn't catch this. Fixed by adding a
+`WalletActivityRow` type + `serializeWalletActivity()`, tightening
+`WalletActivityDeps.listActivity`'s return type from `Promise<unknown[]>` to
+`Promise<WalletActivityRow[]>`, and rebuilding the test fixtures around a
+`makeRow()` helper that must satisfy the real type — no `as never` escape
+hatch, so an incomplete fixture is now a compile error, not a silent gap.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
@@ -710,7 +725,7 @@ Task 3 fixture bug.
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
-import { createWalletActivityRoutes, type WalletActivityDeps } from "./wallet-activity.js";
+import { createWalletActivityRoutes, type WalletActivityDeps, type WalletActivityRow } from "./wallet-activity.js";
 
 const ADDRESS = "0x0000000000000000000000000000000000000000000000000000000000000abc";
 const OTHER_ADDRESS = "0x0000000000000000000000000000000000000000000000000000000000000999";
@@ -726,11 +741,22 @@ function makeApp(deps: WalletActivityDeps, walletAddress = ADDRESS) {
   return app;
 }
 
+function makeRow(overrides: Partial<WalletActivityRow> = {}): WalletActivityRow {
+  return {
+    id: "a1", chain: "STARKNET", accountAddress: ADDRESS, type: "SEND",
+    txHash: "0xtx", blockNumber: 175n, timestamp: new Date("2026-08-01T00:00:00Z"),
+    tokenAddress: "0xtoken", amount: "100", counterparty: "0xother",
+    tokenInAddress: null, amountIn: null, tokenOutAddress: null, amountOut: null,
+    createdAt: new Date("2026-08-01T00:00:00Z"),
+    ...overrides,
+  };
+}
+
 test("syncs then returns the caller's own activity", async () => {
   let synced = false;
   const deps: WalletActivityDeps = {
     sync: async () => { synced = true; },
-    listActivity: async () => [{ id: "a1", type: "SEND", txHash: "0xtx" } as never],
+    listActivity: async () => [makeRow()],
   };
   const app = makeApp(deps);
   const res = await app.request(`/v1/wallet-activity?address=${ADDRESS}`);
@@ -738,6 +764,18 @@ test("syncs then returns the caller's own activity", async () => {
   expect(synced).toBe(true);
   const body = (await res.json()) as { data: unknown[] };
   expect(body.data).toHaveLength(1);
+});
+
+test("serializes a real row (BigInt blockNumber) without throwing", async () => {
+  const deps: WalletActivityDeps = {
+    sync: async () => {},
+    listActivity: async () => [makeRow({ blockNumber: 175n })],
+  };
+  const app = makeApp(deps);
+  const res = await app.request(`/v1/wallet-activity?address=${ADDRESS}`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { data: Array<{ blockNumber: string }> };
+  expect(body.data[0].blockNumber).toBe("175");
 });
 
 test("403s when the queried address doesn't match the authenticated wallet", async () => {
@@ -766,14 +804,41 @@ Expected: FAIL — `./wallet-activity.js` does not exist.
 // src/api/routes/wallet-activity.ts
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
-import type { Chain } from "@prisma/client";
+import type { Chain, WalletActivityType } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { syncWalletActivityProd } from "../../walletActivity/sync.js";
 
+export interface WalletActivityRow {
+  id: string;
+  chain: Chain;
+  accountAddress: string;
+  type: WalletActivityType;
+  txHash: string;
+  blockNumber: bigint;
+  timestamp: Date;
+  tokenAddress: string | null;
+  amount: string | null;
+  counterparty: string | null;
+  tokenInAddress: string | null;
+  amountIn: string | null;
+  tokenOutAddress: string | null;
+  amountOut: string | null;
+  createdAt: Date;
+}
+
 export interface WalletActivityDeps {
   sync: (chain: Chain, accountAddress: string) => Promise<void>;
-  listActivity: (chain: Chain, accountAddress: string) => Promise<unknown[]>;
+  listActivity: (chain: Chain, accountAddress: string) => Promise<WalletActivityRow[]>;
+}
+
+/**
+ * Prisma's `blockNumber` is a native BigInt — Hono's `c.json()` calls
+ * `JSON.stringify` under the hood, which throws on BigInt unconditionally.
+ * Same pitfall as `serializeOrder` (CLAUDE.md), same fix: stringify it.
+ */
+export function serializeWalletActivity(row: WalletActivityRow) {
+  return { ...row, blockNumber: row.blockNumber.toString() };
 }
 
 // identityAuth is applied at mount time (server.ts), not inline here — this
@@ -793,7 +858,7 @@ export function createWalletActivityRoutes(deps: WalletActivityDeps): Hono<AppEn
 
     await deps.sync(chain, address);
     const rows = await deps.listActivity(chain, address);
-    return c.json({ data: rows });
+    return c.json({ data: rows.map(serializeWalletActivity) });
   });
 
   return app;
@@ -811,7 +876,7 @@ export const walletActivityRoutes = createWalletActivityRoutes(productionDeps);
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bun test src/api/routes/wallet-activity.test.ts`
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 5: Mount in `src/api/server.ts`**
 
