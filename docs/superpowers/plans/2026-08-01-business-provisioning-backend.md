@@ -399,7 +399,7 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
       const r = store.get(id);
       return r && r.accountId === accountId ? r : null;
     },
-    markClaimed: async (id) => {
+    markTransferred: async (id) => {
       const r = store.get(id)!;
       const updated = { ...r, status: "TRANSFERRED" as const };
       store.set(id, updated);
@@ -510,7 +510,7 @@ export interface BusinessProvisioningDeps {
   }) => Promise<ProvisioningRecord>;
   listProvisioning: (accountId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, accountId: string) => Promise<ProvisioningRecord | null>;
-  markClaimed: (id: string) => Promise<ProvisioningRecord>;
+  markTransferred: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
   createClaimToken: (input: { provisioningId: string }) => Promise<{ token: string; expiresAt: Date }>;
   findClaimToken: (token: string) => Promise<{ provisioningId: string; expiresAt: Date; consumedAt: Date | null } | null>;
@@ -572,7 +572,7 @@ const productionDeps: BusinessProvisioningDeps = {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
     return row && row.accountId === accountId ? row : null;
   },
-  markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
+  markTransferred: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
   recordNewOwnerPubkey: (id, newOwnerPubkey) =>
     prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } }),
   createClaimToken: async ({ provisioningId }) => {
@@ -791,7 +791,7 @@ git commit -m "feat: add public claim-info and claim-submit routes"
 - Modify: `src/api/routes/business-provisioning.test.ts`
 
 **Interfaces:**
-- Consumes: `deps.isAccountOwner`, `deps.markClaimed`, `deps.getProvisioningById`.
+- Consumes: `deps.isAccountOwner`, `deps.markTransferred`, `deps.getProvisioningById`.
 - Produces: `POST /:id/complete` — the last route this plan adds.
 
 - [ ] **Step 1: Write the failing tests**
@@ -859,7 +859,7 @@ Add to `createBusinessProvisioningRoutes`, before `return app;`:
     ]);
     if (!newOwnerConfirmed || interimStillOwner) return c.json({ error: "handoff_not_confirmed_onchain" }, 409);
 
-    const updated = await deps.markClaimed(id);
+    const updated = await deps.markTransferred(id);
     return c.json({ data: updated });
   });
 ```

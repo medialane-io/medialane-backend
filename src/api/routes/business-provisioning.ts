@@ -29,7 +29,7 @@ export interface BusinessProvisioningDeps {
   listProvisioning: (accountId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, accountId: string) => Promise<ProvisioningRecord | null>;
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
-  markClaimed: (id: string) => Promise<ProvisioningRecord>;
+  markTransferred: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
   createClaimToken: (input: { provisioningId: string }) => Promise<{ token: string; expiresAt: Date }>;
   findClaimToken: (token: string) => Promise<{ provisioningId: string; expiresAt: Date; consumedAt: Date | null } | null>;
@@ -116,7 +116,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     ]);
     if (!newOwnerConfirmed || interimStillOwner) return c.json({ error: "handoff_not_confirmed_onchain" }, 409);
 
-    const updated = await deps.markClaimed(id);
+    const updated = await deps.markTransferred(id);
     return c.json({ data: updated });
   });
 
@@ -133,7 +133,7 @@ const productionDeps: BusinessProvisioningDeps = {
     return row && row.accountId === accountId ? row : null;
   },
   getProvisioningByIdUnscoped: (id) => prisma.businessProvisioning.findUnique({ where: { id } }),
-  markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
+  markTransferred: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
   recordNewOwnerPubkey: (id, newOwnerPubkey) =>
     prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } }),
   createClaimToken: async ({ provisioningId }) => {

@@ -13,6 +13,19 @@ bun run db:migrate   # Prisma migrate dev (prompts for migration name) — ALWAY
 bun run db:generate  # regenerate Prisma client after schema changes
 bun run db:push      # push schema without a migration file
 bun run db:studio    # Prisma Studio at localhost:5555
+bun run db:fresh     # migrate deploy (partial) -> pre-migrate.ts -> migrate deploy
+                     # again — use this against a genuinely fresh/empty database.
+                     # A plain `prisma migrate deploy` alone fails on
+                     # 20260312000000_add_fts_indexes (CREATE INDEX CONCURRENTLY
+                     # can't run inside Prisma's migration transaction).
+                     # pre-migrate.ts is what neutralizes that migration — but its
+                     # raw SQL targets tables ("Token"/"Collection") that must
+                     # already exist, which is only true on Railway's real database
+                     # because it's never actually empty. That's why db:fresh runs
+                     # migrate deploy FIRST (builds the schema up to the failure
+                     # point, ignoring that expected failure), not before —
+                     # Railway's own startCommand order (pre-migrate.ts first) only
+                     # works there because the tables already exist from history.
 
 bun run reset-cursor # reset IndexerCursor to INDEXER_START_BLOCK — the mirror
                      # replays the window (catch-up mode); this + the admin

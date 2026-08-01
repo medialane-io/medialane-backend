@@ -11,6 +11,7 @@
     "db:migrate": "bunx prisma migrate dev",
     "db:generate": "bunx prisma generate",
     "db:push": "bunx prisma db push",
+    "db:fresh": "(bunx prisma migrate deploy || true) && bun run scripts/pre-migrate.ts && bunx prisma migrate deploy",
     "db:studio": "bunx prisma studio",
     "reset-cursor": "bun run scripts/resetCursor.ts",
     "seed-rewards": "bun run src/scripts/seed-rewards.ts",
