@@ -58,6 +58,21 @@ export async function sendUsernameClaimRejected(to: string, username: string, ad
   }
 }
 
+/**
+ * Pure HTML builder, split out from sendProvisioningClaimEmail so its content can be
+ * unit-tested without mocking the mail transport (mock.module leaks process-globally
+ * in this repo's bun test runs — DI or pure functions only).
+ */
+export function buildProvisioningClaimEmailHtml(claimUrl: string): string {
+  return `
+    <p>Hi there,</p>
+    <p>An account has been set up for you, with your assets already in it.</p>
+    <p>Claim it as your own — this takes a minute and confirms it belongs to you:<br>
+    <a href="${claimUrl}">${claimUrl}</a></p>
+    <p>— The Medialane Team</p>
+  `;
+}
+
 export async function sendProvisioningClaimEmail(to: string, claimUrl: string): Promise<void> {
   const transporter = createTransporter();
   if (!transporter) { log.warn("SMTP not configured — skipping provisioning claim email"); return; }
@@ -66,13 +81,7 @@ export async function sendProvisioningClaimEmail(to: string, claimUrl: string): 
       from: from(),
       to,
       subject: "An account is ready for you on Medialane",
-      html: `
-        <p>Hi there,</p>
-        <p>An account has been set up for you, with your assets already in it.</p>
-        <p>Claim it as your own — this takes a minute and confirms it belongs to you:<br>
-        <a href="${claimUrl}">${claimUrl}</a></p>
-        <p>— The Medialane Team</p>
-      `,
+      html: buildProvisioningClaimEmailHtml(claimUrl),
     });
   } catch (err) {
     log.error({ err }, "Failed to send provisioning claim email");
