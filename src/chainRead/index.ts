@@ -64,6 +64,20 @@ export async function getCollectionOwner(chain: Chain, contract: string): Promis
   }
 }
 
+/**
+ * Is `ownerPubkey` currently a registered owner of the MediaWallet account at
+ * `accountAddress`? Used to verify business-provisioning handoffs on-chain
+ * before trusting a claim as complete — never trust the DB alone for this.
+ */
+export async function isAccountOwner(chain: Chain, accountAddress: string, ownerPubkey: string): Promise<boolean> {
+  switch (chain) {
+    case "STARKNET":
+      return starknetIsAccountOwner(accountAddress, ownerPubkey);
+    default:
+      throw new Error(`Owner-membership reads not implemented for chain "${chain}"`);
+  }
+}
+
 // ─── Starknet implementations ────────────────────────────────────────────────
 
 async function starknetHoldsToken(
@@ -118,4 +132,24 @@ async function starknetCollectionOwner(contract: string): Promise<string> {
     return c.owner();
   });
   return normalizeAddress("STARKNET", String(ownerResult));
+}
+
+async function starknetIsAccountOwner(accountAddress: string, ownerPubkey: string): Promise<boolean> {
+  return callRpc((provider) => __unstable_starknetIsAccountOwnerWithProvider(provider, accountAddress, ownerPubkey));
+}
+
+// Exported under an intentionally unstable name — exists only so tests can inject a
+// fake provider without a live RPC. Not part of the module's public surface.
+export async function __unstable_starknetIsAccountOwnerWithProvider(
+  provider: { callContract: (call: { contractAddress: string; entrypoint: string; calldata: string[] }) => Promise<string[]> },
+  accountAddress: string,
+  ownerPubkey: string,
+): Promise<boolean> {
+  // Signer::Starknet(StarknetSigner{ pubkey }) → Serde [tag=0, pubkey].
+  const res = await provider.callContract({
+    contractAddress: accountAddress,
+    entrypoint: "is_owner",
+    calldata: ["0x0", ownerPubkey],
+  });
+  return BigInt(res[0]) === 1n;
 }
