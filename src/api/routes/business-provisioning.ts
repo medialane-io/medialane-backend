@@ -27,9 +27,12 @@ export interface BusinessProvisioningDeps {
   }) => Promise<ProvisioningRecord>;
   listProvisioning: (accountId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, accountId: string) => Promise<ProvisioningRecord | null>;
+  getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markClaimed: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
   createClaimToken: (input: { provisioningId: string }) => Promise<{ token: string; expiresAt: Date }>;
+  findClaimToken: (token: string) => Promise<{ provisioningId: string; expiresAt: Date; consumedAt: Date | null } | null>;
+  consumeClaimToken: (token: string) => Promise<void>;
   sendClaimEmail: (to: string, claimUrl: string) => Promise<void>;
 }
 
@@ -70,6 +73,28 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     return c.json({ data: rows });
   });
 
+  app.get("/claim/:token", async (c) => {
+    const token = c.req.param("token");
+    const claim = await deps.findClaimToken(token);
+    if (!claim) return c.json({ error: "not_found" }, 404);
+    if (claim.consumedAt || claim.expiresAt < new Date()) return c.json({ error: "expired" }, 410);
+    const record = await deps.getProvisioningByIdUnscoped(claim.provisioningId);
+    if (!record) return c.json({ error: "not_found" }, 404);
+    return c.json({ data: { chain: record.chain, walletAddress: record.walletAddress, recipientEmail: record.recipientEmail } });
+  });
+
+  app.post("/claim/:token", zValidator("json", z.object({ newOwnerPubkey: z.string() })), async (c) => {
+    const token = c.req.param("token");
+    const { newOwnerPubkey } = c.req.valid("json");
+    const claim = await deps.findClaimToken(token);
+    if (!claim) return c.json({ error: "not_found" }, 404);
+    if (claim.consumedAt || claim.expiresAt < new Date()) return c.json({ error: "expired" }, 410);
+
+    const record = await deps.recordNewOwnerPubkey(claim.provisioningId, normalizeAddress("STARKNET", newOwnerPubkey));
+    await deps.consumeClaimToken(token);
+    return c.json({ data: record });
+  });
+
   return app;
 }
 
@@ -82,6 +107,7 @@ const productionDeps: BusinessProvisioningDeps = {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
     return row && row.accountId === accountId ? row : null;
   },
+  getProvisioningByIdUnscoped: (id) => prisma.businessProvisioning.findUnique({ where: { id } }),
   markClaimed: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "CLAIMED" } }),
   recordNewOwnerPubkey: (id, newOwnerPubkey) =>
     prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "CLAIM_PENDING" } }),
@@ -90,6 +116,10 @@ const productionDeps: BusinessProvisioningDeps = {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await prisma.provisioningClaimToken.create({ data: { provisioningId, token, expiresAt } });
     return { token, expiresAt };
+  },
+  findClaimToken: (token) => prisma.provisioningClaimToken.findUnique({ where: { token } }),
+  consumeClaimToken: async (token) => {
+    await prisma.provisioningClaimToken.update({ where: { token }, data: { consumedAt: new Date() } });
   },
   sendClaimEmail: realSendClaimEmail,
 };

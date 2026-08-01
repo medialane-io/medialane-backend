@@ -29,6 +29,7 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
       const r = store.get(id);
       return r && r.accountId === accountId ? r : null;
     },
+    getProvisioningByIdUnscoped: async () => null,
     markClaimed: async (id) => {
       const r = store.get(id)!;
       const updated = { ...r, status: "CLAIMED" as const };
@@ -42,6 +43,8 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
       return updated;
     },
     createClaimToken: async () => ({ token: "tok_1", expiresAt: new Date(Date.now() + 86_400_000) }),
+    findClaimToken: async () => null,
+    consumeClaimToken: async () => {},
     sendClaimEmail: async () => {},
     ...overrides,
   };
@@ -96,5 +99,75 @@ describe("GET /v1/business/provisioning", () => {
     const body = (await res.json()) as { data: ProvisioningRecord[] };
     expect(body.data).toHaveLength(1);
     expect(body.data[0].walletAddress).toBe("0xA");
+  });
+});
+
+describe("GET /v1/business/provisioning/claim/:token", () => {
+  test("returns the wallet summary for a valid, unexpired token", async () => {
+    const deps = fakeDeps({
+      findClaimToken: async (token) =>
+        token === "tok_1" ? { provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null } : null,
+      getProvisioningByIdUnscoped: async (id) =>
+        id === "prov-1"
+          ? { id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xa", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "PROVISIONED" }
+          : null,
+    });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/claim/tok_1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { walletAddress: string } };
+    expect(body.data.walletAddress).toBe("0xa");
+  });
+
+  test("404s for an unknown token", async () => {
+    const app = makeApp(fakeDeps({ findClaimToken: async () => null }));
+    const res = await app.request("/v1/business/provisioning/claim/nope");
+    expect(res.status).toBe(404);
+  });
+
+  test("410s for an expired token", async () => {
+    const deps = fakeDeps({
+      findClaimToken: async () => ({ provisioningId: "prov-1", expiresAt: new Date(Date.now() - 1000), consumedAt: null }),
+    });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/claim/tok_1");
+    expect(res.status).toBe(410);
+  });
+});
+
+describe("POST /v1/business/provisioning/claim/:token", () => {
+  test("records the recipient's new owner key and consumes the token", async () => {
+    let consumed = "";
+    let recorded: { id: string; pubkey: string } | undefined;
+    const deps = fakeDeps({
+      findClaimToken: async () => ({ provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null }),
+      recordNewOwnerPubkey: async (id, pubkey) => {
+        recorded = { id, pubkey };
+        return { id, accountId: "biz-1", chain: "STARKNET", walletAddress: "0xa", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "CLAIM_PENDING" };
+      },
+      consumeClaimToken: async (token) => { consumed = token; },
+    });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/claim/tok_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ newOwnerPubkey: "0x3" }),
+    });
+    expect(res.status).toBe(200);
+    expect(recorded?.id).toBe("prov-1");
+    expect(consumed).toBe("tok_1");
+  });
+
+  test("rejects an already-consumed token", async () => {
+    const deps = fakeDeps({
+      findClaimToken: async () => ({ provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: new Date() }),
+    });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/claim/tok_1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ newOwnerPubkey: "0x3" }),
+    });
+    expect(res.status).toBe(410);
   });
 });
