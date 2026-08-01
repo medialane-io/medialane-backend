@@ -678,21 +678,44 @@ git commit -m "feat: add wallet-native activity sync orchestrator"
   route's own tests inject a fake sync function, not the real one).
 - Produces: `GET /v1/wallet-activity?address=&chain=`.
 
-Identity-scoped: the route requires `identityAuth` and the JWT-authenticated
-wallet must match the queried `address` (same 403-on-mismatch pattern as
-`claims.ts`'s `POST /v1/collections/claim`) — this is a personal activity
-feed, not a public read.
+Identity-scoped: the JWT-authenticated wallet must match the queried
+`address` (same 403-on-mismatch pattern as `claims.ts`'s
+`POST /v1/collections/claim`) — this is a personal activity feed, not a
+public read.
+
+**Corrected during execution (2026-08-01):** the original version of this
+task put `identityAuth` inline as Hono middleware on the route itself
+(`app.get("/", identityAuth, ...)`), mirroring `claims.ts`. That makes the
+route untestable via DI — `identityAuth` isn't part of the injectable
+`WalletActivityDeps`, so a route test with no real Bearer token would 401
+before ever reaching the handler, regardless of what the test's fake
+`c.set("walletAddress", ...)` middleware set up. Fixed by applying
+`identityAuth` at **mount time** in `server.ts` instead — same separation
+`apiKeyGate` already uses globally. `createWalletActivityRoutes` now only
+ever depends on `c.get("walletAddress")` already being set by whatever wraps
+it in production; its own tests set that directly with no real auth
+middleware involved. (`claims.ts` itself has no test file, so this wasn't a
+precedent being broken so much as a gap this task ran into first.)
+
+Also: address literals in the test must already be in the same normalized
+(64-hex-char, zero-padded) form `normalizeAddress` and the real `identityAuth`
+would produce — a bare `"0xabc"` and a synthetic `"0xdifferent"` (not even
+valid hex) both fail silently/loudly for the same class of reason as the
+Task 3 fixture bug.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
 // src/api/routes/wallet-activity.test.ts
-import { describe, expect, test } from "bun:test";
+import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { createWalletActivityRoutes, type WalletActivityDeps } from "./wallet-activity.js";
 
-function makeApp(deps: WalletActivityDeps, walletAddress = "0xabc") {
+const ADDRESS = "0x0000000000000000000000000000000000000000000000000000000000000abc";
+const OTHER_ADDRESS = "0x0000000000000000000000000000000000000000000000000000000000000999";
+
+function makeApp(deps: WalletActivityDeps, walletAddress = ADDRESS) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("walletAddress", walletAddress);
@@ -710,7 +733,7 @@ test("syncs then returns the caller's own activity", async () => {
     listActivity: async () => [{ id: "a1", type: "SEND", txHash: "0xtx" } as never],
   };
   const app = makeApp(deps);
-  const res = await app.request("/v1/wallet-activity?address=0xabc");
+  const res = await app.request(`/v1/wallet-activity?address=${ADDRESS}`);
   expect(res.status).toBe(200);
   expect(synced).toBe(true);
   const body = (await res.json()) as { data: unknown[] };
@@ -719,8 +742,8 @@ test("syncs then returns the caller's own activity", async () => {
 
 test("403s when the queried address doesn't match the authenticated wallet", async () => {
   const deps: WalletActivityDeps = { sync: async () => {}, listActivity: async () => [] };
-  const app = makeApp(deps, "0xabc");
-  const res = await app.request("/v1/wallet-activity?address=0xdifferent");
+  const app = makeApp(deps, ADDRESS);
+  const res = await app.request(`/v1/wallet-activity?address=${OTHER_ADDRESS}`);
   expect(res.status).toBe(403);
 });
 
@@ -746,7 +769,6 @@ import type { AppEnv } from "../../types/hono.js";
 import type { Chain } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { identityAuth } from "../middleware/identityAuth.js";
 import { syncWalletActivityProd } from "../../walletActivity/sync.js";
 
 export interface WalletActivityDeps {
@@ -754,10 +776,13 @@ export interface WalletActivityDeps {
   listActivity: (chain: Chain, accountAddress: string) => Promise<unknown[]>;
 }
 
+// identityAuth is applied at mount time (server.ts), not inline here — this
+// route only ever depends on `c.get("walletAddress")` already being set by
+// whatever wraps it, same separation as apiKeyGate's own mounting.
 export function createWalletActivityRoutes(deps: WalletActivityDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.get("/", identityAuth, async (c) => {
+  app.get("/", async (c) => {
     const addressParam = c.req.query("address");
     if (!addressParam) return c.json({ error: "address is required" }, 400);
     const chain = (c.req.query("chain") as Chain | undefined) ?? "STARKNET";
@@ -790,15 +815,20 @@ Expected: PASS (3 tests).
 
 - [ ] **Step 5: Mount in `src/api/server.ts`**
 
-Add the import near the other route imports:
+Add the imports near the other route imports:
 
 ```ts
+import { identityAuth } from "./middleware/identityAuth.js";
 import { walletActivityRoutes } from "./routes/wallet-activity.js";
 ```
 
-Add the mount near the other `/v1/*` route mounts:
+Add the mount near the other `/v1/*` route mounts — the `identityAuth`
+middleware first, scoped to just this route's prefix (Hono's `/*` wildcard
+matches the bare prefix too, verified directly: `app.use("/x/*", mw);
+app.get("/x", handler)` runs `mw` for a request to exactly `/x`):
 
 ```ts
+  app.use("/v1/wallet-activity/*", identityAuth);
   app.route("/v1/wallet-activity", walletActivityRoutes);
 ```
 
