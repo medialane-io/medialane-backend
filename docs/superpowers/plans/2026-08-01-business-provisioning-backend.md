@@ -81,7 +81,8 @@ model BusinessProvisioning {
   accountId          String
   chain              Chain              @default(STARKNET)
   walletAddress      String
-  recipientEmail     String
+  recipientScheme    String
+  recipientValue     String
   interimOwnerPubkey String
   newOwnerPubkey     String?
   status             ProvisioningStatus @default(DEPLOYED)
@@ -428,7 +429,7 @@ describe("POST /v1/business/provisioning", () => {
       body: JSON.stringify({
         chain: "STARKNET",
         walletAddress: "0xWallet",
-        recipientEmail: "worker@example.com",
+        recipientScheme: "email", recipientValue: "worker@example.com",
         interimOwnerPubkey: "0xInterim",
       }),
     });
@@ -447,7 +448,7 @@ describe("POST /v1/business/provisioning", () => {
       body: JSON.stringify({
         chain: "STARKNET",
         walletAddress: "0xWallet",
-        recipientEmail: "worker@example.com",
+        recipientScheme: "email", recipientValue: "worker@example.com",
         interimOwnerPubkey: "0xInterim",
       }),
     });
@@ -461,8 +462,8 @@ describe("GET /v1/business/provisioning", () => {
   test("lists only the caller's own rows", async () => {
     const deps = fakeDeps();
     const app = makeApp(deps);
-    await deps.createProvisioning({ accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1" });
-    await deps.createProvisioning({ accountId: "biz-2", chain: "STARKNET", walletAddress: "0xB", recipientEmail: "b@example.com", interimOwnerPubkey: "0x2" });
+    await deps.createProvisioning({ accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1" });
+    await deps.createProvisioning({ accountId: "biz-2", chain: "STARKNET", walletAddress: "0xB", recipientScheme: "email", recipientValue: "b@example.com", interimOwnerPubkey: "0x2" });
     const res = await app.request("/v1/business/provisioning");
     const body = (await res.json()) as { data: ProvisioningRecord[] };
     expect(body.data).toHaveLength(1);
@@ -495,7 +496,8 @@ export interface ProvisioningRecord {
   accountId: string;
   chain: Chain;
   walletAddress: string;
-  recipientEmail: string;
+  recipientScheme: string;
+  recipientValue: string;
   interimOwnerPubkey: string;
   newOwnerPubkey: string | null;
   status: ProvisioningStatus;
@@ -504,7 +506,7 @@ export interface ProvisioningRecord {
 export interface BusinessProvisioningDeps {
   isAccountOwner: (chain: Chain, walletAddress: string, ownerPubkey: string) => Promise<boolean>;
   createProvisioning: (input: {
-    accountId: string; chain: Chain; walletAddress: string; recipientEmail: string; interimOwnerPubkey: string;
+    accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
   }) => Promise<ProvisioningRecord>;
   listProvisioning: (accountId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, accountId: string) => Promise<ProvisioningRecord | null>;
@@ -516,10 +518,15 @@ export interface BusinessProvisioningDeps {
   sendClaimEmail: (to: string, claimUrl: string) => Promise<void>;
 }
 
+// recipientScheme is deliberately free-form (mirrors Identity.scheme, 07-identity §II —
+// the platform never enumerates valid identity schemes). "email" is the only scheme
+// this route delivers on the business's own behalf — every other scheme still
+// registers and gets claimUrl back in the response for the business to deliver itself.
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
   walletAddress: z.string(),
-  recipientEmail: z.string().email(),
+  recipientScheme: z.string().min(1),
+  recipientValue: z.string().min(1),
   interimOwnerPubkey: z.string(),
 });
 
@@ -527,7 +534,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   const app = new Hono<AppEnv>();
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
-    const { chain, walletAddress, recipientEmail, interimOwnerPubkey } = c.req.valid("json");
+    const { chain, walletAddress, recipientScheme, recipientValue, interimOwnerPubkey } = c.req.valid("json");
     const accountId = c.get("account").id;
     const normWallet = normalizeAddress(chain, walletAddress);
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
@@ -536,15 +543,14 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     if (!ok) return c.json({ error: "interim_owner_mismatch" }, 400);
 
     const record = await deps.createProvisioning({
-      accountId, chain, walletAddress: normWallet, recipientEmail, interimOwnerPubkey: normPubkey,
+      accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
     });
 
-    const { token, expiresAt } = await deps.createClaimToken({ provisioningId: record.id });
-    void expiresAt; // recorded by createClaimToken; not needed in the response
+    const { token } = await deps.createClaimToken({ provisioningId: record.id });
     const claimUrl = `https://medialane.io/claim/${token}`;
-    await deps.sendClaimEmail(recipientEmail, claimUrl);
+    if (recipientScheme === "email") await deps.sendClaimEmail(recipientValue, claimUrl);
 
-    return c.json({ data: record }, 201);
+    return c.json({ data: { ...record, claimUrl } }, 201);
   });
 
   app.get("/", async (c) => {
@@ -629,7 +635,7 @@ describe("GET /v1/business/provisioning/claim/:token", () => {
         token === "tok_1" ? { provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null } : null,
       getProvisioningById: async (id) =>
         id === "prov-1"
-          ? { id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "DEPLOYED" }
+          ? { id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "DEPLOYED" }
           : null,
     });
     const app = makeApp(deps);
@@ -663,7 +669,7 @@ describe("POST /v1/business/provisioning/claim/:token", () => {
       findClaimToken: async () => ({ provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null }),
       recordNewOwnerPubkey: async (id, pubkey) => {
         recorded = { id, pubkey };
-        return { id, accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "HANDOFF" };
+        return { id, accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "HANDOFF" };
       },
       consumeClaimToken: async (token) => { consumed = token; },
     });
@@ -714,7 +720,7 @@ Add to `createBusinessProvisioningRoutes` in `business-provisioning.ts`, before 
     // an authenticated business account — accountId is irrelevant to this read.
     const record = await deps.getProvisioningById(claim.provisioningId, "");
     if (!record) return c.json({ error: "not_found" }, 404);
-    return c.json({ data: { chain: record.chain, walletAddress: record.walletAddress, recipientEmail: record.recipientEmail } });
+    return c.json({ data: { chain: record.chain, walletAddress: record.walletAddress, recipientScheme: record.recipientScheme, recipientValue: record.recipientValue } });
   });
 
   app.post("/claim/:token", zValidator("json", z.object({ newOwnerPubkey: z.string() })), async (c) => {
@@ -796,7 +802,7 @@ Append to `business-provisioning.test.ts`:
 describe("POST /v1/business/provisioning/:id/complete", () => {
   const claimPendingRecord: ProvisioningRecord = {
     id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA",
-    recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0xNew", status: "HANDOFF",
+    recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0xNew", status: "HANDOFF",
   };
 
   test("marks TRANSFERRED once the new owner is confirmed on-chain and the interim owner is gone", async () => {
