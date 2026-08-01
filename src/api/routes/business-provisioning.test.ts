@@ -30,7 +30,7 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
       return r && r.accountId === accountId ? r : null;
     },
     getProvisioningByIdUnscoped: async () => null,
-    markClaimed: async (id) => {
+    markTransferred: async (id) => {
       const r = store.get(id)!;
       const updated = { ...r, status: "TRANSFERRED" as const };
       store.set(id, updated);
