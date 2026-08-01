@@ -171,3 +171,39 @@ describe("POST /v1/business/provisioning/claim/:token", () => {
     expect(res.status).toBe(410);
   });
 });
+
+describe("POST /v1/business/provisioning/:id/complete", () => {
+  const claimPendingRecord: ProvisioningRecord = {
+    id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xa",
+    recipientEmail: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0x3", status: "CLAIM_PENDING",
+  };
+
+  test("marks CLAIMED once the new owner is confirmed on-chain and the interim owner is gone", async () => {
+    const deps = fakeDeps({
+      getProvisioningById: async (id, accountId) => (id === "prov-1" && accountId === "biz-1" ? claimPendingRecord : null),
+      isAccountOwner: async (_chain, _wallet, pubkey) => pubkey === "0x3",
+    });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: ProvisioningRecord };
+    expect(body.data.status).toBe("CLAIMED");
+  });
+
+  test("409s when the on-chain handoff isn't confirmed yet", async () => {
+    const deps = fakeDeps({
+      getProvisioningById: async () => claimPendingRecord,
+      isAccountOwner: async () => false,
+    });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
+    expect(res.status).toBe(409);
+  });
+
+  test("404s for a row that belongs to a different business account", async () => {
+    const deps = fakeDeps({ getProvisioningById: async () => null });
+    const app = makeApp(deps);
+    const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
+    expect(res.status).toBe(404);
+  });
+});

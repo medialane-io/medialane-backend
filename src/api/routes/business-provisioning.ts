@@ -95,6 +95,23 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     return c.json({ data: record });
   });
 
+  app.post("/:id/complete", async (c) => {
+    const id = c.req.param("id");
+    const accountId = c.get("account").id;
+    const record = await deps.getProvisioningById(id, accountId);
+    if (!record) return c.json({ error: "not_found" }, 404);
+    if (!record.newOwnerPubkey) return c.json({ error: "not_claimed_yet" }, 409);
+
+    const [newOwnerConfirmed, interimStillOwner] = await Promise.all([
+      deps.isAccountOwner(record.chain, record.walletAddress, record.newOwnerPubkey),
+      deps.isAccountOwner(record.chain, record.walletAddress, record.interimOwnerPubkey),
+    ]);
+    if (!newOwnerConfirmed || interimStillOwner) return c.json({ error: "handoff_not_confirmed_onchain" }, 409);
+
+    const updated = await deps.markClaimed(id);
+    return c.json({ data: updated });
+  });
+
   return app;
 }
 
