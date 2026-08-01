@@ -391,7 +391,8 @@ model BusinessProvisioning {
   accountId          String
   chain              Chain              @default(STARKNET)
   walletAddress      String
-  recipientEmail     String
+  recipientScheme    String
+  recipientValue     String
   interimOwnerPubkey String
   newOwnerPubkey     String?
   status             ProvisioningStatus @default(DEPLOYED)

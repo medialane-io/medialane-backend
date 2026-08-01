@@ -14,7 +14,8 @@ export interface ProvisioningRecord {
   accountId: string;
   chain: Chain;
   walletAddress: string;
-  recipientEmail: string;
+  recipientScheme: string;
+  recipientValue: string;
   interimOwnerPubkey: string;
   newOwnerPubkey: string | null;
   status: ProvisioningStatus;
@@ -23,7 +24,7 @@ export interface ProvisioningRecord {
 export interface BusinessProvisioningDeps {
   isAccountOwner: (chain: Chain, walletAddress: string, ownerPubkey: string) => Promise<boolean>;
   createProvisioning: (input: {
-    accountId: string; chain: Chain; walletAddress: string; recipientEmail: string; interimOwnerPubkey: string;
+    accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
   }) => Promise<ProvisioningRecord>;
   listProvisioning: (accountId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, accountId: string) => Promise<ProvisioningRecord | null>;
@@ -36,10 +37,15 @@ export interface BusinessProvisioningDeps {
   sendClaimEmail: (to: string, claimUrl: string) => Promise<void>;
 }
 
+// recipientScheme is deliberately free-form (mirrors Identity.scheme, 07-identity §II —
+// the platform never enumerates valid identity types). "email" is the only scheme this
+// route knows how to deliver on our own behalf; every other scheme still registers and
+// gets a claimUrl back in the response, delivery is the caller's own responsibility.
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
   walletAddress: z.string(),
-  recipientEmail: z.string().email(),
+  recipientScheme: z.string().min(1),
+  recipientValue: z.string().min(1),
   interimOwnerPubkey: z.string(),
 });
 
@@ -47,7 +53,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   const app = new Hono<AppEnv>();
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
-    const { chain, walletAddress, recipientEmail, interimOwnerPubkey } = c.req.valid("json");
+    const { chain, walletAddress, recipientScheme, recipientValue, interimOwnerPubkey } = c.req.valid("json");
     const accountId = c.get("account").id;
     const normWallet = normalizeAddress(chain, walletAddress);
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
@@ -56,14 +62,16 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     if (!ok) return c.json({ error: "interim_owner_mismatch" }, 400);
 
     const record = await deps.createProvisioning({
-      accountId, chain, walletAddress: normWallet, recipientEmail, interimOwnerPubkey: normPubkey,
+      accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
     });
 
     const { token } = await deps.createClaimToken({ provisioningId: record.id });
     const claimUrl = `https://medialane.io/claim/${token}`;
-    await deps.sendClaimEmail(recipientEmail, claimUrl);
+    // "email" is the only scheme we deliver on the business's behalf; every other
+    // scheme still gets claimUrl back below for the business to deliver itself.
+    if (recipientScheme === "email") await deps.sendClaimEmail(recipientValue, claimUrl);
 
-    return c.json({ data: record }, 201);
+    return c.json({ data: { ...record, claimUrl } }, 201);
   });
 
   app.get("/", async (c) => {
@@ -80,7 +88,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     if (claim.consumedAt || claim.expiresAt < new Date()) return c.json({ error: "expired" }, 410);
     const record = await deps.getProvisioningByIdUnscoped(claim.provisioningId);
     if (!record) return c.json({ error: "not_found" }, 404);
-    return c.json({ data: { chain: record.chain, walletAddress: record.walletAddress, recipientEmail: record.recipientEmail } });
+    return c.json({ data: { chain: record.chain, walletAddress: record.walletAddress, recipientScheme: record.recipientScheme, recipientValue: record.recipientValue } });
   });
 
   app.post("/claim/:token", zValidator("json", z.object({ newOwnerPubkey: z.string() })), async (c) => {
