@@ -11,11 +11,13 @@ export interface SyncDeps {
   getCursor: (chain: Chain, accountAddress: string) => Promise<{ lastSyncedBlock: bigint } | null>;
   getLatestBlock: () => Promise<number>;
   pollEvents: (params: { address: string; fromBlock: number; toBlock: number; keys: string[][] }) => Promise<RawStarknetEvent[]>;
+  getBlockTimestamp: (blockNumber: number) => Promise<Date>;
   upsertActivities: (rows: Array<Record<string, unknown>>) => Promise<void>;
   setCursor: (chain: Chain, accountAddress: string, block: bigint) => Promise<void>;
 }
 
 const TOKEN_POLL_CONCURRENCY = 4;
+const BLOCK_TIMESTAMP_CONCURRENCY = 8;
 
 export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAddressRaw: string): Promise<void> {
   const accountAddress = normalizeAddress(chain, accountAddressRaw);
@@ -57,7 +59,7 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
   for (const leg of remaining) {
     rows.push({
       chain, accountAddress, type: leg.from === accountAddress ? "SEND" : "RECEIVE",
-      txHash: leg.txHash, blockNumber: leg.blockNumber, timestamp: new Date(),
+      txHash: leg.txHash, blockNumber: leg.blockNumber,
       tokenAddress: leg.tokenAddress, amount: leg.amount,
       counterparty: leg.from === accountAddress ? leg.to : leg.from,
     });
@@ -65,7 +67,7 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
   for (const swap of swaps) {
     rows.push({
       chain, accountAddress, type: "SWAP",
-      txHash: swap.txHash, blockNumber: swap.blockNumber, timestamp: new Date(),
+      txHash: swap.txHash, blockNumber: swap.blockNumber,
       tokenInAddress: swap.tokenInAddress, amountIn: swap.amountIn,
       tokenOutAddress: swap.tokenOutAddress, amountOut: swap.amountOut,
     });
@@ -75,8 +77,22 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
     if (!decoded) continue;
     rows.push({
       chain, accountAddress, type: decoded.type,
-      txHash: event.transaction_hash, blockNumber: BigInt(event.block_number), timestamp: new Date(),
+      txHash: event.transaction_hash, blockNumber: BigInt(event.block_number),
     });
+  }
+
+  // Each row's timestamp must be the real on-chain block time, not "now" —
+  // rows are batched from a wide block range in one sync call, so stamping
+  // them with the sync's wall-clock time collapses their true order.
+  const uniqueBlocks = [...new Set(rows.map((r) => (r.blockNumber as bigint).toString()))];
+  const blockTimestamps = new Map<string, Date>(
+    await mapWithConcurrency(uniqueBlocks, BLOCK_TIMESTAMP_CONCURRENCY, async (blockStr) => {
+      const timestamp = await deps.getBlockTimestamp(Number(blockStr));
+      return [blockStr, timestamp] as const;
+    }),
+  );
+  for (const row of rows) {
+    row.timestamp = blockTimestamps.get((row.blockNumber as bigint).toString());
   }
 
   if (rows.length > 0) await deps.upsertActivities(rows);
@@ -90,6 +106,11 @@ const productionDeps: SyncDeps = {
     return callRpc((provider) => provider.getBlockLatestAccepted().then((b) => b.block_number));
   },
   pollEvents: pollContractEvents,
+  getBlockTimestamp: async (blockNumber) => {
+    const { callRpc } = await import("../utils/starknet.js");
+    const block = await callRpc((provider) => provider.getBlockWithTxHashes(blockNumber));
+    return new Date(block.timestamp * 1000);
+  },
   upsertActivities: async (rows) => {
     for (const row of rows) {
       await prisma.walletActivity.upsert({

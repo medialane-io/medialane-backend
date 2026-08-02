@@ -15,6 +15,7 @@ function fakeDeps(overrides: Partial<SyncDeps> = {}) {
     getCursor: async () => null,
     getLatestBlock: async () => LATEST_BLOCK,
     pollEvents: async () => [],
+    getBlockTimestamp: async () => new Date("2026-01-01T00:00:00.000Z"),
     upsertActivities: async (rows) => { upserted.push(...rows); },
     setCursor: async (_chain, _address, block) => { cursorSet = block; },
     ...overrides,
@@ -54,6 +55,32 @@ test("decodes a plain transfer into an upserted SEND row and advances the cursor
   expect(upserted).toHaveLength(1);
   expect(upserted[0]).toMatchObject({ type: "SEND", tokenAddress: token, amount: "100", accountAddress: ACCOUNT });
   expect(getCursorSet()).toBe(BigInt(LATEST_BLOCK));
+});
+
+test("assigns each row's timestamp from its own block time, not wall-clock time", async () => {
+  const token = SUPPORTED_TOKENS[0].address;
+  const earlyEvent: RawStarknetEvent = {
+    block_hash: "0xb1", block_number: 100, transaction_hash: "0xtx-early",
+    from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeone"], data: ["0x64", "0x0"],
+  };
+  const lateEvent: RawStarknetEvent = {
+    block_hash: "0xb2", block_number: 200, transaction_hash: "0xtx-late",
+    from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeoneelse"], data: ["0x64", "0x0"],
+  };
+  const blockTimes: Record<number, Date> = {
+    100: new Date("2026-01-01T00:00:00.000Z"),
+    200: new Date("2026-06-01T00:00:00.000Z"),
+  };
+  const { deps, upserted } = fakeDeps({
+    pollEvents: async (params) => (params.address === token ? [earlyEvent, lateEvent] : []),
+    getBlockTimestamp: async (blockNumber) => blockTimes[blockNumber],
+  });
+  await syncWalletActivity(deps, CHAIN, ACCOUNT);
+
+  const early = upserted.find((r) => r.txHash === "0xtx-early");
+  const late = upserted.find((r) => r.txHash === "0xtx-late");
+  expect(early?.timestamp).toEqual(blockTimes[100]);
+  expect(late?.timestamp).toEqual(blockTimes[200]);
 });
 
 test("decodes an account-contract event into a DEPLOY row", async () => {
