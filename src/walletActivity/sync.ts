@@ -81,9 +81,6 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
     });
   }
 
-  // Each row's timestamp must be the real on-chain block time, not "now" —
-  // rows are batched from a wide block range in one sync call, so stamping
-  // them with the sync's wall-clock time collapses their true order.
   const uniqueBlocks = [...new Set(rows.map((r) => (r.blockNumber as bigint).toString()))];
   const blockTimestamps = new Map<string, Date>(
     await mapWithConcurrency(uniqueBlocks, BLOCK_TIMESTAMP_CONCURRENCY, async (blockStr) => {
