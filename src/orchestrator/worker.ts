@@ -2,6 +2,7 @@ import { type Chain } from "@prisma/client";
 import { handleMetadataFetch } from "./metadata.js";
 import { handleStatsUpdate } from "./stats.js";
 import { handleCollectionMetadataFetch } from "./collectionMetadata.js";
+import { syncWalletActivityProd } from "../walletActivity/sync.js";
 import { createLogger } from "../utils/logger.js";
 import { sleep } from "../utils/retry.js";
 
@@ -10,7 +11,8 @@ const log = createLogger("worker");
 export type WorkItem =
   | { type: "METADATA_FETCH"; chain: Chain; contractAddress: string; tokenId: string }
   | { type: "STATS_UPDATE"; chain: Chain; contractAddress: string }
-  | { type: "COLLECTION_METADATA_FETCH"; chain: Chain; contractAddress: string };
+  | { type: "COLLECTION_METADATA_FETCH"; chain: Chain; contractAddress: string }
+  | { type: "WALLET_ACTIVITY_SYNC"; chain: Chain; accountAddress: string };
 
 interface QueuedItem {
   item: WorkItem;
@@ -26,8 +28,15 @@ class InMemoryWorker {
   private running = false;
 
   private key(item: WorkItem): string {
-    const base = `${item.type}:${item.chain}:${item.contractAddress}`;
-    return item.type === "METADATA_FETCH" ? `${base}:${item.tokenId}` : base;
+    switch (item.type) {
+      case "METADATA_FETCH":
+        return `${item.type}:${item.chain}:${item.contractAddress}:${item.tokenId}`;
+      case "STATS_UPDATE":
+      case "COLLECTION_METADATA_FETCH":
+        return `${item.type}:${item.chain}:${item.contractAddress}`;
+      case "WALLET_ACTIVITY_SYNC":
+        return `${item.type}:${item.chain}:${item.accountAddress}`;
+    }
   }
 
   enqueue(item: WorkItem): void {
@@ -58,19 +67,25 @@ class InMemoryWorker {
     while (this.queue.length > 0) {
       const entry = this.queue.shift()!;
       const k = this.key(entry.item);
-      this.pendingKeys.delete(k);
+      // The key stays in pendingKeys for the item's entire lifetime — queued,
+      // actively processing, and retrying — only cleared on final success or
+      // exhausted retries. Clearing it the moment the item is shifted (the
+      // previous behavior) left a gap where an enqueue() racing a still-
+      // in-flight job of the same key would wrongly be accepted as new,
+      // silently double-processing it.
       try {
         await this.process(entry.item);
+        this.pendingKeys.delete(k);
       } catch (err) {
         entry.attempts++;
         if (entry.attempts < MAX_ATTEMPTS) {
           const delay = RETRY_BASE_MS * entry.attempts;
           log.warn({ type: entry.item.type, attempts: entry.attempts, delay }, "Worker: retrying after error");
           await sleep(delay);
-          this.pendingKeys.add(k);
           this.queue.push(entry);
         } else {
           log.error({ err, type: entry.item.type, attempts: entry.attempts }, "Worker: item exhausted retries");
+          this.pendingKeys.delete(k);
         }
       }
     }
@@ -87,6 +102,9 @@ class InMemoryWorker {
         break;
       case "COLLECTION_METADATA_FETCH":
         await handleCollectionMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress });
+        break;
+      case "WALLET_ACTIVITY_SYNC":
+        await syncWalletActivityProd(item.chain, item.accountAddress);
         break;
     }
   }
