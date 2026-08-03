@@ -4,7 +4,6 @@ import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyGate } from "./middleware/apiKeyGate.js";
-import { identityAuth } from "./middleware/identityAuth.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
@@ -67,7 +66,6 @@ export function createApp(): Hono<AppEnv> {
   // /v1/users/me) are exempted inside apiKeyGate; everything else here is
   // tenant-gated by the mount above, then layers its own Clerk JWT/SIWS auth.
   app.route("/v1/collections/claim", claims);
-  app.use("/v1/wallet-activity/*", identityAuth);
   app.route("/v1/wallet-activity", walletActivityRoutes);
   app.route("/v1/business/provisioning", businessProvisioningRoutes);
   app.route("/v1/username-claims", usernameClaims);

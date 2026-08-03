@@ -41,4 +41,7 @@ describe("resolveActionKey", () => {
   test("unknown metered route falls back to read", () => {
     expect(resolveActionKey("GET", "/v1/something-new")).toBe("read");
   });
+  test("wallet-activity has no special exemption — it's a metered read like any other GET", () => {
+    expect(resolveActionKey("GET", "/v1/wallet-activity")).toBe("read");
+  });
 });
