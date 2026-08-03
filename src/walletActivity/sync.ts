@@ -104,9 +104,27 @@ const productionDeps: SyncDeps = {
   },
   pollEvents: pollContractEvents,
   getBlockTimestamp: async (blockNumber) => {
+    const cached = await prisma.blockTimestamp.findUnique({
+      where: { chain_blockNumber: { chain: "STARKNET", blockNumber: BigInt(blockNumber) } },
+    });
+    if (cached) return cached.timestamp;
+
     const { callRpc } = await import("../utils/starknet.js");
     const block = await callRpc((provider) => provider.getBlockWithTxHashes(blockNumber));
-    return new Date(block.timestamp * 1000);
+    const timestamp = new Date(block.timestamp * 1000);
+
+    // Best-effort cache write — a duplicate-key race from a concurrent sync
+    // hitting the same uncached block is fine to ignore; the read above
+    // will hit the cache next time either way.
+    await prisma.blockTimestamp
+      .upsert({
+        where: { chain_blockNumber: { chain: "STARKNET", blockNumber: BigInt(blockNumber) } },
+        create: { chain: "STARKNET", blockNumber: BigInt(blockNumber), timestamp },
+        update: {},
+      })
+      .catch(() => {});
+
+    return timestamp;
   },
   upsertActivities: async (rows) => {
     for (const row of rows) {

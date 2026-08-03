@@ -460,6 +460,19 @@ model WalletActivityCursor {
   @@id([chain, accountAddress])
 }
 
+// Block timestamps are immutable once finalized — this is a permanent,
+// write-once cache so `getBlockTimestamp` (needed because Starknet's
+// getEvents doesn't return a timestamp, only a block number) stops
+// re-fetching the same block via RPC on every wallet's every sync.
+model BlockTimestamp {
+  chain       Chain
+  blockNumber BigInt
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@id([chain, blockNumber])
+}
+
 model SiwsNonce {
   id            String   @id @default(cuid())
   chain         Chain    @default(STARKNET)
