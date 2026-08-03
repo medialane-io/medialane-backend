@@ -33,6 +33,14 @@ export async function resolveMetadata(
       }
       log.debug({ url }, "IPFS gateway failed, trying next");
     }
+  } else if (uri.startsWith("data:")) {
+    // data: URIs are decoded locally (see fetchJson) — no network request is
+    // ever made, so the SSRF guards below don't apply. They'd otherwise
+    // misfire here anyway: a data: URI has no hostname, and Node's
+    // dns.lookup("") resolves the empty string to loopback, so every data:
+    // token_uri was being rejected as a false-positive SSRF attempt.
+    resolvedUrl = uri;
+    metadata = await fetchJson(uri);
   } else {
     const { url } = resolveUri(uri);
     // SSRF guard, layer 1: block private/internal IPs and cloud metadata
