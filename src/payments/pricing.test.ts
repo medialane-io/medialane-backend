@@ -21,6 +21,9 @@ describe("resolveActionKey", () => {
     expect(resolveActionKey("POST", "/v1/intents/counter-offer")).toBe("intent:counter-offer");
     expect(resolveActionKey("POST", "/v1/intents/checkout")).toBe("intent:checkout");
   });
+  test("GET /v1/prices resolves to its own actionKey, not the generic read default", () => {
+    expect(resolveActionKey("GET", "/v1/prices")).toBe("price:read");
+  });
   test("metadata upload routes resolve to their own actionKeys, not the generic default", () => {
     expect(resolveActionKey("POST", "/v1/metadata/upload")).toBe("metadata:upload-json");
     expect(resolveActionKey("POST", "/v1/metadata/upload-file")).toBe("metadata:upload-file");

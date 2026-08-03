@@ -38,6 +38,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   // boundary and "-file" isn't one.
   { method: "POST", prefix: "/v1/metadata/upload-file", actionKey: "metadata:upload-file" },
   { method: "POST", prefix: "/v1/metadata/upload", actionKey: "metadata:upload-json" },
+  { method: "GET", prefix: "/v1/prices", actionKey: "price:read" },
 ];
 
 // actionKeys whose price MAY vary by service — the only ones worth the extra
@@ -68,6 +69,7 @@ const FALLBACK_COST: Record<string, number> = {
   // numbers are applied — better than silently metering these at 1 credit.
   "metadata:upload-json": 3,
   "metadata:upload-file": 8,
+  "price:read": 1,
 };
 
 export function resolveActionKey(method: string, path: string): string | null {

@@ -15,6 +15,12 @@ const envSchema = z.object({
   // (feedback_alchemy_cap_is_intentional) — do not remove it. Contract
   // addresses are NOT env vars — they come from the SDK's chain-named constants.
   STARKNET_RPC_URL: z.string().url().optional(),
+  // Alchemy Prices API key — same Alchemy app as ALCHEMY_RPC_URL works if the
+  // Prices product is enabled for that key on the dashboard, or a dedicated
+  // key. Bare key (not a full RPC URL) — GET /v1/prices builds the Prices API
+  // URL from it. Optional: an unset key makes /v1/prices return 500, same
+  // pattern as PINATA_JWT.
+  ALCHEMY_PRICES_KEY: z.string().default(""),
   // x402 agent payments (per-chain: settlement asset + treasury + MDLN bonus
   // token). Chain-prefixed for multichain readiness — a future Base rail adds
   // BASE_USDC_CONTRACT / BASE_X402_TREASURY without touching these.

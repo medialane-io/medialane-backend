@@ -20,6 +20,7 @@ export const PRICING = [
 
   // ── Reads ──────────────────────────────────────────────────────────────
   { action: "read", usd: 0.01, note: "Any lookup / GET request" },
+  { action: "price:read", usd: 0.01, note: "USD price quote (STRK/ETH/USDC/WBTC)" },
 
   // ── Storage (IPFS via Pinata) ─────────────────────────────────────────
   // Real pinning cost — was previously falling through to the "read" price
