@@ -15,6 +15,7 @@ import collections from "./routes/collections.js";
 import activities from "./routes/activities.js";
 import intents from "./routes/intents/index.js";
 import metadata from "./routes/metadata.js";
+import prices from "./routes/prices.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import admin from "./routes/admin/index.js";
@@ -89,6 +90,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/activities", activities);
   app.route("/v1/intents", intents);
   app.route("/v1/metadata", metadata);
+  app.route("/v1/prices", prices);
   app.route("/v1/search", search);
   app.route("/v1/stats", stats);
   app.route("/v1/events", events);
