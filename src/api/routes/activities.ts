@@ -61,10 +61,20 @@ function transferType(fromAddress: string): "mint" | "transfer" {
   return fromAddress === ZERO_ADDRESS ? "mint" : "transfer";
 }
 
-/** Fetch token name/image for a list of activity items (single DB query). */
+/**
+ * Fetch token name/image/animationUrl for a list of activity items (single
+ * DB query). `animationUrl` matters beyond a nice-to-have: for living-render
+ * collections (e.g. gol_starknet) the cached `image` is a point-in-time
+ * snapshot of on-chain state that can legitimately be near-blank (most
+ * cells dead at whatever generation the indexer last cached) — the frontend
+ * needs `animationUrl` to render the live piece instead, exactly like
+ * `tokens.ts`'s token-detail endpoint already does (`ActivityCard` was the
+ * one surface still missing it, confirmed 2026-08-04 from a blank Discover
+ * activity thumbnail for a gol_starknet token).
+ */
 async function batchActivityTokenMeta(
   feed: ActivityFeedItem[]
-): Promise<Map<string, { name: string | null; image: string | null }>> {
+): Promise<Map<string, { name: string | null; image: string | null; animationUrl: string | null }>> {
   const pairs = feed
     .map((item) => ({ chain: item.chain, ...activityItemToken(item) }))
     .filter(
@@ -77,11 +87,11 @@ async function batchActivityTokenMeta(
 
   const tokens = await prisma.token.findMany({
     where: { OR: pairs },
-    select: { contractAddress: true, tokenId: true, name: true, image: true },
+    select: { contractAddress: true, tokenId: true, name: true, image: true, animationUrl: true },
   });
 
   return new Map(
-    tokens.map((t) => [`${t.contractAddress}-${t.tokenId}`, { name: t.name, image: t.image }])
+    tokens.map((t) => [`${t.contractAddress}-${t.tokenId}`, { name: t.name, image: t.image, animationUrl: t.animationUrl }])
   );
 }
 
@@ -235,12 +245,12 @@ activities.get("/", publicCache(15), async (c) => {
         })
       : rawFeed;
 
-  // Enrich feed items with token name/image
+  // Enrich feed items with token name/image/animationUrl
   const tokenMeta = await batchActivityTokenMeta(feed);
   const enrichedFeed = feed.map((item) => {
     const { contract, tokenId } = activityItemToken(item);
     const meta = tokenMeta.get(`${contract}-${tokenId}`);
-    return { ...item, token: meta ? { name: meta.name, image: meta.image } : null };
+    return { ...item, token: meta ? { name: meta.name, image: meta.image, animationUrl: meta.animationUrl } : null };
   });
 
   return c.json({ data: enrichedFeed, meta: { page, limit, total: transferCount + orderCount } });
@@ -336,12 +346,12 @@ activities.get("/:address", publicCache(15), async (c) => {
         })
       : rawFeed;
 
-  // Enrich feed items with token name/image
+  // Enrich feed items with token name/image/animationUrl
   const tokenMeta = await batchActivityTokenMeta(feed);
   const enrichedFeed = feed.map((item) => {
     const { contract, tokenId } = activityItemToken(item);
     const meta = tokenMeta.get(`${contract}-${tokenId}`);
-    return { ...item, token: meta ? { name: meta.name, image: meta.image } : null };
+    return { ...item, token: meta ? { name: meta.name, image: meta.image, animationUrl: meta.animationUrl } : null };
   });
 
   return c.json({ data: enrichedFeed, meta: { page, limit } });
