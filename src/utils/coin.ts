@@ -1,9 +1,34 @@
 import { type Chain, type Prisma, type PrismaClient } from "@prisma/client";
 import { getService } from "@medialane/sdk";
+import { callRpc as defaultCallRpc } from "./starknet.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
 const COIN_SERVICES = new Set(["creator-coin", "external-erc20"]);
+
+/**
+ * Read an ERC-20's total_supply on-chain, tried snake_case first then
+ * camelCase (OpenZeppelin version drift — same fallback order as the
+ * app-side hook this replaces, medialane-starknet's use-coin-supply.ts).
+ * Returns the raw u256 as a decimal string, matching Coin.totalSupply's shape.
+ */
+export async function readTotalSupply(
+  contractAddress: string,
+  deps: { callRpc: typeof defaultCallRpc } = { callRpc: defaultCallRpc },
+): Promise<string> {
+  const call = (entrypoint: string) =>
+    deps.callRpc((provider) => provider.callContract({ contractAddress, entrypoint, calldata: [] }));
+
+  let result: string[];
+  try {
+    result = await call("total_supply");
+  } catch {
+    result = await call("totalSupply");
+  }
+  const low = BigInt(result[0] ?? "0");
+  const high = BigInt(result[1] ?? "0");
+  return (low + (high << 128n)).toString();
+}
 
 /**
  * Upsert a fungible Coin from authoritative on-chain data (factory event or

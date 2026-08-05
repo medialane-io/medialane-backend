@@ -9,7 +9,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { STARKNET_CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
-import { upsertCoin } from "../../utils/coin.js";
+import { upsertCoin, readTotalSupply } from "../../utils/coin.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
@@ -85,6 +85,10 @@ coins.post("/sync", async (c) => {
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
     const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
+    // Fixed-supply coins never change post-deploy — capture once at index
+    // time so consumers stop paying an RPC call for this. Never blocks
+    // indexing the coin itself on a supply-read failure.
+    const totalSupply = await readTotalSupply(coinAddress).catch(() => null);
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
@@ -93,6 +97,7 @@ coins.post("/sync", async (c) => {
       name,
       symbol,
       decimals,
+      totalSupply,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(env.CREATOR_COIN_START_BLOCK),
     });

@@ -46,6 +46,10 @@ export async function handleCreatorCoinCreated(event: RawStarknetEvent): Promise
     const owner = normalizeAddress("STARKNET", data[0]);
     const name = decodeShortStr(data[1]);
     const symbol = decodeShortStr(data[2]);
+    // Fixed-supply coin: the full supply is minted to the Factory at launch
+    // and never changes, so the event's initial_supply IS the total supply —
+    // no RPC call needed, and it's trustless (straight from the event).
+    const totalSupply = (BigInt(data[3]) + (BigInt(data[4]) << 128n)).toString();
     const coinAddress = normalizeAddress("STARKNET", data[5]);
 
     if (coinAddress === ZERO_ADDRESS) {
@@ -61,6 +65,7 @@ export async function handleCreatorCoinCreated(event: RawStarknetEvent): Promise
       service: "creator-coin",
       name,
       symbol,
+      totalSupply,
       // Trustless: `creator` comes from the factory's CreatorCoinCreated event,
       // never a request param (on-chain owner() is renounced at launch).
       creator: owner,

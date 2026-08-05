@@ -3,7 +3,7 @@ import { createLogger } from "../../../utils/logger.js";
 import { z } from "zod";
 import prisma from "../../../db/client.js";
 import { normalizeAddress, callRpc } from "../../../utils/starknet.js";
-import { upsertCoin } from "../../../utils/coin.js";
+import { upsertCoin, readTotalSupply } from "../../../utils/coin.js";
 import { UNRUG_FACTORY_CONTRACT } from "../../../config/constants.js";
 import { shortString } from "starknet";
 import { toErrorMessage } from "../../../utils/error.js";
@@ -73,6 +73,7 @@ admin.post("/coins/add-external", async (c) => {
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
     const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
+    const totalSupply = await readTotalSupply(contractAddress).catch(() => null);
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
@@ -81,6 +82,7 @@ admin.post("/coins/add-external", async (c) => {
       name,
       symbol,
       decimals,
+      totalSupply,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
       startBlock: BigInt(parsed.data.startBlock ?? 0),
     });
@@ -175,6 +177,7 @@ admin.post("/coins/:contract/refresh", async (c) => {
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
     const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : coin.decimals;
+    const totalSupply = await readTotalSupply(contractAddress).catch(() => coin.totalSupply);
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
@@ -183,6 +186,7 @@ admin.post("/coins/:contract/refresh", async (c) => {
       name,
       symbol,
       decimals,
+      totalSupply,
       creator: coin.creator,
       startBlock: coin.startBlock,
     });
