@@ -8,7 +8,7 @@ import { callRpc, normalizeAddress, createProvider } from "../utils/starknet.js"
 import {
   STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT, STARKNET_COLLECTION_721_CONTRACT,
   STARKNET_COLLECTION_1155_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, STARKNET_IP_CLUB_FACTORY_CONTRACT,
-  STARKNET_IP_SPONSORSHIP_CONTRACT,
+  STARKNET_IP_SPONSORSHIP_CONTRACT, STARKNET_POP_FACTORY_CONTRACT, STARKNET_DROP_FACTORY_CONTRACT,
   getChainId, getTokenByAddress,
 } from "../config/constants.js";
 import { postRpc } from "../utils/rpcFetch.js";
@@ -24,7 +24,13 @@ import {
   IPClubFactoryABI,
   IPClubCollectionABI,
   IPSponsorshipABI,
+  POPFactoryABI,
+  DropFactoryABI,
+  toDropContractConditions,
+  buildCreateCreatorCoinCall,
+  buildLaunchOnEkuboCalls,
 } from "@medialane/sdk/starknet";
+import type { PopEventType } from "@medialane/sdk";
 import type {
   CreateListingIntentBody,
   MakeOfferIntentBody,
@@ -43,6 +49,8 @@ import type {
   WithdrawSponsorshipProposalIntentBody,
   AcceptSponsorshipProposalIntentBody,
   RejectSponsorshipProposalIntentBody,
+  CreateCoinIntentBody,
+  LaunchCoinIntentBody,
 } from "../types/api.js";
 import prisma from "../db/client.js";
 import { uploadJson } from "./metadataPin.js";
@@ -503,6 +511,16 @@ export const TIER_SERVICE_IDS = ["ip-tickets", "ip-club"] as const;
 type FactoryFamilyServiceId = typeof FACTORY_FAMILY_SERVICE_IDS[number];
 
 /**
+ * pop-protocol/drop-collection are per-creator factory deploys too, but their
+ * factories don't share the uniform `deploy_collection(name, symbol, baseUri)`
+ * entrypoint the three above do (POP needs a claim deadline + event type;
+ * Drop needs a max supply + initial claim conditions) — so they get their own
+ * branch in `buildCreateCollectionIntent` below rather than a `FACTORY_FAMILY_SERVICES`
+ * entry. This tuple is only the schema enum's single source.
+ */
+export const COLLECTION_SERVICE_IDS = [...FACTORY_FAMILY_SERVICE_IDS, "pop-protocol", "drop-collection"] as const;
+
+/**
  * ABIs/addresses come straight from the SDK (single source) — the same ones
  * `ERC1155CollectionService`/`TicketService`/`ClubService` use client-side.
  * This backend never signs/executes with them; it only calls `.populate()`
@@ -659,6 +677,37 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     return { calls: [call] };
   }
 
+  if (body.service === "pop-protocol") {
+    if (body.claimEndTimestamp == null || !body.eventType) {
+      throw new Error("claimEndTimestamp and eventType are required to deploy a pop-protocol collection");
+    }
+    const factory = new Contract(POPFactoryABI as never, STARKNET_POP_FACTORY_CONTRACT, createProvider() as never);
+    const call = factory.populate("create_collection", [
+      body.name,
+      body.symbol,
+      baseUri,
+      body.claimEndTimestamp,
+      { [body.eventType as PopEventType]: {} },
+    ]);
+    return { calls: [call] };
+  }
+
+  if (body.service === "drop-collection") {
+    if (!body.maxSupply || !body.conditions) {
+      throw new Error("maxSupply and conditions are required to deploy a drop-collection");
+    }
+    const factory = new Contract(DropFactoryABI as never, STARKNET_DROP_FACTORY_CONTRACT, createProvider() as never);
+    // Same calldata shape DropService.createDrop uses client-side (single source: SDK's toDropContractConditions).
+    const call = factory.populate("create_drop", [
+      body.name,
+      body.symbol,
+      baseUri,
+      BigInt(body.maxSupply),
+      toDropContractConditions(body.conditions),
+    ]);
+    return { calls: [call] };
+  }
+
   // Registry create-collection (mip-erc721 / ip-erc721) — unchanged.
   const contract = resolveCollectionContract(body.collectionContract);
   const calldata = [
@@ -704,6 +753,53 @@ export async function buildCreateTierIntent(body: CreateTierIntentBody) {
     body.metadataUri,
   ]);
   return { calls: [call] };
+}
+
+/**
+ * Build a CREATE_COIN intent — no SNIP-12 signing required.
+ *
+ * Deploys a fixed-supply CreatorCoin via the Factory (full supply minted to
+ * the Factory until launch). Calldata comes from the SDK's account-free
+ * `buildCreateCreatorCoinCall` — the same builder both apps' launch flows
+ * used to call directly client-side; the backend now sits in front of it so
+ * the deploy is metered like every other collection/coin creation.
+ */
+export async function buildCreateCoinIntent(body: CreateCoinIntentBody) {
+  const owner = normalizeAddress("STARKNET", body.owner);
+  const call = buildCreateCreatorCoinCall({
+    owner,
+    name: body.name,
+    symbol: body.symbol,
+    initialSupply: BigInt(body.initialSupply),
+    salt: body.salt ? BigInt(body.salt) : undefined,
+  });
+  return { calls: [call] };
+}
+
+/**
+ * Build a LAUNCH_COIN intent — no SNIP-12 signing required.
+ *
+ * Launches an already-deployed CreatorCoin on Ekubo (owner-only — the
+ * contract itself is the authority; an unauthorized caller simply reverts,
+ * same as before this routed through the backend). Optionally pre-funds the
+ * Factory with quote in the same multicall for the team-allocation buyback.
+ * The coin address is only known from the CREATE_COIN receipt, so this is a
+ * separate intent built after that tx confirms — same two-step shape as
+ * CREATE_TIER → MINT.
+ */
+export async function buildLaunchCoinIntent(body: LaunchCoinIntentBody) {
+  const creatorCoin = normalizeAddress("STARKNET", body.creatorCoin);
+  const quoteToken = normalizeAddress("STARKNET", body.quoteToken);
+  const calls = buildLaunchOnEkuboCalls({
+    creatorCoin,
+    quoteToken,
+    initialHolders: body.initialHolders.map((h) => normalizeAddress("STARKNET", h)),
+    initialHoldersAmounts: body.initialHoldersAmounts.map((a) => BigInt(a)),
+    transferRestrictionDelay: body.transferRestrictionDelay,
+    maxPercentageBuyLaunch: body.maxPercentageBuyLaunch,
+    quoteFundAmount: body.quoteFundAmount ? BigInt(body.quoteFundAmount) : undefined,
+  });
+  return { calls };
 }
 
 /**

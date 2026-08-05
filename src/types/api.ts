@@ -115,10 +115,24 @@ export interface CreateCollectionIntentBody {
   /**
    * Which service's factory to deploy. Omitted = today's default (the shared
    * mip-erc721 registry — no new deploy, just a registry entry). One of
-   * "mip-erc1155" | "ip-tickets" | "ip-club" deploys a new per-creator
-   * contract via that service's factory instead.
+   * "mip-erc1155" | "ip-tickets" | "ip-club" | "pop-protocol" | "drop-collection"
+   * deploys a new per-creator contract via that service's factory instead.
    */
   service?: string;
+  /** pop-protocol only: unix seconds after which `claim()` stops working. */
+  claimEndTimestamp?: number;
+  /** pop-protocol only: the POPFactory's EventType variant name (e.g. "Conference"). */
+  eventType?: string;
+  /** drop-collection only: total mintable supply across the whole drop. */
+  maxSupply?: string;
+  /** drop-collection only: the initial claim window/price/per-wallet cap. */
+  conditions?: {
+    startTime: number;
+    endTime: number;
+    price: string;
+    paymentToken: string;
+    maxQuantityPerWallet: string;
+  };
 }
 
 export interface CreateTierIntentBody {
@@ -138,6 +152,40 @@ export interface CreateTierIntentBody {
 
 export interface SubmitSignatureBody {
   signature: string[];
+}
+
+// ── Creator Coin intent bodies ──────────────────────────────────────────────
+// Two steps, same as elsewhere in this file (CREATE_TIER then MINT): the coin
+// address is only known from the CREATE_COIN receipt, so LAUNCH_COIN is a
+// separate intent the caller builds after reading it.
+
+export interface CreateCoinIntentBody {
+  /** Owner of the new coin — the only address allowed to launch it. */
+  owner: string;
+  name: string;
+  symbol: string;
+  /** Full fixed supply (raw, 18 decimals). Minted to the Factory until launch. */
+  initialSupply: string;
+  /** Deterministic deploy salt. Omitted = timestamp-derived (same default the SDK builder uses). */
+  salt?: string;
+}
+
+export interface LaunchCoinIntentBody {
+  /** Wallet that must own the coin — verified on-chain before building calldata. */
+  owner: string;
+  /** The deployed CreatorCoin contract (from a prior CREATE_COIN deploy). */
+  creatorCoin: string;
+  /** Quote token (e.g. STRK). Must NOT itself be a Creator Coin. */
+  quoteToken: string;
+  /** Team-allocation recipients (≤10% of supply, summed). */
+  initialHolders: string[];
+  initialHoldersAmounts: string[];
+  /** Anti-snipe window in seconds. Omitted = none. */
+  transferRestrictionDelay?: number;
+  /** Max % of supply buyable per tx during the window, in bps. Omitted = the SDK default. */
+  maxPercentageBuyLaunch?: number;
+  /** Quote (raw units) to transfer to the Factory in the same multicall, to fund the team-allocation buyback. */
+  quoteFundAmount?: string;
 }
 
 // ── IP-Sponsorship intent bodies ────────────────────────────────────────────

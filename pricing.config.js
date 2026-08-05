@@ -42,16 +42,20 @@ export const PRICING = [
   { action: "intent:mint",             usd: 0.25, note: "Mint an asset — default" },
   { action: "intent:create-collection",usd: 0.25, note: "Deploy a collection — default" },
   { action: "intent:create-tier",      usd: 0.50, note: "Create a ticket type / membership tier — default" },
+  { action: "intent:create-coin",      usd: 0.25, note: "Deploy a Creator Coin" },
+  { action: "intent:launch-coin",      usd: 0.50, note: "Launch a Creator Coin on Ekubo" },
 
   // ── Per-service prices ───────────────────────────────────────────────
   // Uncomment a line and set its price to charge that ONE service
   // differently from the default above.
   //
   // Deploy a collection (per-creator factory, or a registry entry):
-  // { action: "intent:create-collection", service: "mip-erc721",  usd: 0.20, note: "Deploy a new IP Collection" },
-  // { action: "intent:create-collection", service: "mip-erc1155", usd: 0.20, note: "Deploy a new NFT Editions collection" },
-  // { action: "intent:create-collection", service: "ip-tickets",  usd: 0.20, note: "Deploy a new IP Tickets collection" },
-  // { action: "intent:create-collection", service: "ip-club",     usd: 0.20, note: "Deploy a new IP Club collection" },
+  // { action: "intent:create-collection", service: "mip-erc721",     usd: 0.20, note: "Deploy a new IP Collection" },
+  // { action: "intent:create-collection", service: "mip-erc1155",    usd: 0.20, note: "Deploy a new NFT Editions collection" },
+  // { action: "intent:create-collection", service: "ip-tickets",     usd: 0.20, note: "Deploy a new IP Tickets collection" },
+  // { action: "intent:create-collection", service: "ip-club",        usd: 0.20, note: "Deploy a new IP Club collection" },
+  // { action: "intent:create-collection", service: "pop-protocol",   usd: 0.20, note: "Deploy a new POP credential collection" },
+  // { action: "intent:create-collection", service: "drop-collection",usd: 0.20, note: "Deploy a new Collection Drop" },
   //
   // Mint into a collection:
   // { action: "intent:mint", service: "mip-erc721",  usd: 0.05, note: "IP Collection — single-edition mint" },
@@ -64,9 +68,10 @@ export const PRICING = [
    { action: "intent:create-tier", service: "ip-tickets", usd: 0.50, note: "Create a new ticket type" },
    { action: "intent:create-tier", service: "ip-club",    usd: 0.50, note: "Create a new membership tier" },
   //
-  // Other live services (pop-protocol, drop-collection, ip-sponsorship,
-  // creator-coin) still mint/claim entirely client-side — they don't route
-  // through this backend yet, so nothing here prices them.
+  // Sponsorship (create/bid/accept/etc.) routes through /v1/intents/sponsorship-*
+  // and prices off the shared "read"/intent defaults above — add explicit
+  // { action: "intent:sponsorship-offer", usd: ... } rows here to price it
+  // separately once its real usage volume is known.
 
   // ── Per-chain prices ─────────────────────────────────────────────────
   // Uncomment once a chain other than Starknet is live, to charge more

@@ -670,6 +670,13 @@ enum IntentType {
   WITHDRAW_SPONSORSHIP_PROPOSAL
   ACCEPT_SPONSORSHIP_PROPOSAL
   REJECT_SPONSORSHIP_PROPOSAL
+  // creator-coin — deploy is metered like any other collection creation;
+  // launch is separate because the coin address is only known from the
+  // CREATE_COIN receipt (same two-step shape as CREATE_TIER → MINT). Added
+  // 2026-08-05 to close the pop-protocol/drop-collection/creator-coin
+  // backend-bypass gap found in the medialane-starknet/medialane-io audit.
+  CREATE_COIN
+  LAUNCH_COIN
 }
 
 enum IntentStatus {

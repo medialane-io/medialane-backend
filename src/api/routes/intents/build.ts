@@ -16,6 +16,8 @@ import {
   buildMintIntent,
   buildCreateCollectionIntent,
   buildCreateTierIntent,
+  buildCreateCoinIntent,
+  buildLaunchCoinIntent,
   buildCounterOfferIntent,
   buildCreateSponsorshipOfferIntent,
   buildSetSponsorshipOfferOpenIntent,
@@ -40,6 +42,8 @@ import {
   mintSchema,
   createCollectionSchema,
   createTierSchema,
+  createCoinSchema,
+  launchCoinSchema,
   counterOfferSchema,
   checkoutBodySchema,
   sponsorshipOfferSchema,
@@ -399,6 +403,70 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build create-tier intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/create-coin — deploys a fixed-supply CreatorCoin (owner-only launch later).
+  intents.post("/create-coin", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = createCoinSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+
+    try {
+      const { calls } = await buildCreateCoinIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "CREATE_COIN",
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build create-coin intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/launch-coin — launches an already-deployed CreatorCoin on Ekubo.
+  // A separate intent from create-coin because the coin address is only known
+  // from that tx's receipt (same two-step shape as create-tier → mint).
+  intents.post("/launch-coin", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = launchCoinSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+
+    try {
+      const { calls } = await buildLaunchCoinIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "LAUNCH_COIN",
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build launch-coin intent");
       return c.json({ error: toErrorMessage(err) }, 500);
     }
   });

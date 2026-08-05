@@ -5,7 +5,7 @@ import { z } from "zod";
 import { num } from "starknet";
 import { createLogger } from "../../../utils/logger.js";
 import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, getTokenByAddress } from "../../../config/constants.js";
-import { FACTORY_FAMILY_SERVICE_IDS, TIER_SERVICE_IDS } from "../../../orchestrator/intent.js";
+import { FACTORY_FAMILY_SERVICE_IDS, TIER_SERVICE_IDS, COLLECTION_SERVICE_IDS } from "../../../orchestrator/intent.js";
 import type { parseEvents } from "../../../mirror/parser.js";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
 
@@ -72,7 +72,19 @@ export const createCollectionSchema = z.object({
   collectionContract: starknetAddress.optional(),
   // Omitted (default): registry entry for mip-erc721/ip-erc721. One of these
   // deploys a new per-creator contract via that service's factory instead.
-  service: z.enum(FACTORY_FAMILY_SERVICE_IDS).optional(),
+  service: z.enum(COLLECTION_SERVICE_IDS).optional(),
+  // pop-protocol only.
+  claimEndTimestamp: z.number().int().nonnegative().optional(),
+  eventType: z.string().optional(),
+  // drop-collection only.
+  maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string").optional(),
+  conditions: z.object({
+    startTime: z.number().int().nonnegative(),
+    endTime: z.number().int().nonnegative(),
+    price: z.string().regex(/^\d+$/, "price must be a non-negative integer string"),
+    paymentToken: starknetAddress,
+    maxQuantityPerWallet: z.string().regex(/^\d+$/, "maxQuantityPerWallet must be a non-negative integer string"),
+  }).optional(),
 });
 
 export const createTierSchema = z.object({
@@ -84,6 +96,27 @@ export const createTierSchema = z.object({
   endTime: z.number().int().nonnegative().optional(),
   royaltyBps: z.number().int().min(0).max(10000).default(0),
   metadataUri: z.string().min(1),
+});
+
+// ── Creator Coin schemas ─────────────────────────────────────────────────────
+
+export const createCoinSchema = z.object({
+  owner: starknetAddress,
+  name: z.string().min(1),
+  symbol: z.string().min(1),
+  initialSupply: z.string().regex(/^\d+$/, "initialSupply must be a non-negative integer string"),
+  salt: z.string().optional(),
+});
+
+export const launchCoinSchema = z.object({
+  owner: starknetAddress,
+  creatorCoin: starknetAddress,
+  quoteToken: starknetAddress,
+  initialHolders: z.array(starknetAddress).default([]),
+  initialHoldersAmounts: z.array(z.string().regex(/^\d+$/, "must be a non-negative integer string")).default([]),
+  transferRestrictionDelay: z.number().int().nonnegative().optional(),
+  maxPercentageBuyLaunch: z.number().int().nonnegative().optional(),
+  quoteFundAmount: z.string().regex(/^\d+$/, "quoteFundAmount must be a non-negative integer string").optional(),
 });
 
 // ── IP-Sponsorship schemas ───────────────────────────────────────────────────
