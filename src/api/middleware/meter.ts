@@ -39,8 +39,8 @@ export function meter(deps: MeterDeps = {
     });
     if (cost === null) return next(); // unmetered route
 
-    const account = c.get("account");
-    if (!account) return c.json({ error: "Unauthorized" }, 401);
+    const apiClient = c.get("apiClient");
+    if (!apiClient) return c.json({ error: "Unauthorized" }, 401);
 
     // If the agent supplied a payment, settle it to top up their balance before
     // debiting. A failed settlement (stale txHash, already credited, etc.) is
@@ -51,7 +51,7 @@ export function meter(deps: MeterDeps = {
       const payload = decodePaymentHeader(header);
       const scheme = payload && SCHEMES.find((s) => s.scheme === payload.scheme && s.network === payload.network);
       if (payload && scheme) {
-        const settled = await settlePayment(scheme, account.id, payload);
+        const settled = await settlePayment(scheme, apiClient, payload);
         if (settled.ok) {
           c.header(
             "X-Payment-Response",
@@ -59,14 +59,14 @@ export function meter(deps: MeterDeps = {
           );
         } else {
           log.warn(
-            { account: account.id, reason: settled.reason, path: c.req.path },
+            { apiClient: apiClient.id, reason: settled.reason, path: c.req.path },
             "payment settlement failed — falling through to credit balance",
           );
         }
       }
     }
 
-    const paid = await debitCredits(account.id, cost);
+    const paid = await debitCredits(apiClient.id, cost);
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
@@ -76,7 +76,7 @@ export function meter(deps: MeterDeps = {
     }
 
     c.header("X-Credits-Remaining", "deducted"); // exact remaining is read via /v1/portal/me
-    log.debug({ account: account.id, cost, path: c.req.path }, "metered");
+    log.debug({ apiClient: apiClient.id, cost, path: c.req.path }, "metered");
 
     // The debit above is a RESERVATION. Charge stands for a 2xx (work delivered)
     // or a 4xx (caller's bad input). Refund only when WE failed the caller — an
@@ -85,14 +85,14 @@ export function meter(deps: MeterDeps = {
     try {
       await next();
     } catch (err) {
-      await refundCredits(account.id, cost).catch((refundErr) =>
-        log.error({ refundErr, account: account.id, cost, path: c.req.path }, "refund after thrown handler failed"),
+      await refundCredits(apiClient.id, cost).catch((refundErr) =>
+        log.error({ refundErr, apiClient: apiClient.id, cost, path: c.req.path }, "refund after thrown handler failed"),
       );
       throw err;
     }
     if (c.res.status >= 500) {
-      await refundCredits(account.id, cost).catch((refundErr) =>
-        log.error({ refundErr, account: account.id, cost, path: c.req.path }, "refund after 5xx failed"),
+      await refundCredits(apiClient.id, cost).catch((refundErr) =>
+        log.error({ refundErr, apiClient: apiClient.id, cost, path: c.req.path }, "refund after 5xx failed"),
       );
     }
   };
