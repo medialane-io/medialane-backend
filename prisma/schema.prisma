@@ -389,6 +389,8 @@ enum ProvisioningStatus {
 model BusinessProvisioning {
   id                 String             @id @default(cuid())
   accountId          String
+  // Dual-write (2026-08-05 ApiClient migration) — see ApiKey.apiClientId.
+  apiClientId        String?
   chain              Chain              @default(STARKNET)
   walletAddress      String
   recipientScheme    String
@@ -400,10 +402,12 @@ model BusinessProvisioning {
   updatedAt          DateTime           @updatedAt
 
   account     Account                  @relation(fields: [accountId], references: [id])
+  apiClient   ApiClient?               @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
   claimTokens ProvisioningClaimToken[]
 
   @@unique([chain, walletAddress])
   @@index([accountId, status])
+  @@index([apiClientId])
 }
 
 model ProvisioningClaimToken {
@@ -715,6 +719,10 @@ model ApiKey {
   id                  String       @id @default(cuid())
   accountId           String
   account             Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  // Dual-write (2026-08-05 ApiClient migration) — nullable until the cutover
+  // phase backfills it; accountId above is dropped once every row has one.
+  apiClientId         String?
+  apiClient           ApiClient?   @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
   prefix              String
   keyHash             String       @unique
   label               String       @default("")
@@ -729,23 +737,28 @@ model ApiKey {
   updatedAt           DateTime     @updatedAt
 
   @@index([accountId])
+  @@index([apiClientId])
   @@index([status])
   @@index([appSource])
 }
 
 model WebhookEndpoint {
-  id         String                @id @default(cuid())
-  accountId  String
-  account    Account               @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  url        String
-  secret     String
-  events     WebhookEventType[]
-  status     WebhookEndpointStatus @default(ACTIVE)
-  deliveries WebhookDelivery[]
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
+  id          String                @id @default(cuid())
+  accountId   String
+  account     Account               @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  // Dual-write (2026-08-05 ApiClient migration) — see ApiKey.apiClientId.
+  apiClientId String?
+  apiClient   ApiClient?            @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  url         String
+  secret      String
+  events      WebhookEventType[]
+  status      WebhookEndpointStatus @default(ACTIVE)
+  deliveries  WebhookDelivery[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
   @@index([accountId])
+  @@index([apiClientId])
   @@index([status])
 }
 
@@ -881,8 +894,33 @@ model Account {
   payments   Payment[]
   businessProvisioning BusinessProvisioning[]
 
+  // Billing/API-client facet, if this account is also an SDK/API consumer
+  // (docs/superpowers/specs/2026-08-05-api-client-model-design.md). Most
+  // accounts do not have one — this is dual-write scaffolding, unused by
+  // application code until the cutover phase of that migration.
+  apiClient ApiClient?
+
   @@index([type])
   @@index([createdAt])
+}
+
+model ApiClient {
+  id        String  @id @default(cuid())
+  accountId String  @unique
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  plan          Plan @default(FREE)
+  creditBalance Int  @default(0)
+
+  apiKeys              ApiKey[]
+  webhooks             WebhookEndpoint[]
+  payments             Payment[]
+  businessProvisioning BusinessProvisioning[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId])
 }
 
 // An identity is one way an Account is known — a wallet, a social/email login, an
@@ -1151,6 +1189,9 @@ model Payment {
   id             String        @id @default(cuid())
   accountId      String
   account        Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  // Dual-write (2026-08-05 ApiClient migration) — see ApiKey.apiClientId.
+  apiClientId    String?
+  apiClient      ApiClient?    @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
   scheme         String // "starknet-transfer"
   network        String // "starknet"
   asset          String // USDC contract
@@ -1163,6 +1204,7 @@ model Payment {
   createdAt      DateTime      @default(now())
 
   @@index([accountId])
+  @@index([apiClientId])
 }
 
 enum PaymentStatus {
