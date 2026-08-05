@@ -1,12 +1,20 @@
-// POST /v1/intents/<type> — the eight intent creation endpoints. Each one:
+// POST /v1/intents/<type> — the intent creation endpoints. Each one:
 //   1. Validates the body against its schema (from _shared.ts).
 //   2. Calls into orchestrator/intent.ts to build typedData + calldata.
 //   3. Persists a TransactionIntent row scoped to the caller's Account.
 //
+// Most routes are this shape exactly, differing only in schema/builder/type/
+// which field holds the requester address/whether SNIP-12 signing is needed
+// — those are registered via registerIntentRoute() below. A few routes carry
+// real extra logic (DB validation, custom typedData, batching) and stay
+// hand-written: offer, counter-offer, create-collection, checkout.
+//
 // Lifecycle (GET/PATCH/POST on /:id) lives in lifecycle.ts; background
 // verification + hydration lives in settle.ts.
 import type { Hono } from "hono";
-import { type Prisma as PrismaTypes } from "@prisma/client";
+import type { Context } from "hono";
+import { type Prisma as PrismaTypes, type IntentType } from "@prisma/client";
+import type { ZodType } from "zod";
 import prisma from "../../../db/client.js";
 import {
   buildCreateListingIntent,
@@ -28,7 +36,7 @@ import {
   buildWithdrawSponsorshipProposalIntent,
   buildAcceptSponsorshipProposalIntent,
   buildRejectSponsorshipProposalIntent,
-} from "../../../orchestrator/intent.js";
+} from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { toErrorMessage } from "../../../utils/error.js";
 import type { AppEnv } from "../../../types/hono.js";
@@ -57,38 +65,234 @@ import {
   sponsorshipProposalRejectSchema,
 } from "./_shared.js";
 
-export function registerBuildRoutes(intents: Hono<AppEnv>): void {
-  // POST /v1/intents/listing
-  intents.post("/listing", async (c) => {
+function expiresAt(): Date {
+  return new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+}
+
+interface IntentRouteConfig<T> {
+  path: string;
+  schema: ZodType<T, any, any>;
+  type: IntentType;
+  /** Body field holding the address that becomes TransactionIntent.requester. */
+  requesterField: keyof T & string;
+  build: (body: T) => Promise<{ typedData?: unknown; calls: unknown }>;
+  /** true: PENDING row, real typedData, client must sign (SNIP-12).
+   *  false: SIGNED row, typedData {}, calls are already fully populated. */
+  requiresSignature: boolean;
+  /** Body field holding an existing order's hash — stored on the row, and
+   *  guarded: if the caller omitted tokenStandard, the order must already be
+   *  indexed (otherwise we can't tell ERC-721 from ERC-1155 routing). */
+  orderHashField?: keyof T & string;
+}
+
+/** Registers the common "validate → build → persist → respond" shape shared
+ *  by most /v1/intents/* routes. See the file header for what stays hand-written. */
+function registerIntentRoute<T>(
+  intents: Hono<AppEnv>,
+  cfg: IntentRouteConfig<T>
+): void {
+  intents.post(cfg.path, async (c: Context<AppEnv>) => {
     const body = await c.req.json().catch(() => null);
-    const parsed = listingSchema.safeParse(body);
+    const parsed = cfg.schema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
     }
 
+    const tokenStandard = (parsed.data as Record<string, unknown>).tokenStandard;
+    if (cfg.orderHashField && !tokenStandard) {
+      const orderHash = parsed.data[cfg.orderHashField] as unknown as string;
+      const order = await prisma.order.findFirst({
+        where: { chain: "STARKNET", orderHash },
+        select: { id: true },
+      });
+      if (!order) {
+        return c.json({ error: "Order not found in index — provide tokenStandard hint" }, 400);
+      }
+    }
+
     try {
-      const { typedData, calls } = await buildCreateListingIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const built = await cfg.build(parsed.data);
+      const requester = normalizeAddress("STARKNET", parsed.data[cfg.requesterField] as unknown as string);
+      const ttl = expiresAt();
 
       const intent = await prisma.transactionIntent.create({
         data: {
-          type: "CREATE_LISTING",
-          requester: normalizeAddress("STARKNET", parsed.data.offerer),
+          type: cfg.type,
+          requester,
           accountId: c.get("account").id,
-          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
-          calls: calls as PrismaTypes.InputJsonValue,
-          expiresAt,
+          typedData: (cfg.requiresSignature ? built.typedData : {}) as unknown as PrismaTypes.InputJsonValue,
+          calls: built.calls as PrismaTypes.InputJsonValue,
+          ...(cfg.requiresSignature ? {} : { status: "SIGNED" as const }),
+          ...(cfg.orderHashField ? { orderHash: parsed.data[cfg.orderHashField] as unknown as string } : {}),
+          expiresAt: ttl,
         },
       });
 
-      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
+      return c.json(
+        {
+          data: cfg.requiresSignature
+            ? { id: intent.id, requiresSignature: true, typedData: built.typedData, calls: built.calls, expiresAt: ttl }
+            : { id: intent.id, requiresSignature: false, calls: built.calls, expiresAt: ttl },
+        },
+        201
+      );
     } catch (err: unknown) {
-      log.error({ err }, "Failed to build listing intent");
+      log.error({ err }, `Failed to build ${cfg.path.slice(1)} intent`);
       return c.json({ error: toErrorMessage(err) }, 500);
     }
   });
+}
 
-  // POST /v1/intents/offer
+export function registerBuildRoutes(intents: Hono<AppEnv>): void {
+  registerIntentRoute(intents, {
+    path: "/listing",
+    schema: listingSchema,
+    type: "CREATE_LISTING",
+    requesterField: "offerer",
+    build: buildCreateListingIntent,
+    requiresSignature: true,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/cancel",
+    schema: cancelSchema,
+    type: "CANCEL_ORDER",
+    requesterField: "offerer",
+    build: buildCancelOrderIntent,
+    requiresSignature: true,
+    orderHashField: "orderHash",
+  });
+
+  registerIntentRoute(intents, {
+    path: "/fulfill",
+    schema: fulfillSchema,
+    type: "FULFILL_ORDER",
+    requesterField: "fulfiller",
+    build: buildFulfillOrderIntent,
+    requiresSignature: false,
+    orderHashField: "orderHash",
+  });
+
+  registerIntentRoute(intents, {
+    path: "/mint",
+    schema: mintSchema,
+    type: "MINT",
+    requesterField: "owner",
+    build: buildMintIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/create-tier",
+    schema: createTierSchema,
+    type: "CREATE_TIER",
+    requesterField: "owner",
+    build: buildCreateTierIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/create-coin",
+    schema: createCoinSchema,
+    type: "CREATE_COIN",
+    requesterField: "owner",
+    build: buildCreateCoinIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/launch-coin",
+    schema: launchCoinSchema,
+    type: "LAUNCH_COIN",
+    requesterField: "owner",
+    build: buildLaunchCoinIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-offer",
+    schema: sponsorshipOfferSchema,
+    type: "CREATE_SPONSORSHIP_OFFER",
+    requesterField: "author",
+    build: buildCreateSponsorshipOfferIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-offer-open",
+    schema: sponsorshipOfferOpenSchema,
+    type: "SET_SPONSORSHIP_OFFER_OPEN",
+    requesterField: "author",
+    build: buildSetSponsorshipOfferOpenIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-bid",
+    schema: sponsorshipBidSchema,
+    type: "PLACE_SPONSORSHIP_BID",
+    requesterField: "sponsor",
+    build: buildPlaceSponsorshipBidIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-bid-retract",
+    schema: sponsorshipBidRetractSchema,
+    type: "RETRACT_SPONSORSHIP_BID",
+    requesterField: "sponsor",
+    build: buildRetractSponsorshipBidIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-bid-accept",
+    schema: sponsorshipBidAcceptSchema,
+    type: "ACCEPT_SPONSORSHIP_BID",
+    requesterField: "author",
+    build: buildAcceptSponsorshipBidIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-proposal",
+    schema: sponsorshipProposalSchema,
+    type: "CREATE_SPONSORSHIP_PROPOSAL",
+    requesterField: "proposer",
+    build: buildCreateSponsorshipProposalIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-proposal-withdraw",
+    schema: sponsorshipProposalWithdrawSchema,
+    type: "WITHDRAW_SPONSORSHIP_PROPOSAL",
+    requesterField: "proposer",
+    build: buildWithdrawSponsorshipProposalIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-proposal-accept",
+    schema: sponsorshipProposalAcceptSchema,
+    type: "ACCEPT_SPONSORSHIP_PROPOSAL",
+    requesterField: "owner",
+    build: buildAcceptSponsorshipProposalIntent,
+    requiresSignature: false,
+  });
+
+  registerIntentRoute(intents, {
+    path: "/sponsorship-proposal-reject",
+    schema: sponsorshipProposalRejectSchema,
+    type: "REJECT_SPONSORSHIP_PROPOSAL",
+    requesterField: "owner",
+    build: buildRejectSponsorshipProposalIntent,
+    requiresSignature: false,
+  });
+
+  // POST /v1/intents/offer — kept hand-written: the tokenStandard-omitted
+  // case is a warn-and-continue (routing determined later by DB lookup),
+  // not a guard, so it doesn't fit registerIntentRoute's hard-guard shape.
   intents.post("/offer", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = offerSchema.safeParse(body);
@@ -102,7 +306,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
     try {
       const { typedData, calls } = await buildMakeOfferIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const ttl = expiresAt();
 
       const intent = await prisma.transactionIntent.create({
         data: {
@@ -111,11 +315,11 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           accountId: c.get("account").id,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
-          expiresAt,
+          expiresAt: ttl,
         },
       });
 
-      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build offer intent");
       return c.json({ error: toErrorMessage(err) }, 500);
@@ -167,7 +371,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         durationSeconds,
       });
 
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const ttl = expiresAt();
 
       // Atomic: re-check for existing counter INSIDE the transaction to close the TOCTOU
       // window. Two concurrent requests both passing the outer check could previously
@@ -189,7 +393,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
             accountId: c.get("account").id,
             typedData: typedData as unknown as PrismaTypes.InputJsonValue,
             calls: calls as PrismaTypes.InputJsonValue,
-            expiresAt,
+            expiresAt: ttl,
             parentOrderHash: originalOrderHash,
             counterOfferMessage: message ?? null,
           },
@@ -205,7 +409,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         return created;
       });
 
-      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
       if ((err as any)?.code === "COUNTER_ALREADY_EXISTS") {
         return c.json({ error: "A counter-offer already exists for this order" }, 400);
@@ -215,123 +419,9 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  // POST /v1/intents/fulfill
-  intents.post("/fulfill", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = fulfillSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    try {
-      if (!parsed.data.tokenStandard) {
-        const order = await prisma.order.findFirst({
-          where: { chain: "STARKNET", orderHash: parsed.data.orderHash },
-          select: { id: true },
-        });
-        if (!order) {
-          return c.json({ error: "Order not found in index — provide tokenStandard hint" }, 400);
-        }
-      }
-
-      const { calls } = await buildFulfillOrderIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-
-      // Unsigned fulfilment — calls are fully populated; create SIGNED (like mint).
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "FULFILL_ORDER",
-          requester: normalizeAddress("STARKNET", parsed.data.fulfiller),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          orderHash: parsed.data.orderHash,
-          expiresAt,
-        },
-      });
-
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build fulfill intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/cancel
-  intents.post("/cancel", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = cancelSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    if (!parsed.data.tokenStandard) {
-      const order = await prisma.order.findFirst({
-        where: { chain: "STARKNET", orderHash: parsed.data.orderHash },
-        select: { id: true },
-      });
-      if (!order) {
-        return c.json({ error: "Order not found in index — provide tokenStandard hint" }, 400);
-      }
-    }
-
-    try {
-      const { typedData, calls } = await buildCancelOrderIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "CANCEL_ORDER",
-          requester: normalizeAddress("STARKNET", parsed.data.offerer),
-          accountId: c.get("account").id,
-          typedData: typedData as unknown as PrismaTypes.InputJsonValue,
-          calls: calls as PrismaTypes.InputJsonValue,
-          orderHash: parsed.data.orderHash,
-          expiresAt,
-        },
-      });
-
-      return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build cancel intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/mint
-  intents.post("/mint", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = mintSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    try {
-      const { calls } = await buildMintIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-
-      // No SNIP-12 signature needed — calls are fully populated at creation.
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "MINT",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build mint intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/create-collection
+  // POST /v1/intents/create-collection — kept hand-written: typedData stores
+  // name/description/image (not the builder's typedData) so
+  // COLLECTION_METADATA_FETCH can recover them.
   intents.post("/create-collection", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = createCollectionSchema.safeParse(body);
@@ -345,10 +435,8 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         description: parsed.data.description,
         image: parsed.data.image,
       });
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const ttl = expiresAt();
 
-      // No SNIP-12 signature needed — calls are fully populated at creation.
-      // Store name + description in typedData so COLLECTION_METADATA_FETCH can recover them.
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "CREATE_COLLECTION",
@@ -362,363 +450,13 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           },
           calls: calls as PrismaTypes.InputJsonValue,
           status: "SIGNED",
-          expiresAt,
+          expiresAt: ttl,
         },
       });
 
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build create-collection intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/create-tier — defines a ticket type (ip-tickets) or
-  // membership tier (ip-club) inside an already-deployed collection. MINT
-  // then mints copies of whichever tier this creates.
-  intents.post("/create-tier", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = createTierSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    try {
-      const { calls } = await buildCreateTierIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-
-      // No SNIP-12 signature needed — calls are fully populated at creation.
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "CREATE_TIER",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build create-tier intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/create-coin — deploys a fixed-supply CreatorCoin (owner-only launch later).
-  intents.post("/create-coin", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = createCoinSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    try {
-      const { calls } = await buildCreateCoinIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "CREATE_COIN",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build create-coin intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/launch-coin — launches an already-deployed CreatorCoin on Ekubo.
-  // A separate intent from create-coin because the coin address is only known
-  // from that tx's receipt (same two-step shape as create-tier → mint).
-  intents.post("/launch-coin", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = launchCoinSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    try {
-      const { calls } = await buildLaunchCoinIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "LAUNCH_COIN",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build launch-coin intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-offer
-  intents.post("/sponsorship-offer", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipOfferSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildCreateSponsorshipOfferIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "CREATE_SPONSORSHIP_OFFER",
-          requester: normalizeAddress("STARKNET", parsed.data.author),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-offer intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-offer-open
-  intents.post("/sponsorship-offer-open", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipOfferOpenSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildSetSponsorshipOfferOpenIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "SET_SPONSORSHIP_OFFER_OPEN",
-          requester: normalizeAddress("STARKNET", parsed.data.author),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-offer-open intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-bid
-  intents.post("/sponsorship-bid", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipBidSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildPlaceSponsorshipBidIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "PLACE_SPONSORSHIP_BID",
-          requester: normalizeAddress("STARKNET", parsed.data.sponsor),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-bid intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-bid-retract
-  intents.post("/sponsorship-bid-retract", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipBidRetractSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildRetractSponsorshipBidIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "RETRACT_SPONSORSHIP_BID",
-          requester: normalizeAddress("STARKNET", parsed.data.sponsor),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-bid-retract intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-bid-accept
-  intents.post("/sponsorship-bid-accept", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipBidAcceptSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildAcceptSponsorshipBidIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "ACCEPT_SPONSORSHIP_BID",
-          requester: normalizeAddress("STARKNET", parsed.data.author),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-bid-accept intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-proposal
-  intents.post("/sponsorship-proposal", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipProposalSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildCreateSponsorshipProposalIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "CREATE_SPONSORSHIP_PROPOSAL",
-          requester: normalizeAddress("STARKNET", parsed.data.proposer),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-proposal intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-proposal-withdraw
-  intents.post("/sponsorship-proposal-withdraw", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipProposalWithdrawSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildWithdrawSponsorshipProposalIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "WITHDRAW_SPONSORSHIP_PROPOSAL",
-          requester: normalizeAddress("STARKNET", parsed.data.proposer),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-proposal-withdraw intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-proposal-accept
-  intents.post("/sponsorship-proposal-accept", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipProposalAcceptSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildAcceptSponsorshipProposalIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "ACCEPT_SPONSORSHIP_PROPOSAL",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-proposal-accept intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
-    }
-  });
-
-  // POST /v1/intents/sponsorship-proposal-reject
-  intents.post("/sponsorship-proposal-reject", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = sponsorshipProposalRejectSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const { calls } = await buildRejectSponsorshipProposalIntent(parsed.data);
-      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
-      const intent = await prisma.transactionIntent.create({
-        data: {
-          type: "REJECT_SPONSORSHIP_PROPOSAL",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
-          accountId: c.get("account").id,
-          typedData: {},
-          calls: calls as PrismaTypes.InputJsonValue,
-          status: "SIGNED",
-          expiresAt,
-        },
-      });
-      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
-    } catch (err: unknown) {
-      log.error({ err }, "Failed to build sponsorship-proposal-reject intent");
       return c.json({ error: toErrorMessage(err) }, 500);
     }
   });
@@ -732,7 +470,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
 
     const { fulfiller, orderHashes } = parsed.data;
-    const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+    const ttl = expiresAt();
     const normalizedFulfiller = normalizeAddress("STARKNET", fulfiller);
     const accountId = c.get("account").id;
 
@@ -790,7 +528,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
             calls: b.calls as PrismaTypes.InputJsonValue,
             status: "SIGNED" as const,
             orderHash: b.orderHash,
-            expiresAt,
+            expiresAt: ttl,
           })),
           select: { id: true, orderHash: true },
         })
@@ -809,7 +547,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         orderHash: b.orderHash,
         requiresSignature: false as const,
         calls: built?.calls,
-        expiresAt: expiresAt.toISOString(),
+        expiresAt: ttl.toISOString(),
       };
     });
 
