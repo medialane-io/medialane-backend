@@ -74,7 +74,7 @@ export function registerApiClientRoutes(admin: Hono) {
   // POST /admin/api-clients/:id/keys — mint a key (plaintext shown ONCE). Max 5 active.
   admin.post("/api-clients/:id/keys", async (c) => {
     const apiClientId = c.req.param("id");
-    const apiClient = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { id: true, accountId: true } });
+    const apiClient = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { id: true } });
     if (!apiClient) return c.json({ error: "ApiClient not found" }, 404);
 
     const body = await c.req.json().catch(() => ({}));
@@ -86,9 +86,7 @@ export function registerApiClientRoutes(admin: Hono) {
 
     const { plaintext, prefix, keyHash } = generateApiKey();
     const key = await prisma.apiKey.create({
-      // accountId is still NOT NULL until the drop-old-columns migration
-      // phase — dual-write both while that column exists.
-      data: { accountId: apiClient.accountId, apiClientId, prefix, keyHash, label: parsed.data.label ?? "default" },
+      data: { apiClientId, prefix, keyHash, label: parsed.data.label ?? "default" },
       select: { id: true, prefix: true, label: true },
     });
     log.info({ keyId: key.id, apiClientId }, "admin minted api-client key");

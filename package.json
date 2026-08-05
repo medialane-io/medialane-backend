@@ -19,10 +19,8 @@
     "pricing:apply": "bun run src/scripts/apply-pricing.ts",
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
-    "backfill-api-clients": "bun run src/scripts/backfill-api-clients.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
-    "prod:backfill-api-clients": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run backfill-api-clients'",
     "pricing:apply:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run pricing:apply'",
     "test": "bun test src"
   },
