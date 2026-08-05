@@ -33,7 +33,8 @@ describe("x402 end-to-end", () => {
 
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => {
-      c.set("account", { id: "a1", plan: "FREE", status: "ACTIVE", creditBalance: 0 });
+      c.set("account", { id: "a1", status: "ACTIVE" });
+      c.set("apiClient", { id: "ac1", accountId: "a1", plan: "FREE", creditBalance: 0 });
       await next();
     });
     app.use("/v1/*", meter(deps));

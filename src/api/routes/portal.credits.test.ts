@@ -6,7 +6,8 @@ import portal from "./portal.js";
 function app() {
   const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
-    c.set("account", { id: "a1", plan: "PREMIUM", status: "ACTIVE", creditBalance: 0 });
+    c.set("account", { id: "a1", status: "ACTIVE" });
+    c.set("apiClient", { id: "ac1", accountId: "a1", plan: "PREMIUM", creditBalance: 0 });
     await next();
   });
   a.route("/", portal);

@@ -11,7 +11,7 @@ import type { Chain, ProvisioningStatus } from "@prisma/client";
 
 export interface ProvisioningRecord {
   id: string;
-  accountId: string;
+  apiClientId: string;
   chain: Chain;
   walletAddress: string;
   recipientScheme: string;
@@ -24,10 +24,10 @@ export interface ProvisioningRecord {
 export interface BusinessProvisioningDeps {
   isAccountOwner: (chain: Chain, walletAddress: string, ownerPubkey: string) => Promise<boolean>;
   createProvisioning: (input: {
-    accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
+    apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
   }) => Promise<ProvisioningRecord>;
-  listProvisioning: (accountId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
-  getProvisioningById: (id: string, accountId: string) => Promise<ProvisioningRecord | null>;
+  listProvisioning: (apiClientId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
+  getProvisioningById: (id: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markTransferred: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
@@ -54,7 +54,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
     const { chain, walletAddress, recipientScheme, recipientValue, interimOwnerPubkey } = c.req.valid("json");
-    const accountId = c.get("account").id;
+    const apiClient = c.get("apiClient");
     const normWallet = normalizeAddress(chain, walletAddress);
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
 
@@ -62,7 +62,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     if (!ok) return c.json({ error: "interim_owner_mismatch" }, 400);
 
     const record = await deps.createProvisioning({
-      accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
+      apiClientId: apiClient.id, accountId: apiClient.accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
     });
 
     const { token } = await deps.createClaimToken({ provisioningId: record.id });
@@ -75,9 +75,9 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   });
 
   app.get("/", async (c) => {
-    const accountId = c.get("account").id;
+    const apiClient = c.get("apiClient");
     const status = c.req.query("status") as ProvisioningStatus | undefined;
-    const rows = await deps.listProvisioning(accountId, status);
+    const rows = await deps.listProvisioning(apiClient.id, status);
     return c.json({ data: rows });
   });
 
@@ -105,8 +105,8 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
   app.post("/:id/complete", async (c) => {
     const id = c.req.param("id");
-    const accountId = c.get("account").id;
-    const record = await deps.getProvisioningById(id, accountId);
+    const apiClient = c.get("apiClient");
+    const record = await deps.getProvisioningById(id, apiClient.id);
     if (!record) return c.json({ error: "not_found" }, 404);
     if (!record.newOwnerPubkey) return c.json({ error: "not_claimed_yet" }, 409);
 
@@ -123,19 +123,37 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   return app;
 }
 
+// businessProvisioning.apiClientId is still nullable at the schema level
+// until the drop-old-columns migration phase makes it required — but every
+// real row was backfilled before this code went live (see
+// docs/superpowers/specs/2026-08-05-api-client-model-design.md, Phase 3). A
+// null here past that point means a genuine data-integrity bug, not an
+// expected state — surface it loudly instead of silently coercing.
+function assertLinked<T extends { apiClientId: string | null }>(row: T): T & { apiClientId: string } {
+  if (row.apiClientId === null) {
+    throw new Error(`BusinessProvisioning ${(row as { id?: string }).id ?? "?"} has no apiClientId — backfill gap`);
+  }
+  return row as T & { apiClientId: string };
+}
+
 const productionDeps: BusinessProvisioningDeps = {
   isAccountOwner: realIsAccountOwner,
-  createProvisioning: (input) => prisma.businessProvisioning.create({ data: input }),
-  listProvisioning: (accountId, status) =>
-    prisma.businessProvisioning.findMany({ where: { accountId, ...(status ? { status } : {}) } }),
-  getProvisioningById: async (id, accountId) => {
+  // accountId is still NOT NULL on BusinessProvisioning until the
+  // drop-old-columns migration phase — dual-write both while that column exists.
+  createProvisioning: async (input) => assertLinked(await prisma.businessProvisioning.create({ data: input })),
+  listProvisioning: async (apiClientId, status) =>
+    (await prisma.businessProvisioning.findMany({ where: { apiClientId, ...(status ? { status } : {}) } })).map(assertLinked),
+  getProvisioningById: async (id, apiClientId) => {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
-    return row && row.accountId === accountId ? row : null;
+    return row && row.apiClientId === apiClientId ? assertLinked(row) : null;
   },
-  getProvisioningByIdUnscoped: (id) => prisma.businessProvisioning.findUnique({ where: { id } }),
-  markTransferred: (id) => prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } }),
-  recordNewOwnerPubkey: (id, newOwnerPubkey) =>
-    prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } }),
+  getProvisioningByIdUnscoped: async (id) => {
+    const row = await prisma.businessProvisioning.findUnique({ where: { id } });
+    return row ? assertLinked(row) : null;
+  },
+  markTransferred: async (id) => assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } })),
+  recordNewOwnerPubkey: async (id, newOwnerPubkey) =>
+    assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } })),
   createClaimToken: async ({ provisioningId }) => {
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);

@@ -3,10 +3,11 @@ import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { createBusinessProvisioningRoutes, type BusinessProvisioningDeps, type ProvisioningRecord } from "./business-provisioning.js";
 
-function makeApp(deps: BusinessProvisioningDeps, accountId = "biz-1") {
+function makeApp(deps: BusinessProvisioningDeps, apiClientId = "biz-1") {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    c.set("account", { id: accountId, plan: "FREE", status: "ACTIVE", creditBalance: 0 });
+    c.set("account", { id: `acc-${apiClientId}`, status: "ACTIVE" });
+    c.set("apiClient", { id: apiClientId, accountId: `acc-${apiClientId}`, plan: "FREE", creditBalance: 0 });
     await next();
   });
   app.route("/v1/business/provisioning", createBusinessProvisioningRoutes(deps));
@@ -24,10 +25,10 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
       store.set(record.id, record);
       return record;
     },
-    listProvisioning: async (accountId) => [...store.values()].filter((r) => r.accountId === accountId),
-    getProvisioningById: async (id, accountId) => {
+    listProvisioning: async (apiClientId) => [...store.values()].filter((r) => r.apiClientId === apiClientId),
+    getProvisioningById: async (id, apiClientId) => {
       const r = store.get(id);
-      return r && r.accountId === accountId ? r : null;
+      return r && r.apiClientId === apiClientId ? r : null;
     },
     getProvisioningByIdUnscoped: async () => null,
     markTransferred: async (id) => {
@@ -67,7 +68,7 @@ describe("POST /v1/business/provisioning", () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: ProvisioningRecord & { claimUrl: string } };
     expect(body.data.status).toBe("DEPLOYED");
-    expect(body.data.accountId).toBe("biz-1");
+    expect(body.data.apiClientId).toBe("biz-1");
     expect(body.data.claimUrl).toContain("/claim/");
   });
 
@@ -115,8 +116,8 @@ describe("GET /v1/business/provisioning", () => {
   test("lists only the caller's own rows", async () => {
     const deps = fakeDeps();
     const app = makeApp(deps);
-    await deps.createProvisioning({ accountId: "biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1" });
-    await deps.createProvisioning({ accountId: "biz-2", chain: "STARKNET", walletAddress: "0xB", recipientScheme: "email", recipientValue: "b@example.com", interimOwnerPubkey: "0x2" });
+    await deps.createProvisioning({ apiClientId: "biz-1", accountId: "acc-biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1" });
+    await deps.createProvisioning({ apiClientId: "biz-2", accountId: "acc-biz-2", chain: "STARKNET", walletAddress: "0xB", recipientScheme: "email", recipientValue: "b@example.com", interimOwnerPubkey: "0x2" });
     const res = await app.request("/v1/business/provisioning");
     const body = (await res.json()) as { data: ProvisioningRecord[] };
     expect(body.data).toHaveLength(1);
@@ -131,7 +132,7 @@ describe("GET /v1/business/provisioning/claim/:token", () => {
         token === "tok_1" ? { provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null } : null,
       getProvisioningByIdUnscoped: async (id) =>
         id === "prov-1"
-          ? { id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xa", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "DEPLOYED" }
+          ? { id: "prov-1", apiClientId: "biz-1", chain: "STARKNET", walletAddress: "0xa", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: null, status: "DEPLOYED" }
           : null,
     });
     const app = makeApp(deps);
@@ -165,7 +166,7 @@ describe("POST /v1/business/provisioning/claim/:token", () => {
       findClaimToken: async () => ({ provisioningId: "prov-1", expiresAt: new Date(Date.now() + 1000), consumedAt: null }),
       recordNewOwnerPubkey: async (id, pubkey) => {
         recorded = { id, pubkey };
-        return { id, accountId: "biz-1", chain: "STARKNET", walletAddress: "0xa", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "HANDOFF" };
+        return { id, apiClientId: "biz-1", chain: "STARKNET", walletAddress: "0xa", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: pubkey, status: "HANDOFF" };
       },
       consumeClaimToken: async (token) => { consumed = token; },
     });
@@ -196,13 +197,13 @@ describe("POST /v1/business/provisioning/claim/:token", () => {
 
 describe("POST /v1/business/provisioning/:id/complete", () => {
   const claimPendingRecord: ProvisioningRecord = {
-    id: "prov-1", accountId: "biz-1", chain: "STARKNET", walletAddress: "0xa",
+    id: "prov-1", apiClientId: "biz-1", chain: "STARKNET", walletAddress: "0xa",
     recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0x3", status: "HANDOFF",
   };
 
   test("marks TRANSFERRED once the new owner is confirmed on-chain and the interim owner is gone", async () => {
     const deps = fakeDeps({
-      getProvisioningById: async (id, accountId) => (id === "prov-1" && accountId === "biz-1" ? claimPendingRecord : null),
+      getProvisioningById: async (id, apiClientId) => (id === "prov-1" && apiClientId === "biz-1" ? claimPendingRecord : null),
       isAccountOwner: async (_chain, _wallet, pubkey) => pubkey === "0x3",
     });
     const app = makeApp(deps);

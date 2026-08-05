@@ -15,20 +15,23 @@ const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
 const starknetScheme = new StarknetUsdcScheme();
 
-// All /v1/portal/* routes are scoped to the caller's Account (07-identity §III).
-// The account (incl. live creditBalance) is on the context from apiKeyAuth.
+// All /v1/portal/* routes are scoped to the caller's ApiClient — the billing
+// identity (docs/superpowers/specs/2026-08-05-api-client-model-design.md).
+// The apiClient (incl. live creditBalance) is on the context from apiKeyAuth.
 
 // ---------------------------------------------------------------------------
 // GET /v1/portal/me
 // ---------------------------------------------------------------------------
 portal.get("/me", async (c) => {
   const account = c.get("account");
+  const apiClient = c.get("apiClient");
   return c.json({
     data: {
-      id: account.id,
-      plan: account.plan,
+      id: apiClient.id,
+      accountId: apiClient.accountId,
+      plan: apiClient.plan,
       status: account.status,
-      creditBalance: account.creditBalance,
+      creditBalance: apiClient.creditBalance,
     },
   });
 });
@@ -40,12 +43,12 @@ portal.get("/me", async (c) => {
 // Replay-safe: settlePayment dedups on the tx (Payment.proofNonce = txHash).
 // ---------------------------------------------------------------------------
 portal.post("/credits/fund", async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
   const body = await c.req.json().catch(() => null);
   const parsed = z.object({ txHash: z.string().min(3) }).safeParse(body);
   if (!parsed.success) return c.json({ error: "txHash is required" }, 400);
 
-  const result = await settlePayment(starknetScheme, account.id, {
+  const result = await settlePayment(starknetScheme, apiClient, {
     scheme: starknetScheme.scheme,
     network: starknetScheme.network,
     txHash: parsed.data.txHash,
@@ -59,9 +62,9 @@ portal.post("/credits/fund", async (c) => {
 // GET /v1/portal/credits/history — settled x402 payments (the credit ledger)
 // ---------------------------------------------------------------------------
 portal.get("/credits/history", async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
   const payments = await prisma.payment.findMany({
-    where: { accountId: account.id },
+    where: { apiClientId: apiClient.id },
     orderBy: { createdAt: "desc" },
     take: 20,
     select: {
@@ -81,10 +84,10 @@ portal.get("/credits/history", async (c) => {
 // GET /v1/portal/keys
 // ---------------------------------------------------------------------------
 portal.get("/keys", async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
 
   const keys = await prisma.apiKey.findMany({
-    where: { accountId: account.id },
+    where: { apiClientId: apiClient.id },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -101,7 +104,7 @@ portal.get("/keys", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /v1/portal/keys — create a new API key (max 5 active keys per account)
+// POST /v1/portal/keys — create a new API key (max 5 active keys per ApiClient)
 // ---------------------------------------------------------------------------
 const createKeySchema = z.object({
   label: z.string().max(64).optional(),
@@ -111,7 +114,7 @@ const createKeySchema = z.object({
 });
 
 portal.post("/keys", async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
   const body = await c.req.json().catch(() => ({}));
   const parsed = createKeySchema.safeParse(body);
   if (!parsed.success) {
@@ -123,7 +126,7 @@ portal.post("/keys", async (c) => {
   try {
     key = await prisma.$transaction(async (tx) => {
       const keyCount = await tx.apiKey.count({
-        where: { accountId: account.id, status: "ACTIVE" },
+        where: { apiClientId: apiClient.id, status: "ACTIVE" },
       });
       if (keyCount >= 5) {
         throw Object.assign(new Error("Max 5 active API keys per account"), { code: "KEY_LIMIT" });
@@ -132,7 +135,10 @@ portal.post("/keys", async (c) => {
       plaintext = generated.plaintext;
       return tx.apiKey.create({
         data: {
-          accountId: account.id,
+          // accountId is still NOT NULL until the drop-old-columns migration
+          // phase — dual-write both while that column exists.
+          accountId: apiClient.accountId,
+          apiClientId: apiClient.id,
           prefix: generated.prefix,
           keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
@@ -145,25 +151,25 @@ portal.post("/keys", async (c) => {
     throw err;
   }
 
-  log.info({ keyId: key.id, accountId: account.id, appSource: key.appSource }, "Self-service API key created");
+  log.info({ keyId: key.id, apiClientId: apiClient.id, appSource: key.appSource }, "Self-service API key created");
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, appSource: key.appSource, plaintext: plaintext! } }, 201);
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /v1/portal/keys/:id — revoke a key (scoped to account)
+// DELETE /v1/portal/keys/:id — revoke a key (scoped to the caller's ApiClient)
 // ---------------------------------------------------------------------------
 portal.delete("/keys/:id", async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
   const { id } = c.req.param();
 
   const key = await prisma.apiKey.findFirst({
-    where: { id, accountId: account.id },
+    where: { id, apiClientId: apiClient.id },
   });
   if (!key) return c.json({ error: "API key not found" }, 404);
   if (key.status === "REVOKED") return c.json({ error: "Key already revoked" }, 409);
 
   await prisma.apiKey.update({ where: { id }, data: { status: "REVOKED" } });
-  log.info({ keyId: id, accountId: account.id }, "API key revoked via portal");
+  log.info({ keyId: id, apiClientId: apiClient.id }, "API key revoked via portal");
   return c.json({ data: { id, status: "REVOKED" } });
 });
 
@@ -171,10 +177,10 @@ portal.delete("/keys/:id", async (c) => {
 // GET /v1/portal/webhooks — PREMIUM only
 // ---------------------------------------------------------------------------
 portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
 
   const endpoints = await prisma.webhookEndpoint.findMany({
-    where: { accountId: account.id },
+    where: { apiClientId: apiClient.id },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -200,7 +206,7 @@ const createWebhookSchema = z.object({
 });
 
 portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
   const body = await c.req.json().catch(() => null);
   const parsed = createWebhookSchema.safeParse(body);
   if (!parsed.success) {
@@ -219,14 +225,17 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
 
   const endpoint = await prisma.webhookEndpoint.create({
     data: {
-      accountId: account.id,
+      // accountId is still NOT NULL until the drop-old-columns migration
+      // phase — dual-write both while that column exists.
+      accountId: apiClient.accountId,
+      apiClientId: apiClient.id,
       url,
       secret,
       events: events as any,
     },
   });
 
-  log.info({ endpointId: endpoint.id, accountId: account.id }, "Webhook endpoint created");
+  log.info({ endpointId: endpoint.id, apiClientId: apiClient.id }, "Webhook endpoint created");
 
   return c.json(
     {
@@ -244,14 +253,14 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /v1/portal/webhooks/:id — PREMIUM only; scoped by accountId
+// DELETE /v1/portal/webhooks/:id — PREMIUM only; scoped by apiClientId
 // ---------------------------------------------------------------------------
 portal.delete("/webhooks/:id", requirePlan("PREMIUM"), async (c) => {
-  const account = c.get("account");
+  const apiClient = c.get("apiClient");
   const { id } = c.req.param();
 
   const endpoint = await prisma.webhookEndpoint.findFirst({
-    where: { id, accountId: account.id },
+    where: { id, apiClientId: apiClient.id },
   });
 
   if (!endpoint) {

@@ -9,7 +9,7 @@ const OTHER_ADDRESS = "0x0000000000000000000000000000000000000000000000000000000
 function makeApp(deps: WalletActivityDeps) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    c.set("account", { id: "acc-1", plan: "FREE", status: "ACTIVE", creditBalance: 0 });
+    c.set("account", { id: "acc-1", status: "ACTIVE" });
     await next();
   });
   app.route("/v1/wallet-activity", createWalletActivityRoutes(deps));
