@@ -4,7 +4,7 @@ import prismaDefault from "../db/client.js";
 // inject a stub instead of globally mocking the db module (which bun's
 // process-global mock.module would leak across test files).
 export interface CreditsDb {
-  account: {
+  apiClient: {
     updateMany(args: unknown): Promise<{ count: number }>;
     update(args: unknown): Promise<unknown>;
   };
@@ -13,18 +13,19 @@ export interface CreditsDb {
 }
 
 /**
- * Atomic spend against the Account's credit balance (07-identity §III): decrement
+ * Atomic spend against the ApiClient's credit balance (see
+ * docs/superpowers/specs/2026-08-05-api-client-model-design.md): decrement
  * only if the balance covers `cost`. Returns true if a row was updated (paid),
  * false if insufficient. Concurrency-safe — the WHERE clause makes the
  * check-and-decrement a single DB operation.
  */
 export async function debitCredits(
-  accountId: string,
+  apiClientId: string,
   cost: number,
   db: CreditsDb = prismaDefault as unknown as CreditsDb,
 ): Promise<boolean> {
-  const res = await db.account.updateMany({
-    where: { id: accountId, creditBalance: { gte: cost } },
+  const res = await db.apiClient.updateMany({
+    where: { id: apiClientId, creditBalance: { gte: cost } },
     data: { creditBalance: { decrement: cost } },
   });
   return res.count > 0;
@@ -38,17 +39,21 @@ export async function debitCredits(
  * refunded. See `meter()` for the policy.
  */
 export async function refundCredits(
-  accountId: string,
+  apiClientId: string,
   cost: number,
   db: CreditsDb = prismaDefault as unknown as CreditsDb,
 ): Promise<void> {
-  await db.account.update({
-    where: { id: accountId },
+  await db.apiClient.update({
+    where: { id: apiClientId },
     data: { creditBalance: { increment: cost } },
   });
 }
 
 export interface CreditInput {
+  apiClientId: string;
+  // Payment.accountId is still NOT NULL until the drop-old-columns migration
+  // phase — dual-write both while that column exists. See
+  // docs/superpowers/specs/2026-08-05-api-client-model-design.md.
   accountId: string;
   amountAtomic: bigint; // USDC atomic units paid
   creditedAmount: number; // credits granted (post-multiplier)
@@ -61,7 +66,7 @@ export interface CreditInput {
 }
 
 /**
- * Record the payment and grant credits to the Account atomically. The unique
+ * Record the payment and grant credits to the ApiClient atomically. The unique
  * `proofNonce` makes a replayed proof throw on the Payment insert, so credits are
  * never double-granted; callers treat a unique-violation as "already credited".
  */
@@ -73,6 +78,7 @@ export async function creditAccount(
     db.payment.create({
       data: {
         accountId: input.accountId,
+        apiClientId: input.apiClientId,
         scheme: input.scheme,
         network: input.network,
         asset: input.asset,
@@ -84,8 +90,8 @@ export async function creditAccount(
         proofNonce: input.proofNonce,
       },
     }),
-    db.account.update({
-      where: { id: input.accountId },
+    db.apiClient.update({
+      where: { id: input.apiClientId },
       data: { creditBalance: { increment: input.creditedAmount } },
     }),
   ]);

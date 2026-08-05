@@ -1,5 +1,5 @@
 /**
- * Tenant API key authentication - the base layer for all /v1/* routes.
+ * API key authentication - the base layer for all /v1/* routes.
  *
  * Accepts either header (in this priority order):
  *   x-api-key: ml_live_...
@@ -9,9 +9,11 @@
  * (e.g. PATCH /v1/creators/:wallet/profile) can put the JWT in the
  * Authorization header without it being mis-treated as the API key.
  *
- * Looks up the key by hash, rejects when status !== ACTIVE on either the
- * key or its parent tenant, and stamps `apiKeyId` + `tenant` onto the
- * Hono context for downstream middleware (rateLimit, tierGate, etc.).
+ * Looks up the key by hash, resolves it through its ApiClient (billing) to
+ * that ApiClient's Account (identity) — see
+ * docs/superpowers/specs/2026-08-05-api-client-model-design.md — and stamps
+ * `apiKey` + `account` + `apiClient` onto the Hono context for downstream
+ * middleware (rateLimit, meter, etc.).
  */
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
@@ -42,9 +44,14 @@ const KEY_SELECT = {
   id: true,
   prefix: true,
   status: true,
-  // The billing identity (07-identity §III) — credits + plan live here.
-  account: {
-    select: { id: true, plan: true, status: true, creditBalance: true },
+  apiClient: {
+    select: {
+      id: true,
+      accountId: true,
+      plan: true,
+      creditBalance: true,
+      account: { select: { id: true, status: true } },
+    },
   },
 } as const;
 
@@ -73,16 +80,19 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     select: KEY_SELECT,
   });
 
-  // Key is valid only if active AND bound to an active Account — the billing
-  // identity (07 §III). Tenant is gone (Phase D cutover, 2026-07-12).
-  if (!apiKey || apiKey.status !== "ACTIVE" || apiKey.account.status !== "ACTIVE") {
+  // Key is valid only if active, linked to an ApiClient (every key must be,
+  // post-backfill — see docs/superpowers/specs/2026-08-05-api-client-model-design.md),
+  // AND that ApiClient's Account is active. The account-status check is a
+  // platform-policy ban (07 §II), independent of billing state.
+  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.apiClient || apiKey.apiClient.account.status !== "ACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
 
   touchLastUsed(apiKey.id);
 
-  c.set("apiKey", apiKey);
-  c.set("account", apiKey.account);
+  c.set("apiKey", { id: apiKey.id, status: apiKey.status, apiClient: apiKey.apiClient });
+  c.set("account", apiKey.apiClient.account);
+  c.set("apiClient", apiKey.apiClient);
 
   await next();
 };

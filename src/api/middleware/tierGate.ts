@@ -8,18 +8,19 @@ const PLAN_RANK: Record<Plan, number> = {
 };
 
 /**
- * Returns middleware that rejects requests from accounts below `minPlan`.
- * Plan is Account state (07-identity §III). Must be placed after apiKeyAuth.
+ * Returns middleware that rejects requests from ApiClients below `minPlan`.
+ * Plan is ApiClient state (docs/superpowers/specs/2026-08-05-api-client-model-design.md).
+ * Must be placed after apiKeyAuth.
  */
 export function requirePlan(minPlan: Plan): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const account = c.get("account");
+    const apiClient = c.get("apiClient");
 
-    if (!account) {
+    if (!apiClient) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    if ((PLAN_RANK[account.plan] ?? 0) < PLAN_RANK[minPlan]) {
+    if ((PLAN_RANK[apiClient.plan] ?? 0) < PLAN_RANK[minPlan]) {
       return c.json(
         { error: "Upgrade required", requiredPlan: minPlan },
         403

@@ -50,7 +50,7 @@ describe("settlePayment", () => {
     };
     const res = await settlePayment(
       scheme,
-      "t1",
+      { id: "t1", accountId: "acc-t1" },
       { scheme: "starknet-transfer", network: "starknet", txHash: "0xtx", nonce: "n1" },
       deps,
     );
@@ -71,7 +71,7 @@ describe("settlePayment", () => {
     };
     const res = await settlePayment(
       scheme,
-      "attacker-account",
+      { id: "t-attacker", accountId: "acc-attacker" },
       { scheme: "starknet-transfer", network: "starknet", txHash: "0xtx", nonce: "n1" },
       deps,
     );
@@ -89,7 +89,7 @@ describe("settlePayment", () => {
     };
     const res = await settlePayment(
       noPayerScheme,
-      "t1",
+      { id: "t1", accountId: "acc-t1" },
       { scheme: "starknet-transfer", network: "starknet", txHash: "0xtx", nonce: "n1" },
       deps,
     );
