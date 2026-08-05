@@ -7,19 +7,25 @@ import type { ApiKeyStatus, Plan, AccountStatus } from "@prisma/client";
  * unselected column (e.g. createdAt) would get `undefined` at runtime.
  */
 /**
- * The billing identity (07-identity §III) — API keys + credits are Account state.
- * Resolved from `ApiKey.accountId`; the debit target for metering.
+ * Platform identity only (07-identity §II) — reputation/roles/profile live
+ * here. Billing (plan/creditBalance) moved to ApiClient — see
+ * docs/superpowers/specs/2026-08-05-api-client-model-design.md.
  */
 export type AuthedAccount = {
   id: string;
-  plan: Plan;
   status: AccountStatus;
+};
+/** The billing identity — every ApiClient has exactly one Account (the reverse is optional). */
+export type AuthedApiClient = {
+  id: string;
+  accountId: string;
+  plan: Plan;
   creditBalance: number;
 };
 export type AuthedApiKey = {
   id: string;
   status: ApiKeyStatus;
-  account: AuthedAccount;
+  apiClient: AuthedApiClient & { account: AuthedAccount };
 };
 
 /**
@@ -31,8 +37,10 @@ export type AuthedApiKey = {
  */
 export type AppVariables = {
   requestId: string;
-  /** Billing identity (07 §III) — always present on /v1/* after apiKeyAuth. */
+  /** Platform identity — always present on /v1/* after apiKeyAuth. */
   account: AuthedAccount;
+  /** Billing identity — always present on /v1/* after apiKeyAuth. */
+  apiClient: AuthedApiClient;
   apiKey: AuthedApiKey;
   walletAddress?: string;
   clerkUserId?: string;
