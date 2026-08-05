@@ -1,9 +1,10 @@
 import { Hono } from "hono";
+import type { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { worker } from "../../orchestrator/worker.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
-import { serializeOrder, serializeToken } from "../utils/serialize.js";
+import { serializeOrder, serializeToken, batchOrdersByToken } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
@@ -40,7 +41,7 @@ tokens.get("/", async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
 
-  const where: any = { ...chainWhere(chainFilter), isHidden: false };
+  const where: Prisma.TokenWhereInput = { ...chainWhere(chainFilter), isHidden: false };
 
   if (ipTypeSlug) {
     if (ipTypeSlug === "nft") {
@@ -78,24 +79,9 @@ tokens.get("/", async (c) => {
     prisma.token.count({ where }),
   ]);
 
-  // Batch-load active orders for returned tokens in a single query
-  const activeOrdersAll =
-    data.length > 0
-      ? await prisma.order.findMany({
-          where: {
-            status: "ACTIVE",
-            OR: data.map((t) => ({ chain: t.chain, nftContract: t.contractAddress, nftTokenId: t.tokenId })),
-          },
-        })
-      : [];
-
-  const ordersByToken = new Map<string, typeof activeOrdersAll>();
-  for (const order of activeOrdersAll) {
-    const key = `${order.nftContract}:${order.nftTokenId}`;
-    const existing = ordersByToken.get(key) ?? [];
-    existing.push(order);
-    ordersByToken.set(key, existing);
-  }
+  const ordersByToken = await batchOrdersByToken(
+    data.map((t) => ({ chain: t.chain, contractAddress: t.contractAddress, tokenId: t.tokenId })),
+  );
 
   return c.json({
     data: data.map((t) =>
@@ -180,25 +166,9 @@ tokens.get("/owned/:address", async (c) => {
       })
     : [];
 
-  // Batch-load active orders for all returned tokens in a single query
-  const activeOrdersAll = data.length > 0
-    ? await prisma.order.findMany({
-        where: {
-          chain,
-          status: "ACTIVE",
-          OR: data.map((t) => ({ nftContract: t.contractAddress, nftTokenId: t.tokenId })),
-        },
-      })
-    : [];
-
-  // Group orders by (contractAddress, tokenId)
-  const ordersByToken = new Map<string, typeof activeOrdersAll>();
-  for (const order of activeOrdersAll) {
-    const key = `${order.nftContract}:${order.nftTokenId}`;
-    const existing = ordersByToken.get(key) ?? [];
-    existing.push(order);
-    ordersByToken.set(key, existing);
-  }
+  const ordersByToken = await batchOrdersByToken(
+    data.map((t) => ({ chain, contractAddress: t.contractAddress, tokenId: t.tokenId })),
+  );
 
   return c.json({
     data: data.map((t) =>

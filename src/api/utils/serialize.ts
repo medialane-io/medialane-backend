@@ -1,5 +1,5 @@
 import prisma from "../../db/client.js";
-import type { Collection, Order, Token, TokenStandard } from "@prisma/client";
+import type { Chain, Collection, Order, Token, TokenStandard } from "@prisma/client";
 import type { RawCollectionRow, RawOrderRow, RawTokenRow } from "./rawTypes.js";
 
 /** What the order serializer needs — satisfied by Prisma Order and RawOrderRow. */
@@ -55,6 +55,34 @@ export async function batchTokenMeta(
       { name: t.name, image: t.image, description: t.description, animationUrl: t.animationUrl },
     ])
   );
+}
+
+/**
+ * Batch-fetch ACTIVE orders for a list of tokens (one query), grouped into a
+ * Map keyed `${contractAddress}:${tokenId}` — the shape both tokens.ts list
+ * routes (GET / and GET /owned/:address) build by hand today.
+ */
+export async function batchOrdersByToken(
+  tokens: { chain: Chain; contractAddress: string; tokenId: string }[],
+  deps: { order: Pick<typeof prisma.order, "findMany"> } = { order: prisma.order },
+): Promise<Map<string, Order[]>> {
+  if (tokens.length === 0) return new Map();
+
+  const orders = await deps.order.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: tokens.map((t) => ({ chain: t.chain, nftContract: t.contractAddress, nftTokenId: t.tokenId })),
+    },
+  });
+
+  const byToken = new Map<string, Order[]>();
+  for (const order of orders) {
+    const key = `${order.nftContract}:${order.nftTokenId}`;
+    const existing = byToken.get(key) ?? [];
+    existing.push(order);
+    byToken.set(key, existing);
+  }
+  return byToken;
 }
 
 type SerializableCollectionProfile = {
