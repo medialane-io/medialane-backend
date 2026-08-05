@@ -34,10 +34,10 @@ export function composeAmountDisplay(
   return currency ? `${value} ${currency}` : value;
 }
 
-/** Batch-fetch token name/image/description for a list of orders (single query). */
+/** Batch-fetch token name/image/description/animationUrl for a list of orders (single query). */
 export async function batchTokenMeta(
   orders: { chain: import("@prisma/client").Chain; nftContract: string | null; nftTokenId: string | null }[]
-): Promise<Map<string, { name: string | null; image: string | null; description: string | null }>> {
+): Promise<Map<string, { name: string | null; image: string | null; description: string | null; animationUrl: string | null }>> {
   const pairs = orders
     .filter((o) => o.nftContract && o.nftTokenId)
     .map((o) => ({ chain: o.chain, contractAddress: o.nftContract!, tokenId: o.nftTokenId! }));
@@ -46,13 +46,13 @@ export async function batchTokenMeta(
 
   const tokens = await prisma.token.findMany({
     where: { OR: pairs },
-    select: { contractAddress: true, tokenId: true, name: true, image: true, description: true },
+    select: { contractAddress: true, tokenId: true, name: true, image: true, description: true, animationUrl: true },
   });
 
   return new Map(
     tokens.map((t) => [
       `${t.contractAddress}-${t.tokenId}`,
-      { name: t.name, image: t.image, description: t.description },
+      { name: t.name, image: t.image, description: t.description, animationUrl: t.animationUrl },
     ])
   );
 }
@@ -171,7 +171,7 @@ export async function counterOfferFlags(
 
 export function serializeOrder(
   o: SerializableOrder,
-  tokenData?: { name: string | null; image: string | null; description: string | null } | null,
+  tokenData?: { name: string | null; image: string | null; description: string | null; animationUrl: string | null } | null,
   hasActiveCounterOffer?: boolean,
 ) {
   return {
@@ -227,6 +227,7 @@ export function serializeOrder(
           name: tokenData?.name ?? null,
           image: tokenData?.image ?? null,
           description: tokenData?.description ?? null,
+          animationUrl: tokenData?.animationUrl ?? null,
         }
       : null,
   };
