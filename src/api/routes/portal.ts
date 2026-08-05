@@ -135,9 +135,6 @@ portal.post("/keys", async (c) => {
       plaintext = generated.plaintext;
       return tx.apiKey.create({
         data: {
-          // accountId is still NOT NULL until the drop-old-columns migration
-          // phase — dual-write both while that column exists.
-          accountId: apiClient.accountId,
           apiClientId: apiClient.id,
           prefix: generated.prefix,
           keyHash: generated.keyHash,
@@ -225,9 +222,6 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
 
   const endpoint = await prisma.webhookEndpoint.create({
     data: {
-      // accountId is still NOT NULL until the drop-old-columns migration
-      // phase — dual-write both while that column exists.
-      accountId: apiClient.accountId,
       apiClientId: apiClient.id,
       url,
       secret,
