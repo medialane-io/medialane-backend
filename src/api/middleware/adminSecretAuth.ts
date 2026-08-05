@@ -15,7 +15,7 @@ import type { AppEnv } from "../../types/hono.js";
 
 /** Timing-safe equality. Length mismatch is an acceptable early reject (the
  *  secret's length is not itself sensitive). */
-function secretMatches(presented: string, secret: string | undefined): boolean {
+export function secretMatches(presented: string, secret: string | undefined): boolean {
   if (!secret) return false;
   const a = Buffer.from(presented);
   const b = Buffer.from(secret);
