@@ -119,6 +119,56 @@ async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise
 }
 
 
+interface OrderLegInput {
+  itemType: string;
+  token: string;
+  identifierOrCriteria: string | number | bigint;
+  amount: string | number | bigint;
+  recipient?: string;
+}
+
+/**
+ * Assembles the `OrderParameters` object literal shared by every SNIP-12
+ * order (listing, offer, counter-offer). The typed-data SHAPE (domain,
+ * field order) is the SDK's `buildOrderTypedData`/`build1155OrderTypedData`
+ * — this only DRYs the near-identical field-population block that used to
+ * be repeated at each call site in this file.
+ */
+export function buildOrderParams(input: {
+  offerer: string;
+  marketplace: string;
+  offer: OrderLegInput;
+  consideration: OrderLegInput;
+  royaltyMaxBps: string | number | bigint;
+  startTime: number;
+  endTime: number;
+  salt: string;
+  counter: string;
+}) {
+  return {
+    offerer: toHex(input.offerer),
+    marketplace: toHex(input.marketplace),
+    offer: {
+      item_type: input.offer.itemType,
+      token: toHex(input.offer.token),
+      identifier_or_criteria: toHex(input.offer.identifierOrCriteria),
+      amount: toHex(input.offer.amount),
+    },
+    consideration: {
+      item_type: input.consideration.itemType,
+      token: toHex(input.consideration.token),
+      identifier_or_criteria: toHex(input.consideration.identifierOrCriteria),
+      amount: toHex(input.consideration.amount),
+      recipient: toHex(input.consideration.recipient ?? ""),
+    },
+    royalty_max_bps: toHex(input.royaltyMaxBps),
+    start_time: toHex(input.startTime),
+    end_time: toHex(input.endTime),
+    salt: toHex(input.salt),
+    counter: toHex(input.counter),
+  };
+}
+
 function generateSalt(): string {
   // 248-bit: salt is the sole order-hash uniqueness source now that nonce is gone.
   const bytes = new Uint8Array(31);
@@ -151,28 +201,17 @@ async function buildCreateListing1155Intent(body: CreateListingIntentBody & { am
   const counter = await fetchCounter1155(body.offerer);
   const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
 
-  const orderParams = {
-    offerer: toHex(body.offerer),
-    marketplace: toHex(STARKNET_MARKETPLACE_1155_CONTRACT),
-    offer: {
-      item_type: "ERC1155",
-      token: toHex(body.nftContract),
-      identifier_or_criteria: toHex(body.tokenId),
-      amount: toHex(amount),
-    },
-    consideration: {
-      item_type: "ERC20",
-      token: toHex(body.currency),
-      identifier_or_criteria: toHex("0"),
-      amount: toHex(priceWei),
-      recipient: toHex(body.offerer),
-    },
-    royalty_max_bps: toHex(royaltyMaxBps),
-    start_time: toHex(Math.floor(Date.now() / 1000) + 30),
-    end_time: toHex(body.endTime),
-    salt: toHex(salt),
-    counter: toHex(counter),
-  };
+  const orderParams = buildOrderParams({
+    offerer: body.offerer,
+    marketplace: STARKNET_MARKETPLACE_1155_CONTRACT,
+    offer: { itemType: "ERC1155", token: body.nftContract, identifierOrCriteria: body.tokenId, amount },
+    consideration: { itemType: "ERC20", token: body.currency, identifierOrCriteria: "0", amount: priceWei, recipient: body.offerer },
+    royaltyMaxBps,
+    startTime: Math.floor(Date.now() / 1000) + 30,
+    endTime: body.endTime,
+    salt,
+    counter,
+  });
 
   const typedData: TypedData = build1155OrderTypedData(orderParams, chainId);
 
@@ -203,28 +242,18 @@ async function buildCreateListing721Intent(body: CreateListingIntentBody) {
   const counter = await fetchCounter(body.offerer);
   const royaltyMaxBps = await fetchRoyaltyMaxBps(body.nftContract, body.tokenId);
 
-  const orderParams = {
-    offerer: toHex(body.offerer),
-    marketplace: toHex(STARKNET_MARKETPLACE_721_CONTRACT),
-    offer: {
-      item_type: "ERC721",               // shortstring — matches ItemType::ERC721.into() in Cairo
-      token: toHex(body.nftContract),    // ContractAddress
-      identifier_or_criteria: toHex(body.tokenId),
-      amount: toHex("1"),
-    },
-    consideration: {
-      item_type: "ERC20",               // shortstring — matches ItemType::ERC20.into() in Cairo
-      token: toHex(body.currency),      // ContractAddress
-      identifier_or_criteria: toHex("0"),
-      amount: toHex(priceWei),
-      recipient: toHex(body.offerer),   // ContractAddress
-    },
-    royalty_max_bps: toHex(royaltyMaxBps),
-    start_time: toHex(Math.floor(Date.now() / 1000) + 30), // 30s buffer — enough for tx inclusion on Starknet (~6s blocks)
-    end_time: toHex(body.endTime),
-    salt: toHex(salt),
-    counter: toHex(counter),
-  };
+  // 30s buffer on start_time — enough for tx inclusion on Starknet (~6s blocks)
+  const orderParams = buildOrderParams({
+    offerer: body.offerer,
+    marketplace: STARKNET_MARKETPLACE_721_CONTRACT,
+    offer: { itemType: "ERC721", token: body.nftContract, identifierOrCriteria: body.tokenId, amount: "1" },
+    consideration: { itemType: "ERC20", token: body.currency, identifierOrCriteria: "0", amount: priceWei, recipient: body.offerer },
+    royaltyMaxBps,
+    startTime: Math.floor(Date.now() / 1000) + 30,
+    endTime: body.endTime,
+    salt,
+    counter,
+  });
 
   const typedData: TypedData = buildOrderTypedData(orderParams, chainId);
 
@@ -268,28 +297,24 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   const quantity = is1155 ? BigInt(body.quantity ?? "1") : 1n;
   if (quantity < 1n) throw new Error("quantity must be at least 1");
 
-  const orderParams = {
-    offerer: toHex(body.offerer),
-    marketplace: toHex(marketplaceContract),
-    offer: {
-      item_type: "ERC20",
-      token: toHex(body.currency),
-      identifier_or_criteria: toHex("0"),
-      amount: toHex(priceWei),
-    },
+  // 30s buffer on start_time — enough for tx inclusion on Starknet (~6s blocks)
+  const orderParams = buildOrderParams({
+    offerer: body.offerer,
+    marketplace: marketplaceContract,
+    offer: { itemType: "ERC20", token: body.currency, identifierOrCriteria: "0", amount: priceWei },
     consideration: {
-      item_type: is1155 ? "ERC1155" : "ERC721",
-      token: toHex(body.nftContract),
-      identifier_or_criteria: toHex(body.tokenId),
-      amount: toHex(quantity),
-      recipient: toHex(body.offerer),
+      itemType: is1155 ? "ERC1155" : "ERC721",
+      token: body.nftContract,
+      identifierOrCriteria: body.tokenId,
+      amount: quantity,
+      recipient: body.offerer,
     },
-    royalty_max_bps: toHex(royaltyMaxBps),
-    start_time: toHex(Math.floor(Date.now() / 1000) + 30), // 30s buffer — enough for tx inclusion on Starknet (~6s blocks)
-    end_time: toHex(body.endTime),
-    salt: toHex(salt),
-    counter: toHex(counter),
-  };
+    royaltyMaxBps,
+    startTime: Math.floor(Date.now() / 1000) + 30,
+    endTime: body.endTime,
+    salt,
+    counter,
+  });
 
   const typedData: TypedData = is1155
     ? build1155OrderTypedData(orderParams, chainId)
@@ -685,28 +710,17 @@ export async function buildCounterOfferIntent(body: CounterOfferIntentBody) {
   const priceWei = BigInt(body.priceRaw);
   const endTime = Math.floor(Date.now() / 1000) + body.durationSeconds;
 
-  const orderParams = {
-    offerer: toHex(body.sellerAddress),
-    marketplace: toHex(STARKNET_MARKETPLACE_721_CONTRACT),
-    offer: {
-      item_type: "ERC721",
-      token: toHex(body.nftContract),
-      identifier_or_criteria: toHex(body.tokenId),
-      amount: toHex("1"),
-    },
-    consideration: {
-      item_type: "ERC20",
-      token: toHex(body.currencyAddress),
-      identifier_or_criteria: toHex("0"),
-      amount: toHex(priceWei),
-      recipient: toHex(body.sellerAddress),
-    },
-    royalty_max_bps: toHex(royaltyMaxBps),
-    start_time: toHex(Math.floor(Date.now() / 1000) + 30),
-    end_time: toHex(endTime),
-    salt: toHex(salt),
-    counter: toHex(counter),
-  };
+  const orderParams = buildOrderParams({
+    offerer: body.sellerAddress,
+    marketplace: STARKNET_MARKETPLACE_721_CONTRACT,
+    offer: { itemType: "ERC721", token: body.nftContract, identifierOrCriteria: body.tokenId, amount: "1" },
+    consideration: { itemType: "ERC20", token: body.currencyAddress, identifierOrCriteria: "0", amount: priceWei, recipient: body.sellerAddress },
+    royaltyMaxBps,
+    startTime: Math.floor(Date.now() / 1000) + 30,
+    endTime,
+    salt,
+    counter,
+  });
 
   const typedData: TypedData = buildOrderTypedData(orderParams, chainId);
 
