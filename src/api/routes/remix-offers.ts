@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
+import type { RemixOffer, RemixOfferStatus, Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -148,8 +149,43 @@ function parseLicensePrice(value: string): { price: string; currencyAddress: str
   return { price: raw, currencyAddress: token.address };
 }
 
+/**
+ * Duplicate-offer guard for POST / and POST /auto: both create inside a
+ * $transaction that re-checks for an existing active offer, throwing this
+ * typed error to short-circuit the transaction and be caught by the caller.
+ */
+class DuplicateOfferError extends Error {
+  constructor() {
+    super("Active offer already exists");
+  }
+}
+
+/**
+ * Shared preamble for the /:id/confirm, /:id/reject, /:id/extend actions:
+ * load the offer, 404 if missing, 403 if the caller isn't the authorized
+ * party, 409 if its status isn't actionable. Each route's own logic (the
+ * actual update) starts once this returns ok.
+ */
+async function loadActionableOffer(
+  id: string,
+  walletAddress: string,
+  authField: "creatorAddress" | "requesterAddress",
+  role: string,
+  verb: string
+): Promise<{ ok: true; offer: RemixOffer } | { ok: false; error: string; status: 404 | 403 | 409 }> {
+  const offer = await prisma.remixOffer.findUnique({ where: { id } });
+  if (!offer) return { ok: false, error: "Offer not found", status: 404 };
+  if (offer[authField] !== walletAddress) {
+    return { ok: false, error: `Only the ${role} can ${verb} this offer`, status: 403 };
+  }
+  if (!["PENDING", "AUTO_PENDING"].includes(offer.status)) {
+    return { ok: false, error: `Cannot ${verb} offer with status ${offer.status}`, status: 409 };
+  }
+  return { ok: true, offer };
+}
+
 /** Serialise a RemixOffer for API response — no sensitive fields for non-participants. */
-function serializeOffer(offer: any, callerWallet?: string) {
+function serializeOffer(offer: RemixOffer, callerWallet?: string) {
   const isParticipant =
     !callerWallet ||
     offer.creatorAddress === callerWallet ||
@@ -242,7 +278,7 @@ remixOffers.post(
             status: { in: ["PENDING", "AUTO_PENDING", "APPROVED"] },
           },
         });
-        if (existing) throw Object.assign(new Error("Active offer already exists"), { code: "DUPLICATE" });
+        if (existing) throw new DuplicateOfferError();
         return tx.remixOffer.create({
           data: {
             status: "PENDING",
@@ -261,8 +297,8 @@ remixOffers.post(
           },
         });
       });
-    } catch (err: any) {
-      if (err.code === "DUPLICATE") return c.json({ error: "Active offer already exists" }, 409);
+    } catch (err: unknown) {
+      if (err instanceof DuplicateOfferError) return c.json({ error: err.message }, 409);
       throw err;
     }
 
@@ -326,7 +362,7 @@ remixOffers.post(
             status: { in: ["PENDING", "AUTO_PENDING", "APPROVED"] },
           },
         });
-        if (existing) throw Object.assign(new Error("Active offer already exists"), { code: "DUPLICATE" });
+        if (existing) throw new DuplicateOfferError();
         return tx.remixOffer.create({
           data: {
             status: "AUTO_PENDING",
@@ -344,8 +380,8 @@ remixOffers.post(
           },
         });
       });
-    } catch (err: any) {
-      if (err.code === "DUPLICATE") return c.json({ error: "Active offer already exists" }, 409);
+    } catch (err: unknown) {
+      if (err instanceof DuplicateOfferError) return c.json({ error: err.message }, 409);
       throw err;
     }
 
@@ -431,14 +467,8 @@ remixOffers.post(
     const body = c.req.valid("json");
     const walletAddress = c.get("walletAddress") as string;
 
-    const offer = await prisma.remixOffer.findUnique({ where: { id } });
-    if (!offer) return c.json({ error: "Offer not found" }, 404);
-    if (offer.creatorAddress !== walletAddress) {
-      return c.json({ error: "Only the creator can confirm this offer" }, 403);
-    }
-    if (!["PENDING", "AUTO_PENDING"].includes(offer.status)) {
-      return c.json({ error: `Cannot confirm offer with status ${offer.status}` }, 409);
-    }
+    const guard = await loadActionableOffer(id, walletAddress, "creatorAddress", "creator", "confirm");
+    if (!guard.ok) return c.json({ error: guard.error }, guard.status);
 
     const updated = await prisma.remixOffer.update({
       where: { id },
@@ -465,14 +495,8 @@ remixOffers.post(
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
 
-    const offer = await prisma.remixOffer.findUnique({ where: { id } });
-    if (!offer) return c.json({ error: "Offer not found" }, 404);
-    if (offer.creatorAddress !== walletAddress) {
-      return c.json({ error: "Only the creator can reject this offer" }, 403);
-    }
-    if (!["PENDING", "AUTO_PENDING"].includes(offer.status)) {
-      return c.json({ error: `Cannot reject offer with status ${offer.status}` }, 409);
-    }
+    const guard = await loadActionableOffer(id, walletAddress, "creatorAddress", "creator", "reject");
+    if (!guard.ok) return c.json({ error: guard.error }, guard.status);
 
     const updated = await prisma.remixOffer.update({
       where: { id },
@@ -503,14 +527,9 @@ remixOffers.post(
       return c.json({ error: "days must be between 1 and 30" }, 400);
     }
 
-    const offer = await prisma.remixOffer.findUnique({ where: { id } });
-    if (!offer) return c.json({ error: "Offer not found" }, 404);
-    if (offer.requesterAddress !== walletAddress) {
-      return c.json({ error: "Only the requester can extend this offer" }, 403);
-    }
-    if (!["PENDING", "AUTO_PENDING"].includes(offer.status)) {
-      return c.json({ error: `Cannot extend offer with status ${offer.status}` }, 409);
-    }
+    const guard = await loadActionableOffer(id, walletAddress, "requesterAddress", "requester", "extend");
+    if (!guard.ok) return c.json({ error: guard.error }, guard.status);
+    const { offer } = guard;
 
     const baseDate = offer.expiresAt > new Date() ? offer.expiresAt : new Date();
     const newExpiresAt = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
@@ -535,9 +554,9 @@ remixOffers.get(
     const { role, status, page, limit } = c.req.valid("query");
     const walletAddress = c.get("walletAddress") as string;
 
-    const where: any = {
+    const where: PrismaTypes.RemixOfferWhereInput = {
       ...(role === "creator" ? { creatorAddress: walletAddress } : { requesterAddress: walletAddress }),
-      ...(status ? { status: status as any } : {}),
+      ...(status ? { status: status as RemixOfferStatus } : {}),
     };
 
     const [offers, total] = await Promise.all([

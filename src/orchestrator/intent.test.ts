@@ -22,7 +22,7 @@ import {
   buildWithdrawSponsorshipProposalIntent,
   buildAcceptSponsorshipProposalIntent,
   buildRejectSponsorshipProposalIntent,
-} from "./intent.js";
+} from "./intent/index.js";
 
 const CHAIN_ID = "SN_MAIN";
 const names = (defs: readonly { name: string }[]) => defs.map((f) => f.name);
