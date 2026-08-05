@@ -260,3 +260,39 @@ export function serializeOrder(
       : null,
   };
 }
+
+/**
+ * Shapes an AccountProfile + resolved wallet address into the public
+ * creator-profile response — the same object shape hand-duplicated across
+ * profiles.ts's /creators list, /creators/by-username/:username,
+ * /creators/:wallet/profile GET, and its PATCH response.
+ */
+export function serializeCreatorProfile(
+  profile: {
+    username: string | null;
+    displayName: string | null;
+    bio: string | null;
+    avatarImage: string | null;
+    websiteUrl: string | null;
+    twitterUrl: string | null;
+    discordUrl: string | null;
+    telegramUrl: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  walletAddress: string,
+) {
+  return {
+    walletAddress,
+    username: profile.username,
+    displayName: profile.displayName,
+    bio: profile.bio,
+    avatarImage: profile.avatarImage,
+    websiteUrl: profile.websiteUrl,
+    twitterUrl: profile.twitterUrl,
+    discordUrl: profile.discordUrl,
+    telegramUrl: profile.telegramUrl,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { composeAmountDisplay, batchOrdersByToken } from "./serialize.js";
+import { composeAmountDisplay, batchOrdersByToken, serializeCreatorProfile } from "./serialize.js";
 
 describe("composeAmountDisplay", () => {
   test("joins value and currency into the API display shape", () => {
@@ -44,5 +44,40 @@ describe("batchOrdersByToken", () => {
     const result = await batchOrdersByToken([], { order: { findMany } } as any);
     expect(findMany).not.toHaveBeenCalled();
     expect(result.size).toBe(0);
+  });
+});
+
+describe("serializeCreatorProfile", () => {
+  test("shapes a profile + wallet address into the public creator response, including timestamps", () => {
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    const updatedAt = new Date("2026-02-01T00:00:00.000Z");
+    const result = serializeCreatorProfile(
+      {
+        username: "alice",
+        displayName: "Alice",
+        bio: "hi",
+        avatarImage: null,
+        websiteUrl: null,
+        twitterUrl: null,
+        discordUrl: null,
+        telegramUrl: null,
+        createdAt,
+        updatedAt,
+      },
+      "0xwallet",
+    );
+    expect(result).toEqual({
+      walletAddress: "0xwallet",
+      username: "alice",
+      displayName: "Alice",
+      bio: "hi",
+      avatarImage: null,
+      websiteUrl: null,
+      twitterUrl: null,
+      discordUrl: null,
+      telegramUrl: null,
+      createdAt,
+      updatedAt,
+    });
   });
 });

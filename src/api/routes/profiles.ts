@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "crypto";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -15,6 +14,8 @@ import {
 } from "../../utils/account.js";
 import { createLogger } from "../../utils/logger.js";
 import { env } from "../../config/env.js";
+import { serializeCreatorProfile } from "../utils/serialize.js";
+import { secretMatches } from "../middleware/adminSecretAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:profiles");
@@ -92,13 +93,9 @@ profiles.get("/collections/:contract/profile", async (c) => {
 profiles.patch(
   "/collections/:contract/profile",
   async (c, next) => {
-    // Admin key path: timing-safe comparison against API_SECRET_KEY
+    // Admin key path: same guarded comparison adminSecretAuth uses for /admin/*.
     const key = c.req.header("x-api-key") ?? "";
-    const secretBuf = Buffer.from(env.API_SECRET_KEY);
-    const keyBuf = Buffer.from(key);
-    const isAdminKey =
-      keyBuf.length === secretBuf.length && timingSafeEqual(keyBuf, secretBuf);
-    if (isAdminKey) {
+    if (secretMatches(key, env.API_SECRET_KEY)) {
       c.set("isAdmin", true);
       return next();
     }
@@ -267,17 +264,7 @@ profiles.get("/creators", async (c) => {
 
   const creators = profilesPage
     .filter((p) => p.account.identities[0]?.address)
-    .map((p) => ({
-      walletAddress: p.account.identities[0]!.address!,
-      username: p.username,
-      displayName: p.displayName,
-      bio: p.bio,
-      avatarImage: p.avatarImage,
-      websiteUrl: p.websiteUrl,
-      twitterUrl: p.twitterUrl,
-      discordUrl: p.discordUrl,
-      telegramUrl: p.telegramUrl,
-    }));
+    .map((p) => serializeCreatorProfile(p, p.account.identities[0]!.address!));
 
   // For creators without avatarImage, populate collectionImage from their
   // first (most recent) collection — single batch query, no N+1.
@@ -323,17 +310,7 @@ profiles.get("/creators/by-username/:username", async (c) => {
   if (!profile || !profile.account.identities[0]?.address) {
     return c.json({ error: "Creator not found" }, 404);
   }
-  return c.json({
-    walletAddress: profile.account.identities[0].address,
-    username: profile.username,
-    displayName: profile.displayName,
-    bio: profile.bio,
-    avatarImage: profile.avatarImage,
-    websiteUrl: profile.websiteUrl,
-    twitterUrl: profile.twitterUrl,
-    discordUrl: profile.discordUrl,
-    telegramUrl: profile.telegramUrl,
-  });
+  return c.json(serializeCreatorProfile(profile, profile.account.identities[0].address));
 });
 
 // ─── Creator Hidden Indicator (public read) ──────────────────────────────────
@@ -354,20 +331,7 @@ profiles.get("/creators/:wallet/profile", async (c) => {
   if (!accountId) return c.json(null);
   const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
   if (!profile) return c.json(null);
-  return c.json({
-    walletAddress: wallet,
-    chain: "STARKNET",
-    username: profile.username,
-    displayName: profile.displayName,
-    bio: profile.bio,
-    avatarImage: profile.avatarImage,
-    websiteUrl: profile.websiteUrl,
-    twitterUrl: profile.twitterUrl,
-    discordUrl: profile.discordUrl,
-    telegramUrl: profile.telegramUrl,
-    createdAt: profile.createdAt,
-    updatedAt: profile.updatedAt,
-  });
+  return c.json({ chain: "STARKNET", ...serializeCreatorProfile(profile, wallet) });
 });
 
 profiles.patch(
@@ -399,20 +363,7 @@ profiles.patch(
       update: { ...data },
     });
 
-    return c.json({
-      walletAddress: wallet,
-      chain: "STARKNET",
-      username: profile.username,
-      displayName: profile.displayName,
-      bio: profile.bio,
-      avatarImage: profile.avatarImage,
-      websiteUrl: profile.websiteUrl,
-      twitterUrl: profile.twitterUrl,
-      discordUrl: profile.discordUrl,
-      telegramUrl: profile.telegramUrl,
-      createdAt: profile.createdAt,
-      updatedAt: profile.updatedAt,
-    });
+    return c.json({ chain: "STARKNET", ...serializeCreatorProfile(profile, wallet) });
   }
 );
 
