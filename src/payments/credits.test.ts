@@ -3,17 +3,17 @@ import { debitCredits, creditAccount, type CreditsDb } from "./credits.js";
 
 function stubDb(over: Partial<{ count: number }> = {}): {
   db: CreditsDb;
-  calls: { updateMany: number; paymentCreate: number; accountUpdate: number; txOps: number };
+  calls: { updateMany: number; paymentCreate: number; apiClientUpdate: number; txOps: number };
 } {
-  const calls = { updateMany: 0, paymentCreate: 0, accountUpdate: 0, txOps: 0 };
+  const calls = { updateMany: 0, paymentCreate: 0, apiClientUpdate: 0, txOps: 0 };
   const db: CreditsDb = {
-    account: {
+    apiClient: {
       async updateMany() {
         calls.updateMany++;
         return { count: over.count ?? 1 };
       },
       async update() {
-        calls.accountUpdate++;
+        calls.apiClientUpdate++;
         return {};
       },
     },
@@ -34,12 +34,12 @@ function stubDb(over: Partial<{ count: number }> = {}): {
 describe("debitCredits", () => {
   test("returns true when a row is decremented (sufficient balance)", async () => {
     const { db, calls } = stubDb({ count: 1 });
-    expect(await debitCredits("a1", 5, db)).toBe(true);
+    expect(await debitCredits("ac1", 5, db)).toBe(true);
     expect(calls.updateMany).toBe(1);
   });
   test("returns false when no row matched (insufficient balance)", async () => {
     const { db } = stubDb({ count: 0 });
-    expect(await debitCredits("a1", 5, db)).toBe(false);
+    expect(await debitCredits("ac1", 5, db)).toBe(false);
   });
 });
 
@@ -48,7 +48,8 @@ describe("creditAccount", () => {
     const { db, calls } = stubDb();
     await creditAccount(
       {
-        accountId: "a1",
+        apiClientId: "ac1",
+        accountId: "acc1",
         amountAtomic: 1_000_000n,
         creditedAmount: 1200,
         mdlnMultiplier: 1.2,
@@ -61,7 +62,7 @@ describe("creditAccount", () => {
       db,
     );
     expect(calls.paymentCreate).toBe(1);
-    expect(calls.accountUpdate).toBe(1);
+    expect(calls.apiClientUpdate).toBe(1);
     expect(calls.txOps).toBe(2);
   });
 });
