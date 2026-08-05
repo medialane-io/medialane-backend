@@ -166,32 +166,16 @@ export async function handleCollectionMetadataFetch(payload: {
 
     const canonicalBaseUri = existing?.baseUri || onchainBaseUri || "";
 
-    // Resolve image + description from the base_uri JSON if not already set.
-    // base_uri points to an IPFS collection metadata JSON (OpenSea format):
-    // { name, description, image, external_link }
+    // Resolve image + description from the base_uri JSON if not already set —
+    // routed through fetchCollectionMetadataJson (same SSRF guard + gateway
+    // fallback the ERC-721 path below uses; this branch used to have its own
+    // unguarded inline copy).
     let resolvedImage: string | null = existing.image ?? null;
     let resolvedDescription: string | null = existing.description ?? null;
     if (canonicalBaseUri && (!resolvedImage || !resolvedDescription)) {
-      // Try each IPFS gateway in order — the private Pinata gateway can block
-      // server-side requests, so fall through to public gateways as needed.
-      const cid = canonicalBaseUri.startsWith("ipfs://") ? canonicalBaseUri.slice(7) : null;
-      if (cid) {
-        for (let i = 0; i < IPFS_GATEWAYS.length; i++) {
-          try {
-            const metaUrl = `${IPFS_GATEWAYS[i]}/${cid}`;
-            const res = await fetch(metaUrl, { signal: AbortSignal.timeout(10_000) });
-            if (!res.ok) continue;
-            const meta = await res.json() as Record<string, unknown>;
-            if (!resolvedImage && typeof meta.image === "string" && meta.image) {
-              resolvedImage = meta.image;
-            }
-            if (!resolvedDescription && typeof meta.description === "string" && meta.description) {
-              resolvedDescription = meta.description;
-            }
-            break; // success — stop trying gateways
-          } catch { /* try next gateway */ }
-        }
-      }
+      const fetched = await fetchCollectionMetadataJson(canonicalBaseUri);
+      resolvedImage = resolvedImage ?? fetched.image;
+      resolvedDescription = resolvedDescription ?? fetched.description;
     }
 
     await prisma.collection.update({
@@ -295,7 +279,7 @@ export async function handleCollectionMetadataFetch(payload: {
   }
 }
 
-async function fetchCollectionMetadataJson(
+export async function fetchCollectionMetadataJson(
   baseUri: string
 ): Promise<{ description: string | null; image: string | null }> {
   if (!baseUri) return { description: null, image: null };
