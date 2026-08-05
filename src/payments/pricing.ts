@@ -50,6 +50,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/metadata/upload-file", actionKey: "metadata:upload-file" },
   { method: "POST", prefix: "/v1/metadata/upload", actionKey: "metadata:upload-json" },
   { method: "GET", prefix: "/v1/prices", actionKey: "price:read" },
+  { method: "GET", prefix: "/v1/tickets", actionKey: "tickets:read-onchain" },
 ];
 
 // actionKeys whose price MAY vary by service — the only ones worth the extra
@@ -92,6 +93,7 @@ const FALLBACK_COST: Record<string, number> = {
   "metadata:upload-json": 3,
   "metadata:upload-file": 8,
   "price:read": 1,
+  "tickets:read-onchain": 1,
 };
 
 export function resolveActionKey(method: string, path: string): string | null {
