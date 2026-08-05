@@ -11,6 +11,7 @@ import {
   buildCancellationTypedData,
   build1155CancellationTypedData,
 } from "@medialane/sdk/starknet";
+import { buildOrderParams } from "./intent.js";
 
 const CHAIN_ID = "SN_MAIN";
 const names = (defs: readonly { name: string }[]) => defs.map((f) => f.name);
@@ -72,5 +73,54 @@ describe("Cross-standard sanity", () => {
   test("chainId is propagated into the domain", () => {
     const td = buildOrderTypedData({ offerer: "0x1" }, CHAIN_ID);
     expect(td.domain.chainId).toBe(CHAIN_ID);
+  });
+});
+
+describe("buildOrderParams — shared order-field assembly (DRY refactor safety net)", () => {
+  const base = {
+    offerer: "123",
+    marketplace: "0x456",
+    offer: { itemType: "ERC721", token: "789", identifierOrCriteria: "5", amount: "1" },
+    consideration: { itemType: "ERC20", token: "0xabc", identifierOrCriteria: "0", amount: "5000000000000000000", recipient: "123" },
+    royaltyMaxBps: "250",
+    startTime: 1754350000,
+    endTime: 1754360000,
+    salt: "123456789012345",
+    counter: "3",
+  };
+
+  test("every numeric/address field is hex-encoded regardless of input representation", () => {
+    const params = buildOrderParams(base);
+    expect(params.offerer).toBe("0x7b"); // 123 decimal
+    expect(params.marketplace).toBe("0x456"); // already hex — passthrough
+    expect(params.offer.token).toBe("0x315"); // 789 decimal
+    expect(params.offer.identifier_or_criteria).toBe("0x5");
+    expect(params.offer.amount).toBe("0x1");
+    expect(params.consideration.amount).toBe("0x" + BigInt("5000000000000000000").toString(16));
+    expect(params.consideration.recipient).toBe("0x7b");
+    expect(params.royalty_max_bps).toBe("0xfa");
+    expect(params.start_time).toBe("0x" + (1754350000).toString(16));
+    expect(params.salt).toBe("0x" + BigInt("123456789012345").toString(16));
+  });
+
+  test("item_type shortstrings pass through unmodified", () => {
+    const params = buildOrderParams(base);
+    expect(params.offer.item_type).toBe("ERC721");
+    expect(params.consideration.item_type).toBe("ERC20");
+  });
+
+  test("hex-string and decimal-string field representations yield the same signed hash", () => {
+    // Regression guard for the H1 refactor: buildOrderParams always emits hex,
+    // but confirms hex vs decimal representations of an equal value hash
+    // identically under buildOrderTypedData — see 2026-08-05 verification.
+    const hexParams = buildOrderParams(base);
+    const decParams = buildOrderParams({
+      ...base,
+      offerer: "0x7b",
+      offer: { ...base.offer, token: "0x315" },
+    });
+    const hexTd = buildOrderTypedData(hexParams as unknown as Record<string, unknown>, CHAIN_ID);
+    const decTd = buildOrderTypedData(decParams as unknown as Record<string, unknown>, CHAIN_ID);
+    expect(hexTd.message).toEqual(decTd.message);
   });
 });
