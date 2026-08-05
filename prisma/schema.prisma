@@ -658,6 +658,18 @@ enum IntentType {
   // MINT doesn't have for those services. mip-erc721/ip-erc721 have no
   // equivalent (a mint IS the definition, there's no separate tier).
   CREATE_TIER
+  // ip-sponsorship — none of these need SNIP-12 signing (no order-signing
+  // scheme on this contract; msg.sender is the account executing the call).
+  // Added 2026-08-05 to close the backend-bypass gap found in the io audit.
+  CREATE_SPONSORSHIP_OFFER
+  SET_SPONSORSHIP_OFFER_OPEN
+  PLACE_SPONSORSHIP_BID
+  RETRACT_SPONSORSHIP_BID
+  ACCEPT_SPONSORSHIP_BID
+  CREATE_SPONSORSHIP_PROPOSAL
+  WITHDRAW_SPONSORSHIP_PROPOSAL
+  ACCEPT_SPONSORSHIP_PROPOSAL
+  REJECT_SPONSORSHIP_PROPOSAL
 }
 
 enum IntentStatus {

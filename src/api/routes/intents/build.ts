@@ -17,6 +17,15 @@ import {
   buildCreateCollectionIntent,
   buildCreateTierIntent,
   buildCounterOfferIntent,
+  buildCreateSponsorshipOfferIntent,
+  buildSetSponsorshipOfferOpenIntent,
+  buildPlaceSponsorshipBidIntent,
+  buildRetractSponsorshipBidIntent,
+  buildAcceptSponsorshipBidIntent,
+  buildCreateSponsorshipProposalIntent,
+  buildWithdrawSponsorshipProposalIntent,
+  buildAcceptSponsorshipProposalIntent,
+  buildRejectSponsorshipProposalIntent,
 } from "../../../orchestrator/intent.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { toErrorMessage } from "../../../utils/error.js";
@@ -33,6 +42,15 @@ import {
   createTierSchema,
   counterOfferSchema,
   checkoutBodySchema,
+  sponsorshipOfferSchema,
+  sponsorshipOfferOpenSchema,
+  sponsorshipBidSchema,
+  sponsorshipBidRetractSchema,
+  sponsorshipBidAcceptSchema,
+  sponsorshipProposalSchema,
+  sponsorshipProposalWithdrawSchema,
+  sponsorshipProposalAcceptSchema,
+  sponsorshipProposalRejectSchema,
 } from "./_shared.js";
 
 export function registerBuildRoutes(intents: Hono<AppEnv>): void {
@@ -381,6 +399,258 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build create-tier intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-offer
+  intents.post("/sponsorship-offer", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipOfferSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildCreateSponsorshipOfferIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "CREATE_SPONSORSHIP_OFFER",
+          requester: normalizeAddress("STARKNET", parsed.data.author),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-offer intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-offer-open
+  intents.post("/sponsorship-offer-open", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipOfferOpenSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildSetSponsorshipOfferOpenIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "SET_SPONSORSHIP_OFFER_OPEN",
+          requester: normalizeAddress("STARKNET", parsed.data.author),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-offer-open intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-bid
+  intents.post("/sponsorship-bid", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipBidSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildPlaceSponsorshipBidIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "PLACE_SPONSORSHIP_BID",
+          requester: normalizeAddress("STARKNET", parsed.data.sponsor),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-bid intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-bid-retract
+  intents.post("/sponsorship-bid-retract", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipBidRetractSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildRetractSponsorshipBidIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "RETRACT_SPONSORSHIP_BID",
+          requester: normalizeAddress("STARKNET", parsed.data.sponsor),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-bid-retract intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-bid-accept
+  intents.post("/sponsorship-bid-accept", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipBidAcceptSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildAcceptSponsorshipBidIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "ACCEPT_SPONSORSHIP_BID",
+          requester: normalizeAddress("STARKNET", parsed.data.author),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-bid-accept intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-proposal
+  intents.post("/sponsorship-proposal", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipProposalSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildCreateSponsorshipProposalIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "CREATE_SPONSORSHIP_PROPOSAL",
+          requester: normalizeAddress("STARKNET", parsed.data.proposer),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-proposal intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-proposal-withdraw
+  intents.post("/sponsorship-proposal-withdraw", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipProposalWithdrawSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildWithdrawSponsorshipProposalIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "WITHDRAW_SPONSORSHIP_PROPOSAL",
+          requester: normalizeAddress("STARKNET", parsed.data.proposer),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-proposal-withdraw intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-proposal-accept
+  intents.post("/sponsorship-proposal-accept", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipProposalAcceptSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildAcceptSponsorshipProposalIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "ACCEPT_SPONSORSHIP_PROPOSAL",
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-proposal-accept intent");
+      return c.json({ error: toErrorMessage(err) }, 500);
+    }
+  });
+
+  // POST /v1/intents/sponsorship-proposal-reject
+  intents.post("/sponsorship-proposal-reject", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = sponsorshipProposalRejectSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const { calls } = await buildRejectSponsorshipProposalIntent(parsed.data);
+      const expiresAt = new Date(Date.now() + TTL_HOURS * 3600 * 1000);
+      const intent = await prisma.transactionIntent.create({
+        data: {
+          type: "REJECT_SPONSORSHIP_PROPOSAL",
+          requester: normalizeAddress("STARKNET", parsed.data.owner),
+          accountId: c.get("account").id,
+          typedData: {},
+          calls: calls as PrismaTypes.InputJsonValue,
+          status: "SIGNED",
+          expiresAt,
+        },
+      });
+      return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt } }, 201);
+    } catch (err: unknown) {
+      log.error({ err }, "Failed to build sponsorship-proposal-reject intent");
       return c.json({ error: toErrorMessage(err) }, 500);
     }
   });

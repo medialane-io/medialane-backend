@@ -32,6 +32,15 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/intents/fulfill", actionKey: "intent:fulfill" },
   { method: "POST", prefix: "/v1/intents/cancel", actionKey: "intent:cancel" },
   { method: "POST", prefix: "/v1/intents/checkout", actionKey: "intent:checkout" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-offer-open", actionKey: "intent:sponsorship-offer-open" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-offer", actionKey: "intent:sponsorship-offer" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-bid-retract", actionKey: "intent:sponsorship-bid-retract" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-bid-accept", actionKey: "intent:sponsorship-bid-accept" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-bid", actionKey: "intent:sponsorship-bid" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-proposal-withdraw", actionKey: "intent:sponsorship-proposal-withdraw" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-proposal-accept", actionKey: "intent:sponsorship-proposal-accept" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-proposal-reject", actionKey: "intent:sponsorship-proposal-reject" },
+  { method: "POST", prefix: "/v1/intents/sponsorship-proposal", actionKey: "intent:sponsorship-proposal" },
   // Real Pinata pin cost, previously falling through to the "read" default
   // (1 credit) unpriced. "/v1/metadata/upload-file" never collides with the
   // "/v1/metadata/upload" prefix match below — startsWith requires a "/"
@@ -65,6 +74,15 @@ const FALLBACK_COST: Record<string, number> = {
   "intent:fulfill": 5,
   "intent:cancel": 5,
   "intent:checkout": 5,
+  "intent:sponsorship-offer": 5,
+  "intent:sponsorship-offer-open": 5,
+  "intent:sponsorship-bid": 5,
+  "intent:sponsorship-bid-retract": 5,
+  "intent:sponsorship-bid-accept": 5,
+  "intent:sponsorship-proposal": 5,
+  "intent:sponsorship-proposal-withdraw": 5,
+  "intent:sponsorship-proposal-accept": 5,
+  "intent:sponsorship-proposal-reject": 5,
   // Closes the gap immediately on deploy, before pricing.config.js's real
   // numbers are applied — better than silently metering these at 1 credit.
   "metadata:upload-json": 3,

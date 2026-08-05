@@ -140,6 +140,75 @@ export interface SubmitSignatureBody {
   signature: string[];
 }
 
+// ── IP-Sponsorship intent bodies ────────────────────────────────────────────
+// None of these need SNIP-12 signing (no order-signing scheme on this
+// contract; msg.sender is the account executing the call).
+
+export interface CreateSponsorshipOfferIntentBody {
+  author: string;
+  nftContract: string;
+  tokenId: string;
+  minAmount: string;
+  duration: number;
+  paymentToken: string;
+  licenseTermsUri: string;
+  transferable: boolean;
+  royaltyBps: number;
+  specificSponsor?: string;
+}
+
+export interface SetSponsorshipOfferOpenIntentBody {
+  author: string;
+  offerId: string;
+  open: boolean;
+}
+
+export interface PlaceSponsorshipBidIntentBody {
+  sponsor: string;
+  offerId: string;
+  amount: string;
+  paymentToken: string;
+}
+
+export interface RetractSponsorshipBidIntentBody {
+  sponsor: string;
+  offerId: string;
+}
+
+export interface AcceptSponsorshipBidIntentBody {
+  author: string;
+  offerId: string;
+  sponsor: string;
+}
+
+export interface CreateSponsorshipProposalIntentBody {
+  proposer: string;
+  nftContract: string;
+  tokenId: string;
+  amount: string;
+  duration: number;
+  validUntil?: number;
+  paymentToken: string;
+  licenseTermsUri: string;
+  transferable: boolean;
+  royaltyBps: number;
+}
+
+export interface WithdrawSponsorshipProposalIntentBody {
+  proposer: string;
+  proposalId: string;
+}
+
+export interface AcceptSponsorshipProposalIntentBody {
+  owner: string;
+  proposalId: string;
+}
+
+export interface RejectSponsorshipProposalIntentBody {
+  owner: string;
+  proposalId: string;
+}
+
 // Response shapes
 export interface ApiResponse<T> {
   data: T;

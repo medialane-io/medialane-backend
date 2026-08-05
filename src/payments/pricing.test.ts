@@ -21,6 +21,17 @@ describe("resolveActionKey", () => {
     expect(resolveActionKey("POST", "/v1/intents/counter-offer")).toBe("intent:counter-offer");
     expect(resolveActionKey("POST", "/v1/intents/checkout")).toBe("intent:checkout");
   });
+  test("each sponsorship intent route resolves to its own actionKey", () => {
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-offer")).toBe("intent:sponsorship-offer");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-offer-open")).toBe("intent:sponsorship-offer-open");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-bid")).toBe("intent:sponsorship-bid");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-bid-retract")).toBe("intent:sponsorship-bid-retract");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-bid-accept")).toBe("intent:sponsorship-bid-accept");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-proposal")).toBe("intent:sponsorship-proposal");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-proposal-withdraw")).toBe("intent:sponsorship-proposal-withdraw");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-proposal-accept")).toBe("intent:sponsorship-proposal-accept");
+    expect(resolveActionKey("POST", "/v1/intents/sponsorship-proposal-reject")).toBe("intent:sponsorship-proposal-reject");
+  });
   test("GET /v1/prices resolves to its own actionKey, not the generic read default", () => {
     expect(resolveActionKey("GET", "/v1/prices")).toBe("price:read");
   });
