@@ -30,6 +30,7 @@ import { registerMarketplaceOpsRoutes } from "./marketplace-ops.js";
 import { registerModerationRoutes } from "./moderation.js";
 import { registerServicesRoutes } from "./services.js";
 import { registerAccountRoutes } from "./accounts.js";
+import { registerApiClientRoutes } from "./apiClients.js";
 import { registerPricingRoutes } from "./pricing.js";
 
 const log = createLogger("routes:admin");
@@ -57,6 +58,7 @@ admin.use("*", async (c, next) => {
 
 // Domain route registrars — same `admin` instance, original registration order.
 registerAccountRoutes(admin);
+registerApiClientRoutes(admin);
 registerCollectionRoutes(admin);
 registerTokenOpsRoutes(admin);
 registerCoinRoutes(admin);
