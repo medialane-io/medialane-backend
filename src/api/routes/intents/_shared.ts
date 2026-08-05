@@ -86,6 +86,73 @@ export const createTierSchema = z.object({
   metadataUri: z.string().min(1),
 });
 
+// ── IP-Sponsorship schemas ───────────────────────────────────────────────────
+
+export const sponsorshipOfferSchema = z.object({
+  author: starknetAddress,
+  nftContract: starknetAddress,
+  tokenId: z.string(),
+  minAmount: z.string().regex(/^\d+$/, "minAmount must be a non-negative integer string"),
+  duration: z.number().int().positive(),
+  paymentToken: starknetAddress,
+  licenseTermsUri: z.string().min(1),
+  transferable: z.boolean(),
+  royaltyBps: z.number().int().min(0).max(10000).default(0),
+  specificSponsor: starknetAddress.optional(),
+});
+
+export const sponsorshipOfferOpenSchema = z.object({
+  author: starknetAddress,
+  offerId: z.string(),
+  open: z.boolean(),
+});
+
+export const sponsorshipBidSchema = z.object({
+  sponsor: starknetAddress,
+  offerId: z.string(),
+  amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string"),
+  paymentToken: starknetAddress,
+});
+
+export const sponsorshipBidRetractSchema = z.object({
+  sponsor: starknetAddress,
+  offerId: z.string(),
+});
+
+export const sponsorshipBidAcceptSchema = z.object({
+  author: starknetAddress,
+  offerId: z.string(),
+  sponsor: starknetAddress,
+});
+
+export const sponsorshipProposalSchema = z.object({
+  proposer: starknetAddress,
+  nftContract: starknetAddress,
+  tokenId: z.string(),
+  amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string"),
+  duration: z.number().int().positive(),
+  validUntil: z.number().int().nonnegative().optional(),
+  paymentToken: starknetAddress,
+  licenseTermsUri: z.string().min(1),
+  transferable: z.boolean(),
+  royaltyBps: z.number().int().min(0).max(10000).default(0),
+});
+
+export const sponsorshipProposalWithdrawSchema = z.object({
+  proposer: starknetAddress,
+  proposalId: z.string(),
+});
+
+export const sponsorshipProposalAcceptSchema = z.object({
+  owner: starknetAddress,
+  proposalId: z.string(),
+});
+
+export const sponsorshipProposalRejectSchema = z.object({
+  owner: starknetAddress,
+  proposalId: z.string(),
+});
+
 export const counterOfferSchema = z.object({
   sellerAddress:     z.string().min(1),
   originalOrderHash: z.string().min(1),
