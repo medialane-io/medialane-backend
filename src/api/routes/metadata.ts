@@ -105,6 +105,87 @@ metadata.post("/upload-file", async (c) => {
   }
 });
 
+const MAX_DIRECTORY_FILES = 2001; // 2000 items + collection.json
+const MAX_DIRECTORY_BYTES = 5 * 1024 * 1024; // 5 MB total across every file
+
+/**
+ * Builds the multipart form for Pinata's directory-pin endpoint. Pure
+ * function (no network) so the directory-vs-flat-pin invariant is unit
+ * testable without a live Pinata key: Pinata pins a DIRECTORY only when
+ * every file shares a common folder prefix in its name AND
+ * `pinataOptions.wrapWithDirectory` is `false` — it then returns the CID
+ * of that folder, so children resolve at `<cid>/<name>`. Flat names or
+ * `wrap:true` get rejected with "More than one file ... provided for
+ * pinning". Do not change this shape without re-verifying against Pinata.
+ */
+export function buildDirectoryPinForm(
+  files: { name: string; content: unknown }[],
+  folder: string,
+): FormData {
+  const form = new FormData();
+  for (const { name, content } of files) {
+    const blob = new Blob([JSON.stringify(content)], { type: "application/json" });
+    form.append("file", blob, `${folder}/${name}`);
+  }
+  form.append("pinataOptions", JSON.stringify({ wrapWithDirectory: false }));
+  form.append("pinataMetadata", JSON.stringify({ name: `${folder}-${Date.now()}` }));
+  return form;
+}
+
+// POST /v1/metadata/upload-directory — Pin a set of named JSON files together
+// under one folder CID (base_uri = ipfs://<cid>/, each file at ipfs://<cid>/<name>).
+// Generic: this route doesn't know about asset/drop metadata shape, callers
+// send already-built JSON documents keyed by filename.
+metadata.post("/upload-directory", async (c) => {
+  const jwt = env.PINATA_JWT;
+  if (!jwt) return c.json({ error: "Pinata not configured" }, 500);
+
+  const body = await c.req.json().catch(() => null) as {
+    files?: { name?: string; content?: unknown }[];
+  } | null;
+  const files = body?.files;
+  if (!Array.isArray(files) || files.length === 0) {
+    return c.json({ error: "files[] required" }, 400);
+  }
+  if (files.length > MAX_DIRECTORY_FILES) {
+    return c.json({ error: `Max ${MAX_DIRECTORY_FILES} files per directory` }, 400);
+  }
+  for (const f of files) {
+    if (!f?.name?.trim() || !/^[\w.-]+$/.test(f.name)) {
+      return c.json({ error: "Every file needs a name (letters, digits, dot, dash, underscore only)" }, 400);
+    }
+    if (f.content === undefined) {
+      return c.json({ error: `File "${f.name}" is missing content` }, 400);
+    }
+  }
+  const totalBytes = files.reduce((sum, f) => sum + JSON.stringify(f.content).length, 0);
+  if (totalBytes > MAX_DIRECTORY_BYTES) {
+    return c.json({ error: "Payload too large (max 5 MB total)" }, 413);
+  }
+
+  try {
+    const form = buildDirectoryPinForm(
+      files as { name: string; content: unknown }[],
+      "dir",
+    );
+    const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      log.error({ status: res.status, text }, "Pinata directory pin failed");
+      return c.json({ error: `Pinata error: ${text}` }, 502);
+    }
+    const json = (await res.json()) as { IpfsHash: string };
+    return c.json({ data: { cid: json.IpfsHash, baseUri: `ipfs://${json.IpfsHash}/` } }, 201);
+  } catch (err: unknown) {
+    log.error({ err }, "Failed to upload directory");
+    return c.json({ error: toErrorMessage(err) }, 500);
+  }
+});
+
 // GET /v1/metadata/resolve?uri=...
 metadata.get("/resolve", async (c) => {
   const uri = c.req.query("uri");
