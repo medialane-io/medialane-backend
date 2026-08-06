@@ -936,6 +936,18 @@ model Identity {
   @@index([appSource])
 }
 
+model EmailVerificationCode {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String    // HMAC-SHA256(code, SIWS_SECRET) — the raw code is never stored
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email])
+}
+
 model AccountProfile {
   id          String   @id @default(cuid())
   accountId   String   @unique
