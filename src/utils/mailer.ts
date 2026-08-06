@@ -87,3 +87,32 @@ export async function sendProvisioningClaimEmail(to: string, claimUrl: string): 
     log.error({ err }, "Failed to send provisioning claim email");
   }
 }
+
+/**
+ * Pure HTML builder, same pattern as buildProvisioningClaimEmailHtml —
+ * split out so it's unit-testable without mocking the mail transport.
+ */
+export function buildVerificationCodeEmailHtml(code: string): string {
+  return `
+    <p>Hi there,</p>
+    <p>Your Medialane verification code is:</p>
+    <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">${code}</p>
+    <p>This code expires in 10 minutes. If you didn't request this, you can safely ignore this email.</p>
+    <p>— The Medialane Team</p>
+  `;
+}
+
+export async function sendVerificationCode(to: string, code: string): Promise<void> {
+  const transporter = createTransporter();
+  if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
+  try {
+    await transporter.sendMail({
+      from: from(),
+      to,
+      subject: "Your Medialane verification code",
+      html: buildVerificationCodeEmailHtml(code),
+    });
+  } catch (err) {
+    log.error({ err }, "Failed to send verification code email");
+  }
+}
