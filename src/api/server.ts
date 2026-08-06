@@ -35,6 +35,7 @@ import tickets from "./routes/tickets-onchain.js";
 import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
+import { authEmail } from "./routes/auth-email.js";
 import { rewards, adminRewards } from "./routes/rewards.js";
 import sponsorship from "./routes/sponsorship.js";
 import { x402Discovery } from "./routes/x402.js";
@@ -78,6 +79,7 @@ export function createApp(): Hono<AppEnv> {
 
   // SIWS auth — public, no API key required (authentication precedes key issuance)
   app.route("/v1/auth/siws", siws);
+  app.route("/v1/auth/email", authEmail);
 
   // Tenant self-service portal
   app.route("/v1/portal", portal);
