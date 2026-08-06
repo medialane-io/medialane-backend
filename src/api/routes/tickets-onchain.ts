@@ -52,7 +52,7 @@ const tickets = new Hono<AppEnv>();
 // of the same tier without adding staleness that matters for display.
 tickets.get("/:contract/count", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
-  const col = new Contract(IPTicketCollectionABI as never, contract, createProvider() as never);
+  const col = new Contract({ abi: IPTicketCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });
   const count = Number(await col.call("ticket_count", []));
   return c.json({ data: { count } });
 });
@@ -60,7 +60,7 @@ tickets.get("/:contract/count", publicCache(30), async (c) => {
 tickets.get("/:contract/:tokenId", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
-  const col = new Contract(IPTicketCollectionABI as never, contract, createProvider() as never);
+  const col = new Contract({ abi: IPTicketCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });
   const raw = (await col.call("get_ticket", [cairo.uint256(tokenId)])) as Parameters<typeof parseTicketResult>[0];
   return c.json({ data: parseTicketResult(raw) });
 });

@@ -124,11 +124,11 @@ async function starknetHoldsToken(
 
 async function starknetCollectionOwner(contract: string): Promise<string> {
   const ownerResult = await callRpc((provider) => {
-    const c = new Contract(
-      [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
-      contract,
-      provider,
-    );
+    const c = new Contract({
+      abi: [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
+      address: contract,
+      providerOrAccount: provider,
+    });
     return c.owner();
   });
   return normalizeAddress("STARKNET", String(ownerResult));

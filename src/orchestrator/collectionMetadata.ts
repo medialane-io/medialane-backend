@@ -155,7 +155,7 @@ export async function handleCollectionMetadataFetch(payload: {
 
       try {
         const rawOwner = await callRpc((provider) => {
-          const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
+          const ownerContract = new Contract({ abi: OWNER_ABI as any, address: contractAddress, providerOrAccount: provider });
           return (ownerContract as any).owner();
         });
         if (rawOwner) onchainOwner = normalizeAddress("STARKNET", rawOwner.toString());
@@ -231,7 +231,7 @@ export async function handleCollectionMetadataFetch(payload: {
     let onChainOwner: string | null = null;
     try {
       const raw = await callRpc((provider) => {
-        const ownerContract = new Contract(OWNER_ABI as any, contractAddress, provider);
+        const ownerContract = new Contract({ abi: OWNER_ABI as any, address: contractAddress, providerOrAccount: provider });
         return (ownerContract as any).owner();
       });
       if (raw) onChainOwner = normalizeAddress("STARKNET", raw.toString());
@@ -353,14 +353,14 @@ export async function detectTokenStandard(contractAddress: string): Promise<Toke
     try {
       for (const id of ERC1155_PROBE_IDS) {
         const result = await callRpc((provider) => {
-          const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+          const contract = new Contract({ abi: SUPPORTS_INTERFACE_ABI as any, address: contractAddress, providerOrAccount: provider });
           return (contract as any)[fn](id);
         });
         if (result === true || result === 1n || String(result) === "1") return "ERC1155";
       }
       for (const id of ERC721_PROBE_IDS) {
         const result = await callRpc((provider) => {
-          const contract = new Contract(SUPPORTS_INTERFACE_ABI as any, contractAddress, provider);
+          const contract = new Contract({ abi: SUPPORTS_INTERFACE_ABI as any, address: contractAddress, providerOrAccount: provider });
           return (contract as any)[fn](id);
         });
         if (result === true || result === 1n || String(result) === "1") return "ERC721";
@@ -433,7 +433,7 @@ async function fetchCollectionOnChainInfo(
 async function callView(contractAddress: string, fn: string): Promise<unknown> {
   try {
     return await callRpc((provider) => {
-      const contract = new Contract(ERC721_INFO_ABI_FELT as any, contractAddress, provider);
+      const contract = new Contract({ abi: ERC721_INFO_ABI_FELT as any, address: contractAddress, providerOrAccount: provider });
       return (contract as any)[fn]();
     });
   } catch {

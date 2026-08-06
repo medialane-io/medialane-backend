@@ -21,7 +21,7 @@ import type {
 } from "../../types/api.js";
 
 function sponsorshipContract(): Contract {
-  return new Contract(IPSponsorshipABI as never, STARKNET_IP_SPONSORSHIP_CONTRACT, createProvider() as never);
+  return new Contract({ abi: IPSponsorshipABI as never, address: STARKNET_IP_SPONSORSHIP_CONTRACT, providerOrAccount: createProvider() as never });
 }
 
 /** Build a CREATE_SPONSORSHIP_OFFER intent — no SNIP-12 signing required. */

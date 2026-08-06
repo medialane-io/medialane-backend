@@ -219,7 +219,7 @@ async function fetchTokenUri(
     const fn = col.standard === "ERC1155" ? "uri" : "token_uri";
     try {
       const result = await callRpc((provider) => {
-        const contract = new Contract(abi as any, contractAddress, provider);
+        const contract = new Contract({ abi: abi as any, address: contractAddress, providerOrAccount: provider });
         return (contract as any)[fn](u256);
       });
       if (result != null) {
@@ -243,7 +243,7 @@ async function fetchTokenUri(
   if (cached) {
     try {
       const result = await callRpc((provider) => {
-        const contract = new Contract(cached.abi as any, contractAddress, provider);
+        const contract = new Contract({ abi: cached.abi as any, address: contractAddress, providerOrAccount: provider });
         return (contract as any)[cached.fn](u256);
       });
       if (result != null) {
@@ -264,7 +264,7 @@ async function fetchTokenUri(
     for (const fn of fns) {
       try {
         const result = await callRpc((provider) => {
-          const contract = new Contract(abi as any, contractAddress, provider);
+          const contract = new Contract({ abi: abi as any, address: contractAddress, providerOrAccount: provider });
           return (contract as any)[fn](u256);
         });
         if (result != null) {

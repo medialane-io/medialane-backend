@@ -190,11 +190,11 @@ export async function handleOrderCreated(
     details = await withRetry(
       async () => {
         const raw = await callRpc((provider) => {
-          const contract = new Contract(
-            IPMarketplaceABI as any,
-            STARKNET_MARKETPLACE_721_CONTRACT,
-            provider,
-          );
+          const contract = new Contract({
+            abi: IPMarketplaceABI as any,
+            address: STARKNET_MARKETPLACE_721_CONTRACT,
+            providerOrAccount: provider,
+          });
           return contract.get_order_details(event.orderHash);
         });
         const parsed = parseOrderDetails721(raw);

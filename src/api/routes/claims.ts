@@ -4,7 +4,6 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { Account } from "starknet";
 import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
@@ -171,8 +170,15 @@ claims.post(
       };
 
       const isValid = await callRpc((provider) => {
-        const account = new Account(provider, normWallet, "0x1");
-        return account.verifyMessage(typedDataObj, [BigInt(signature.r).toString(), BigInt(signature.s).toString()]);
+        // v10 moved signature verification off Account (which requires a real
+        // signer) onto the provider itself — no dummy Account needed to check
+        // a signature against an address that's just a claimant, not a signer
+        // we hold keys for.
+        return provider.verifyMessageInStarknet(
+          typedDataObj,
+          [BigInt(signature.r).toString(), BigInt(signature.s).toString()],
+          normWallet,
+        );
       });
       if (!isValid) return c.json({ verified: false, reason: "invalid_signature" });
     } catch {

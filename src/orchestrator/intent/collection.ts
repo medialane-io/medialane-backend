@@ -120,7 +120,7 @@ export async function buildMintIntent(body: MintIntentBody) {
       );
     }
     await assertFactoryCollectionOwner(contractAddress, owner);
-    const collection = new Contract(family.collectionAbi as never, contractAddress, createProvider() as never);
+    const collection = new Contract({ abi: family.collectionAbi as never, address: contractAddress, providerOrAccount: createProvider() as never });
 
     if (service === "mip-erc1155") {
       if (!body.tokenUri || !body.value) {
@@ -204,7 +204,7 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
 
   if (isFactoryFamilyService(body.service ?? null)) {
     const family = FACTORY_FAMILY_SERVICES[body.service as FactoryFamilyServiceId];
-    const factory = new Contract(family.factoryAbi as never, family.factoryAddress, createProvider() as never);
+    const factory = new Contract({ abi: family.factoryAbi as never, address: family.factoryAddress, providerOrAccount: createProvider() as never });
     const call = factory.populate("deploy_collection", [body.name, body.symbol, baseUri]);
     return { calls: [call] };
   }
@@ -213,7 +213,7 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     if (body.claimEndTimestamp == null || !body.eventType) {
       throw new Error("claimEndTimestamp and eventType are required to deploy a pop-protocol collection");
     }
-    const factory = new Contract(POPFactoryABI as never, STARKNET_POP_FACTORY_CONTRACT, createProvider() as never);
+    const factory = new Contract({ abi: POPFactoryABI as never, address: STARKNET_POP_FACTORY_CONTRACT, providerOrAccount: createProvider() as never });
     const call = factory.populate("create_collection", [
       body.name,
       body.symbol,
@@ -228,7 +228,7 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     if (!body.maxSupply || !body.conditions) {
       throw new Error("maxSupply and conditions are required to deploy a drop-collection");
     }
-    const factory = new Contract(DropFactoryABI as never, STARKNET_DROP_FACTORY_CONTRACT, createProvider() as never);
+    const factory = new Contract({ abi: DropFactoryABI as never, address: STARKNET_DROP_FACTORY_CONTRACT, providerOrAccount: createProvider() as never });
     // Same calldata shape DropService.createDrop uses client-side (single source: SDK's toDropContractConditions).
     const call = factory.populate("create_drop", [
       body.name,
@@ -267,7 +267,7 @@ export async function buildCreateTierIntent(body: CreateTierIntentBody) {
   const owner = normalizeAddress("STARKNET", body.owner);
   await assertFactoryCollectionOwner(collectionAddress, owner);
 
-  const collection = new Contract(family.collectionAbi as never, collectionAddress, createProvider() as never);
+  const collection = new Contract({ abi: family.collectionAbi as never, address: collectionAddress, providerOrAccount: createProvider() as never });
 
   const startTime = body.startTime != null
     ? new CairoOption(CairoOptionVariant.Some, body.startTime)

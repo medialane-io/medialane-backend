@@ -26,7 +26,7 @@ export async function mdlnMultiplier(address: string): Promise<number> {
   if (!x402Config.mdlnContract || !address) return 1.0;
   try {
     const raw = await callRpc(async (provider) => {
-      const c = new Contract(ERC20_ABI as never, x402Config.mdlnContract, provider as never);
+      const c = new Contract({ abi: ERC20_ABI as never, address: x402Config.mdlnContract!, providerOrAccount: provider as never });
       const res = await c.balanceOf(address);
       return uint256.uint256ToBN(res.balance ?? res);
     });
