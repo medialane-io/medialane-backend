@@ -49,6 +49,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   // boundary and "-file" isn't one.
   { method: "POST", prefix: "/v1/metadata/upload-file", actionKey: "metadata:upload-file" },
   { method: "POST", prefix: "/v1/metadata/upload", actionKey: "metadata:upload-json" },
+  { method: "POST", prefix: "/v1/wallet/deploy", actionKey: "wallet:deploy" },
   { method: "GET", prefix: "/v1/prices", actionKey: "price:read" },
   { method: "GET", prefix: "/v1/tickets", actionKey: "tickets:read-onchain" },
 ];
