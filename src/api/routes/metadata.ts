@@ -18,10 +18,35 @@ const pinata = new PinataSDK({
   pinataGateway: env.PINATA_GATEWAY,
 });
 
-// GET /v1/metadata/signed-url
+const SIGNED_URL_MIME_TYPES: Record<"image" | "document", string[]> = {
+  image: ["image/jpeg", "image/png", "image/gif", "image/svg+xml", "image/webp"],
+  document: [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.oasis.opendocument.text",
+    "application/rtf",
+    "text/plain",
+    "text/markdown",
+    // Browsers report .md/.rtf/.odt inconsistently — often as octet-stream.
+    // Caller auth + size cap + short expiry are the real guards here.
+    "application/octet-stream",
+  ],
+};
+const SIGNED_URL_MAX_BYTES: Record<"image" | "document", number> = {
+  image: 10 * 1024 * 1024,
+  document: 20 * 1024 * 1024,
+};
+
+// GET /v1/metadata/signed-url?kind=image|document (defaults to image)
 metadata.get("/signed-url", async (c) => {
+  const kind: "image" | "document" = c.req.query("kind") === "document" ? "document" : "image";
   try {
-    const url = await pinata.upload.public.createSignedURL({ expires: 30 });
+    const url = await pinata.upload.public.createSignedURL({
+      expires: 120, // 2 minutes — enough for slow connections
+      maxFileSize: SIGNED_URL_MAX_BYTES[kind],
+      mimeTypes: SIGNED_URL_MIME_TYPES[kind],
+    });
     return c.json({ data: { url } });
   } catch (err: unknown) {
     log.error({ err }, "Failed to create signed URL");
