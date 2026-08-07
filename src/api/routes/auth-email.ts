@@ -106,7 +106,11 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     await deps.consumeCode(stored.id);
     const token = issueEmailVerifiedToken(email);
-    return c.json({ token });
+    const accountId = await deps.findAccountIdByEmail(email);
+    return c.json({
+      token,
+      ...(accountId ? { accountToken: issueAccountSessionToken(accountId) } : {}),
+    });
   });
 
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {

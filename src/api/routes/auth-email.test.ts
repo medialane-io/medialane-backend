@@ -93,6 +93,46 @@ test("POST /verify-code with the correct code returns 200 and a token", async ()
   expect(body.token.startsWith("email_verified_")).toBe(true);
 });
 
+test("POST /verify-code returns an accountToken when the verified email belongs to an existing account", async () => {
+  const { createHmac } = await import("crypto");
+  const { env } = await import("../../config/env.js");
+  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("482913").digest("hex");
+  const app = appWith({
+    findLatestCode: async () => ({
+      id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
+    }),
+    findAccountIdByEmail: async () => "acc_EXISTING",
+  });
+  const res = await app.request("/verify-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alice@example.com", code: "482913" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json() as { token: string; accountToken?: string };
+  expect(body.accountToken?.startsWith("account_session_")).toBe(true);
+});
+
+test("POST /verify-code omits accountToken when no account exists for the email (shouldn't normally happen, but must not crash)", async () => {
+  const { createHmac } = await import("crypto");
+  const { env } = await import("../../config/env.js");
+  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("482913").digest("hex");
+  const app = appWith({
+    findLatestCode: async () => ({
+      id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
+    }),
+    findAccountIdByEmail: async () => null,
+  });
+  const res = await app.request("/verify-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alice@example.com", code: "482913" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json() as { token: string; accountToken?: string };
+  expect(body.accountToken).toBeUndefined();
+});
+
 test("POST /verify-code with the wrong code returns 400 and increments attempts", async () => {
   let incremented = false;
   const app = appWith({
