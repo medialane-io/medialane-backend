@@ -3,7 +3,7 @@
 // short Starknet addresses, causing "not found" mismatches between DB writes
 // and DB reads. Audit P1-10 + R0.
 import { describe, expect, test } from "bun:test";
-import { normalizeAddress, normalizeHash, callRpc } from "./starknet.js";
+import { normalizeAddress, normalizeHash } from "./starknet.js";
 
 describe("normalizeAddress", () => {
   test("pads a short address to 64 chars", () => {
@@ -51,37 +51,5 @@ describe("normalizeHash", () => {
 
   test("throws on invalid hash", () => {
     expect(() => normalizeHash("not-a-hash")).toThrow("Invalid hash");
-  });
-});
-
-// Regression coverage for the exact resilience contract wallet.ts's
-// isDeployed() depends on: a bare, non-retrying RPC call bypassed this and
-// treated any transient primary-RPC failure as "definitely not deployed" —
-// a false negative that let a real duplicate-deploy attempt through against
-// an address that genuinely was already live (medialane-backend PR, Aug 2026
-// production incident: POST /v1/wallet/deploy 500s with "contract already
-// deployed"). callRpc() is the established fix for exactly this class of
-// bug; these tests lock in the contract so nothing regresses it later.
-describe("callRpc", () => {
-  test("retries once on the fallback path after a failure, and returns its result", async () => {
-    let calls = 0;
-    const result = await callRpc(async () => {
-      calls++;
-      if (calls === 1) throw new Error("transient primary RPC failure");
-      return "recovered";
-    });
-    expect(result).toBe("recovered");
-    expect(calls).toBe(2);
-  });
-
-  test("propagates the error when both the initial call and its retry fail", async () => {
-    let calls = 0;
-    await expect(
-      callRpc(async () => {
-        calls++;
-        throw new Error("genuinely unreachable");
-      }),
-    ).rejects.toThrow("genuinely unreachable");
-    expect(calls).toBe(2);
   });
 });

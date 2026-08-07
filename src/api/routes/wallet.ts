@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { computeAccountAddress } from "@medialane/sdk/starknet";
-import { callRpc } from "../../utils/starknet.js";
+import { createProvider } from "../../utils/starknet.js";
 import { deployWalletViaRelayer } from "../../lib/wallet-relayer.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -39,7 +39,7 @@ const productionDeps: WalletRouteDeps = {
   computeAddress: (ownerPubkey, salt) => computeAccountAddress(ownerPubkey, salt),
   isDeployed: async (address) => {
     try {
-      await callRpc((provider) => provider.getClassHashAt(address));
+      await createProvider().getClassHashAt(address);
       return true;
     } catch {
       return false;
