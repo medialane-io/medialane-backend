@@ -39,5 +39,12 @@ export async function deployWalletViaRelayer(
     constructorCalldata: ownerConstructorCalldata(ownerPubkey),
     salt,
   });
+  // deployContract() resolves as soon as the transaction is submitted, not
+  // once it's confirmed. The caller (POST /v1/wallet/deploy) immediately
+  // hands off to SIWS sign-in, which independently checks on-chain that the
+  // wallet exists — without this wait, that check can run before the
+  // deployment has actually landed, failing with a confusing
+  // "account_not_deployed" error moments after setup appeared to succeed.
+  await deps.account.provider.waitForTransaction(result.transaction_hash);
   return { address: result.contract_address as string, transactionHash: result.transaction_hash };
 }
