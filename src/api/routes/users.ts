@@ -11,6 +11,7 @@ import { Chain } from "@prisma/client";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
+import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 
 const users = new Hono<AppEnv>();
 
@@ -52,6 +53,12 @@ const meBodySchema = z.object({
   // (io's /wallet-onboarding flow). Additive only — missing/expired/invalid
   // never blocks registration (email is a label, never a gate; 07 §II).
   emailVerificationToken: z.string().optional(),
+  // Proves this wallet is being deployed for an account that already
+  // exists (created at the email step — account-first onboarding, design
+  // spec 2026-08-07). Additive only — missing/expired/invalid never blocks
+  // registration; ensureAccountForWallet just falls back to its existing
+  // wallet-address-first lookup, exactly as if this field were absent.
+  accountToken: z.string().optional(),
 });
 
 /**
@@ -124,11 +131,16 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     }, 400);
   }
 
+  const linkToAccountId = parsed.data.accountToken
+    ? (verifyAccountSessionToken(parsed.data.accountToken) ?? undefined)
+    : undefined;
+
   const { accountId } = await ensureAccountForWallet({
     chain,
     address: walletAddress,
     provider,
     appSource,
+    linkToAccountId,
   });
 
   if (parsed.data.email) {
