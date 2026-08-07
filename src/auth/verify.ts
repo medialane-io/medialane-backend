@@ -43,28 +43,50 @@ export async function verifyWalletSignature(args: {
   }
 }
 
+/**
+ * Retries an is_valid_signature attempt on "Contract not found" before
+ * concluding the wallet is genuinely undeployed. The deploy endpoint waits
+ * for its transaction receipt before returning, but a receipt-confirmed
+ * write and a moments-later `starknet_call` read can still land on
+ * different, independently-lagging replicas behind the same RPC provider —
+ * this closes that residual propagation gap without weakening the real
+ * "genuinely not deployed" (counterfactual account) signal, which still
+ * exists after retries are exhausted.
+ */
+export async function verifyStarknetWithRetry(
+  attempt: () => Promise<boolean>,
+  opts: { retries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<VerifyResult> {
+  const retries = opts.retries ?? 3;
+  const delayMs = opts.delayMs ?? 1500;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const isValid = await attempt();
+      return isValid ? { ok: true } : { ok: false, reason: "invalid" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("Contract not found")) throw err; // unexpected RPC error — caller logs + 401
+      if (i === retries) return { ok: false, reason: "not_deployed" };
+      await sleep(delayMs);
+    }
+  }
+  return { ok: false, reason: "not_deployed" };
+}
+
 async function verifyStarknet(
   address: string,
   typedData: unknown,
   signature: string[],
 ): Promise<VerifyResult> {
-  try {
-    const normalizedSignature = signature.map((value) => BigInt(value).toString());
-    const isValid = await callRpc((provider) =>
+  const normalizedSignature = signature.map((value) => BigInt(value).toString());
+  return verifyStarknetWithRetry(() =>
+    callRpc((provider) =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       provider.verifyMessageInStarknet(typedData as any, normalizedSignature, address),
-    );
-    return isValid ? { ok: true } : { ok: false, reason: "invalid" };
-  } catch (err) {
-    // Smart wallets on Starknet are counterfactual until their first tx —
-    // is_valid_signature has no contract to call, surfaced as "Contract not
-    // found" (RPC code 20). Distinguish so the UI can prompt "deploy first".
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("Contract not found")) {
-      return { ok: false, reason: "not_deployed" };
-    }
-    throw err; // unexpected RPC error — caller logs + 401
-  }
+    ),
+  );
 }
 
 
