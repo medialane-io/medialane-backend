@@ -93,12 +93,6 @@ const envSchema = z.object({
   SMTP_USER: z.string().default(""),
   SMTP_PASS: z.string().default(""),
   CONTACT_FROM_EMAIL: z.string().default("Medialane <noreply@medialane.io>"),
-  // Railway's outbound network cannot reach the configured SMTP host
-  // (connection times out). When set, sendVerificationCode relays the send
-  // over HTTPS to medialane-io's Vercel deployment instead of connecting
-  // to SMTP directly — Vercel's network can reach it.
-  MAIL_RELAY_URL: z.string().url().optional(),
-  MAIL_RELAY_SECRET: z.string().optional(),
 });
 
 function parseEnv() {
