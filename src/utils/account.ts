@@ -96,6 +96,12 @@ export async function ensureAccountForWallet(params: {
   provider?: string;
   appSource: AppSource;
   email?: string;
+  /** Attach the new wallet Identity to this existing account instead of
+   *  creating a new one — used when the wallet is being deployed for an
+   *  account that was already created at the email step (account-first
+   *  onboarding, design spec 2026-08-07). Ignored when the wallet already
+   *  exists as an Identity (that existing-account path is unchanged). */
+  linkToAccountId?: string;
 }): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
@@ -112,6 +118,22 @@ export async function ensureAccountForWallet(params: {
     }
     if (isSocial) await ensureClerkIdentity(existing.accountId, address, params.email);
     return { accountId: existing.accountId, created: false };
+  }
+
+  if (params.linkToAccountId) {
+    await prisma.identity.create({
+      data: {
+        accountId: params.linkToAccountId,
+        scheme: IDENTITY_SCHEME.WALLET,
+        provider,
+        chain: params.chain,
+        address,
+        appSource: params.appSource,
+        isPrimary: true,
+        email: params.email ?? null,
+      },
+    });
+    return { accountId: params.linkToAccountId, created: false };
   }
 
   const accountId = await prisma.$transaction(async (tx) => {
