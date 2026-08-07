@@ -103,6 +103,26 @@ export function buildVerificationCodeEmailHtml(code: string): string {
 }
 
 export async function sendVerificationCode(to: string, code: string): Promise<void> {
+  // Railway's outbound network cannot reach the configured SMTP host
+  // (connection times out on connect). When a relay is configured, hand
+  // the send off over HTTPS to medialane-io's Vercel deployment instead —
+  // same SMTP credentials, different network path that can actually reach it.
+  if (env.MAIL_RELAY_URL && env.MAIL_RELAY_SECRET) {
+    try {
+      const res = await fetch(env.MAIL_RELAY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
+        body: JSON.stringify({ to, code }),
+      });
+      if (!res.ok) {
+        log.error({ status: res.status }, "Mail relay returned a non-OK status");
+      }
+    } catch (err) {
+      log.error({ err }, "Failed to reach mail relay");
+    }
+    return;
+  }
+
   const transporter = createTransporter();
   if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
   try {
