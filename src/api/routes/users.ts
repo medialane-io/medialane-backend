@@ -43,6 +43,11 @@ const meBodySchema = z.object({
   // shape in v1 is what keeps the year-2 multichain path unblocked.
   // Optional and defaults to STARKNET so older clients keep working.
   chain: chainEnum.optional(),
+  // Collected at signup, unverified. Additive only — never blocks
+  // registration, never overwrites an existing Identity row (whether it
+  // already belongs to this account or a different one). Verification
+  // happens later, opt-in, from settings (see emailVerificationToken).
+  email: z.string().email().optional(),
   // Proves the caller's email was verified moments ago via a one-time code
   // (io's /wallet-onboarding flow). Additive only — missing/expired/invalid
   // never blocks registration (email is a label, never a gate; 07 §II).
@@ -125,6 +130,28 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     provider,
     appSource,
   });
+
+  if (parsed.data.email) {
+    const existing = await prisma.identity.findUnique({
+      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: parsed.data.email } },
+      select: { id: true },
+    });
+    if (!existing) {
+      await prisma.identity.create({
+        data: {
+          accountId,
+          scheme: IDENTITY_SCHEME.EMAIL,
+          value: parsed.data.email,
+          email: parsed.data.email,
+          appSource,
+          verifiedAt: null,
+        },
+      });
+    }
+    // Already attached (to this account or a different one) — leave it
+    // exactly as-is. Never downgrade a verified email, never reassign
+    // someone else's.
+  }
 
   if (parsed.data.emailVerificationToken) {
     const email = verifyEmailVerifiedToken(parsed.data.emailVerificationToken);
