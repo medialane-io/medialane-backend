@@ -10,6 +10,7 @@ import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 
 const users = new Hono<AppEnv>();
 
@@ -42,6 +43,10 @@ const meBodySchema = z.object({
   // shape in v1 is what keeps the year-2 multichain path unblocked.
   // Optional and defaults to STARKNET so older clients keep working.
   chain: chainEnum.optional(),
+  // Proves the caller's email was verified moments ago via a one-time code
+  // (io's /wallet-onboarding flow). Additive only — missing/expired/invalid
+  // never blocks registration (email is a label, never a gate; 07 §II).
+  emailVerificationToken: z.string().optional(),
 });
 
 /**
@@ -114,12 +119,32 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     }, 400);
   }
 
-  await ensureAccountForWallet({
+  const { accountId } = await ensureAccountForWallet({
     chain,
     address: walletAddress,
     provider,
     appSource,
   });
+
+  if (parsed.data.emailVerificationToken) {
+    const email = verifyEmailVerifiedToken(parsed.data.emailVerificationToken);
+    if (email) {
+      await prisma.identity.upsert({
+        where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+        create: {
+          accountId,
+          scheme: IDENTITY_SCHEME.EMAIL,
+          value: email,
+          email,
+          appSource,
+          verifiedAt: new Date(),
+        },
+        update: { verifiedAt: new Date() },
+      });
+    }
+    // Invalid/expired token: silently skip. Email is additive, never a gate
+    // (07-identity-model.md §II) — registration must not fail on it.
+  }
 
   return c.json({ walletAddress });
 });
