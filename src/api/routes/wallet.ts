@@ -28,8 +28,22 @@ export function createWalletRoutes(deps: WalletRouteDeps): Hono<AppEnv> {
       return c.json({ data: { address, alreadyDeployed: true } });
     }
 
-    const result = await deps.deploy(ownerPubkey, salt);
-    return c.json({ data: { address: result.address, alreadyDeployed: false } });
+    try {
+      const result = await deps.deploy(ownerPubkey, salt);
+      return c.json({ data: { address: result.address, alreadyDeployed: false } });
+    } catch (err) {
+      // isDeployed() can still say false for a wallet that's genuinely
+      // already live — deployed moments ago (e.g. a retried "Try again")
+      // but not yet visible to whichever RPC replica just answered the
+      // check. When that happens the network itself rejects the deploy
+      // with this exact message; that's confirmation of success, not a
+      // failure, so recover instead of erroring.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.toLowerCase().includes("contract already deployed")) {
+        return c.json({ data: { address, alreadyDeployed: true } });
+      }
+      throw err;
+    }
   });
 
   return app;
