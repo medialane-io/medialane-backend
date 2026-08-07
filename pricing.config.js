@@ -47,7 +47,6 @@ export const PRICING = [
   { action: "intent:launch-coin",      usd: 0.50, note: "Launch a Creator Coin on Ekubo" },
 
   // ── Onboarding ───────────────────────────────────────────────────────
-  { action: "wallet:deploy", usd: 0.10, note: "Relayer-paid MediaWallet deploy (new-signup bootstrap)" },
 
   // ── Per-service prices ───────────────────────────────────────────────
   // Uncomment a line and set its price to charge that ONE service
