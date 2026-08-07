@@ -35,11 +35,17 @@ export function createWalletRoutes(deps: WalletRouteDeps): Hono<AppEnv> {
       // isDeployed() can still say false for a wallet that's genuinely
       // already live — deployed moments ago (e.g. a retried "Try again")
       // but not yet visible to whichever RPC replica just answered the
-      // check. When that happens the network itself rejects the deploy
-      // with this exact message; that's confirmation of success, not a
-      // failure, so recover instead of erroring.
+      // check — and the network then rejects the deploy with this exact
+      // message. But the message alone isn't proof: a single flaky RPC
+      // provider's fee-estimation step can ALSO throw this same message
+      // for an address that was never actually deployed (reproduced live
+      // 2026-08-07 — Alchemy, no transaction ever submitted per the
+      // relayer's own nonce). Re-verify via the same reliable,
+      // multi-provider isDeployed() check before trusting it; only an
+      // address the network agrees is genuinely there recovers as
+      // success.
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.toLowerCase().includes("contract already deployed")) {
+      if (msg.toLowerCase().includes("contract already deployed") && (await deps.isDeployed(address))) {
         return c.json({ data: { address, alreadyDeployed: true } });
       }
       throw err;

@@ -43,14 +43,19 @@ test("POST /wallet/deploy is idempotent — returns existing address without red
   expect(deployCalled).toBe(false);
 });
 
-test("POST /wallet/deploy recovers gracefully when deploy fails because the contract is already deployed", async () => {
-  // Reproduced live: isDeployed() said false (a moments-old deploy from a
-  // retried attempt hadn't propagated to this RPC view yet), so deploy was
-  // attempted anyway and the network rejected it with exactly this message
-  // — the wallet is genuinely fine, this must not surface as a failure.
+test("POST /wallet/deploy recovers when deploy fails with 'already deployed' AND a re-check confirms it's genuinely there", async () => {
+  // isDeployed() said false pre-deploy (a moments-old deploy from a
+  // retried attempt hadn't propagated to this RPC view yet), deploy was
+  // attempted anyway and the network rejected it with exactly this
+  // message — but this time a RE-CHECK after the error confirms the
+  // wallet really is live, so recovering as success is correct.
+  let calls = 0;
   const deps: WalletRouteDeps = {
     computeAddress: () => "0xcomputed",
-    isDeployed: async () => false,
+    isDeployed: async () => {
+      calls += 1;
+      return calls > 1; // false pre-deploy, true on the post-error re-check
+    },
     deploy: async () => {
       throw new Error(
         'Deployment failed: contract already deployed at address 0x0033c2d137ffa5f13de29ea56a03eb34b1f2aeda3490b88cbd4b15943b0d49af',
@@ -66,6 +71,31 @@ test("POST /wallet/deploy recovers gracefully when deploy fails because the cont
   const body = await res.json();
   expect(body.data.address).toBe("0xcomputed");
   expect(body.data.alreadyDeployed).toBe(true);
+});
+
+test("POST /wallet/deploy surfaces a real failure when 'already deployed' is a false positive (re-check says not deployed)", async () => {
+  // Reproduced live 2026-08-07: deployContract()'s fee-estimation step
+  // against a flaky primary RPC provider threw "already deployed" for an
+  // address that was never actually deployed — confirmed independently
+  // against a second RPC provider, and by the relayer's own nonce not
+  // having advanced (no transaction was ever really submitted). Blindly
+  // trusting the error message here silently reports success for a
+  // wallet that doesn't exist; a re-check must catch this.
+  const deps: WalletRouteDeps = {
+    computeAddress: () => "0xcomputed",
+    isDeployed: async () => false, // false both pre-deploy AND on the post-error re-check
+    deploy: async () => {
+      throw new Error(
+        'Deployment failed: contract already deployed at address 0xcomputed',
+      );
+    },
+  };
+  const res = await appWith(deps).request("/deploy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ownerPubkey: "0xowner" }),
+  });
+  expect(res.status).toBe(500);
 });
 
 test("POST /wallet/deploy still surfaces a genuine deploy failure (unrelated error)", async () => {
