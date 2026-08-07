@@ -22,7 +22,7 @@ const checkRateLimit = createSlidingWindow(10, 60_000);
 // this router in server.ts — no per-route wiring needed here.
 
 // ─── PATH 1: On-chain auto claim ────────────────────────────────────────────
-// Auth: x-api-key (tenant) + Authorization: Bearer (Clerk JWT)
+// Auth: x-api-key (tenant) + Authorization: Bearer (SIWS token)
 
 claims.post(
   "/",
@@ -96,7 +96,7 @@ claims.post(
 );
 
 // ─── PATH 2: Challenge ───────────────────────────────────────────────────────
-// Auth: standard x-api-key (no Clerk JWT needed).
+// Auth: standard x-api-key (no user auth needed).
 
 claims.post(
   "/challenge",

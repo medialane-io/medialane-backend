@@ -45,9 +45,9 @@ const conditionsSchema = z.object({
 
 // POST /v1/drop/conditions
 // Store claim conditions after a successful create_drop transaction.
-// Requires a verified wallet identity (Clerk JWT or SIWS) — only the collection
+// Requires a verified wallet identity (SIWS) — only the collection
 // owner (claimedBy or owner field) may set conditions. Ownership is the real
-// gate (below), independent of which auth mechanism proved the wallet.
+// gate (below), independent of the auth mechanism that proved the wallet.
 // Body: { collectionAddress, maxSupply, price, paymentToken, startTime, endTime, maxPerWallet }
 drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => {
   const body = await c.req.json().catch(() => null);

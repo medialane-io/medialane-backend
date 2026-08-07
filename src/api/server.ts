@@ -66,7 +66,7 @@ export function createApp(): Hono<AppEnv> {
 
   // Claims routers — some routes (e.g. the /check/:x availability checks,
   // /v1/users/me) are exempted inside apiKeyGate; everything else here is
-  // tenant-gated by the mount above, then layers its own Clerk JWT/SIWS auth.
+  // tenant-gated by the mount above, then layers its own SIWS auth.
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);
   app.route("/v1/business/provisioning", businessProvisioningRoutes);

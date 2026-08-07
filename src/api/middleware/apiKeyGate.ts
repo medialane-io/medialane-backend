@@ -43,7 +43,7 @@ function composeMiddleware(handlers: readonly MiddlewareHandler<AppEnv>[]): Midd
  * io and the dapp — forward it on every `/v1/*` call). So the exemption
  * bought nothing: real callers already had a key, it just wasn't being
  * checked or metered. Closed for good — no route may skip this gate. Any
- * route-specific auth on top (Clerk JWT, SIWS signature, a claim token)
+ * route-specific auth on top (SIWS signature, a claim token)
  * still runs inside its own handler, unchanged; this only decides whether
  * the caller is an accounted-for, credited app or key.
  *

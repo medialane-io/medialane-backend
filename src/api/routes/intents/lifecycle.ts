@@ -1,6 +1,6 @@
 // Lifecycle routes — read + transition an existing intent's state.
 //   GET    /v1/intents/:id            — read (auto-expires PENDING past TTL on read)
-//   PATCH  /v1/intents/:id/signature  — submit signature, populate calldata (ChipiPay flow)
+//   PATCH  /v1/intents/:id/signature  — submit signature, populate calldata
 //   POST   /v1/intents/:id/hydrate    — account-safe repair for confirmed marketplace txs
 //   PATCH  /v1/intents/:id/confirm    — submit tx hash; verifyAndSettle runs fire-and-forget
 //
@@ -50,7 +50,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: intent });
   });
 
-  // PATCH /v1/intents/:id/signature — Submit signature (ChipiPay flow)
+  // PATCH /v1/intents/:id/signature — Submit signature
   intents.patch("/:id/signature", async (c) => {
     const { id } = c.req.param();
     const body = await c.req.json().catch(() => null);

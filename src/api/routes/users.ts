@@ -19,7 +19,7 @@ const users = new Hono<AppEnv>();
 // walletType is a free-form wallet-software label on the wallet Identity — no longer
 // a closed enum (the WalletType enum was dropped in the identity unification, 07 §II,
 // permissionless). We accept any short string and lowercase it into Identity.provider;
-// the platform never gates on it. Apps may send "braavos"/"ready"/"chipipay"/… (any case).
+// the platform never gates on it. Apps may send "braavos"/"ready"/"mediawallet"/… (any case).
 const walletTypeSchema = z.string().max(64);
 const appSourceEnum = z.enum(APP_SOURCE_INPUT);
 const chainEnum = z.nativeEnum(Chain);
@@ -114,8 +114,7 @@ users.post(
 
 /**
  * POST /v1/users/me
- * Upsert the JWT-authenticated caller's account.
- * Works with both Clerk JWT (medialane-io) and SIWS token (medialane-starknet).
+ * Upsert the SIWS-authenticated caller's account.
  */
 users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
@@ -128,11 +127,11 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const appSource = normalizeAppSource(parsed.data.appSource ?? "MEDIALANE_IO");
   const chain: Chain = parsed.data.chain ?? "STARKNET";
 
-  // identityAuth only issues tokens for Starknet wallets in v1 (Clerk JWT
-  // carries a ChipiPay Starknet address; SIWS proves a Starknet signature).
-  // Accepting a non-STARKNET chain from the body would mis-register a
-  // Starknet-derived address under another chain. When SIWE / SIWB land
-  // and identityAuth issues tokens for other chains, this guard relaxes.
+  // identityAuth only issues tokens for Starknet wallets in v1 (SIWS proves
+  // a Starknet signature). Accepting a non-STARKNET chain from the body
+  // would mis-register a Starknet-derived address under another chain.
+  // When SIWE / SIWB land and identityAuth issues tokens for other chains,
+  // this guard relaxes.
   if (chain !== "STARKNET") {
     return c.json({
       error: "Only STARKNET is supported on /v1/users/me in v1 — cross-chain registration arrives with SIWE/SIWB",

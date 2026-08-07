@@ -202,8 +202,10 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
   if (isListing && order?.considerationToken && order?.considerationStartAmount) {
     // Buyer fulfills a listing: approve payment token for price_per_unit × quantity.
     // No fee is bundled here — the platform fee is charged by io as a separate
-    // post-confirmation transaction (the ChipiPay account is non-atomic, so a
-    // bundled fee would stick even when fulfill_order reverts). See
+    // post-confirmation transaction (this originated with a prior non-atomic
+    // relayer account, where a bundled fee would stick even when fulfill_order
+    // reverts — io's account is atomic now, revisit whether this still needs
+    // to be separate). See
     // medialane-core/docs/specs/2026-05-20-io-verify-then-charge-fee-design.md
     const pricePerUnit = BigInt(order.considerationStartAmount);
     const totalPrice = (pricePerUnit * quantity1155).toString();

@@ -12,6 +12,9 @@
  */
 export const IDENTITY_SCHEME = {
   WALLET: "wallet",
+  // Legacy — no longer written. medialane-io migrated off its previous
+  // identity provider to a self-custody wallet model (2026-08-07); kept
+  // here only so historical rows for existing accounts still read correctly.
   CLERK: "clerk",
   EMAIL: "email",
 } as const;

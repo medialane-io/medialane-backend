@@ -34,9 +34,9 @@ export type MarketplaceReceiptEvent = {
 
 /**
  * Verify that a Starknet transaction emitted at least one event from a
- * marketplace contract (ERC-721 or ERC-1155). Catches ChipiPay silent
- * failures where the outer multicall reports SUCCEEDED but the inner
- * marketplace call panics.
+ * marketplace contract (ERC-721 or ERC-1155). Catches silent failures from
+ * a non-atomic relayer, where the outer multicall reports SUCCEEDED but the
+ * inner marketplace call panics.
  */
 export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult> {
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {

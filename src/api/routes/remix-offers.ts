@@ -10,7 +10,7 @@ import type { AppEnv } from "../../types/hono.js";
 // Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
 // on /v1/* by apiKeyGate (src/api/middleware/apiKeyGate.ts), mounted before
 // this router in server.ts — no per-route wiring needed here. `GET /:id` is
-// tenant-gated too (the SDK always sends x-api-key there); only its Clerk
+// tenant-gated too (the SDK always sends x-api-key there); only its SIWS
 // participant check is optional.
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -579,7 +579,7 @@ remixOffers.get(
 /** GET /v1/remix-offers/:id — single offer, public */
 remixOffers.get("/:id", async (c) => {
   const { id } = c.req.param();
-  // Try to resolve caller if Clerk token is present (for participant check)
+  // Try to resolve caller if a SIWS token is present (for participant check)
   let callerWallet: string | undefined;
   try {
     const authHeader = c.req.header("Authorization");

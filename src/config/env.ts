@@ -34,7 +34,6 @@ const envSchema = z.object({
     .default("0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223"),
   STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
-  CLERK_SECRET_KEY: z.string().default(""),
   // Indexer start blocks (the contract addresses come from the SDK constants).
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_START_BLOCK: z.coerce.number().default(0),
@@ -82,8 +81,6 @@ const envSchema = z.object({
   // requests events past `latestBlock - INDEXER_CONFIRMATION_BLOCKS`.
   INDEXER_CONFIRMATION_BLOCKS: z.coerce.number().min(0).default(2),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(300_000),
-  CHIPIPAY_API_KEY: z.string().default(""),
-  CHIPIPAY_API_URL: z.string().default("https://api.chipi.io"),
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),

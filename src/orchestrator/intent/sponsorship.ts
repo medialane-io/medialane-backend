@@ -83,9 +83,9 @@ export async function buildRetractSponsorshipBidIntent(body: RetractSponsorshipB
  * ownership, settles the sponsor's payment (allowance pull, no escrow), and
  * mints the license atomically, all on-chain. No fee is bundled here — the
  * platform fee is the calling app's responsibility (bundled atomically for
- * starknet's direct signer, charged as a separate post-confirmation
- * transaction for io's non-atomic ChipiPay account), same precedent as
- * buildFulfillOrderIntent.
+ * starknet's direct signer; io originated a separate post-confirmation
+ * transaction pattern for this, from a prior non-atomic relayer account —
+ * see buildFulfillOrderIntent), same precedent as buildFulfillOrderIntent.
  */
 export async function buildAcceptSponsorshipBidIntent(body: AcceptSponsorshipBidIntentBody) {
   const call = sponsorshipContract().populate("accept_bid", [

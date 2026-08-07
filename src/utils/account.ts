@@ -83,12 +83,9 @@ export async function addAccountRole(
  *
  * This is the single entry point the onboarding routes use. Do not call from read-only paths.
  *
- * `provider` is the free-form wallet-software label ("braavos" / "ready" / "chipipay" / …) —
+ * `provider` is the free-form wallet-software label ("braavos" / "ready" / "mediawallet" / …) —
  * it never gates anything (07-identity §II). If the wallet exists with an "unknown" provider
  * and a specific one is supplied, the label is upgraded.
- *
- * A medialane-io account (appSource MEDIALANE_IO) additionally gets a `clerk` Identity that
- * captures the auth provenance — distinct from the on-chain signer, never conflated (07 §IV).
  */
 export async function ensureAccountForWallet(params: {
   chain: Chain;
@@ -105,7 +102,6 @@ export async function ensureAccountForWallet(params: {
 }): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
-  const isSocial = params.appSource === "MEDIALANE_IO";
 
   const existing = await prisma.identity.findUnique({
     where: { chain_address: { chain: params.chain, address } },
@@ -116,7 +112,6 @@ export async function ensureAccountForWallet(params: {
     if ((existing.provider === null || existing.provider === "unknown") && provider !== "unknown") {
       await prisma.identity.update({ where: { id: existing.id }, data: { provider } });
     }
-    if (isSocial) await ensureClerkIdentity(existing.accountId, address, params.email);
     return { accountId: existing.accountId, created: false };
   }
 
@@ -166,58 +161,9 @@ export async function ensureAccountForWallet(params: {
       },
     });
 
-    // medialane-io: a Clerk-authenticated, ChipiPay-signed account. The wallet Identity
-    // above is the on-chain signer; this second Identity is the auth provenance. They're
-    // distinct facets — see medialane-core/docs/architecture/07-identity-model.md §IV.
-    if (isSocial) {
-      await tx.identity.create({
-        data: {
-          accountId: account.id,
-          scheme: IDENTITY_SCHEME.CLERK,
-          provider: "clerk",
-          value: `MEDIALANE_IO:clerk:${address}`,
-          appSource: params.appSource,
-          email: params.email ?? null,
-        },
-      });
-    }
-
     await tx.accountProfile.create({ data: { accountId: account.id } });
     return account.id;
   });
 
   return { accountId, created: true };
-}
-
-/**
- * Idempotently ensure a `clerk` Identity exists for this Account. Used to backfill
- * pre-existing medialane-io accounts on login; safe to call every time. Idempotent via
- * the (scheme, value) unique key.
- */
-async function ensureClerkIdentity(
-  accountId: string,
-  address: string,
-  email?: string,
-): Promise<void> {
-  const value = `MEDIALANE_IO:clerk:${address}`;
-  const existing = await prisma.identity.findUnique({
-    where: { scheme_value: { scheme: IDENTITY_SCHEME.CLERK, value } },
-    select: { id: true },
-  });
-  if (existing) return;
-  try {
-    await prisma.identity.create({
-      data: {
-        accountId,
-        scheme: IDENTITY_SCHEME.CLERK,
-        provider: "clerk",
-        value,
-        appSource: "MEDIALANE_IO",
-        email: email ?? null,
-      },
-    });
-  } catch {
-    // Race-safe: a concurrent caller may have inserted the row; the unique key
-    // protects us. Swallow — the desired end-state is achieved either way.
-  }
 }

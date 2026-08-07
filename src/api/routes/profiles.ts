@@ -65,7 +65,7 @@ const creatorProfileSchema = z.object({
   telegramUrl: urlField,
 });
 
-// ─── Collection Profile (public read, Clerk JWT or admin key for write) ──────
+// ─── Collection Profile (public read, SIWS token or admin key for write) ─────
 
 profiles.get("/collections/:contract/profile", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
@@ -323,7 +323,7 @@ profiles.get("/creators/:wallet/hidden", async (c) => {
   return c.json({ isHidden: row !== null });
 });
 
-// ─── Creator Profile (public read, Clerk JWT for write) ─────────────────────
+// ─── Creator Profile (public read, SIWS token for write) ────────────────────
 
 profiles.get("/creators/:wallet/profile", async (c) => {
   const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));

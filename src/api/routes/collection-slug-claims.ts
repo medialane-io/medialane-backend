@@ -36,7 +36,7 @@ collectionSlugClaims.get("/check/:slug", async (c) => {
 
 // ─── POST /v1/collection-slug-claims ─────────────────────────────────────────
 // Submit a slug claim for a collection. Caller must be the collection owner.
-// Auth: tenant API key (global apiKeyGate) + Clerk JWT.
+// Auth: tenant API key (global apiKeyGate) + SIWS token.
 
 collectionSlugClaims.post(
   "/",

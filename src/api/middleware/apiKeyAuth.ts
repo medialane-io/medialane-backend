@@ -5,8 +5,8 @@
  *   x-api-key: ml_live_...
  *   Authorization: Bearer ml_live_...
  *
- * `x-api-key` is checked first so routes that also need a Clerk JWT
- * (e.g. PATCH /v1/creators/:wallet/profile) can put the JWT in the
+ * `x-api-key` is checked first so routes that also need a SIWS token
+ * (e.g. PATCH /v1/creators/:wallet/profile) can put the token in the
  * Authorization header without it being mis-treated as the API key.
  *
  * Looks up the key by hash, resolves it through its ApiClient (billing) to
@@ -58,8 +58,8 @@ const KEY_SELECT = {
 export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Prefer x-api-key header; fall back to Authorization: Bearer <key>
   // x-api-key takes priority because some endpoints send both x-api-key (tenant key)
-  // and Authorization: Bearer (Clerk JWT) simultaneously — reading Authorization first
-  // would cause the Clerk token to be treated as the API key and rejected.
+  // and Authorization: Bearer (SIWS token) simultaneously — reading Authorization first
+  // would cause the SIWS token to be treated as the API key and rejected.
   const authHeader = c.req.header("authorization");
   const raw =
     c.req.header("x-api-key")?.trim()

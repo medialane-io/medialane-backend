@@ -140,7 +140,7 @@ coins.get("/:contract", publicCache(30), async (c) => {
 });
 
 // PATCH /v1/coins/:contract — creator-authed coin profile (image, description).
-// Mirrors collection-profile editing: identityAuth (Clerk JWT / SIWS) + ownership.
+// Mirrors collection-profile editing: identityAuth (SIWS) + ownership.
 // The creator is `coin.creator` (trustless — from the factory event), never a body param.
 coins.patch("/:contract", identityAuth, async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract") ?? "");
