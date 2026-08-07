@@ -12,6 +12,7 @@ import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 
 const users = new Hono<AppEnv>();
 
@@ -59,6 +60,13 @@ const meBodySchema = z.object({
   // registration; ensureAccountForWallet just falls back to its existing
   // wallet-address-first lookup, exactly as if this field were absent.
   accountToken: z.string().optional(),
+});
+
+const generateWalletBodySchema = z.object({
+  // A full SIWS token for the newly-deployed wallet — proves the caller
+  // controls it, reusing the exact same verification siws.ts's own
+  // /verify route already produces tokens for. No new crypto needed.
+  newWalletSiwsToken: z.string(),
 });
 
 /**
@@ -186,6 +194,55 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   }
 
   return c.json({ walletAddress });
+});
+
+/**
+ * POST /v1/users/me/generate-wallet
+ * Attach a new wallet to the caller's existing account, making it primary.
+ * Manual fix for the rare "someone else finished wallet setup on an
+ * account keyed to my email before I did" edge case (design spec §4.6/§6)
+ * — not automatic detection, a deliberate user action from settings.
+ */
+users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), async (c) => {
+  const walletAddress = c.get("walletAddress") as string;
+  const raw = await c.req.json<unknown>().catch(() => ({}));
+  const parsed = generateWalletBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
+  }
+
+  const newWalletId = verifySiwsToken(parsed.data.newWalletSiwsToken);
+  if (!newWalletId) {
+    return c.json({ error: "Invalid or expired token for the new wallet" }, 400);
+  }
+
+  const existing = await prisma.identity.findUnique({
+    where: { chain_address: { chain: "STARKNET", address: walletAddress } },
+    select: { accountId: true },
+  });
+  if (!existing) return c.json({ error: "Account not found" }, 404);
+
+  const newAddress = normalizeAddress(newWalletId.chain, newWalletId.address);
+
+  await prisma.$transaction([
+    prisma.identity.updateMany({
+      where: { accountId: existing.accountId, scheme: IDENTITY_SCHEME.WALLET },
+      data: { isPrimary: false },
+    }),
+    prisma.identity.create({
+      data: {
+        accountId: existing.accountId,
+        scheme: IDENTITY_SCHEME.WALLET,
+        provider: "unknown",
+        chain: newWalletId.chain,
+        address: newAddress,
+        appSource: "MEDIALANE_IO",
+        isPrimary: true,
+      },
+    }),
+  ]);
+
+  return c.json({ walletAddress: newAddress });
 });
 
 /**
