@@ -184,13 +184,22 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const identity = await prisma.identity.findUnique({
     where: { chain_address: { chain: "STARKNET", address: walletAddress } },
-    include: { account: true },
+    include: {
+      account: {
+        include: {
+          identities: { where: { scheme: IDENTITY_SCHEME.EMAIL }, take: 1 },
+        },
+      },
+    },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);
+  const emailIdentity = identity.account.identities[0];
   return c.json({
     walletAddress: identity.address,
     accountId: identity.account.id,
     publicId: identity.account.publicId,
+    email: emailIdentity?.email ?? null,
+    emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
   });
 });
 
