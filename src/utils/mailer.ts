@@ -106,12 +106,14 @@ export async function sendVerificationCode(to: string, code: string): Promise<vo
   const transporter = createTransporter();
   if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: from(),
       to,
       subject: "Your Medialane verification code",
       html: buildVerificationCodeEmailHtml(code),
     });
+    // TEMP diagnostic (2026-08-07) — remove once delivery is confirmed.
+    log.info({ messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, response: info.response }, "Verification code email submitted to SMTP");
   } catch (err) {
     log.error({ err }, "Failed to send verification code email");
   }
