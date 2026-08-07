@@ -59,7 +59,14 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     const code = String(randomInt(100_000, 1_000_000));
     await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
-    await deps.sendCode(email, code);
+
+    // Fire-and-forget, same pattern as sendUsernameClaimApproved elsewhere
+    // in this codebase — a slow/unreachable SMTP connection must never
+    // block this response (nodemailer's connection timeout alone is 2
+    // minutes by default, which reads as a hung request to the client).
+    deps.sendCode(email, code).catch((err: unknown) => {
+      log.error({ err, email }, "Failed to send verification code");
+    });
 
     // Always 200 regardless of whether this email has an account already —
     // never let response shape/timing leak account existence.

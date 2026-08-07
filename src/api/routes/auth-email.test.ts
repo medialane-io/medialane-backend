@@ -33,6 +33,23 @@ test("POST /request-code with a valid email returns 200 and sends a code", async
   expect(sent.code).toMatch(/^\d{6}$/);
 });
 
+test("POST /request-code responds without waiting for sendCode to settle", async () => {
+  let sendCodeResolved = false;
+  const app = appWith({
+    sendCode: () =>
+      new Promise((resolve) => {
+        setTimeout(() => { sendCodeResolved = true; resolve(); }, 50);
+      }),
+  });
+  const res = await app.request("/request-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alice@example.com" }),
+  });
+  expect(res.status).toBe(200);
+  expect(sendCodeResolved).toBe(false);
+});
+
 test("POST /request-code with an invalid email format returns 400", async () => {
   const app = appWith();
   const res = await app.request("/request-code", {
