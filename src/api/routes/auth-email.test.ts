@@ -12,6 +12,9 @@ function appWith(deps: Partial<AuthEmailDeps> = {}) {
     sendCode: async () => {},
     checkRateLimit: async () => true,
     checkEmailExists: async () => false,
+    createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
+    checkAccountCreateRateLimit: async () => true,
+    findAccountIdByEmail: async () => null,
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -171,4 +174,55 @@ test("GET /exists with an invalid email format returns 400", async () => {
   const app = appWith();
   const res = await app.request("/exists?email=not-an-email");
   expect(res.status).toBe(400);
+});
+
+test("POST /register-account creates an account and returns an accountToken", async () => {
+  const app = appWith({
+    createAccountWithEmail: async (email) => {
+      expect(email).toBe("alice@example.com");
+      return { accountId: "acc_ABC123", alreadyExisted: false };
+    },
+  });
+  const res = await app.request("/register-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alice@example.com" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json() as { accountToken: string };
+  expect(body.accountToken.startsWith("account_session_")).toBe(true);
+});
+
+test("POST /register-account with an invalid email format returns 400", async () => {
+  const app = appWith();
+  const res = await app.request("/register-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "not-an-email" }),
+  });
+  expect(res.status).toBe(400);
+});
+
+test("POST /register-account is rate-limited per IP", async () => {
+  const app = appWith({ checkAccountCreateRateLimit: async () => false });
+  const res = await app.request("/register-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alice@example.com" }),
+  });
+  expect(res.status).toBe(429);
+});
+
+test("POST /register-account still succeeds (idempotently) if the email was registered a moment ago by a concurrent request", async () => {
+  const app = appWith({
+    createAccountWithEmail: async () => ({ accountId: "acc_EXISTING", alreadyExisted: true }),
+  });
+  const res = await app.request("/register-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "alice@example.com" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json() as { accountToken: string };
+  expect(body.accountToken.startsWith("account_session_")).toBe(true);
 });

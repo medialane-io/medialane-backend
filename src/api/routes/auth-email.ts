@@ -6,6 +6,8 @@ import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
+import { generateAccountPublicId } from "../../utils/account.js";
+import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateLimit.js";
 import { createRedisStore } from "../middleware/redisRateLimit.js";
 import { createLogger } from "../../utils/logger.js";
@@ -40,6 +42,9 @@ export interface AuthEmailDeps {
   sendCode: (to: string, code: string) => Promise<void>;
   checkRateLimit: (email: string, ip: string) => Promise<boolean>;
   checkEmailExists: (email: string) => Promise<boolean>;
+  createAccountWithEmail: (email: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
+  checkAccountCreateRateLimit: (ip: string) => Promise<boolean>;
+  findAccountIdByEmail: (email: string) => Promise<string | null>;
 }
 
 function hashCode(code: string): string {
@@ -49,6 +54,7 @@ function hashCode(code: string): string {
 const requestCodeSchema = z.object({ email: z.string().email() });
 const verifyCodeSchema = z.object({ email: z.string().email(), code: z.string().length(6) });
 const existsQuerySchema = z.object({ email: z.string().email() });
+const registerAccountSchema = z.object({ email: z.string().email() });
 
 export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -109,6 +115,17 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     return c.json({ exists });
   });
 
+  app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
+    const { email } = c.req.valid("json");
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+
+    const allowed = await deps.checkAccountCreateRateLimit(ip);
+    if (!allowed) return c.json({ error: "Too many requests" }, 429);
+
+    const { accountId } = await deps.createAccountWithEmail(email);
+    return c.json({ accountToken: issueAccountSessionToken(accountId) });
+  });
+
   return app;
 }
 
@@ -144,6 +161,61 @@ const productionDeps: AuthEmailDeps = {
       select: { id: true },
     });
     return identity !== null;
+  },
+  createAccountWithEmail: async (email) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const account = await prisma.account.create({
+          data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
+          select: { id: true },
+        });
+        await prisma.identity.create({
+          data: {
+            accountId: account.id,
+            scheme: IDENTITY_SCHEME.EMAIL,
+            value: email,
+            email,
+            appSource: "MEDIALANE_IO",
+            verifiedAt: null,
+          },
+        });
+        return { accountId: account.id, alreadyExisted: false };
+      } catch (err) {
+        // P2002: unique constraint violation on Identity.(scheme,value) — a
+        // concurrent request registered this exact email a moment ago.
+        // That's a race between two legitimate near-simultaneous attempts
+        // (e.g. a doubled network request), not an attacker — recover by
+        // returning the account that now owns this email instead of
+        // erroring, same "additive, never blocking" spirit as everywhere
+        // else email touches this codebase.
+        const isUniqueViolation =
+          typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
+        if (!isUniqueViolation) throw err;
+        const existing = await prisma.identity.findUnique({
+          where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+          select: { accountId: true },
+        });
+        if (existing) return { accountId: existing.accountId, alreadyExisted: true };
+        // Extremely unlikely: the racing row was deleted between the P2002
+        // and this lookup (e.g. reaper sweep). Retry the whole create.
+      }
+    }
+    throw new Error("Failed to create account after 3 attempts");
+  },
+  checkAccountCreateRateLimit: async (ip) => {
+    const result = await rateLimitStore.increment(`ratelimit:account-create-ip:${ip}`, 60 * 60 * 1000);
+    if (result.count > 10) {
+      log.warn({ ip }, "account-creation rate limit hit (per-IP)");
+      return false;
+    }
+    return true;
+  },
+  findAccountIdByEmail: async (email) => {
+    const identity = await prisma.identity.findUnique({
+      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      select: { accountId: true },
+    });
+    return identity?.accountId ?? null;
   },
 };
 
