@@ -11,6 +11,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}) {
     consumeCode: async () => {},
     sendCode: async () => {},
     checkRateLimit: async () => true,
+    checkEmailExists: async () => false,
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -142,4 +143,32 @@ test("POST /verify-code with a code that hit the attempt cap returns 429", async
     body: JSON.stringify({ email: "alice@example.com", code: "482913" }),
   });
   expect(res.status).toBe(429);
+});
+
+test("GET /exists returns { exists: true } when checkEmailExists resolves true", async () => {
+  const app = appWith({ checkEmailExists: async () => true });
+  const res = await app.request("/exists?email=alice@example.com");
+  expect(res.status).toBe(200);
+  const body = await res.json() as { exists: boolean };
+  expect(body.exists).toBe(true);
+});
+
+test("GET /exists returns { exists: false } when checkEmailExists resolves false", async () => {
+  const app = appWith({ checkEmailExists: async () => false });
+  const res = await app.request("/exists?email=alice@example.com");
+  expect(res.status).toBe(200);
+  const body = await res.json() as { exists: boolean };
+  expect(body.exists).toBe(false);
+});
+
+test("GET /exists with a missing email query param returns 400", async () => {
+  const app = appWith();
+  const res = await app.request("/exists");
+  expect(res.status).toBe(400);
+});
+
+test("GET /exists with an invalid email format returns 400", async () => {
+  const app = appWith();
+  const res = await app.request("/exists?email=not-an-email");
+  expect(res.status).toBe(400);
 });

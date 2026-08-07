@@ -9,6 +9,7 @@ import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateLimit.js";
 import { createRedisStore } from "../middleware/redisRateLimit.js";
 import { createLogger } from "../../utils/logger.js";
+import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:auth-email");
@@ -38,6 +39,7 @@ export interface AuthEmailDeps {
   consumeCode: (id: string) => Promise<void>;
   sendCode: (to: string, code: string) => Promise<void>;
   checkRateLimit: (email: string, ip: string) => Promise<boolean>;
+  checkEmailExists: (email: string) => Promise<boolean>;
 }
 
 function hashCode(code: string): string {
@@ -46,6 +48,7 @@ function hashCode(code: string): string {
 
 const requestCodeSchema = z.object({ email: z.string().email() });
 const verifyCodeSchema = z.object({ email: z.string().email(), code: z.string().length(6) });
+const existsQuerySchema = z.object({ email: z.string().email() });
 
 export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -100,6 +103,12 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     return c.json({ token });
   });
 
+  app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
+    const { email } = c.req.valid("query");
+    const exists = await deps.checkEmailExists(email);
+    return c.json({ exists });
+  });
+
   return app;
 }
 
@@ -128,6 +137,13 @@ const productionDeps: AuthEmailDeps = {
       return false;
     }
     return true;
+  },
+  checkEmailExists: async (email) => {
+    const identity = await prisma.identity.findUnique({
+      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      select: { id: true },
+    });
+    return identity !== null;
   },
 };
 
