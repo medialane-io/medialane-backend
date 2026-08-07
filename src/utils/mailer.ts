@@ -102,18 +102,39 @@ export function buildVerificationCodeEmailHtml(code: string): string {
   `;
 }
 
+/**
+ * Railway's outbound network blocks SMTP ports (25/465/587) on the current
+ * plan — direct nodemailer sends from this service always ETIMEDOUT on
+ * connect. medialane-io's Vercel deployment has unrestricted outbound
+ * network, so relay through its internal, secret-gated route instead.
+ */
+async function sendViaRelay(to: string, code: string): Promise<boolean> {
+  if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
+  const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-verification-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
+    body: JSON.stringify({ to, code }),
+  });
+  if (!res.ok) throw new Error(`relay responded ${res.status}: ${await res.text().catch(() => "")}`);
+  return true;
+}
+
 export async function sendVerificationCode(to: string, code: string): Promise<void> {
+  try {
+    if (await sendViaRelay(to, code)) return;
+  } catch (err) {
+    log.error({ err }, "Mail relay failed sending verification code — falling back to direct SMTP");
+  }
+
   const transporter = createTransporter();
   if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
   try {
-    const info = await transporter.sendMail({
+    await transporter.sendMail({
       from: from(),
       to,
       subject: "Your Medialane verification code",
       html: buildVerificationCodeEmailHtml(code),
     });
-    // TEMP diagnostic (2026-08-07) — remove once delivery is confirmed.
-    log.info({ messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, response: info.response }, "Verification code email submitted to SMTP");
   } catch (err) {
     log.error({ err }, "Failed to send verification code email");
   }

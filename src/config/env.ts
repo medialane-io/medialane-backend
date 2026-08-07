@@ -90,6 +90,8 @@ const envSchema = z.object({
   SMTP_USER: z.string().default(""),
   SMTP_PASS: z.string().default(""),
   CONTACT_FROM_EMAIL: z.string().default("Medialane <noreply@medialane.io>"),
+  MAIL_RELAY_URL: z.string().default(""),
+  MAIL_RELAY_SECRET: z.string().default(""),
 });
 
 function parseEnv() {
