@@ -73,6 +73,38 @@ test("POST /wallet/deploy recovers when deploy fails with 'already deployed' AND
   expect(body.data.alreadyDeployed).toBe(true);
 });
 
+test("POST /wallet/deploy retries the re-check with delay before giving up — recovers once propagation catches up", async () => {
+  // Reproduced live 2026-08-07 (a second, distinct occurrence): the
+  // wallet WAS genuinely deployed (confirmed independently against a
+  // second RPC provider minutes later), but a single, immediate
+  // re-check still hit the same propagation-lag RPC view that made the
+  // original isDeployed() pre-check say false — needs the same
+  // delay-based retry pattern as verifyStarknetWithRetry, not just one
+  // extra check.
+  let isDeployedCalls = 0;
+  const sleeps: number[] = [];
+  const deps: WalletRouteDeps = {
+    computeAddress: () => "0xcomputed",
+    isDeployed: async () => {
+      isDeployedCalls += 1;
+      return isDeployedCalls > 3; // pre-deploy false, then false, false, true
+    },
+    deploy: async () => {
+      throw new Error('Deployment failed: contract already deployed at address 0xcomputed');
+    },
+    sleep: async (ms) => { sleeps.push(ms); },
+  };
+  const res = await appWith(deps).request("/deploy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ownerPubkey: "0xowner" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.data.alreadyDeployed).toBe(true);
+  expect(sleeps.length).toBeGreaterThan(0);
+});
+
 test("POST /wallet/deploy surfaces a real failure when 'already deployed' is a false positive (re-check says not deployed)", async () => {
   // Reproduced live 2026-08-07: deployContract()'s fee-estimation step
   // against a flaky primary RPC provider threw "already deployed" for an
@@ -83,12 +115,13 @@ test("POST /wallet/deploy surfaces a real failure when 'already deployed' is a f
   // wallet that doesn't exist; a re-check must catch this.
   const deps: WalletRouteDeps = {
     computeAddress: () => "0xcomputed",
-    isDeployed: async () => false, // false both pre-deploy AND on the post-error re-check
+    isDeployed: async () => false, // false both pre-deploy AND on every re-check retry
     deploy: async () => {
       throw new Error(
         'Deployment failed: contract already deployed at address 0xcomputed',
       );
     },
+    sleep: async () => {},
   };
   const res = await appWith(deps).request("/deploy", {
     method: "POST",

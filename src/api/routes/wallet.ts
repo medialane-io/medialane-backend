@@ -10,6 +10,28 @@ export interface WalletRouteDeps {
   computeAddress: (ownerPubkey: string, salt: string) => string;
   isDeployed: (address: string) => Promise<boolean>;
   deploy: (ownerPubkey: string, salt: string) => Promise<{ address: string; transactionHash: string }>;
+  /** Injectable for tests — real deploys use a real delay. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * A single isDeployed() re-check right after an "already deployed" error
+ * isn't reliable — the same RPC-propagation lag that made the pre-deploy
+ * check say false can still be present moments later. Retries with delay,
+ * same shape as auth/verify.ts's verifyStarknetWithRetry.
+ */
+async function verifyDeployedWithRetry(
+  isDeployed: (address: string) => Promise<boolean>,
+  address: string,
+  sleep: (ms: number) => Promise<void>,
+  retries = 3,
+  delayMs = 1500,
+): Promise<boolean> {
+  for (let i = 0; i <= retries; i++) {
+    if (await isDeployed(address)) return true;
+    if (i < retries) await sleep(delayMs);
+  }
+  return false;
 }
 
 const deployBodySchema = z.object({
@@ -45,7 +67,11 @@ export function createWalletRoutes(deps: WalletRouteDeps): Hono<AppEnv> {
       // address the network agrees is genuinely there recovers as
       // success.
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.toLowerCase().includes("contract already deployed") && (await deps.isDeployed(address))) {
+      const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+      if (
+        msg.toLowerCase().includes("contract already deployed") &&
+        (await verifyDeployedWithRetry(deps.isDeployed, address, sleep))
+      ) {
         return c.json({ data: { address, alreadyDeployed: true } });
       }
       throw err;
