@@ -22,6 +22,13 @@ export const PRICING = [
   { action: "read", usd: 0.01, note: "Any lookup / GET request" },
   { action: "price:read", usd: 0.01, note: "USD price quote (STRK/ETH/USDC/WBTC)" },
   { action: "tickets:read-onchain", usd: 0.01, note: "Live ip-tickets tier state read (maxSupply/minted/validity)" },
+  { action: "club:read-onchain", usd: 0.01, note: "Live ip-club membership state read (maxSupply/minted/validity)" },
+  { action: "ipnft:read-onchain", usd: 0.01, note: "Live ip-erc721 full-token-data read (owner/metadata/creator)" },
+
+  // ── RPC (per app-initiated on-chain RPC call — nonce, fee estimate,
+  //    tx submit, receipt poll, etc.) — every call an app forwards to Alchemy
+  //    on a user's behalf gets billed here, same as every other API action.
+  { action: "rpc:call", usd: 0.01, note: "Per RPC call an app forwards on a user's behalf" },
 
   // ── Storage (IPFS via Pinata) ─────────────────────────────────────────
   // Real pinning cost — was previously falling through to the "read" price
