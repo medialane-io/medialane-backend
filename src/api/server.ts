@@ -31,6 +31,10 @@ import reports from "./routes/reports.js";
 import remixOffers from "./routes/remix-offers.js";
 import pop from "./routes/pop.js";
 import tickets from "./routes/tickets-onchain.js";
+import club from "./routes/club-onchain.js";
+import ipnft from "./routes/ipnft-onchain.js";
+import dropOnchain from "./routes/drop-onchain.js";
+import rpcMeter from "./routes/rpc-meter.js";
 import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
@@ -98,7 +102,11 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/reports", reports);
   app.route("/v1/pop", pop);
   app.route("/v1/tickets", tickets);
+  app.route("/v1/club", club);
+  app.route("/v1/ipnft", ipnft);
   app.route("/v1/drop", drop);
+  app.route("/v1/drop", dropOnchain);
+  app.route("/v1/rpc", rpcMeter);
   app.route("/v1/sponsorship", sponsorship);
   app.route("/v1/rewards", rewards);
 
