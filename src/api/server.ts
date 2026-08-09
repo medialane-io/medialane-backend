@@ -35,6 +35,7 @@ import club from "./routes/club-onchain.js";
 import ipnft from "./routes/ipnft-onchain.js";
 import dropOnchain from "./routes/drop-onchain.js";
 import rpcMeter from "./routes/rpc-meter.js";
+import paymasterMeter from "./routes/paymaster-meter.js";
 import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
@@ -107,6 +108,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/drop", drop);
   app.route("/v1/drop", dropOnchain);
   app.route("/v1/rpc", rpcMeter);
+  app.route("/v1/paymaster", paymasterMeter);
   app.route("/v1/sponsorship", sponsorship);
   app.route("/v1/rewards", rewards);
 

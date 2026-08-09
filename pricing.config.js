@@ -30,6 +30,14 @@ export const PRICING = [
   //    on a user's behalf gets billed here, same as every other API action.
   { action: "rpc:call", usd: 0.01, note: "Per RPC call an app forwards on a user's behalf" },
 
+  // ── AVNU paymaster (gas-sponsored wallet actions, io only) ────────────
+  // build only constructs typed data (no gas spent yet); execute is where
+  // AVNU actually pays real gas, so it's priced at the write-intent tier.
+  { action: "paymaster:invoke-build",   usd: 0.01, note: "Build a sponsored invoke (no gas spent yet)" },
+  { action: "paymaster:invoke-execute", usd: 0.05, note: "Execute a sponsored invoke (AVNU pays real gas)" },
+  { action: "paymaster:deploy-build",   usd: 0.01, note: "Build a sponsored wallet deploy (no gas spent yet)" },
+  { action: "paymaster:deploy-execute", usd: 0.05, note: "Execute a sponsored wallet deploy (AVNU pays real gas)" },
+
   // ── Storage (IPFS via Pinata) ─────────────────────────────────────────
   // Real pinning cost — was previously falling through to the "read" price
   // ($0.01) unpriced. Caps: JSON up to 512KB, files (image/video/audio/pdf)

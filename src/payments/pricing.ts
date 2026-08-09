@@ -54,6 +54,10 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "GET", prefix: "/v1/club", actionKey: "club:read-onchain" },
   { method: "GET", prefix: "/v1/ipnft", actionKey: "ipnft:read-onchain" },
   { method: "POST", prefix: "/v1/rpc/meter", actionKey: "rpc:call" },
+  { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
+  { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
+  { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
+  { method: "POST", prefix: "/v1/paymaster/deploy/execute", actionKey: "paymaster:deploy-execute" },
 ];
 
 // actionKeys whose price MAY vary by service — the only ones worth the extra
@@ -100,6 +104,16 @@ const FALLBACK_COST: Record<string, number> = {
   "club:read-onchain": 1,
   "ipnft:read-onchain": 1,
   "rpc:call": 1,
+  // Sponsored-gas calls: execute is where AVNU actually pays real gas, priced
+  // at the same tier as other write intents (mint/listing/offer/... = 5).
+  // build only constructs typed data (no gas committed yet) but still costs
+  // an AVNU API call, so it's priced at the cheap "read-equivalent" tier —
+  // NOT free, per the "no free endpoints" rule. Tune against real AVNU
+  // per-tx cost once volume data exists; these are safety-net defaults.
+  "paymaster:invoke-build": 1,
+  "paymaster:invoke-execute": 5,
+  "paymaster:deploy-build": 1,
+  "paymaster:deploy-execute": 5,
 };
 
 export function resolveActionKey(method: string, path: string): string | null {
