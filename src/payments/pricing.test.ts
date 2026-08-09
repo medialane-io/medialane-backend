@@ -43,6 +43,12 @@ describe("resolveActionKey", () => {
     expect(resolveActionKey("GET", "/v1/metadata/resolve")).toBe("read");
     expect(resolveActionKey("GET", "/v1/metadata/signed-url")).toBe("read");
   });
+  test("paymaster routes resolve to their own actionKeys, not the generic default", () => {
+    expect(resolveActionKey("POST", "/v1/paymaster/invoke/build")).toBe("paymaster:invoke-build");
+    expect(resolveActionKey("POST", "/v1/paymaster/invoke/execute")).toBe("paymaster:invoke-execute");
+    expect(resolveActionKey("POST", "/v1/paymaster/deploy/build")).toBe("paymaster:deploy-build");
+    expect(resolveActionKey("POST", "/v1/paymaster/deploy/execute")).toBe("paymaster:deploy-execute");
+  });
   test("tenant self-service /v1/portal is NOT metered", () => {
     expect(resolveActionKey("GET", "/v1/portal/me")).toBeNull();
   });
