@@ -6,9 +6,15 @@ import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
 import { ipfsToHttp } from "../utils/ipfs.js";
 import { IPFS_GATEWAYS } from "../config/constants.js";
-import { isPrivateOrInsecureUrl } from "../utils/ssrf.js";
+import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
+import { readTextCapped } from "../utils/httpBody.js";
 
 const log = createLogger("orchestrator:collection-metadata");
+
+// Collection card metadata is small (name/description/image). Cap the
+// response so a hostile base_uri host can't OOM the indexer with a huge
+// body — matches discovery/fetcher.ts's MAX_METADATA_BYTES.
+const MAX_METADATA_BYTES = 512 * 1024; // 512 KB
 
 // Starknet SRC5 interface IDs (OpenZeppelin Cairo)
 // Computed as XOR of sn_keccak(fn_selector) for each function in the interface.
@@ -303,15 +309,31 @@ export async function fetchCollectionMetadataJson(
 
   for (const url of urls) {
     if (!url) continue;
+    // SSRF guard, layer 1: literal hostname/IP pattern (RFC-1918, loopback,
+    // link-local, IMDS). base_uri is on-chain, attacker-controlled data —
+    // anyone can deploy a collection with an arbitrary base_uri — so this
+    // needs the same two-layer guard as discovery/index.ts and webhook.ts.
     if (isPrivateOrInsecureUrl(url, false)) {
       log.warn({ url }, "Blocked SSRF attempt in collection metadata fetch");
+      continue;
+    }
+    // SSRF guard, layer 2: a public-looking domain can still have a DNS
+    // record pointing at an internal address — resolve and re-check by IP.
+    const hostname = new URL(url).hostname;
+    if (await resolvesToPrivateHost(hostname)) {
+      log.warn({ url, hostname }, "Blocked SSRF attempt — hostname resolves to a private address");
       continue;
     }
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: "manual" });
       if (res.status >= 300 && res.status < 400) continue;
       if (!res.ok) continue;
-      const meta = await res.json() as Record<string, unknown>;
+      const { text, truncated } = await readTextCapped(res, MAX_METADATA_BYTES);
+      if (truncated) {
+        log.warn({ url, maxBytes: MAX_METADATA_BYTES }, "Collection metadata body exceeded size cap — rejecting");
+        continue;
+      }
+      const meta = JSON.parse(text) as Record<string, unknown>;
       return {
         description: typeof meta.description === "string" && meta.description ? meta.description : null,
         image: typeof meta.image === "string" && meta.image ? meta.image : null,

@@ -10,6 +10,8 @@ function u256FromLowHigh(low: string, high: string): bigint {
   return BigInt(low ?? "0x0") + (BigInt(high ?? "0x0") << 128n);
 }
 
+const FINALIZED_STATUSES = new Set(["ACCEPTED_ON_L2", "ACCEPTED_ON_L1"]);
+
 export interface StarknetReceipt {
   execution_status?: string;
   finality_status?: string;
@@ -27,6 +29,12 @@ export function parseUsdcTransfer(
 ): VerifyResult {
   if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
     return { ok: false, reason: "transaction reverted" };
+  }
+  // Reject a receipt that isn't finalized yet (e.g. still PENDING/RECEIVED) —
+  // crediting against a tx that could still be reorged out risks granting
+  // credits for a payment that never actually settles.
+  if (receipt.finality_status && !FINALIZED_STATUSES.has(receipt.finality_status)) {
+    return { ok: false, reason: "transaction not yet finalized" };
   }
   const usdc = normalizeAddress("STARKNET", params.usdc);
   const treasury = normalizeAddress("STARKNET", params.treasury);
