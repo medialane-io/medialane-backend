@@ -134,6 +134,50 @@ async function loadHiddenContentFilter(): Promise<{
   };
 }
 
+/**
+ * Pure where-clause builder for the GET / activity feed — no DB access, so
+ * it's unit-testable without a database. An explicit `contract` (a
+ * collection's own page asking for its own feed) always wins over the
+ * global hidden-content filter — the collection page already shows its own
+ * HiddenContentBanner when relevant, so hiding its activity too would be
+ * confusing rather than protective.
+ */
+export function buildActivityWhere(params: {
+  chainFilter: { chain: Chain } | "all";
+  type?: string;
+  contract?: string | null;
+  hiddenContractFilter?: { notIn: string[] };
+}): { transferWhere: Prisma.TransferWhereInput; orderWhere: Prisma.OrderWhereInput } {
+  const { chainFilter, type, contract, hiddenContractFilter } = params;
+
+  const orderStatusFilter =
+    type === "sale"
+      ? SALE_ORDER_WHERE
+      : type === "listing"
+      ? ACTIVE_LISTING_ACTIVITY_WHERE
+      : type === "cancelled"
+      ? { status: "CANCELLED" as const }
+      : type === "offer"
+      ? ACTIVE_OFFER_ACTIVITY_WHERE
+      : {};
+
+  const transferWhere: Prisma.TransferWhereInput = { ...chainWhere(chainFilter) };
+  if (type === "mint") transferWhere.fromAddress = ZERO_ADDRESS;
+  if (type === "transfer") transferWhere.fromAddress = { not: ZERO_ADDRESS };
+
+  const orderWhere: Prisma.OrderWhereInput = { ...chainWhere(chainFilter), ...orderStatusFilter };
+
+  if (contract) {
+    transferWhere.contractAddress = contract;
+    orderWhere.nftContract = contract;
+  } else if (hiddenContractFilter) {
+    transferWhere.contractAddress = hiddenContractFilter;
+    orderWhere.nftContract = hiddenContractFilter;
+  }
+
+  return { transferWhere, orderWhere };
+}
+
 // GET /v1/activities
 activities.get("/", publicCache(15), async (c) => {
   const page = Number(c.req.query("page") ?? 1);
@@ -148,26 +192,13 @@ activities.get("/", publicCache(15), async (c) => {
   const wantTransfers = !type || type === "transfer" || type === "mint";
   const wantOrders = !type || ["sale", "listing", "offer", "cancelled"].includes(type);
 
-  const orderStatusFilter =
-    type === "sale"
-      ? SALE_ORDER_WHERE
-      : type === "listing"
-      ? ACTIVE_LISTING_ACTIVITY_WHERE
-      : type === "cancelled"
-      ? { status: "CANCELLED" as const }
-      : type === "offer"
-      ? ACTIVE_OFFER_ACTIVITY_WHERE
-      : {};
-
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
-  const transferWhere: Prisma.TransferWhereInput = { ...chainWhere(chainFilter) };
-  if (type === "mint") transferWhere.fromAddress = ZERO_ADDRESS;
-  if (type === "transfer") transferWhere.fromAddress = { not: ZERO_ADDRESS };
-  if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
-
-  const orderWhere: Prisma.OrderWhereInput = { ...chainWhere(chainFilter), ...orderStatusFilter };
-  if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
+  const rawContract = c.req.query("contract");
+  const contract = rawContract
+    ? normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, rawContract)
+    : null;
+  const { transferWhere, orderWhere } = buildActivityWhere({ chainFilter, type, contract, hiddenContractFilter });
 
   const [transfers, orders, transferCount, orderCount] = await Promise.all([
     wantTransfers
