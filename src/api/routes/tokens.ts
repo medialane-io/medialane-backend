@@ -285,10 +285,11 @@ tokens.get("/:contract/:tokenId", async (c) => {
   // JIT metadata fetch
   if (token.metadataStatus === "PENDING" || token.metadataStatus === "FAILED") {
     if (wait && token.tokenUri) {
-      // Block up to 3s for resolution
+      // Block up to 6s for resolution — enough for one slow gateway plus a
+      // fallback attempt, without holding the request open indefinitely.
       const metadata = await Promise.race([
         resolveMetadata(token.tokenUri).then((m) => m),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
       ]);
       if (metadata) {
         await prisma.token.update({
