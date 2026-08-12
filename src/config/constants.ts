@@ -114,11 +114,16 @@ export const ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR = hash.getSelectorFromName("Es
 export const OWNER_ESCAPED_GUID_SELECTOR = hash.getSelectorFromName("OwnerEscapedGuid");
 export const ESCAPE_CANCELED_SELECTOR = hash.getSelectorFromName("EscapeCanceled");
 
-// IPFS gateways (in priority order)
+// IPFS gateways (in priority order). ipfs.io leads — it's the fastest and
+// most consistently reachable of the three in practice. cloudflare-ipfs.com
+// was dropped: the domain no longer resolves (Cloudflare retired it), so it
+// only ever wasted a fetch slot before falling through. gateway.pinata.cloud
+// is the shared/free public Pinata gateway (not a dedicated one) and can take
+// several seconds under load, so it's kept as a fallback rather than primary.
 export const IPFS_GATEWAYS = [
-  `https://${env.PINATA_GATEWAY}/ipfs`,
-  "https://cloudflare-ipfs.com/ipfs",
   "https://ipfs.io/ipfs",
+  `https://${env.PINATA_GATEWAY}/ipfs`,
+  "https://dweb.link/ipfs",
 ];
 
 // Chain IDs. Medialane is mainnet-only (no network/Sepolia axis).
