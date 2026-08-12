@@ -4,7 +4,7 @@ import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:prices");
 
-const SYMBOLS = ["STRK", "ETH", "USDC", "WBTC"] as const;
+const SYMBOLS = ["STRK", "ETH", "USDC", "USDT", "WBTC"] as const;
 type Symbol = (typeof SYMBOLS)[number];
 type UsdPrices = Partial<Record<Symbol, number>>;
 

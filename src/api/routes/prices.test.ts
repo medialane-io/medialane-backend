@@ -7,6 +7,7 @@ const ALCHEMY_BODY = {
     { symbol: "STRK", prices: [{ currency: "usd", value: "0.45", lastUpdatedAt: "2026-08-03T00:00:00Z" }], error: null },
     { symbol: "ETH", prices: [{ currency: "usd", value: "3000.12", lastUpdatedAt: "2026-08-03T00:00:00Z" }], error: null },
     { symbol: "USDC", prices: [{ currency: "usd", value: "1.00", lastUpdatedAt: "2026-08-03T00:00:00Z" }], error: null },
+    { symbol: "USDT", prices: [{ currency: "usd", value: "1.00", lastUpdatedAt: "2026-08-03T00:00:00Z" }], error: null },
     { symbol: "WBTC", prices: [{ currency: "usd", value: "60000.00", lastUpdatedAt: "2026-08-03T00:00:00Z" }], error: null },
   ],
 };
@@ -22,12 +23,12 @@ function makeApp(deps: Partial<PricesDeps> = {}) {
   return app;
 }
 
-test("returns usd prices for the four tracked symbols", async () => {
+test("returns usd prices for the five tracked symbols", async () => {
   const app = makeApp();
   const res = await app.request("/v1/prices");
   expect(res.status).toBe(200);
   const body = (await res.json()) as { data: { usd: Record<string, number> } };
-  expect(body.data.usd).toEqual({ STRK: 0.45, ETH: 3000.12, USDC: 1, WBTC: 60000 });
+  expect(body.data.usd).toEqual({ STRK: 0.45, ETH: 3000.12, USDC: 1, USDT: 1, WBTC: 60000 });
 });
 
 test("500s with no upstream call when the key is unconfigured", async () => {

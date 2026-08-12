@@ -58,6 +58,8 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
   { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
   { method: "POST", prefix: "/v1/paymaster/deploy/execute", actionKey: "paymaster:deploy-execute" },
+  { method: "POST", prefix: "/v1/swap/quote/meter", actionKey: "swap:quote" },
+  { method: "POST", prefix: "/v1/swap/build/meter", actionKey: "swap:build" },
 ];
 
 // actionKeys whose price MAY vary by service — the only ones worth the extra
@@ -114,6 +116,12 @@ const FALLBACK_COST: Record<string, number> = {
   "paymaster:invoke-execute": 5,
   "paymaster:deploy-build": 1,
   "paymaster:deploy-execute": 5,
+  // AVNU swap-quote/build calls backing the auto-swap-to-purchase flow.
+  // Same "not free" reasoning as the paymaster tier above — quote is a
+  // cheap read-equivalent call, build does real route-building work at
+  // AVNU so it's priced one tier up. Safety-net defaults, tune with volume.
+  "swap:quote": 1,
+  "swap:build": 2,
 };
 
 export function resolveActionKey(method: string, path: string): string | null {
