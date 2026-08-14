@@ -1,4 +1,4 @@
-// --- API Request/Response DTOs ---
+
 
 export interface PaginationParams {
   page?: number;
@@ -23,7 +23,6 @@ export interface ActivitiesQuery extends PaginationParams {
   type?: "transfer" | "sale" | "listing" | "offer";
 }
 
-// Intent request bodies
 export interface CreateListingIntentBody {
   offerer: string;
   nftContract: string;
@@ -32,7 +31,7 @@ export interface CreateListingIntentBody {
   price: string;
   endTime: number;
   salt?: string;
-  /** Number of units to list. When present the intent uses the Medialane1155 contract (ERC-1155). */
+
   amount?: string;
 }
 
@@ -44,18 +43,18 @@ export interface MakeOfferIntentBody {
   price: string;
   endTime: number;
   salt?: string;
-  /** Caller hint — "ERC1155" creates the bid on the ERC-1155 marketplace. */
+
   tokenStandard?: string;
-  /** ERC-1155 only: number of units the buyer wants. Defaults to 1. */
+
   quantity?: string;
 }
 
 export interface CounterOfferIntentBody {
-  sellerAddress:   string;  // normalized 0x address
-  nftContract:     string;  // from original bid's considerationToken
-  tokenId:         string;  // from original bid's considerationIdentifier
-  currencyAddress: string;  // from original bid's offerToken
-  priceRaw:        string;  // raw wei bigint string — NOT human-readable
+  sellerAddress:   string;
+  nftContract:     string;
+  tokenId:         string;
+  currencyAddress: string;
+  priceRaw:        string;
   durationSeconds: number;
   salt?:           string;
 }
@@ -63,42 +62,33 @@ export interface CounterOfferIntentBody {
 export interface FulfillOrderIntentBody {
   fulfiller: string;
   orderHash: string;
-  /** Caller hint — "ERC1155" forces 1155 routing even if the order isn't in the DB yet */
+
   tokenStandard?: string;
-  /** ERC-1155 only: number of units to purchase (1 ≤ quantity ≤ remaining_amount). Defaults to 1. */
+
   quantity?: string;
 }
 
 export interface CancelOrderIntentBody {
   offerer: string;
   orderHash: string;
-  /** Caller hint — "ERC1155" forces 1155 routing even if the order isn't in the DB yet */
+
   tokenStandard?: string;
 }
 
 export interface MintIntentBody {
-  /** Collection owner wallet address — must be the collection owner to mint */
+
   owner: string;
   recipient: string;
-  /**
-   * Registry-style mint (mip-erc721/ip-erc721, the default when
-   * collectionContract is omitted or resolves to one of those services):
-   * required, plus tokenUri.
-   */
+
   collectionId?: string;
   tokenUri?: string;
-  /** EIP-2981 royalty in bps (0–10_000), receiver = creator. Registry mint only. */
+
   royaltyBps?: number;
-  /**
-   * Per-creator-factory mint (mip-erc1155/ip-tickets/ip-club, resolved from
-   * collectionContract's indexed service): mip-erc1155 needs tokenUri + value
-   * (mints a NEW edition); ip-tickets/ip-club need an existing tokenId + amount
-   * (mints more of an already-created tier — see CREATE_TIER for creating one).
-   */
+
   tokenId?: string;
   amount?: string;
   value?: string;
-  /** Which collection to mint into. Omitted = the shared mip-erc721 registry. */
+
   collectionContract?: string;
 }
 
@@ -108,24 +98,19 @@ export interface CreateCollectionIntentBody {
   symbol: string;
   baseUri: string;
   description?: string;
-  /** Optional IPFS image URI (ipfs://...) for the collection cover image */
+
   image?: string;
-  /** Optional: override the default collection contract address (registry path only) */
+
   collectionContract?: string;
-  /**
-   * Which service's factory to deploy. Omitted = today's default (the shared
-   * mip-erc721 registry — no new deploy, just a registry entry). One of
-   * "mip-erc1155" | "ip-tickets" | "ip-club" | "pop-protocol" | "drop-collection"
-   * deploys a new per-creator contract via that service's factory instead.
-   */
+
   service?: string;
-  /** pop-protocol only: unix seconds after which `claim()` stops working. */
+
   claimEndTimestamp?: number;
-  /** pop-protocol only: the POPFactory's EventType variant name (e.g. "Conference"). */
+
   eventType?: string;
-  /** drop-collection only: total mintable supply across the whole drop. */
+
   maxSupply?: string;
-  /** drop-collection only: the initial claim window/price/per-wallet cap. */
+
   conditions?: {
     startTime: number;
     endTime: number;
@@ -136,14 +121,14 @@ export interface CreateCollectionIntentBody {
 }
 
 export interface CreateTierIntentBody {
-  /** Wallet that must own the collection — verified on-chain before building calldata. */
+
   owner: string;
-  /** The deployed per-creator collection contract (from a prior CREATE_COLLECTION deploy). */
+
   collection: string;
-  /** "ip-tickets" | "ip-club" — which entrypoint (create_ticket / create_membership) to call. */
+
   service: string;
   maxSupply: string;
-  /** Unix seconds. Omit both for a lifetime tier (tickets) / no validity window (club). */
+
   startTime?: number;
   endTime?: number;
   royaltyBps: number;
@@ -154,43 +139,34 @@ export interface SubmitSignatureBody {
   signature: string[];
 }
 
-// ── Creator Coin intent bodies ──────────────────────────────────────────────
-// Two steps, same as elsewhere in this file (CREATE_TIER then MINT): the coin
-// address is only known from the CREATE_COIN receipt, so LAUNCH_COIN is a
-// separate intent the caller builds after reading it.
-
 export interface CreateCoinIntentBody {
-  /** Owner of the new coin — the only address allowed to launch it. */
+
   owner: string;
   name: string;
   symbol: string;
-  /** Full fixed supply (raw, 18 decimals). Minted to the Factory until launch. */
+
   initialSupply: string;
-  /** Deterministic deploy salt. Omitted = timestamp-derived (same default the SDK builder uses). */
+
   salt?: string;
 }
 
 export interface LaunchCoinIntentBody {
-  /** Wallet that must own the coin — verified on-chain before building calldata. */
+
   owner: string;
-  /** The deployed CreatorCoin contract (from a prior CREATE_COIN deploy). */
+
   creatorCoin: string;
-  /** Quote token (e.g. STRK). Must NOT itself be a Creator Coin. */
+
   quoteToken: string;
-  /** Team-allocation recipients (≤10% of supply, summed). */
+
   initialHolders: string[];
   initialHoldersAmounts: string[];
-  /** Anti-snipe window in seconds. Omitted = none. */
+
   transferRestrictionDelay?: number;
-  /** Max % of supply buyable per tx during the window, in bps. Omitted = the SDK default. */
+
   maxPercentageBuyLaunch?: number;
-  /** Quote (raw units) to transfer to the Factory in the same multicall, to fund the team-allocation buyback. */
+
   quoteFundAmount?: string;
 }
-
-// ── IP-Sponsorship intent bodies ────────────────────────────────────────────
-// None of these need SNIP-12 signing (no order-signing scheme on this
-// contract; msg.sender is the account executing the call).
 
 export interface CreateSponsorshipOfferIntentBody {
   author: string;
@@ -257,7 +233,6 @@ export interface RejectSponsorshipProposalIntentBody {
   proposalId: string;
 }
 
-// Response shapes
 export interface ApiResponse<T> {
   data: T;
   meta?: {

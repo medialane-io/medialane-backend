@@ -26,8 +26,7 @@ import { toErrorMessage } from "../../../utils/error.js";
 const log = createLogger("routes:admin");
 
 export function registerClaimRoutes(admin: Hono) {
-// GET /admin/claims — list collection claims with optional filters
-// ---------------------------------------------------------------------------
+
 admin.get("/claims", async (c) => {
   const status = c.req.query("status");
   const verificationMethod = c.req.query("verificationMethod");
@@ -45,9 +44,6 @@ admin.get("/claims", async (c) => {
   return c.json({ claims, total, page, limit });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/claims/:id — approve or reject a manual claim
-// ---------------------------------------------------------------------------
 admin.patch("/claims/:id", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json();
@@ -69,10 +65,6 @@ admin.patch("/claims/:id", async (c) => {
     const normContract = normalizeAddress("STARKNET", claim.contractAddress);
     const normWallet = claim.claimantAddress ? normalizeAddress("STARKNET", claim.claimantAddress) : null;
 
-    // Update-only — Collection rows are owned by the indexer (and the
-    // ensureCollectionFromActivity / factory-handler paths). If the
-    // indexer hasn't seen this contract yet, surface that instead of
-    // inventing a row with no standard / no real startBlock.
     const existing = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
     });
@@ -88,9 +80,6 @@ admin.patch("/claims/:id", async (c) => {
   return c.json({ claim: updated });
 });
 
-// ---------------------------------------------------------------------------
-// GET /admin/username-claims — list username claims with optional status filter
-// ---------------------------------------------------------------------------
 admin.get("/username-claims", async (c) => {
   const status = c.req.query("status");
   const page = parseInt(c.req.query("page") ?? "1");
@@ -105,11 +94,6 @@ admin.get("/username-claims", async (c) => {
   return c.json({ claims, total, page, limit });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/username-claims/:id — approve or reject a username claim
-// On approve: sets username on the account's AccountProfile and rejects any other pending
-// claims for the same wallet or the same username.
-// ---------------------------------------------------------------------------
 admin.patch("/username-claims/:id", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json();
@@ -129,8 +113,7 @@ admin.patch("/username-claims/:id", async (c) => {
   });
 
   if (status === "APPROVED") {
-    // Resolve (or lazily provision) an Account for the claiming wallet,
-    // mark it CREATOR, write the username onto its AccountProfile.
+
     const { accountId } = await ensureAccountForWallet({
       chain: "STARKNET",
       address: claim.walletAddress,
@@ -143,7 +126,6 @@ admin.patch("/username-claims/:id", async (c) => {
       update: { username: claim.username },
     });
 
-    // Reject any other pending claims from this wallet or for this username
     await prisma.usernameClaim.updateMany({
       where: {
         id: { not: id },
@@ -163,9 +145,6 @@ admin.patch("/username-claims/:id", async (c) => {
   return c.json({ claim: updated });
 });
 
-// ---------------------------------------------------------------------------
-// GET /admin/collection-slug-claims — list collection slug claims
-// ---------------------------------------------------------------------------
 admin.get("/collection-slug-claims", async (c) => {
   const status = c.req.query("status");
   const page = parseInt(c.req.query("page") ?? "1");
@@ -180,11 +159,6 @@ admin.get("/collection-slug-claims", async (c) => {
   return c.json({ claims, total, page, limit });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/collection-slug-claims/:id — approve or reject a collection slug claim
-// On approve: sets slug on CollectionProfile (upsert) and rejects any other
-// pending claims for the same slug or same contractAddress.
-// ---------------------------------------------------------------------------
 admin.patch("/collection-slug-claims/:id", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json();
@@ -223,5 +197,4 @@ admin.patch("/collection-slug-claims/:id", async (c) => {
   return c.json({ claim: updated });
 });
 
-// ---------------------------------------------------------------------------
 }

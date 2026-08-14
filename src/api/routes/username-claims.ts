@@ -14,9 +14,6 @@ function validateUsername(username: string): string | null {
   return validateSlugLike(username, "username");
 }
 
-// ─── GET /v1/username-claims/check/:username ─────────────────────────────────
-// Public availability check — no auth required.
-
 usernameClaims.get("/check/:username", async (c) => {
   const slug = c.req.param("username").toLowerCase().trim();
 
@@ -35,10 +32,6 @@ usernameClaims.get("/check/:username", async (c) => {
   return c.json({ available: true });
 });
 
-// ─── POST /v1/username-claims ─────────────────────────────────────────────────
-// Submit a username claim for DAO review.
-// Auth: standard API key (global apiKeyGate) + SIWS token.
-
 usernameClaims.post(
   "/",
   identityAuth,
@@ -51,7 +44,6 @@ usernameClaims.post(
     const validationError = validateUsername(slug);
     if (validationError) return c.json({ error: validationError }, 400);
 
-    // Check if the user already has an approved username
     const callerAccountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
     if (callerAccountId) {
       const profile = await prisma.accountProfile.findUnique({
@@ -63,7 +55,6 @@ usernameClaims.post(
       }
     }
 
-    // Check if there's already a PENDING claim from this wallet
     const pendingFromWallet = await prisma.usernameClaim.findFirst({
       where: { walletAddress: jwtWallet, status: "PENDING" },
     });
@@ -71,7 +62,6 @@ usernameClaims.post(
       return c.json({ error: "You already have a pending username claim. Wait for it to be reviewed before submitting another." }, 409);
     }
 
-    // Check if username is taken (approved profile or pending/approved claim)
     const takenProfile = await prisma.accountProfile.findUnique({
       where: { username: slug },
       select: { accountId: true },
@@ -90,9 +80,6 @@ usernameClaims.post(
     return c.json({ claim }, 201);
   }
 );
-
-// ─── GET /v1/username-claims/me ──────────────────────────────────────────────
-// Returns the current user's most recent claim and their approved username if any.
 
 usernameClaims.get(
   "/me",

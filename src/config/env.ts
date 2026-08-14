@@ -3,72 +3,48 @@ import { z } from "zod";
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   ALCHEMY_RPC_URL: z.string().url(),
-  // Per-chain RPC overrides for the federation ingestors + on-demand reads
-  // (platform-federation spec §3.2). Optional — the SDK chain registry's
-  // rpcUrl is the default once a chain's coordinates land at deploy.
+
   ETHEREUM_RPC_URL: z.string().url().optional(),
   BASE_RPC_URL: z.string().url().optional(),
   SOLANA_RPC_URL: z.string().url().optional(),
   STELLAR_RPC_URL: z.string().url().optional(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
-  // Starknet RPC. ALCHEMY_RPC_URL stays the fallback + capped circuit breaker
-  // (feedback_alchemy_cap_is_intentional) — do not remove it. Contract
-  // addresses are NOT env vars — they come from the SDK's chain-named constants.
+
   STARKNET_RPC_URL: z.string().url().optional(),
-  // Alchemy Prices API key — same Alchemy app as ALCHEMY_RPC_URL works if the
-  // Prices product is enabled for that key on the dashboard, or a dedicated
-  // key. Bare key (not a full RPC URL) — GET /v1/prices builds the Prices API
-  // URL from it. Optional: an unset key makes /v1/prices return 500, same
-  // pattern as PINATA_JWT.
+
   ALCHEMY_PRICES_KEY: z.string().default(""),
-  // x402 agent payments (per-chain: settlement asset + treasury + MDLN bonus
-  // token). Chain-prefixed for multichain readiness — a future Base rail adds
-  // BASE_USDC_CONTRACT / BASE_X402_TREASURY without touching these.
+
   STARKNET_USDC_CONTRACT: z
     .string()
     .default("0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb"),
-  // Creator's Fund Starknet multisig (x402 USDC settles here — funds the Fund,
-  // matching the platform fee→Creator's-Fund model). Override per env if needed.
+
   STARKNET_X402_TREASURY: z
     .string()
     .default("0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223"),
   STARKNET_MDLN_CONTRACT: z.string().default(""),
   VOYAGER_API_KEY: z.string().default(""),
-  // Indexer start blocks (the contract addresses come from the SDK constants).
+
   COMMENTS_START_BLOCK: z.coerce.number().default(0),
   POP_START_BLOCK: z.coerce.number().default(0),
   DROP_START_BLOCK: z.coerce.number().default(0),
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
-  // Unruggable (unrug.top) memecoin factory — used to verify external coins via
-  // is_memecoin() before adding them as external-erc20.
+
   UNRUG_FACTORY_ADDRESS: z
     .string()
     .default("0x01a46467a9246f45c8c340f1f155266a26a71c07bd55d36e8d1c7d0d438a2dbc"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(300000),
-  // Shared slow cadence for launchpad services (POP, Drop, IP Tickets, IP Club,
-  // IP Sponsorship factories/registries) — low-traffic relative to the core
-  // marketplace/mip-erc721 tick, so they poll independently on this cadence
-  // instead of every main tick. One knob to tune all of them together.
+
   LAUNCHPAD_POLL_INTERVAL_MS: z.coerce.number().default(300000),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
   API_SECRET_KEY: z.string().min(16),
-  // Account-scoped service secret for the developer portal. Valid ONLY on
-  // /admin/accounts/* (not the full admin surface) — so the portal never holds
-  // the master API_SECRET_KEY. Optional: when unset, the portal falls back to
-  // the master key (the account routes always accept the master too).
+
   PORTAL_SERVICE_SECRET: z.string().min(16).optional(),
-  // Admin allowlist for signed-request auth (adminSignatureAuth): comma-separated
-  // Starknet wallet addresses. Only ever checked AFTER the wallet signature is
-  // verified, so the allowlist is unforgeable. The single seam to later swap for
-  // an on-chain admin role read.
+
   STARKNET_ADMIN_ADDRESSES: z.string().optional(),
-  // API keys are hashed with HMAC-SHA256(key, HMAC_KEY) before storage and
-  // lookup. Required — without it the backend cannot authenticate any key.
-  // The legacy plain-SHA-256 fallback was removed 2026-05-24 after all
-  // pre-HMAC keys were rotated (audit P2-4).
+
   HMAC_KEY: z.string().min(32, "HMAC_KEY must be at least 32 characters"),
   SIWS_SECRET: z.string().min(32),
   CORS_ORIGINS: z
@@ -76,9 +52,7 @@ const envSchema = z.object({
     .default("https://medialane.io,https://www.medialane.io,https://starknet.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
   INDEXER_POLL_INTERVAL_MS: z.coerce.number().default(30000),
   INDEXER_BLOCK_BATCH_SIZE: z.coerce.number().default(500),
-  // Blocks the indexer trails behind the chain tip before indexing them —
-  // a small reorg-safety buffer (2026-06-30 audit finding). The poller never
-  // requests events past `latestBlock - INDEXER_CONFIRMATION_BLOCKS`.
+
   INDEXER_CONFIRMATION_BLOCKS: z.coerce.number().min(0).default(2),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(300_000),
   LOG_LEVEL: z

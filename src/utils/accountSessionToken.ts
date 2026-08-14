@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { env } from "../config/env.js";
 
-const TTL_SECONDS = 24 * 60 * 60; // 24 hours — matches SIWS's own token lifetime
+const TTL_SECONDS = 24 * 60 * 60;
 const PREFIX = "account_session_";
 
 interface TokenPayload {
@@ -10,21 +10,12 @@ interface TokenPayload {
   exp: number;
 }
 
-/**
- * Issue a token proving "this account was just registered, or its email
- * was just verified via a one-time code" — identifies an Account that may
- * have no wallet yet. Same HMAC-SHA256(SIWS_SECRET) primitive
- * emailVerificationToken.ts uses, distinct prefix, 24h TTL (this is a
- * session, not a moment-ago fact). Never proves wallet ownership — see
- * design spec §6.
- */
 export function issueAccountSessionToken(accountId: string): string {
   const iat = Math.floor(Date.now() / 1000);
   const payload = b64u(JSON.stringify({ accountId, iat, exp: iat + TTL_SECONDS }));
   return `${PREFIX}${payload}.${hmac(payload)}`;
 }
 
-/** Verify a raw token string. Returns the verified accountId, or null on any failure. */
 export function verifyAccountSessionToken(raw: string): string | null {
   if (!raw.startsWith(PREFIX)) return null;
   const inner = raw.slice(PREFIX.length);
@@ -52,7 +43,7 @@ export function verifyAccountSessionToken(raw: string): string | null {
   if (!data.accountId || !data.exp || !data.iat) return null;
   const now = Math.floor(Date.now() / 1000);
   if (data.exp < now) return null;
-  if (data.iat > now + 60) return null; // reject future-dated issuance (60s clock-skew tolerance)
+  if (data.iat > now + 60) return null;
 
   return data.accountId;
 }

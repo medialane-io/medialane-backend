@@ -6,7 +6,6 @@ import { isWalletLinkedToAccount as defaultIsWalletLinkedToAccount } from "../ut
 import type { CreditInput } from "./credits.js";
 import type { PaymentRequirement, PaymentScheme, X402Payload } from "./schemes/types.js";
 
-/** Injectable collaborators — tests pass stubs instead of mocking modules. */
 export interface SettleDeps {
   creditAccount: (input: CreditInput) => Promise<void>;
   mdlnMultiplier: (address: string) => Promise<number>;
@@ -41,7 +40,6 @@ export function decodePaymentHeader(header: string): X402Payload | null {
   }
 }
 
-/** USDC atomic units owed for a given credit cost. */
 export function priceAtomic(costCredits: number): bigint {
   return BigInt(costCredits) * x402Config.usdcAtomicPerCredit;
 }
@@ -64,26 +62,11 @@ export interface SettleResult {
   reason?: string;
 }
 
-/** The minimal ApiClient shape settlePayment needs — its own id (the credit
- *  target) plus its Account's id (the wallet-link identity check target). */
 export interface SettlementTarget {
   id: string;
   accountId: string;
 }
 
-/**
- * Verify an X-PAYMENT against `scheme` and, if valid, credit the ApiClient.
- * Replays are absorbed by the unique `proofNonce` on Payment — a unique
- * violation means the proof was already credited, which we treat as
- * success-idempotent.
- *
- * Payer binding: the verified on-chain payer (`v.payer`) must be a wallet
- * Identity already linked to the ApiClient's Account. Without this, the
- * public, observable nature of an on-chain transfer (visible in
- * mempool/explorer before the legitimate funder's API call lands) would let
- * any other account race to claim someone else's transfer for their own
- * account — see the 2026-06-30 audit.
- */
 export async function settlePayment(
   scheme: PaymentScheme,
   apiClient: SettlementTarget,
@@ -107,8 +90,7 @@ export async function settlePayment(
   }
 
   const baseCredits = Number(v.amountAtomic / x402Config.usdcAtomicPerCredit);
-  // MDLN bonus keyed on the verified on-chain payer. Never blocks settlement
-  // (mdlnMultiplier returns 1.0 on any read failure or if MDLN is unconfigured).
+
   const multiplier = v.payer ? await deps.mdlnMultiplier(v.payer) : 1.0;
   const creditedAmount = Math.floor(baseCredits * multiplier);
 

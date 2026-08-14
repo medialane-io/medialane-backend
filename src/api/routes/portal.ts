@@ -15,13 +15,6 @@ const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
 const starknetScheme = new StarknetUsdcScheme();
 
-// All /v1/portal/* routes are scoped to the caller's ApiClient — the billing
-// identity (docs/superpowers/specs/2026-08-05-api-client-model-design.md).
-// The apiClient (incl. live creditBalance) is on the context from apiKeyAuth.
-
-// ---------------------------------------------------------------------------
-// GET /v1/portal/me
-// ---------------------------------------------------------------------------
 portal.get("/me", async (c) => {
   const account = c.get("account");
   const apiClient = c.get("apiClient");
@@ -36,12 +29,6 @@ portal.get("/me", async (c) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// POST /v1/portal/credits/fund  — human/console top-up
-// Dev sends USDC to the Creator's Fund treasury, then submits the tx hash here.
-// Reuses the x402 Starknet scheme to verify the transfer on-chain and credit.
-// Replay-safe: settlePayment dedups on the tx (Payment.proofNonce = txHash).
-// ---------------------------------------------------------------------------
 portal.post("/credits/fund", async (c) => {
   const apiClient = c.get("apiClient");
   const body = await c.req.json().catch(() => null);
@@ -58,9 +45,6 @@ portal.post("/credits/fund", async (c) => {
   return c.json({ data: { credited: result.creditedAmount ?? 0 } });
 });
 
-// ---------------------------------------------------------------------------
-// GET /v1/portal/credits/history — settled x402 payments (the credit ledger)
-// ---------------------------------------------------------------------------
 portal.get("/credits/history", async (c) => {
   const apiClient = c.get("apiClient");
   const payments = await prisma.payment.findMany({
@@ -80,9 +64,6 @@ portal.get("/credits/history", async (c) => {
   return c.json({ data: payments });
 });
 
-// ---------------------------------------------------------------------------
-// GET /v1/portal/keys
-// ---------------------------------------------------------------------------
 portal.get("/keys", async (c) => {
   const apiClient = c.get("apiClient");
 
@@ -103,13 +84,9 @@ portal.get("/keys", async (c) => {
   return c.json({ data: keys });
 });
 
-// ---------------------------------------------------------------------------
-// POST /v1/portal/keys — create a new API key (max 5 active keys per ApiClient)
-// ---------------------------------------------------------------------------
 const createKeySchema = z.object({
   label: z.string().max(64).optional(),
-  /** Which app this key is for — drives per-app rate-limit isolation and
-   *  usage attribution. Omit for generic/SDK consumers. */
+
   appSource: z.enum(APP_SOURCE_INPUT).optional(),
 });
 
@@ -152,9 +129,6 @@ portal.post("/keys", async (c) => {
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, appSource: key.appSource, plaintext: plaintext! } }, 201);
 });
 
-// ---------------------------------------------------------------------------
-// DELETE /v1/portal/keys/:id — revoke a key (scoped to the caller's ApiClient)
-// ---------------------------------------------------------------------------
 portal.delete("/keys/:id", async (c) => {
   const apiClient = c.get("apiClient");
   const { id } = c.req.param();
@@ -170,9 +144,6 @@ portal.delete("/keys/:id", async (c) => {
   return c.json({ data: { id, status: "REVOKED" } });
 });
 
-// ---------------------------------------------------------------------------
-// GET /v1/portal/webhooks — PREMIUM only
-// ---------------------------------------------------------------------------
 portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {
   const apiClient = c.get("apiClient");
 
@@ -191,9 +162,6 @@ portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {
   return c.json({ data: endpoints });
 });
 
-// ---------------------------------------------------------------------------
-// POST /v1/portal/webhooks — PREMIUM only; returns secret ONCE
-// ---------------------------------------------------------------------------
 const createWebhookSchema = z.object({
   url: z.string().url(),
   events: z
@@ -212,12 +180,10 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
 
   const { url, events } = parsed.data;
 
-  // SSRF guard: reject private/internal URLs and non-https targets
   if (isPrivateOrInsecureUrl(url)) {
     return c.json({ error: "Webhook URL must be a public https:// address" }, 400);
   }
 
-  // Generate a random signing secret (shown ONCE, stored in DB for HMAC)
   const secret = `whsec_${randomBytes(32).toString("hex")}`;
 
   const endpoint = await prisma.webhookEndpoint.create({
@@ -238,7 +204,7 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
         url: endpoint.url,
         events: endpoint.events,
         status: endpoint.status,
-        // Secret shown ONCE — used to verify x-medialane-signature on deliveries
+
         secret,
       },
     },
@@ -246,9 +212,6 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// DELETE /v1/portal/webhooks/:id — PREMIUM only; scoped by apiClientId
-// ---------------------------------------------------------------------------
 portal.delete("/webhooks/:id", requirePlan("PREMIUM"), async (c) => {
   const apiClient = c.get("apiClient");
   const { id } = c.req.param();

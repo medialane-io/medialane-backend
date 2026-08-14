@@ -26,8 +26,7 @@ import { toErrorMessage } from "../../../utils/error.js";
 const log = createLogger("routes:admin");
 
 export function registerModerationRoutes(admin: Hono) {
-// GET /admin/reports — list reports, paginated, enriched with target name + image
-// ---------------------------------------------------------------------------
+
 admin.get("/reports", async (c) => {
   const { status, targetType, page = "1", limit = "20" } = c.req.query();
 
@@ -55,7 +54,6 @@ admin.get("/reports", async (c) => {
     prisma.report.count({ where }),
   ]);
 
-  // Batch enrich: one query per type to avoid N+1
   const collectionContracts = [
     ...new Set(
       rawReports
@@ -112,9 +110,6 @@ admin.get("/reports", async (c) => {
   return c.json({ reports: enriched, total, page: pageNum, pageSize: limitNum });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/reports/:id — review action with atomic visibility side effects
-// ---------------------------------------------------------------------------
 admin.patch("/reports/:id", async (c) => {
   const { id } = c.req.param();
 
@@ -151,7 +146,6 @@ admin.patch("/reports/:id", async (c) => {
   const report = await prisma.report.findUnique({ where: { id } });
   if (!report) return c.json({ error: "Report not found" }, 404);
 
-  // Atomic: update report status + apply visibility side effect in one transaction
   await prisma.$transaction(async (tx) => {
     await tx.report.update({
       where: { id },
@@ -183,7 +177,7 @@ admin.patch("/reports/:id", async (c) => {
           data: { isHidden: true },
         });
       } else if (report.targetType === "CREATOR" && report.targetAddress) {
-        // Upsert is idempotent — safe if creator already hidden by another report
+
         await tx.hiddenCreator.upsert({
           where: {
             chain_address: { chain: report.chain, address: report.targetAddress },
@@ -193,7 +187,7 @@ admin.patch("/reports/:id", async (c) => {
         });
       }
     } else if (newStatus === "RESTORED") {
-      // Only clear visibility if NO other HIDDEN reports exist for this target
+
       const otherHidden = await tx.report.count({
         where: {
           targetKey: report.targetKey,
@@ -234,10 +228,6 @@ admin.patch("/reports/:id", async (c) => {
   return c.json({ data: updated });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/creators/:oldAddress/fix-wallet — correct a wrong wallet address
-// Updates the address on the Wallet and on any UsernameClaim records.
-// ---------------------------------------------------------------------------
 admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
   const oldRaw = c.req.param("oldAddress");
   const body = await c.req.json();
@@ -262,10 +252,6 @@ admin.patch("/creators/:oldAddress/fix-wallet", async (c) => {
   return c.json({ data: { oldAddr, newAddr, walletUpdate, claimUpdate } });
 });
 
-// ---------------------------------------------------------------------------
-// GET /admin/comments — list comments (newest first, optional filters)
-// Query params: ?hidden=true|false, ?author=0x..., ?contract=0x..., ?page=1, ?limit=50
-// ---------------------------------------------------------------------------
 admin.get("/comments", async (c) => {
   const hidden = c.req.query("hidden");
   const author = c.req.query("author");
@@ -292,9 +278,6 @@ admin.get("/comments", async (c) => {
   return c.json({ data: comments, meta: { page, limit, total } });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/comments/:id/hide
-// ---------------------------------------------------------------------------
 admin.patch("/comments/:id/hide", async (c) => {
   const { id } = c.req.param();
   const comment = await prisma.comment.findUnique({ where: { id } });
@@ -308,9 +291,6 @@ admin.patch("/comments/:id/hide", async (c) => {
   return c.json({ data: updated });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/comments/:id/show
-// ---------------------------------------------------------------------------
 admin.patch("/comments/:id/show", async (c) => {
   const { id } = c.req.param();
   const comment = await prisma.comment.findUnique({ where: { id } });
@@ -324,9 +304,6 @@ admin.patch("/comments/:id/show", async (c) => {
   return c.json({ data: updated });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/remix-offers/:id — override creatorAddress when token transfer caused stale state
-// ---------------------------------------------------------------------------
 admin.patch("/remix-offers/:id", async (c) => {
   const { id } = c.req.param();
   const body = await c.req.json().catch(() => ({}));
@@ -342,5 +319,4 @@ admin.patch("/remix-offers/:id", async (c) => {
   return c.json({ data: { id: updated.id, creatorAddress: updated.creatorAddress } });
 });
 
-// ---------------------------------------------------------------------------
 }

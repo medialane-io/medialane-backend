@@ -97,16 +97,8 @@ function resolveCollectionFromReceipt(
   };
 }
 
-/**
- * Collection WRITE paths — sync-tx (instant index from a receipt), register,
- * and the admin create. Split from collections.ts 2026-07-11 (audit
- * follow-up #8): the read surface and the receipt-decoding write machinery
- * change for different reasons. Registered onto the same /v1/collections
- * router (registrar pattern).
- */
 export function registerCollectionSyncRoutes(collections: Hono) {
-// POST /v1/collections/sync-tx — immediately index a CollectionCreated event from a tx receipt
-// Call this right after a create_collection tx is confirmed to make the collection appear instantly.
+
 collections.post("/sync-tx", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = z.object({ txHash: z.string().min(1) }).safeParse(body);
@@ -187,11 +179,7 @@ collections.post("/sync-tx", async (c) => {
     }
 
     if (synced === 0 && unresolved > 0) {
-      // RPC couldn't resolve the just-created collection right now (typically
-      // transient RPC-provider flapping on get_collection). This is NOT a
-      // failure: the mirror poll re-indexes the CollectionCreated event within
-      // ~6s. Return 202 (accepted, async) instead of a misleading 502 that
-      // alarms the client console for a self-healing condition.
+
       log.warn({ txHash, unresolved }, "sync-tx: RPC unresolved — deferring to indexer poll");
       return c.json(
         {
@@ -210,7 +198,6 @@ collections.post("/sync-tx", async (c) => {
   }
 });
 
-// POST /v1/collections/register — tenant-driven collection registration
 collections.post("/register", async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body?.contractAddress) {
@@ -244,9 +231,6 @@ collections.post("/register", async (c) => {
     return c.json({ data: serializeCollection(collection) });
   }
 
-  // standard is required to create a Collection — caller must specify ERC721
-  // or ERC1155. If not, refuse rather than guess (was silently defaulting to
-  // UNKNOWN before, which has been dropped from the enum).
   if (!standard) {
     return c.json({ error: "standard is required (ERC721 or ERC1155)" }, 400);
   }
@@ -268,7 +252,6 @@ collections.post("/register", async (c) => {
   return c.json({ data: serializeCollection(collection) }, 201);
 });
 
-// POST /v1/collections — register a collection (admin)
 collections.post("/", authMiddleware, async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body?.contractAddress) {
@@ -281,7 +264,6 @@ collections.post("/", authMiddleware, async (c) => {
 
   const contractAddress = normalizeAddress("STARKNET", body.contractAddress);
 
-  // standard is required to create — caller must specify ERC721 or ERC1155.
   if (body.standard !== "ERC721" && body.standard !== "ERC1155") {
     return c.json({ error: "standard is required (ERC721 or ERC1155)" }, 400);
   }

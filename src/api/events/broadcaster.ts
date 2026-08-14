@@ -9,7 +9,7 @@ export interface SseEvent {
   id: string;
   event: string;
   data: string;
-  /** Which chain the row belongs to — subscribers filter on it. */
+
   chain: Chain;
 }
 
@@ -18,7 +18,6 @@ export interface Subscriber {
   push: (evt: SseEvent) => void;
 }
 
-/** Rows newer than `since`, shaped for SSE. Injected for tests. */
 export type FetchNewEvents = (since: Date) => Promise<{ events: SseEvent[]; next: Date }>;
 
 export function buildTransferEvent(t: {
@@ -76,15 +75,6 @@ const defaultFetch: FetchNewEvents = async (since) => {
   };
 };
 
-/**
- * One shared poll loop feeding every connected SSE client — N clients cost one
- * query set per interval instead of N, and zero when nobody is connected
- * (P-5, 2026-07-10 audit). Polling the DB (rather than a bus fed by the
- * Starknet mirror) is deliberate: the DB is the chain-agnostic seam — rows
- * written by the EVM/Solana/Stellar ingestors broadcast the same way with no
- * per-ingestor publish hook, and payloads stay exactly the rows the REST API
- * serves. Subscribers filter by chain client-side of the query.
- */
 export class EventsBroadcaster {
   private readonly subs = new Set<Subscriber>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -119,7 +109,6 @@ export class EventsBroadcaster {
     this.timer = setTimeout(() => void this.tick(), this.intervalMs);
   }
 
-  /** Exposed for tests; production runs it via the timer. */
   async tick(): Promise<void> {
     if (this.ticking) return;
     this.ticking = true;

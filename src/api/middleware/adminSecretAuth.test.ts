@@ -3,8 +3,6 @@ import { Hono } from "hono";
 import { adminOrPortalAccountAuth } from "./adminSecretAuth.js";
 import { env } from "../../config/env.js";
 
-// Read the resolved values — .env (real API_SECRET_KEY) wins over the test
-// preload's placeholder, so hardcoding would be brittle.
 const MASTER = env.API_SECRET_KEY;
 const PORTAL = env.PORTAL_SERVICE_SECRET!;
 

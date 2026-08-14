@@ -7,10 +7,6 @@ import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("handler:transfer");
 
-// ---------------------------------------------------------------------------
-// Balance helpers
-// ---------------------------------------------------------------------------
-
 async function incrementBalance(
   tx: Prisma.TransactionClient,
   chain: Chain,
@@ -39,7 +35,7 @@ async function decrementBalance(
   owner: string,
   amount: bigint
 ): Promise<void> {
-  if (owner === ZERO_ADDRESS) return; // mints have no sender balance to decrement
+  if (owner === ZERO_ADDRESS) return;
   const existing = await tx.tokenBalance.findUnique({
     where: { chain_contractAddress_tokenId_owner: { chain, contractAddress, tokenId, owner } },
     select: { amount: true },
@@ -106,10 +102,6 @@ async function createTransferIfNew(
   }
 }
 
-// ---------------------------------------------------------------------------
-// ERC-721 Transfer
-// ---------------------------------------------------------------------------
-
 export async function handleTransfer(
   event: ParsedTransfer,
   tx: Prisma.TransactionClient,
@@ -132,16 +124,11 @@ export async function handleTransfer(
   });
   if (!isNew) return;
 
-  // Update TokenBalance: ERC-721 is always quantity 1.
   await decrementBalance(tx, chain, contractAddress, tokenId, from, 1n);
   await incrementBalance(tx, chain, contractAddress, tokenId, to, 1n);
 
   log.debug({ chain, contractAddress, tokenId, from, to }, "ERC-721 Transfer processed");
 }
-
-// ---------------------------------------------------------------------------
-// ERC-1155 TransferSingle
-// ---------------------------------------------------------------------------
 
 export async function handleTransferSingle(
   event: ParsedTransferSingle,
@@ -172,10 +159,6 @@ export async function handleTransferSingle(
   log.debug({ chain, contractAddress, tokenId, from, to, amount }, "ERC-1155 TransferSingle processed");
 }
 
-// ---------------------------------------------------------------------------
-// ERC-1155 TransferBatch
-// ---------------------------------------------------------------------------
-
 export async function handleTransferBatch(
   event: ParsedTransferBatch,
   tx: Prisma.TransactionClient,
@@ -186,7 +169,7 @@ export async function handleTransferBatch(
   for (let i = 0; i < transfers.length; i++) {
     const { tokenId, amount } = transfers[i];
     const qty = BigInt(amount);
-    // Use a derived logIndex to keep the unique constraint stable across batch items
+
     const itemLogIndex = logIndex * 10000 + i;
 
     await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
@@ -210,10 +193,6 @@ export async function handleTransferBatch(
 
   log.debug({ chain, contractAddress, from, to, count: transfers.length }, "ERC-1155 TransferBatch processed");
 }
-
-// ---------------------------------------------------------------------------
-// Unified dispatcher — routes Transfer / TransferSingle / TransferBatch
-// ---------------------------------------------------------------------------
 
 export async function dispatchTransfer(
   event: ParsedTransfer | ParsedTransferSingle | ParsedTransferBatch,

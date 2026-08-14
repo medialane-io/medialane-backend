@@ -1,5 +1,5 @@
-// Tests for the registry-routing helpers added in audit P0-2 + R3 prep.
-// Pure-function tests against the SDK registry — no DB.
+
+
 import { describe, expect, test } from "bun:test";
 import { getServiceByMarketplaceAddress } from "./collection.js";
 import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT } from "@medialane/sdk";
@@ -18,7 +18,7 @@ describe("getServiceByMarketplaceAddress", () => {
   });
 
   test("normalizes input before lookup (short address)", () => {
-    // strip leading zeros — the helper should still match
+
     const short = "0x" + STARKNET_MARKETPLACE_721_CONTRACT.slice(2).replace(/^0+/, "");
     expect(getServiceByMarketplaceAddress(short)?.id).toBe("medialane-marketplace-erc721");
   });
@@ -34,11 +34,9 @@ describe("getServiceByMarketplaceAddress", () => {
   });
 
   test("does NOT match factory addresses of non-marketplace services", () => {
-    // The filter restricts to medialane-marketplace-* ids — a MIP factory
-    // address must not resolve as a marketplace, otherwise event routing
-    // would mistake factory events for marketplace events.
+
     const result = getServiceByMarketplaceAddress(
-      "0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2", // MIP v0.3.0
+      "0x0322cb7119955e01ac778d40976eb3ba50540bb0899f812d612f9c7e63e49fd2",
     );
     expect(result).toBeUndefined();
   });

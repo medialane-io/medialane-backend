@@ -1,6 +1,5 @@
-// Decoder fixtures for the indexer's hot path. If these regress, the
-// indexer silently corrupts state — these are the lowest-overhead tests
-// with the highest leverage. Audit P1-1.
+
+
 import { describe, expect, test } from "bun:test";
 import { num } from "starknet";
 import {
@@ -44,11 +43,11 @@ describe("parseEvent — OrderCreated", () => {
       blockNumber: 12345n,
       logIndex: 0,
     });
-    // offerer is normalized — 64-char padded
+
     expect((parsed as any).offerer).toBe(
       "0x0000000000000000000000000000000000000000000000000000000000000abc",
     );
-    // txHash is normalized
+
     expect((parsed as any).txHash).toBe(
       "0x00000000000000000000000000000000000000000000000000000000feedface",
     );
@@ -71,7 +70,7 @@ describe("parseEvent — OrderFulfilled", () => {
 
 describe("parseEvent — ERC-721 Transfer", () => {
   test("decodes Cairo 1 shape: tokenId as u256 in keys[3..4]", () => {
-    // tokenId = 42 → low=42, high=0
+
     const parsed = parseEvent(
       rawEvent({
         from_address: COLLECTION,
@@ -100,7 +99,7 @@ describe("parseEvent — ERC-721 Transfer", () => {
 
 describe("parseEvent — ERC-1155 TransferSingle", () => {
   test("decodes operator + from + to + tokenId + amount", () => {
-    // tokenId=7, amount=3
+
     const parsed = parseEvent(
       rawEvent({
         from_address: COLLECTION,

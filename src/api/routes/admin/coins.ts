@@ -11,7 +11,6 @@ import { buildAdminCoinWhere } from "../coins.filters.js";
 
 const log = createLogger("routes:admin");
 
-/** Decode a felt252 short string (OZ 0.8 ERC-20 name/symbol); null on failure. */
 function decodeShortStr(felt: string): string | null {
   try {
     const s = shortString.decodeShortString(felt);
@@ -21,24 +20,8 @@ function decodeShortStr(felt: string): string | null {
   }
 }
 
-/**
- * Coin admin ops (add-external, list, edit, refresh). Split out of
- * admin/collections.ts 2026-07-11 (registrar pattern, audit follow-up #8).
- */
 export function registerCoinRoutes(admin: Hono) {
 
-// ---------------------------------------------------------------------------
-// POST /admin/coins/add-external — add an external (unrug/partner) ERC-20 coin.
-//
-// The ERC-20 sibling of POST /v1/coins/sync: `POST /admin/collections` can't
-// register a coin (its `standard` enum is ERC721/ERC1155 only), and
-// `/v1/coins/sync` only accepts Medialane-factory Creator Coins. This verifies
-// the address via the Unruggable factory's `is_memecoin`, reads name/symbol
-// on-chain, and upserts a Coin(service "external-erc20"). Idempotent. Admin-gated.
-// (Coins live in the Coin table since the 2026-06-14 split — never Collection.)
-//
-// Body: { contractAddress: string, owner?: string, startBlock?: number }
-// ---------------------------------------------------------------------------
 admin.post("/coins/add-external", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
@@ -54,7 +37,7 @@ admin.post("/coins/add-external", async (c) => {
   const contractAddress = normalizeAddress("STARKNET", parsed.data.contractAddress);
 
   try {
-    // Gate: only genuine Unruggable-launched memecoins.
+
     const verify = await callRpc((p) =>
       p.callContract({ contractAddress: UNRUG_FACTORY_CONTRACT, entrypoint: "is_memecoin", calldata: [contractAddress] })
     );
@@ -63,8 +46,6 @@ admin.post("/coins/add-external", async (c) => {
       return c.json({ error: "Address is not an unrug memecoin (is_memecoin = false)" }, 400);
     }
 
-    // ERC-20 metadata (OZ 0.8 → felt252 short strings; decimals → u8). External
-    // coins can have non-18 decimals, so read it rather than assume.
     const [nameRes, symbolRes, decRes] = await Promise.all([
       callRpc((p) => p.callContract({ contractAddress, entrypoint: "name", calldata: [] })),
       callRpc((p) => p.callContract({ contractAddress, entrypoint: "symbol", calldata: [] })),
@@ -102,10 +83,6 @@ admin.post("/coins/add-external", async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// GET /admin/coins — list coins (includes hidden; admins see everything).
-// ?service=&search=&page=&limit=. Mirrors GET /admin/collections.
-// ---------------------------------------------------------------------------
 admin.get("/coins", async (c) => {
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1"));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") ?? "20")));
@@ -121,11 +98,6 @@ admin.get("/coins", async (c) => {
   return c.json({ coins, total, page, limit });
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/coins/:contract — admin edit (broader than the creator route).
-// `isHidden` is the durable removal lever (no hard delete — a Coin is a
-// rebuildable on-chain projection; see spec 2026-06-15).
-// ---------------------------------------------------------------------------
 admin.patch("/coins/:contract", async (c) => {
   const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
   const schema = z.object({
@@ -156,11 +128,6 @@ admin.patch("/coins/:contract", async (c) => {
   return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, symbol: updated.symbol, isHidden: updated.isHidden } });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/coins/:contract/refresh — re-read on-chain ERC-20 metadata
-// (name/symbol/decimals) and upsert. upsertCoin's update clause never touches
-// isHidden, so a hidden coin stays hidden across refresh.
-// ---------------------------------------------------------------------------
 admin.post("/coins/:contract/refresh", async (c) => {
   const contractAddress = normalizeAddress("STARKNET", c.req.param("contract"));
   const coin = await prisma.coin.findUnique({

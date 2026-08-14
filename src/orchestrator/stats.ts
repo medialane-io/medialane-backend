@@ -13,14 +13,11 @@ export async function handleStatsUpdate(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
-  // Single upfront read — reused for both totalSupply branching and image/description backfill.
   const collection = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
     select: { standard: true, image: true, description: true },
   });
 
-  // Count unique holders via TokenBalance (works for both ERC-721 and ERC-1155).
-  // Filters amount > 0 so former holders who transferred out are excluded.
   const [{ count: holderCountBig }] = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(DISTINCT owner)::bigint AS count
     FROM "TokenBalance"
@@ -43,11 +40,6 @@ export async function handleStatsUpdate(payload: {
     totalSupply = await prisma.token.count({ where: { chain, contractAddress } });
   }
 
-  // Floor price = cheapest active listing, resolved in ONE indexed query.
-  // Bids (offerItemType = "ERC20") are excluded — their considerationToken is
-  // the NFT address, not a currency. Zero prices are excluded so a "0" listing
-  // can't mask real ones. The numeric regex guard keeps a malformed priceRaw
-  // from failing the whole query.
   const floorRows = await prisma.$queryRaw<{ priceRaw: string; considerationToken: string | null }[]>`
     SELECT "priceRaw", "considerationToken"
     FROM "Order"
@@ -62,9 +54,6 @@ export async function handleStatsUpdate(payload: {
     LIMIT 1
   `;
 
-  // Stored shape: numeric-only decimal string + currency in its own column —
-  // display composition happens at the serializer edge, never in the DB.
-  // Unknown/missing currency → both null (raw wei is never stored).
   let floorPrice: string | null = null;
   let floorCurrency: string | null = null;
   const floor = floorRows[0];
@@ -76,9 +65,6 @@ export async function handleStatsUpdate(payload: {
     }
   }
 
-  // Total volume = SUM of fills per currency, aggregated in SQL (ERC-1155
-  // partial fills are separate OrderFill rows). If sales span multiple
-  // currencies, keep the one with the highest raw volume.
   const volumeRows = await prisma.$queryRaw<{ currencyToken: string; total: string }[]>`
     SELECT "currencyToken", SUM("priceRaw"::numeric)::text AS total
     FROM "OrderFill"
@@ -114,9 +100,6 @@ export async function handleStatsUpdate(payload: {
     },
   });
 
-  // Backfill image/description from first fetched token if not yet set.
-  // name/symbol come from the COLLECTION_METADATA_FETCH job (on-chain view calls).
-  // `collection` was already fetched above — no second DB round-trip needed.
   if (!collection?.image || !collection?.description) {
     const firstToken = await prisma.token.findFirst({
       where: { chain, contractAddress, metadataStatus: "FETCHED" },

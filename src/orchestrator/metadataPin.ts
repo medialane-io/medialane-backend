@@ -13,10 +13,6 @@ function getPinata(): PinataSDK {
   return _pinata;
 }
 
-/**
- * Upload a JSON object to Pinata public IPFS.
- * Returns the ipfs:// URI of the uploaded content.
- */
 export async function uploadJson(data: Record<string, unknown>): Promise<string> {
   const upload = await getPinata().upload.public.json(data);
   return `ipfs://${upload.cid}`;

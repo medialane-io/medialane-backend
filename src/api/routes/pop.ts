@@ -9,10 +9,6 @@ const log = createLogger("routes:pop");
 
 const pop = new Hono<AppEnv>();
 
-// GET /v1/pop/eligibility/:collection/:wallet
-// Returns whether a wallet is eligible to claim from a POP collection and whether they already have.
-// isEligible: wallet is in the allowlist with allowed=true
-// hasClaimed:  wallet currently owns a token from this collection (soulbound — owner = original recipient)
 pop.get("/eligibility/:collection/:wallet", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -45,8 +41,6 @@ pop.get("/eligibility/:collection/:wallet", async (c) => {
   });
 });
 
-// GET /v1/pop/eligibility/:collection — batch eligibility check
-// Query param: ?wallets=0x1,0x2,0x3 (comma-separated, max 100)
 pop.get("/eligibility/:collection", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);

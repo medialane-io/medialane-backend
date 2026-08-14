@@ -11,18 +11,11 @@ import { readTextCapped } from "../utils/httpBody.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
-// Collection card metadata is small (name/description/image). Cap the
-// response so a hostile base_uri host can't OOM the indexer with a huge
-// body — matches discovery/fetcher.ts's MAX_METADATA_BYTES.
-const MAX_METADATA_BYTES = 512 * 1024; // 512 KB
+const MAX_METADATA_BYTES = 512 * 1024;
 
-// Starknet SRC5 interface IDs (OpenZeppelin Cairo)
-// Computed as XOR of sn_keccak(fn_selector) for each function in the interface.
-// These differ from EVM ERC-165 IDs — Starknet OZ contracts reject EVM IDs.
 const INTERFACE_ID_SRC5_ERC721  = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16d3d20a2a";
 const INTERFACE_ID_SRC5_ERC1155 = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
 
-// EVM ERC-165 IDs — kept as fallback for bridged/EVM-compatible contracts
 const INTERFACE_ID_ERC165_ERC721  = "0x80ac58cd";
 const INTERFACE_ID_ERC165_ERC1155 = "0xd9b67a26";
 
@@ -56,7 +49,6 @@ const OWNER_ABI = [
   },
 ];
 
-// felt252 fallback ABI for older contracts
 const ERC721_INFO_ABI_FELT = [
   {
     type: "function",
@@ -81,14 +73,6 @@ const ERC721_INFO_ABI_FELT = [
   },
 ];
 
-/**
- * Fetch and index on-chain metadata for a Collection:
- * - name() and symbol() from the ERC-721 contract
- * - base_uri() stored for reference
- *
- * description and image are populated separately by the STATS_UPDATE job
- * once tokens in the collection have their metadata fetched.
- */
 export async function handleCollectionMetadataFetch(payload: {
   chain: string;
   contractAddress: string;
@@ -96,16 +80,11 @@ export async function handleCollectionMetadataFetch(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
-  // Guard: skip only if already fetched AND owner is populated
-  // Fetch all fields we'll need later in one round-trip (avoids a second query
-  // for image/owner that was previously done separately as `existingFull`).
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
     select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, service: true, standard: true, baseUri: true, description: true },
   });
 
-  // Skip if already fully resolved. Re-run if image is missing for event-sourced
-  // collections that should have one resolved from baseUri metadata.
   const alreadyComplete =
     existing?.metadataStatus === "FETCHED" &&
     existing?.owner !== null &&
@@ -117,15 +96,6 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  // Coins (ERC-20) are no longer Collection rows (2026-06-14 coin split) — they
-  // live in the Coin table and never enter this collection-metadata path.
-
-  // ERC1155 collections (Medialane-deployed or external): name, symbol, and base_uri
-  // are decoded by the indexer for mip-erc1155, and read on-chain for externals.
-  // detectTokenStandard() uses EVM ERC-165 IDs that don't match Starknet OZ SRC5
-  // interface IDs (always returns UNKNOWN), so this branch handles ERC1155 fetch
-  // explicitly. `service` is intentionally NOT written here — it is owned by the
-  // indexer factory handlers (mip-erc1155) or stays null (external).
   if (existing?.service === "mip-erc1155" || existing?.standard === "ERC1155") {
     const isOwnCollection = isOwnService(existing?.service);
     const missingCanonicalFields =
@@ -145,11 +115,6 @@ export async function handleCollectionMetadataFetch(payload: {
       onchainSymbol = onchainInfo.symbol;
       onchainBaseUri = onchainInfo.baseUri;
 
-      // Our own collections are always ByteArray-capable. If the on-chain read
-      // still produced nothing and we have no prior name/symbol on record, this
-      // is a real failure, not a completed fetch — mark FAILED so it's visible
-      // and recoverable (backfill-metadata / admin refresh), never silently
-      // "FETCHED" with a blank name that nothing will ever retry.
       if (isOwnCollection && !onchainName && !onchainSymbol && !existing?.name && !existing?.symbol) {
         log.warn({ chain, contractAddress }, "On-chain name/symbol read failed for own ERC1155 collection");
         await prisma.collection.update({
@@ -166,16 +131,12 @@ export async function handleCollectionMetadataFetch(payload: {
         });
         if (rawOwner) onchainOwner = normalizeAddress("STARKNET", rawOwner.toString());
       } catch {
-        // Some ERC1155 deployments may omit owner(); keep the existing value.
+
       }
     }
 
     const canonicalBaseUri = existing?.baseUri || onchainBaseUri || "";
 
-    // Resolve image + description from the base_uri JSON if not already set —
-    // routed through fetchCollectionMetadataJson (same SSRF guard + gateway
-    // fallback the ERC-721 path below uses; this branch used to have its own
-    // unguarded inline copy).
     let resolvedImage: string | null = existing.image ?? null;
     let resolvedDescription: string | null = existing.description ?? null;
     if (canonicalBaseUri && (!resolvedImage || !resolvedDescription)) {
@@ -202,10 +163,6 @@ export async function handleCollectionMetadataFetch(payload: {
     return;
   }
 
-  // Only update if the row already exists. Collection rows are created
-  // by indexer handlers (factory CollectionCreated / Transfer events) —
-  // never by the metadata orchestrator. If the row is missing, that's a
-  // queue bug, not a recovery scenario.
   if (!existing) {
     log.warn({ chain, contractAddress }, "Metadata fetch queued for unknown collection — skipping");
     return;
@@ -220,20 +177,15 @@ export async function handleCollectionMetadataFetch(payload: {
   try {
     const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
 
-    // Same reasoning as the ERC1155 branch above: our own collections are always
-    // ByteArray-capable, so a total read failure here is a real failure, never a
-    // silently-accepted blank name.
     if (isOwnCollection && !name && !symbol && !existing?.name && !existing?.symbol) {
       throw new Error("On-chain name/symbol read failed for own collection — no legacy fallback available");
     }
 
     const collectionMetadata = await fetchCollectionMetadataJson(baseUri);
 
-    // Look up description + image + owner from the most recent matching CREATE_COLLECTION intent
     const resolvedName = name || existing?.name || "";
     const { description, image, owner: intentOwner } = await findIntentMetadata(resolvedName);
 
-    // Try to fetch on-chain owner() as fallback
     let onChainOwner: string | null = null;
     try {
       const raw = await callRpc((provider) => {
@@ -241,12 +193,8 @@ export async function handleCollectionMetadataFetch(payload: {
         return (ownerContract as any).owner();
       });
       if (raw) onChainOwner = normalizeAddress("STARKNET", raw.toString());
-    } catch { /* contract may not expose owner() */ }
+    } catch {  }
 
-    // Re-detect standard only if it could change. detectTokenStandard returns
-    // null when SRC5 doesn't respond — in that case, keep the existing
-    // standard (set by the indexer factory / transfer handler when the row
-    // was first created).
     const detected = await detectTokenStandard(contractAddress);
     const standard = existing?.service
       ? resolveStandardByService(existing.service, detected ?? existing.standard)
@@ -271,12 +219,10 @@ export async function handleCollectionMetadataFetch(payload: {
       "Collection on-chain metadata fetched"
     );
 
-    // Always run a stats update after metadata fetch so totalSupply, holderCount,
-    // and image/description backfill from tokens are applied immediately.
     worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
   } catch (err) {
     log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
-    // Row was guaranteed to exist above; update-only here too.
+
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: { metadataStatus: "FAILED" },
@@ -290,12 +236,6 @@ export async function fetchCollectionMetadataJson(
 ): Promise<{ description: string | null; image: string | null }> {
   if (!baseUri) return { description: null, image: null };
 
-  // A directory base_uri (Collection Drop: ipfs://<cid>/) holds card metadata at
-  // <dir>/collection.json — the per-token files are integer-named alongside it, so
-  // there is no collision. A flat base_uri points straight at the collection JSON.
-  // The on-chain value is the truth and may carry a trailing slash on a flat
-  // file CID, so after directory-style probing fails we fall back to fetching
-  // the bare URI (slash stripped) before giving up.
   const isDirectory = baseUri.endsWith("/");
   const cid = baseUri.startsWith("ipfs://") ? baseUri.slice(7) : null;
   const bareCid = cid?.replace(/\/+$/, "") ?? null;
@@ -309,16 +249,12 @@ export async function fetchCollectionMetadataJson(
 
   for (const url of urls) {
     if (!url) continue;
-    // SSRF guard, layer 1: literal hostname/IP pattern (RFC-1918, loopback,
-    // link-local, IMDS). base_uri is on-chain, attacker-controlled data —
-    // anyone can deploy a collection with an arbitrary base_uri — so this
-    // needs the same two-layer guard as discovery/index.ts and webhook.ts.
+
     if (isPrivateOrInsecureUrl(url, false)) {
       log.warn({ url }, "Blocked SSRF attempt in collection metadata fetch");
       continue;
     }
-    // SSRF guard, layer 2: a public-looking domain can still have a DNS
-    // record pointing at an internal address — resolve and re-check by IP.
+
     const hostname = new URL(url).hostname;
     if (await resolvesToPrivateHost(hostname)) {
       log.warn({ url, hostname }, "Blocked SSRF attempt — hostname resolves to a private address");
@@ -339,18 +275,13 @@ export async function fetchCollectionMetadataJson(
         image: typeof meta.image === "string" && meta.image ? meta.image : null,
       };
     } catch {
-      // Try next gateway.
+
     }
   }
 
   return { description: null, image: null };
 }
 
-/**
- * Apply service-based override when on-chain detection is ambiguous.
- * pop-protocol and drop-collection are always ERC-721 by protocol design,
- * as is the Medialane ERC-721 registry (mip-erc721).
- */
 function resolveStandardByService(
   service: string | null | undefined,
   detected: TokenStandard
@@ -363,13 +294,6 @@ function resolveStandardByService(
   return detected;
 }
 
-/**
- * Detect whether a contract is ERC-721 or ERC-1155 via SRC5 supportsInterface().
- * Tries Starknet OZ SRC5 IDs first, then EVM ERC-165 IDs for bridged contracts.
- * Returns null when the contract doesn't expose supportsInterface or matches no
- * known ID — callers should refuse to create the row in that case rather than
- * inventing a fake standard.
- */
 export async function detectTokenStandard(contractAddress: string): Promise<TokenStandard | null> {
   for (const fn of ["supports_interface", "supportsInterface"]) {
     try {
@@ -389,19 +313,13 @@ export async function detectTokenStandard(contractAddress: string): Promise<Toke
       }
       return null;
     } catch {
-      // Try the other function name variant
+
     }
   }
 
   return null;
 }
 
-/**
- * Collections we issued ourselves (any `service` other than `external-*`) are
- * always modern OZ ByteArray contracts — guaranteed by what we deploy, not a
- * guess. Only genuinely third-party (`external-*`) contracts may predate the
- * ByteArray type and need the legacy felt252 decoder.
- */
 function isOwnService(service: string | null | undefined): boolean {
   return service != null && !service.startsWith("external-");
 }
@@ -410,8 +328,7 @@ async function fetchCollectionOnChainInfo(
   contractAddress: string,
   allowLegacyFallback: boolean
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
-  // Try ByteArray variant first using raw calls (UTF-8 safe — starknet.js ABI
-  // decoding of ByteArray is ASCII-only and corrupts non-Latin characters).
+
   try {
     const [name, symbol, baseUri] = await Promise.all([
       callViewByteArrayUtf8(contractAddress, "name"),
@@ -422,17 +339,14 @@ async function fetchCollectionOnChainInfo(
       return { name: name ?? "", symbol: symbol ?? "", baseUri: baseUri ?? "" };
     }
   } catch {
-    // Fall through to felt252 ABI
+
   }
 
   if (!allowLegacyFallback) {
-    // Own collection: no legacy path. A transient RPC error must not be able to
-    // silently swap in the lossy felt252 decoder — return empty and let the
-    // caller treat it as a real failure (FAILED, retryable), not success.
+
     return { name: "", symbol: "", baseUri: "" };
   }
 
-  // Felt252 fallback for older external contracts only.
   try {
     const [nameRaw, symbolRaw, baseUriRaw] = await Promise.all([
       callView(contractAddress, "name"),
@@ -446,7 +360,7 @@ async function fetchCollectionOnChainInfo(
       return { name, symbol, baseUri };
     }
   } catch {
-    // ignore
+
   }
 
   return { name: "", symbol: "", baseUri: "" };
@@ -475,11 +389,11 @@ function decodeField(raw: unknown): string {
         const b = parseInt(paddedHex.slice(i, i + 2), 16);
         if (b !== 0) bytes.push(b);
       }
-      // Try strict UTF-8 first — handles Portuguese, Chinese, emoji, etc.
+
       try {
         return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
       } catch {
-        // Bytes are not valid UTF-8 — fall back to ASCII short string decoding
+
         return shortString.decodeShortString(raw.toString());
       }
     } catch {
@@ -489,11 +403,6 @@ function decodeField(raw: unknown): string {
   return "";
 }
 
-/**
- * Decode a Cairo ByteArray as UTF-8 using raw provider.callContract().
- * Bypasses starknet.js ABI decoding which is ASCII-only and corrupts
- * multi-byte characters (non-Latin scripts, emoji, etc.).
- */
 async function callViewByteArrayUtf8(
   contractAddress: string,
   fn: string
@@ -527,10 +436,6 @@ async function callViewByteArrayUtf8(
   }
 }
 
-/**
- * Search for the most recent CREATE_COLLECTION intent whose stored name matches
- * and extract description + image if present.
- */
 async function findIntentMetadata(
   name: string
 ): Promise<{ description: string | null; image: string | null; owner: string | null }> {

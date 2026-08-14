@@ -2,26 +2,11 @@ import { type Chain, type Prisma, type PrismaClient, type TokenStandard } from "
 import { getService, listServices, type ServiceId } from "@medialane/sdk";
 import { normalizeAddress } from "./starknet.js";
 
-/**
- * Resolve a marketplace contract address to its `ServiceDefinition` via the SDK
- * registry — the single source of truth for "what venue is this".
- *
- * Architecture: `01-core-model §X`, `05-service-model §V` forbid string-comparing
- * `event.from_address` to a hard-coded constant to decide ERC-721 vs ERC-1155
- * routing. Callers parsing raw on-chain events should pass `event.from_address`
- * here and read `.standard` off the returned definition. When a new marketplace
- * (auction, bulk-order, coin-trader) ships, register it in
- * `@medialane/sdk` services/registry.ts and every call site routes correctly
- * with zero edits.
- *
- * Returns `undefined` for addresses that aren't a registered marketplace venue.
- */
 export function getServiceByMarketplaceAddress(
   address: string | null | undefined,
 ): ReturnType<typeof getService> {
   if (!address) return undefined;
-  // Marketplace venues resolved here are Starknet today; when a venue ships on
-  // another chain, take a chain param and read svc.onchain?.[chain].
+
   const normalized = normalizeAddress("STARKNET", address);
   return listServices().find(
     (svc) =>
@@ -33,16 +18,6 @@ export function getServiceByMarketplaceAddress(
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-/**
- * Resolve the `service` a deployed collection contract belongs to. Shared by
- * the intent builders (dispatch which entrypoint/ABI to call) and pricing
- * (charge per service, `payments/pricing.ts`) — one lookup, one place, so the
- * two never drift on what "this contract is service X" means.
- *
- * Returns null for an unindexed/external contract — callers decide the
- * fallback (pricing falls back to "ALL"; intent builders should treat null
- * as "not a Medialane-issued collection" and reject the request).
- */
 export async function resolveServiceForContract(
   db: Db,
   chain: Chain,
@@ -56,12 +31,6 @@ export async function resolveServiceForContract(
   return (collection?.service as ServiceId | undefined) ?? null;
 }
 
-/**
- * Runtime guard against unregistered service IDs. The compile-time `ServiceId`
- * type on the helper params catches typos already; this throw catches the
- * remaining case where a value flows in dynamically (e.g. from a request body
- * after schema validation).
- */
 function assertRegisteredService(service: string): void {
   if (!getService(service)) {
     throw new Error(
@@ -70,15 +39,6 @@ function assertRegisteredService(service: string): void {
   }
 }
 
-/**
- * Upsert a Collection from authoritative factory data -used by indexer
- * factory handlers (CollectionCreated / CollectionDeployed / DropCreated /
- * etc.) and by admin/registration routes that know the service identity
- * with certainty.
- *
- * Service is required and validated against the SDK registry. Standard is
- * required (no UNKNOWN fallback -factory handlers always know).
- */
 export async function upsertCollectionFromFactory(
   db: Db,
   params: {
@@ -90,7 +50,7 @@ export async function upsertCollectionFromFactory(
     symbol?: string | null;
     baseUri?: string | null;
     owner?: string | null;
-    /** Set ONLY from trustless sources (on-chain event data) — gates profile edits. */
+
     claimedBy?: string | null;
     collectionId?: string | null;
     startBlock: bigint;
@@ -127,16 +87,6 @@ export async function upsertCollectionFromFactory(
   });
 }
 
-/**
- * Ensure a Collection row exists for activity (transfer or order events)
- * on a contract the indexer hadn't seen before. Defaults service to
- * external-<standard>; factory handlers will overwrite with the correct
- * mip- / pop- / drop- prefix if the contract turns out to be
- * Medialane-deployed.
- *
- * Does NOT touch an existing row -first sighting wins until a factory
- * handler runs.
- */
 export async function ensureCollectionFromActivity(
   db: Db,
   params: {

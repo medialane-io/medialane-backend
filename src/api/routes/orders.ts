@@ -10,9 +10,6 @@ import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 
 const orders = new Hono();
 
-// ---------------------------------------------------------------------------
-// Shared condition builder — used by all three $queryRaw branches in GET /
-// ---------------------------------------------------------------------------
 interface OrderFilterParams {
   chainFilter: { chain: import("@prisma/client").Chain } | "all";
   status?: string;
@@ -70,7 +67,6 @@ const listQuerySchema = z.object({
   { message: "minPrice must be less than or equal to maxPrice", path: ["minPrice"] }
 );
 
-// GET /v1/orders
 orders.get("/", async (c) => {
   const query = listQuerySchema.safeParse(c.req.query());
   if (!query.success) {
@@ -120,9 +116,6 @@ orders.get("/", async (c) => {
   });
 });
 
-// GET /v1/orders/counter-offers
-// ?originalOrderHash=<hash>  — the counter-offer order for a specific bid (buyer view)
-// ?sellerAddress=<addr>       — all counter-offers sent by a seller
 orders.get("/counter-offers", async (c) => {
   const originalOrderHash = c.req.query("originalOrderHash");
   const sellerAddress = c.req.query("sellerAddress");
@@ -156,7 +149,6 @@ orders.get("/counter-offers", async (c) => {
   });
 });
 
-// GET /v1/orders/:orderHash
 orders.get("/:orderHash", async (c) => {
   const { orderHash } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -169,7 +161,6 @@ orders.get("/:orderHash", async (c) => {
   return c.json({ data: serializeOrder(order, undefined, counterFlags.has(order.orderHash)) });
 });
 
-// GET /v1/orders/token/:contract/:tokenId
 orders.get("/token/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -203,7 +194,6 @@ orders.get("/token/:contract/:tokenId", async (c) => {
   return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
-// GET /v1/orders/received/:address — active ERC20 offers on tokens the address currently holds
 orders.get("/received/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -255,7 +245,6 @@ orders.get("/received/:address", async (c) => {
   });
 });
 
-// GET /v1/orders/user/:address
 orders.get("/user/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));

@@ -1,12 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { base58 } from "@scure/base";
 
-/**
- * Pure decode layer for the Solana ingestor — Anchor `emit!` events arrive in
- * transaction logs as `Program data: <base64(discriminator ++ borsh)>`.
- * Layouts copied from the audited programs. No RPC, no DB.
- */
-
 export type SolanaProtocolEvent =
   | { kind: "CollectionCreated"; collectionId: bigint; coreCollection: string; creator: string; name: string; uri: string }
   | { kind: "AssetMinted"; coreCollection: string; asset: string; owner: string; uri: string }

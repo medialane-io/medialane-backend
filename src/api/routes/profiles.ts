@@ -20,15 +20,8 @@ import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:profiles");
 
-// Gated-content holder verification (07-identity §V — on-chain authority, never
-// the DB cache) now lives behind the single chain-read dispatch: `holdsToken`
-// in src/chainRead. Imported above.
-
 const profiles = new Hono<AppEnv>();
 
-// Validates a URL field: must be http/https when present, null/empty is allowed (clears the
-// field). Clients (e.g. a form with an untouched blank input) send "" rather than null/undefined
-// — normalize that to null before the `.url()` check, or a blank field 400s the whole request.
 const urlField = z.preprocess(
   (v) => (typeof v === "string" && v.trim() === "" ? null : v),
   z
@@ -65,14 +58,11 @@ const creatorProfileSchema = z.object({
   telegramUrl: urlField,
 });
 
-// ─── Collection Profile (public read, SIWS token or admin key for write) ─────
-
 profiles.get("/collections/:contract/profile", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const contract = normalizeAddress(chain, c.req.param("contract"));
 
-  // Verify collection exists first
   const collection = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
   });
@@ -93,15 +83,13 @@ profiles.get("/collections/:contract/profile", async (c) => {
 profiles.patch(
   "/collections/:contract/profile",
   async (c, next) => {
-    // Admin key path: same guarded comparison adminSecretAuth uses for /admin/*.
+
     const key = c.req.header("x-api-key") ?? "";
     if (secretMatches(key, env.API_SECRET_KEY)) {
       c.set("isAdmin", true);
       return next();
     }
-    // Non-admin path: call identityAuth as a plain function, passing the same c and next.
-    // In Hono, `next` here IS the chain's next item (zValidator), so identityAuth's internal
-    // `await next()` correctly forwards to it.
+
     return identityAuth(c, next);
   },
   zValidator("json", collectionProfileSchema),
@@ -154,8 +142,6 @@ profiles.patch(
   }
 );
 
-// ─── Gated Content (holder-only) ─────────────────────────────────────────────
-
 profiles.get(
   "/collections/:contract/gated-content",
   async (c, next) => identityAuth(c, next),
@@ -163,10 +149,6 @@ profiles.get(
     const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;
 
-    // Resolve standard from the indexer so we know which on-chain call to
-    // make. The standard itself is a structural fact (NOT NULL since the
-    // 2026-05-22 migration), so a missing Collection row means we have
-    // not indexed this contract at all — refuse to authorize.
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
       select: { standard: true },
@@ -178,10 +160,6 @@ profiles.get(
       return c.json({ error: "Unsupported collection standard for gated content" }, 400);
     }
 
-    // For ERC-1155 we need the token IDs to query balance_of_batch — pull
-    // them from the indexer. The DB is used here as a *hint* (which ids
-    // to check), not as authority (the chain answers whether the wallet
-    // holds them).
     let knownTokenIds: string[] | undefined;
     if (collection.standard === "ERC1155") {
       const tokens = await prisma.token.findMany({
@@ -192,13 +170,9 @@ profiles.get(
       knownTokenIds = tokens.map((t) => t.tokenId);
     }
 
-    // Authorization: on-chain ownership check. Per 07-identity §V, this
-    // is the load-bearing step; do not fall back to the DB on RPC error.
     let isHolder: boolean;
     try {
-      // Routed through the single chain-read dispatch (spec §3.3). Starknet
-      // today; multichain gated content threads collection.chain when the
-      // read-side capability lands.
+
       isHolder = await holdsToken("STARKNET", contract, walletAddress, collection.standard, knownTokenIds);
     } catch (err) {
       log.warn({ err, contract, walletAddress }, "Gated-content on-chain check failed");
@@ -230,9 +204,6 @@ profiles.get(
     });
   }
 );
-
-// ─── Creators List (public read) ─────────────────────────────────────────────
-// Lists all creator profiles that have an approved username. Supports search + pagination.
 
 profiles.get("/creators", async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
@@ -266,14 +237,12 @@ profiles.get("/creators", async (c) => {
     .filter((p) => p.account.identities[0]?.address)
     .map((p) => serializeCreatorProfile(p, p.account.identities[0]!.address!));
 
-  // For creators without avatarImage, populate collectionImage from their
-  // first (most recent) collection — single batch query, no N+1.
   const needsImage = creators.filter((c) => !c.avatarImage);
   const collectionImageMap = new Map<string, string>();
 
   if (needsImage.length > 0) {
     const wallets = needsImage.map((c) => c.walletAddress);
-    // DISTINCT ON owner gives us the most-recent collection image per owner in one query.
+
     const rows = await prisma.$queryRaw<{ owner: string; image: string }[]>`
       SELECT DISTINCT ON (owner) owner, image
       FROM "Collection"
@@ -296,9 +265,6 @@ profiles.get("/creators", async (c) => {
   return c.json({ creators: enriched, total, page, limit });
 });
 
-// ─── Creator by Username (public read) ───────────────────────────────────────
-// Resolves a username slug to a wallet address + profile. Used by /creator/[username].
-
 profiles.get("/creators/by-username/:username", async (c) => {
   const username = c.req.param("username").toLowerCase().trim();
   const profile = await prisma.accountProfile.findUnique({
@@ -313,8 +279,6 @@ profiles.get("/creators/by-username/:username", async (c) => {
   return c.json(serializeCreatorProfile(profile, profile.account.identities[0].address));
 });
 
-// ─── Creator Hidden Indicator (public read) ──────────────────────────────────
-
 profiles.get("/creators/:wallet/hidden", async (c) => {
   const normalizedAddress = normalizeAddress("STARKNET", c.req.param("wallet"));
   const row = await prisma.hiddenCreator.findUnique({
@@ -322,8 +286,6 @@ profiles.get("/creators/:wallet/hidden", async (c) => {
   });
   return c.json({ isHidden: row !== null });
 });
-
-// ─── Creator Profile (public read, SIWS token for write) ────────────────────
 
 profiles.get("/creators/:wallet/profile", async (c) => {
   const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
@@ -347,8 +309,6 @@ profiles.patch(
       return c.json({ error: "Not authorized to edit this profile" }, 403);
     }
 
-    // Auto-provision Account if the JWT-verified wallet has none (lazy onboarding
-    // for users that hit the profile editor without going through /users/register first).
     const { accountId } = await ensureAccountForWallet({
       chain: "STARKNET",
       address: wallet,

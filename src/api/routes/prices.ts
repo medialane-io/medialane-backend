@@ -19,22 +19,17 @@ type AlchemyPricesResponse = {
 const CACHE_TTL_MS = 30_000;
 
 export interface PricesDeps {
-  /** Bare Alchemy API key (Prices API enabled). Empty = unconfigured. */
+
   apiKey: string;
-  /** Injectable for tests — defaults to the real `fetch`. Narrower than `typeof fetch` (no `preconnect`) so a plain async mock satisfies it. */
+
   fetchImpl: (input: string | URL, init?: RequestInit) => Promise<Response>;
-  /** Injectable clock (ms) — defaults to `Date.now`. */
+
   now: () => number;
 }
 
 export function createPricesRoutes(deps: PricesDeps): Hono {
   const prices = new Hono();
 
-  // One upstream fetch per `CACHE_TTL_MS` regardless of request volume —
-  // bursts of page renders (each mounting `useUsdPrices`) must not multiply
-  // Alchemy calls or credit debits. Scoped to this route instance (not
-  // module-level) so the one real instance below is a process-wide singleton
-  // in prod, while tests creating their own instance get an isolated cache.
   let cache: { usd: UsdPrices; fetchedAt: number } | null = null;
 
   prices.get("/", async (c) => {

@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-// env preloaded via bunfig.toml → importing the scheme (which loads
-// utils/starknet → env) is safe. We test the pure receipt parser directly,
-// so no RPC mock is needed.
+
 import { parseUsdcTransfer, type StarknetReceipt } from "./starknet.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 
@@ -17,14 +15,14 @@ describe("parseUsdcTransfer", () => {
       execution_status: "SUCCEEDED",
       finality_status: "ACCEPTED_ON_L2",
       events: [
-        { from_address: USDC, keys: [TRANSFER_KEY, SENDER, TREASURY], data: ["0xf4240", "0x0"] }, // 1_000_000 atomic
+        { from_address: USDC, keys: [TRANSFER_KEY, SENDER, TREASURY], data: ["0xf4240", "0x0"] },
       ],
     };
     const res = parseUsdcTransfer(receipt, params);
     expect(res.ok).toBe(true);
     expect(res.amountAtomic).toBe(1_000_000n);
     expect(res.payer).toBe(normalizeAddress("STARKNET", SENDER));
-    expect(res.proofNonce).toBe("0xtx"); // dedup keyed on txHash alone
+    expect(res.proofNonce).toBe("0xtx");
   });
 
   test("rejects when no transfer to treasury is present", () => {

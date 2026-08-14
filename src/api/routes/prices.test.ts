@@ -47,7 +47,7 @@ test("a second request within the 30s TTL hits the cache, not the upstream", asy
     now: () => clock,
   });
   await app.request("/v1/prices");
-  clock = 10_000; // +10s, inside the 30s TTL
+  clock = 10_000;
   await app.request("/v1/prices");
   expect(calls).toBe(1);
 });
@@ -60,7 +60,7 @@ test("a request after the 30s TTL refetches from upstream", async () => {
     now: () => clock,
   });
   await app.request("/v1/prices");
-  clock = 31_000; // past the 30s TTL
+  clock = 31_000;
   await app.request("/v1/prices");
   expect(calls).toBe(2);
 });

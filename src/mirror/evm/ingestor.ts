@@ -14,13 +14,6 @@ const log = createLogger("evm-ingestor");
 const POLL_MS = Number(process.env.EVM_POLL_INTERVAL_MS ?? 15_000);
 const BATCH_BLOCKS = 2_000n;
 
-/**
- * EVM chain ingestor (Ethereum + Base) — polls eth_getLogs over Medialane's
- * own contracts (venues + registries + collections discovered from
- * CollectionCreated) and reduces the events into the shared handlers.
- * Deploy-gated: dormant until the chain's coordinates carry addresses.
- * Foreign contracts are never bulk-indexed.
- */
 export function makeEvmIngestor(chain: "ETHEREUM" | "BASE"): ChainIngestor {
   return {
     chain: chain as Chain,
@@ -66,7 +59,6 @@ export async function pollOnce(
   if (from > head) return;
   const to = from + BATCH_BLOCKS - 1n > head ? head : from + BATCH_BLOCKS - 1n;
 
-  // Our contracts only: the fixed set plus collections we've discovered.
   const known = await prisma.collection.findMany({
     where: { chain, service: { in: ["mip-erc721", "mip-erc1155"] } },
     select: { contractAddress: true },
@@ -85,7 +77,6 @@ export async function pollOnce(
   if (events.length > 0) log.info({ chain, from: from.toString(), to: to.toString(), events: events.length }, "evm events applied");
 }
 
-/** Translate the decoded protocol events into the shared write paths. */
 export async function applyEvents(chain: Chain, events: EvmProtocolEvent[]): Promise<void> {
   for (const event of events) {
     switch (event.kind) {

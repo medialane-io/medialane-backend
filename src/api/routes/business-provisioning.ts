@@ -37,10 +37,6 @@ export interface BusinessProvisioningDeps {
   sendClaimEmail: (to: string, claimUrl: string) => Promise<void>;
 }
 
-// recipientScheme is deliberately free-form (mirrors Identity.scheme, 07-identity §II —
-// the platform never enumerates valid identity types). "email" is the only scheme this
-// route knows how to deliver on our own behalf; every other scheme still registers and
-// gets a claimUrl back in the response, delivery is the caller's own responsibility.
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
   walletAddress: z.string(),
@@ -67,8 +63,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
     const { token } = await deps.createClaimToken({ provisioningId: record.id });
     const claimUrl = `https://medialane.io/claim/${token}`;
-    // "email" is the only scheme we deliver on the business's behalf; every other
-    // scheme still gets claimUrl back below for the business to deliver itself.
+
     if (recipientScheme === "email") await deps.sendClaimEmail(recipientValue, claimUrl);
 
     return c.json({ data: { ...record, claimUrl } }, 201);
@@ -123,12 +118,6 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   return app;
 }
 
-// businessProvisioning.apiClientId is still nullable at the schema level
-// until the drop-old-columns migration phase makes it required — but every
-// real row was backfilled before this code went live (see
-// docs/superpowers/specs/2026-08-05-api-client-model-design.md, Phase 3). A
-// null here past that point means a genuine data-integrity bug, not an
-// expected state — surface it loudly instead of silently coercing.
 function assertLinked<T extends { apiClientId: string | null }>(row: T): T & { apiClientId: string } {
   if (row.apiClientId === null) {
     throw new Error(`BusinessProvisioning ${(row as { id?: string }).id ?? "?"} has no apiClientId — backfill gap`);
@@ -138,8 +127,7 @@ function assertLinked<T extends { apiClientId: string | null }>(row: T): T & { a
 
 const productionDeps: BusinessProvisioningDeps = {
   isAccountOwner: realIsAccountOwner,
-  // accountId is still NOT NULL on BusinessProvisioning until the
-  // drop-old-columns migration phase — dual-write both while that column exists.
+
   createProvisioning: async (input) => assertLinked(await prisma.businessProvisioning.create({ data: input })),
   listProvisioning: async (apiClientId, status) =>
     (await prisma.businessProvisioning.findMany({ where: { apiClientId, ...(status ? { status } : {}) } })).map(assertLinked),

@@ -1,21 +1,11 @@
-/**
- * Lightweight circuit breaker for RPC provider calls.
- *
- * States:
- *   CLOSED  — primary is healthy; all calls go to primary
- *   OPEN    — primary is failing; calls go to fallback (if available)
- *   HALF    — cool-down elapsed; one probe sent to primary to test recovery
- *
- * If no fallback URL is configured the breaker still tracks failures but
- * lets calls through to the primary regardless of state (degraded mode).
- */
+
 
 import { createLogger } from "./logger.js";
 
 const log = createLogger("circuit-breaker");
 
-const FAILURE_THRESHOLD = 5;   // consecutive failures to open the circuit
-const RECOVERY_MS = 60_000;    // 1 minute before probing primary again
+const FAILURE_THRESHOLD = 5;
+const RECOVERY_MS = 60_000;
 
 type State = "CLOSED" | "OPEN" | "HALF";
 
@@ -26,15 +16,14 @@ export class CircuitBreaker {
 
   recordSuccess(): void {
     if (this.state === "HALF") {
-      // Probe succeeded — primary is healthy again
+
       log.info({ from: this.state }, "Circuit breaker: primary recovered, closing");
       this.state = "CLOSED";
       this.failures = 0;
     } else if (this.state === "CLOSED") {
       this.failures = 0;
     }
-    // OPEN: ignore stale in-flight successes so the 60s cool-down isn't short-circuited
-    // by concurrent requests that captured usePrimary=true before the circuit opened.
+
   }
 
   recordFailure(): void {
@@ -44,14 +33,13 @@ export class CircuitBreaker {
       this.openedAt = Date.now();
       log.warn({ failures: this.failures }, "Circuit breaker: opening — too many RPC failures");
     } else if (this.state === "HALF") {
-      // Probe failed — stay open a bit longer
+
       this.state = "OPEN";
       this.openedAt = Date.now();
       log.warn("Circuit breaker: probe failed — reopening");
     }
   }
 
-  /** Returns true when the primary should be attempted. */
   shouldUsePrimary(): boolean {
     if (this.state === "CLOSED") return true;
     if (this.state === "OPEN") {
@@ -62,7 +50,7 @@ export class CircuitBreaker {
       }
       return false;
     }
-    // HALF — already probing
+
     return true;
   }
 }

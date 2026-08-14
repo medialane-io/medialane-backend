@@ -1,10 +1,4 @@
-/**
- * Pure decode layer for the Stellar ingestor — Soroban `getEvents` responses
- * with `xdrFormat: "json"` (topics/value as JSON-shaped ScVals). Topic
- * conventions from the audited contracts: venue publishes
- * (symbol, offerer[, fulfiller]) topics; the registry publishes
- * ("created", collection_id). No RPC, no DB.
- */
+
 
 type ScVal = Record<string, unknown>;
 

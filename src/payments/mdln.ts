@@ -2,7 +2,6 @@ import { Contract, uint256 } from "starknet";
 import { callRpc } from "../utils/starknet.js";
 import { MDLN_TIERS, x402Config } from "../config/x402.js";
 
-/** Pure: whole-token MDLN balance → credit multiplier (descending tier match). */
 export function multiplierForBalance(wholeTokens: bigint): number {
   for (const tier of MDLN_TIERS) {
     if (wholeTokens >= tier.minWholeTokens) return tier.multiplier;
@@ -20,8 +19,6 @@ const ERC20_ABI = [
   },
 ] as const;
 
-/** Reads MDLN balance (whole tokens, 18dp) for `address` → multiplier.
- *  Returns 1.0 on any failure or if MDLN is unconfigured — never blocks a payment. */
 export async function mdlnMultiplier(address: string): Promise<number> {
   if (!x402Config.mdlnContract || !address) return 1.0;
   try {

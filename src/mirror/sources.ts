@@ -52,22 +52,8 @@ import { applySponsorship } from "./handlers/sponsorship.js";
 import type { Chain } from "@prisma/client";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
-/**
- * The declarative event-source table — the ONE place a digital-asset service
- * plugs into the mirror. Every source is the same shape: where to poll
- * (a fixed contract, or a fan-out over known Collection rows), which event
- * selectors, how often, and how to reduce the events.
- *
- * Core sources (no `apply`) feed the tick's atomic parse/write transaction
- * and share the main IndexerCursor. Side sources reduce post-transaction via
- * `apply`. Slow-cadence sources (`cadenceMs` set) persist their position in
- * SourceCursor — restart-safe, no in-memory shadow cursors.
- *
- * Adding a service = one entry here (+ its decode handler). No new pollers,
- * no new cursors, no tick edits, no tables, no routes.
- */
 export interface SourceContext {
-  /** Contracts touched this tick — drives METADATA_FETCH / STATS_UPDATE enqueues. */
+
   affectedContracts: Set<string>;
 }
 
@@ -77,23 +63,22 @@ export interface EventSource {
     | { kind: "contract"; address: string | undefined }
     | { kind: "collections"; service?: string };
   selectors: string[];
-  /** Omit = every tick over the main cursor window. Set = slow schedule + durable SourceCursor. */
+
   cadenceMs?: number;
   maxPages?: number;
-  /** Post-transaction reducer. Core sources consumed by the tick pipeline omit this. */
+
   apply?: (events: RawStarknetEvent[], ctx: SourceContext) => Promise<void>;
 }
 
 export interface SourceFetch {
   source: EventSource;
   events: RawStarknetEvent[];
-  /** Block the source's durable cursor should advance to; null for every-tick sources. */
+
   cursorTo: number | null;
 }
 
 const hex = (selector: string) => num.toHex(selector);
 
-/** Max in-flight getEvents calls when a source fans out over Collection rows. */
 const COLLECTION_POLL_CONCURRENCY = 8;
 
 const MARKETPLACE_SELECTORS = [
@@ -172,14 +157,10 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_MARKETPLACE_721, scope: { kind: "contract", address: STARKNET_MARKETPLACE_721_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
   { id: CORE_MARKETPLACE_1155, scope: { kind: "contract", address: STARKNET_MARKETPLACE_1155_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
   { id: CORE_FACTORY_MIP721, scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
-  // Transfers fan out over every known collection — slow cadence keeps RPC
-  // volume flat (one call per collection per interval, not per tick).
+
   { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: [hex(TRANSFER_SELECTOR), hex(TRANSFER_SINGLE_SELECTOR), hex(TRANSFER_BATCH_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], apply: applyComments },
-  // Launchpad services (POP, Drop's allowlist aside, Tickets, Club, Sponsorship)
-  // are low-traffic relative to the marketplace/mip-erc721 core tick — all
-  // share LAUNCHPAD_POLL_INTERVAL_MS (default 50s) instead of polling every
-  // ~10s main tick.
+
   { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyPopFactory },
   { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropFactory },
   { id: "factory:mip-erc1155", scope: { kind: "contract", address: STARKNET_COLLECTION_1155_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIp1155Factory },
@@ -202,8 +183,8 @@ export const EVENT_SOURCES: EventSource[] = [
 ];
 
 export function isDue(cadenceMs: number | undefined, lastPollTime: number | undefined, now: number): boolean {
-  if (cadenceMs === undefined) return true; // every-tick source
-  if (lastPollTime === undefined) return true; // never polled this process
+  if (cadenceMs === undefined) return true;
+  if (lastPollTime === undefined) return true;
   return now - lastPollTime >= cadenceMs;
 }
 
@@ -211,9 +192,6 @@ export function sourceFromBlock(lastBlock: bigint | null, mainFromBlock: number)
   return lastBlock != null ? Number(lastBlock) + 1 : mainFromBlock;
 }
 
-// Cadence timing only — the block POSITION is durable in SourceCursor. A
-// restart resets timers (harmless: due sources poll immediately, from their
-// durable cursor).
 const _lastPollTime = new Map<string, number>();
 
 export async function fetchDueSources(params: {
@@ -254,9 +232,7 @@ export async function fetchDueSources(params: {
             : { chain, startBlock: { lte: BigInt(toBlock) } },
           select: { contractAddress: true },
         });
-        // Bounded fan-out: one getEvents call per collection, at most
-        // COLLECTION_POLL_CONCURRENCY in flight — the burst stays flat as the
-        // collection count grows (the pattern every chain ingestor follows).
+
         events = (
           await mapWithConcurrency(collections, COLLECTION_POLL_CONCURRENCY, (c) =>
             pollContractEvents({

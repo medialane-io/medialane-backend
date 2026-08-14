@@ -3,9 +3,6 @@ import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { apiKeyGate } from "./apiKeyGate.js";
 
-// 2026-08-05: the PUBLIC_V1_PATHS bypass list was removed entirely — every
-// /v1/* route requires a key now, no exceptions (see apiKeyGate.ts for why).
-// These tests guard against a bypass list quietly reappearing.
 describe("apiKeyGate — no path is exempt", () => {
   const previouslyExemptPaths: Array<{ method: "GET" | "POST"; path: string }> = [
     { method: "GET", path: "/v1/business/provisioning/claim/tok_1" },

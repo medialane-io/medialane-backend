@@ -54,7 +54,6 @@ function validateTargetKey(
 
 const reports = new Hono<AppEnv>();
 
-// reporterWallet is derived server-side from identityAuth — never from the request body.
 const submitReportSchema = z.object({
   targetType: z.enum(["COLLECTION", "TOKEN", "CREATOR", "COMMENT"]),
   targetKey: z.string().min(1),
@@ -78,7 +77,6 @@ const submitReportSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
-// POST /v1/reports — requires tenant API key (global middleware) + identity auth (local)
 reports.post(
   "/",
   async (c, next) => identityAuth(c, next),
@@ -103,7 +101,6 @@ reports.post(
       return c.json({ error: keyError }, 400);
     }
 
-    // Per-wallet rate limit: max 5 reports per hour
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentCount = await prisma.report.count({
       where: {
@@ -115,7 +112,6 @@ reports.post(
       return c.json({ error: "Rate limit exceeded" }, 429);
     }
 
-    // Deduplication: one report per wallet per target (@@unique enforced at DB level too)
     const existing = await prisma.report.findUnique({
       where: {
         targetKey_reporterWallet: {

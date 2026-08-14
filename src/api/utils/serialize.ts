@@ -2,9 +2,8 @@ import prisma from "../../db/client.js";
 import type { Chain, Collection, Order, Token, TokenStandard } from "@prisma/client";
 import type { RawCollectionRow, RawOrderRow, RawTokenRow } from "./rawTypes.js";
 
-/** What the order serializer needs — satisfied by Prisma Order and RawOrderRow. */
 export type SerializableOrder = Order | RawOrderRow;
-/** What the token serializer needs — Prisma Token (or a raw row) plus the joined standard. */
+
 export type SerializableToken = (Token | RawTokenRow) & {
   collection?: { standard: TokenStandard | null } | null;
   owner?: string | null;
@@ -12,20 +11,13 @@ export type SerializableToken = (Token | RawTokenRow) & {
 
 const CURRENCY_DECIMALS: Record<string, number> = {
   USDC: 6,
-  "USDC.E": 6, // legacy — existing DB orders only, never created via UI going forward
+  "USDC.E": 6,
   USDT: 6,
   ETH: 18,
   STRK: 18,
   WBTC: 8,
 };
 
-/**
- * Compose a stored stats amount (numeric-only decimal string) with its
- * currency into the API's display shape ("1.500000 USDC"). The DB keeps the
- * two apart so `::numeric` sorts are valid SQL; this is the ONE place they
- * are joined back together. A value with no currency is returned as-is
- * (pre-split legacy rows); no value → null.
- */
 export function composeAmountDisplay(
   value: string | null | undefined,
   currency: string | null | undefined
@@ -34,7 +26,6 @@ export function composeAmountDisplay(
   return currency ? `${value} ${currency}` : value;
 }
 
-/** Batch-fetch token name/image/description/animationUrl for a list of orders (single query). */
 export async function batchTokenMeta(
   orders: { chain: import("@prisma/client").Chain; nftContract: string | null; nftTokenId: string | null }[]
 ): Promise<Map<string, { name: string | null; image: string | null; description: string | null; animationUrl: string | null }>> {
@@ -57,11 +48,6 @@ export async function batchTokenMeta(
   );
 }
 
-/**
- * Batch-fetch ACTIVE orders for a list of tokens (one query), grouped into a
- * Map keyed `${contractAddress}:${tokenId}` — the shape both tokens.ts list
- * routes (GET / and GET /owned/:address) build by hand today.
- */
 export async function batchOrdersByToken(
   tokens: { chain: Chain; contractAddress: string; tokenId: string }[],
   deps: { order: Pick<typeof prisma.order, "findMany"> } = { order: prisma.order },
@@ -166,23 +152,11 @@ export function serializeToken(
   };
 }
 
-/**
- * Compute `hasActiveCounterOffer` for a set of orders in one DB query.
- *
- * Counter-offers are child orders that carry `parentOrderHash` pointing at
- * the original bid. The parent bid's `status` stays `ACTIVE` even while
- * a counter is outstanding — the relationship lives in the join, not in
- * a third lifecycle state (audit P0-1; `01-core-model §V`).
- *
- * Returns a Set of bid `orderHash` values that have ≥1 active child counter.
- * Pass the result through to `serializeOrder` per row so the UI can render
- * the "this bid has a counter outstanding" affordance.
- */
 export async function counterOfferFlags(
   prisma: import("@prisma/client").PrismaClient,
   orders: { orderHash: string; offerItemType?: string | null }[],
 ): Promise<Set<string>> {
-  // Only ERC-20 offers (bids) can be countered — keeps the IN list small.
+
   const bidHashes = orders
     .filter((o) => o.offerItemType === "ERC20")
     .map((o) => o.orderHash);
@@ -206,12 +180,9 @@ export function serializeOrder(
     id: o.id,
     chain: o.chain,
     orderHash: o.orderHash,
-    /** Counter-offers point at their parent bid via this field. Null for top-level orders. */
+
     parentOrderHash: o.parentOrderHash ?? null,
-    /** Set by `/v1/orders/user/:address` (and any list endpoint that opts in) — true when
-     *  this is an ERC-20 bid AND at least one ACTIVE counter exists with parentOrderHash = orderHash.
-     *  The frontend uses this to render the "your bid was countered" affordance without depending
-     *  on a `COUNTER_OFFERED` status (audit P0-1). Undefined on endpoints that don't compute it. */
+
     hasActiveCounterOffer: hasActiveCounterOffer ?? undefined,
     offerer: o.offerer,
     offer: {
@@ -261,12 +232,6 @@ export function serializeOrder(
   };
 }
 
-/**
- * Shapes an AccountProfile + resolved wallet address into the public
- * creator-profile response — the same object shape hand-duplicated across
- * profiles.ts's /creators list, /creators/by-username/:username,
- * /creators/:wallet/profile GET, and its PATCH response.
- */
 export function serializeCreatorProfile(
   profile: {
     username: string | null;

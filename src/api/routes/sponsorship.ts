@@ -9,7 +9,6 @@ import type { SponsorshipOffer, SponsorshipBid, SponsorshipProposal, Sponsorship
 
 const sponsorship = new Hono<AppEnv>();
 
-/** licenseTermsUri/duration/etc are already JSON-safe; only Date fields need ISO stringifying, which c.json() handles natively — no BigInt fields on any of these four models. */
 function serializeOffer(o: SponsorshipOffer) {
   return o;
 }
@@ -29,10 +28,6 @@ function parsePage(c: { req: { query: (k: string) => string | undefined } }) {
   return { page, limit };
 }
 
-/** Resolves the caller's currently-owned (contractAddress, tokenId) pairs via
- *  TokenBalance — same authority `licenses?holder=` already uses (current
- *  ownership, not who created the offer/proposal). Returns `undefined` when
- *  `ownerRaw` is absent, so the where-builder's `ownedPairs` stays optional. */
 async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined) {
   if (!ownerRaw) return undefined;
   const owner = normalizeAddress(chain, ownerRaw);
@@ -43,7 +38,6 @@ async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined) {
   return held.map((t) => ({ contractAddress: t.contractAddress, tokenId: t.tokenId }));
 }
 
-// GET /v1/sponsorship/offers — ?nftContract=, ?author=, ?owner=, ?open=true|false, ?chain=, ?page, ?limit
 sponsorship.get("/offers", publicCache(15), async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
@@ -65,7 +59,6 @@ sponsorship.get("/offers", publicCache(15), async (c) => {
   return c.json({ data: rows.map(serializeOffer), meta: { page, limit, total } });
 });
 
-// GET /v1/sponsorship/offers/:offerId — single, by (chain, offerId)
 sponsorship.get("/offers/:offerId", publicCache(15), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -74,7 +67,6 @@ sponsorship.get("/offers/:offerId", publicCache(15), async (c) => {
   return c.json({ data: serializeOffer(offer) });
 });
 
-// GET /v1/sponsorship/offers/:offerId/bids — standing bids on an offer
 sponsorship.get("/offers/:offerId/bids", publicCache(15), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -85,7 +77,6 @@ sponsorship.get("/offers/:offerId/bids", publicCache(15), async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-// GET /v1/sponsorship/proposals — ?nftContract=, ?proposer=, ?owner=, ?open=true|false, ?chain=, ?page, ?limit
 sponsorship.get("/proposals", publicCache(15), async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
@@ -107,7 +98,6 @@ sponsorship.get("/proposals", publicCache(15), async (c) => {
   return c.json({ data: rows.map(serializeProposal), meta: { page, limit, total } });
 });
 
-// GET /v1/sponsorship/proposals/:proposalId — single, by (chain, proposalId)
 sponsorship.get("/proposals/:proposalId", publicCache(15), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -116,9 +106,6 @@ sponsorship.get("/proposals/:proposalId", publicCache(15), async (c) => {
   return c.json({ data: serializeProposal(proposal) });
 });
 
-// GET /v1/sponsorship/licenses — ?holder=, ?author=, ?assetContract=, ?assetTokenId=, ?chain=, ?page, ?limit
-// `holder` filters by CURRENT owner (TokenBalance — the license is a standard
-// transferable ERC-721, so ownership is not on SponsorshipLicense itself).
 sponsorship.get("/licenses", publicCache(15), async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
@@ -153,7 +140,6 @@ sponsorship.get("/licenses", publicCache(15), async (c) => {
   return c.json({ data: rows.map(serializeLicense), meta: { page, limit, total } });
 });
 
-// GET /v1/sponsorship/licenses/:tokenId — single, by (chain, tokenId), + current holder
 sponsorship.get("/licenses/:tokenId", publicCache(15), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);

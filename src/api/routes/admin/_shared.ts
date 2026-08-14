@@ -15,6 +15,6 @@ export function isNftTransferEvent(
 }
 
 export function getClientIp(c: { req: { header: (name: string) => string | undefined } }): string {
-  // x-real-ip is set by Railway's edge and cannot be spoofed by the client.
+
   return c.req.header("x-real-ip")?.trim() ?? "unknown";
 }

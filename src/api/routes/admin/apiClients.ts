@@ -1,8 +1,4 @@
-/**
- * ApiClient-scoped admin endpoints — billing (keys/credits/usage). Split out
- * of accounts.ts — see docs/superpowers/specs/2026-08-05-api-client-model-design.md.
- * Same "master key + id" auth shape as accounts.ts, keyed on ApiClient id.
- */
+
 import type { Hono } from "hono";
 import { z } from "zod";
 import prisma from "../../../db/client.js";
@@ -15,10 +11,7 @@ const log = createLogger("routes:admin:apiClients");
 const starknetScheme = new StarknetUsdcScheme();
 
 export function registerApiClientRoutes(admin: Hono) {
-  // POST /admin/api-clients — grant an existing Account API-client (billing)
-  // capability. This IS the "onboard an SDK/API consumer" action — the
-  // Account must already exist (every ApiClient requires one, never the
-  // reverse); this just attaches the billing facet to it.
+
   admin.post("/api-clients", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = z.object({ accountId: z.string().min(1) }).safeParse(body);
@@ -38,7 +31,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ data: apiClient }, 201);
   });
 
-  // PATCH /admin/api-clients/:id — update plan.
   admin.patch("/api-clients/:id", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = z.object({ plan: z.enum(["FREE", "PREMIUM"]).optional() }).safeParse(body);
@@ -58,7 +50,6 @@ export function registerApiClientRoutes(admin: Hono) {
     }
   });
 
-  // GET /admin/api-clients/:id/keys — list the ApiClient's keys (no plaintext).
   admin.get("/api-clients/:id/keys", async (c) => {
     const keys = await prisma.apiKey.findMany({
       where: { apiClientId: c.req.param("id") },
@@ -71,7 +62,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ data: keys });
   });
 
-  // POST /admin/api-clients/:id/keys — mint a key (plaintext shown ONCE). Max 5 active.
   admin.post("/api-clients/:id/keys", async (c) => {
     const apiClientId = c.req.param("id");
     const apiClient = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { id: true } });
@@ -93,7 +83,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext } }, 201);
   });
 
-  // DELETE /admin/api-clients/:id/keys/:keyId — revoke (soft).
   admin.delete("/api-clients/:id/keys/:keyId", async (c) => {
     const res = await prisma.apiKey.updateMany({
       where: { id: c.req.param("keyId"), apiClientId: c.req.param("id") },
@@ -103,7 +92,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ ok: true });
   });
 
-  // GET /admin/api-clients/:id/credits — balance + recent ledger.
   admin.get("/api-clients/:id/credits", async (c) => {
     const apiClientId = c.req.param("id");
     const apiClient = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { creditBalance: true } });
@@ -117,7 +105,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ data: { balance: apiClient.creditBalance, history } });
   });
 
-  // POST /admin/api-clients/:id/credits/fund — verify an on-chain USDC transfer and credit.
   admin.post("/api-clients/:id/credits/fund", async (c) => {
     const apiClientId = c.req.param("id");
     const apiClient = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { id: true, accountId: true } });
@@ -135,8 +122,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ data: { credited: result.creditedAmount ?? 0 } });
   });
 
-  // POST /admin/api-clients/:id/credits/grant — admin credit adjustment
-  // (granted credits for first-party apps). Floors at 0.
   admin.post("/api-clients/:id/credits/grant", async (c) => {
     const apiClientId = c.req.param("id");
     const body = await c.req.json().catch(() => null);
@@ -154,11 +139,6 @@ export function registerApiClientRoutes(admin: Hono) {
     return c.json({ data: { id: updated.id, creditBalance: updated.creditBalance } });
   });
 
-  // GET /admin/api-clients/:id/usage — per-key last-use telemetry. The old
-  // monthly request counters were FREE-tier quota state; nothing has written
-  // them since x402 credits became the meter (no free tier), so they were
-  // dropped rather than served stale. Usage-in-credits lives on the Payment
-  // ledger + ApiClient.creditBalance.
   admin.get("/api-clients/:id/usage", async (c) => {
     const keys = await prisma.apiKey.findMany({
       where: { apiClientId: c.req.param("id") },

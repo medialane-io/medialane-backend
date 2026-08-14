@@ -37,7 +37,7 @@ test("verifyStarknetWithRetry gives up as not_deployed after exhausting retries"
     { retries: 2, sleep: async () => {} },
   );
   expect(result).toEqual({ ok: false, reason: "not_deployed" });
-  expect(calls).toBe(3); // initial attempt + 2 retries
+  expect(calls).toBe(3);
 });
 
 test("verifyStarknetWithRetry re-throws unexpected RPC errors without retrying", async () => {

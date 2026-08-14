@@ -51,8 +51,7 @@ export async function resetCursor(chain: Chain, toBlock?: bigint): Promise<void>
     create: { chain, lastBlock: block, continuationToken: null },
     update: { lastBlock: block, continuationToken: null },
   });
-  // A cursor reset must rewind ALL sources — a stale per-source cursor would
-  // make slow-cadence sources skip the replayed range.
+
   await prisma.sourceCursor.deleteMany({ where: { chain } });
   log.info({ chain, block: block.toString() }, "Cursor reset");
 }

@@ -5,14 +5,10 @@ import prisma from "../../db/client.js";
 
 const stats = new Hono();
 
-// The three counts scan large tables and the numbers move slowly — hold one
-// shared result per chain filter for CACHE_MS so N callers cost one query
-// set, not N.
 const CACHE_MS = 30_000;
 type StatsData = { collections: number; tokens: number; sales: number };
 const cached = new Map<string, { data: StatsData; at: number }>();
 
-// GET /v1/stats — platform-wide aggregate numbers (shared micro-cache + HTTP cache)
 stats.get("/", publicCache(60), async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);

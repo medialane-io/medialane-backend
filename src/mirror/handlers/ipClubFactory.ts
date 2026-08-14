@@ -36,21 +36,6 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
   };
 }
 
-/**
- * Handle a ClubDeployed event from the IP Club factory.
- *
- * Event key layout (identical shape to IP Tickets' CollectionDeployed):
- *   keys[0] = selector("ClubDeployed")
- *   keys[1] = collection_address (ContractAddress)
- *   keys[2] = owner              (ContractAddress)
- *
- * Event data layout (ByteArray fields):
- *   data[0..n] = name   (ByteArray)
- *   data[n..m] = symbol (ByteArray)
- *
- * base_uri is not in the event — the collection exposes it on-chain and the
- * COLLECTION_METADATA_FETCH job reads it.
- */
 export async function handleIPClubDeployed(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
   try {

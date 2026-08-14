@@ -48,31 +48,19 @@ import { x402Discovery } from "./routes/x402.js";
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  // Global middleware — requestId must run first so the logger can read it
   app.use("*", corsMiddleware);
   app.use("*", requestIdMiddleware);
   app.use("*", loggerMiddleware);
 
-  // Health stays unauthenticated (monitoring, uptime checks)
   app.route("/health", health);
 
-  // x402 payment discovery — public (agents read pricing before holding a key)
   app.route("/", x402Discovery);
 
-  // Admin routes — internal auth (API_SECRET_KEY) handled inside admin.ts
   app.route("/admin", admin);
   app.route("/admin/rewards", adminRewards);
 
-  // All /v1/* routes require an account API key (auth, rate limit, x402
-  // metering) except the explicit public paths listed inside apiKeyGate
-  // itself. Mounted FIRST on /v1/* so gating no longer depends on the order
-  // routers are registered below — see
-  // medialane-core/docs/specs/2026-06-30-tenant-gate-global-middleware-design.md.
   app.use("/v1/*", apiKeyGate);
 
-  // Claims routers — some routes (e.g. the /check/:x availability checks,
-  // /v1/users/me) are exempted inside apiKeyGate; everything else here is
-  // tenant-gated by the mount above, then layers its own SIWS auth.
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);
   app.route("/v1/business/provisioning", businessProvisioningRoutes);
@@ -81,17 +69,14 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/users", users);
   app.route("/v1/remix-offers", remixOffers);
 
-  // SIWS auth — public, no API key required (authentication precedes key issuance)
   app.route("/v1/auth/siws", siws);
   app.route("/v1/auth/email", authEmail);
 
-  // Tenant self-service portal
   app.route("/v1/portal", portal);
 
-  // Existing data routes
   app.route("/v1/orders", orders);
   app.route("/v1/tokens", tokens);
-  app.route("/v1", profiles);               // profiles before collections (prevents route shadowing)
+  app.route("/v1", profiles);
   app.route("/v1/collections", collections);
   app.route("/v1/coins", coins);
   app.route("/v1/activities", activities);
@@ -114,10 +99,8 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/sponsorship", sponsorship);
   app.route("/v1/rewards", rewards);
 
-  // 404 fallback
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-  // Global error handler
   app.onError((err, c) => {
     log.error({ err, requestId: c.get("requestId") }, "Unhandled request error");
     return c.json({ error: "Internal server error" }, 500);

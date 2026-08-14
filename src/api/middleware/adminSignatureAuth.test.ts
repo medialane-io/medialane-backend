@@ -70,7 +70,7 @@ test("replayed nonce → 401", async () => {
 
 test("expired session → 401", async () => {
   const s = await makeSession();
-  const app = appWith({ now: () => FIXED_NOW + 4_000_000 }, s); // past expiry
+  const app = appWith({ now: () => FIXED_NOW + 4_000_000 }, s);
   const res = await app.request("/admin/ping", { headers: reqHeaders(s, "GET", "/admin/ping") });
   expect(res.status).toBe(401);
 });
@@ -78,7 +78,7 @@ test("expired session → 401", async () => {
 test("tampered path (sign A, call B) → 401", async () => {
   const s = await makeSession();
   const app = appWith({}, s);
-  const h = reqHeaders(s, "GET", "/admin/other"); // signed for a different path
+  const h = reqHeaders(s, "GET", "/admin/other");
   const res = await app.request("/admin/ping", { headers: h });
   expect(res.status).toBe(401);
 });
@@ -86,6 +86,6 @@ test("tampered path (sign A, call B) → 401", async () => {
 test("malformed headers → 400", async () => {
   const s = await makeSession();
   const app = appWith({}, s);
-  const res = await app.request("/admin/ping", {}); // no admin headers
+  const res = await app.request("/admin/ping", {});
   expect(res.status).toBe(400);
 });

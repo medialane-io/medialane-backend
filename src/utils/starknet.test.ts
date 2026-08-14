@@ -1,7 +1,5 @@
-// Golden tests for the address/hash normalizers re-exported from @medialane/sdk.
-// Reason these matter: "lowercase alone" was a known bug class — it doesn't pad
-// short Starknet addresses, causing "not found" mismatches between DB writes
-// and DB reads. Audit P1-10 + R0.
+
+
 import { describe, expect, test } from "bun:test";
 import { normalizeAddress, normalizeHash, callRpc } from "./starknet.js";
 
@@ -37,9 +35,6 @@ describe("normalizeAddress", () => {
     expect(() => normalizeAddress("STARKNET", "banana")).toThrow("Invalid STARKNET address");
   });
 
-  // Note: empty string is normalized to the zero address (BigInt("") === 0n).
-  // Not asserted either way — behavior is stable but neither obviously right
-  // nor obviously wrong; locking it in via test would constrain a future fix.
 });
 
 describe("normalizeHash", () => {
@@ -54,14 +49,6 @@ describe("normalizeHash", () => {
   });
 });
 
-// Regression coverage for the exact resilience contract wallet.ts's
-// isDeployed() depends on: a bare, non-retrying RPC call bypassed this and
-// treated any transient primary-RPC failure as "definitely not deployed" —
-// a false negative that let a real duplicate-deploy attempt through against
-// an address that genuinely was already live (medialane-backend PR, Aug 2026
-// production incident: POST /v1/wallet/deploy 500s with "contract already
-// deployed"). callRpc() is the established fix for exactly this class of
-// bug; these tests lock in the contract so nothing regresses it later.
 describe("callRpc", () => {
   test("retries once on the fallback path after a failure, and returns its result", async () => {
     let calls = 0;

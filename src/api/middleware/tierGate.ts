@@ -7,11 +7,6 @@ const PLAN_RANK: Record<Plan, number> = {
   PREMIUM: 1,
 };
 
-/**
- * Returns middleware that rejects requests from ApiClients below `minPlan`.
- * Plan is ApiClient state (docs/superpowers/specs/2026-08-05-api-client-model-design.md).
- * Must be placed after apiKeyAuth.
- */
 export function requirePlan(minPlan: Plan): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const apiClient = c.get("apiClient");

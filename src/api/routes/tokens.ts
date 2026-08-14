@@ -13,7 +13,6 @@ import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFi
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
 
-// Slug → canonical DB value for ipType column
 const SLUG_TO_IP_TYPE: Record<string, string> = {
   audio: "Audio",
   art: "Art",
@@ -26,11 +25,9 @@ const SLUG_TO_IP_TYPE: Record<string, string> = {
   rwa: "RWA",
   software: "Software",
   custom: "Custom",
-  // "nft" is handled separately (NFT | null)
+
 };
 
-// GET /v1/tokens — browse all indexed tokens, optionally filtered by IP type
-// Query params: ?ipType=audio|art|video|nft|... &page= &limit= &sort=recent|oldest
 tokens.get("/", async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(48, Math.max(1, Number(c.req.query("limit") ?? 24)));
@@ -45,18 +42,15 @@ tokens.get("/", async (c) => {
 
   if (ipTypeSlug) {
     if (ipTypeSlug === "nft") {
-      // "nft" catches explicitly tagged NFT + untagged/external tokens (null)
+
       where.OR = [{ ipType: "NFT" }, { ipType: null }];
     } else {
       const canonical = SLUG_TO_IP_TYPE[ipTypeSlug];
       if (canonical) where.ipType = canonical;
-      // Unknown slug → no ipType filter (returns all tokens)
+
     }
   }
 
-  // ?derivatives=allowed — only tokens whose creator-declared Derivatives
-  // trait permits remixing ("Allowed" or "Share-Alike"). Trait lives in the
-  // OpenSea-style attributes array; AND keeps it independent of the ipType OR.
   if (derivatives === "allowed") {
     where.AND = [
       {
@@ -91,8 +85,6 @@ tokens.get("/", async (c) => {
   });
 });
 
-// GET /v1/tokens/batch — fetch multiple tokens by contract:tokenId pairs
-// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/batch", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -137,7 +129,6 @@ tokens.get("/batch", async (c) => {
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
 });
 
-// GET /v1/tokens/owned/:address  — must be registered BEFORE /:contract/:tokenId
 tokens.get("/owned/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -146,7 +137,6 @@ tokens.get("/owned/:address", async (c) => {
   const limit = Number(c.req.query("limit") ?? 20);
   const owner = normalizeAddress(chain, address);
 
-  // Query via TokenBalance (works for ERC-721 and ERC-1155 — amount > 0 = current holder)
   const [balanceRows, total] = await Promise.all([
     prisma.tokenBalance.findMany({
       where: { chain, owner, amount: { not: "0" } },
@@ -178,8 +168,6 @@ tokens.get("/owned/:address", async (c) => {
   });
 });
 
-// GET /v1/tokens/:contract/:tokenId/comments
-// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/:contract/:tokenId/comments", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -222,11 +210,8 @@ tokens.get("/:contract/:tokenId/comments", async (c) => {
   return c.json({ data, meta: { page, limit, total } });
 });
 
-// GET /v1/tokens/:contract/:tokenId/remixes — public list of minted remixes
-// Must be registered BEFORE /:contract/:tokenId to avoid route conflict
 tokens.get("/:contract/:tokenId/remixes", async (c) => {
-  // RemixOffer is platform-layer workflow state without a chain axis (the
-  // remix flow is Starknet-only today) — pinned until the table gains chain.
+
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
@@ -264,7 +249,6 @@ tokens.get("/:contract/:tokenId/remixes", async (c) => {
   return c.json({ data: remixes, meta: { page, limit, total } });
 });
 
-// GET /v1/tokens/:contract/:tokenId
 tokens.get("/:contract/:tokenId", async (c) => {
   const { contract, tokenId } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -282,11 +266,9 @@ tokens.get("/:contract/:tokenId", async (c) => {
     return c.json({ error: "Token not found" }, 404);
   }
 
-  // JIT metadata fetch
   if (token.metadataStatus === "PENDING" || token.metadataStatus === "FAILED") {
     if (wait && token.tokenUri) {
-      // Block up to 6s for resolution — enough for one slow gateway plus a
-      // fallback attempt, without holding the request open indefinitely.
+
       const metadata = await Promise.race([
         resolveMetadata(token.tokenUri).then((m) => m),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
@@ -309,12 +291,11 @@ tokens.get("/:contract/:tokenId", async (c) => {
         }) ?? token;
       }
     } else {
-      // Enqueue async — best-effort, worker deduplicates internally
+
       worker.enqueue({ type: "METADATA_FETCH", chain, contractAddress, tokenId });
     }
   }
 
-  // Load active orders separately (relation removed for multichain schema)
   const [activeOrders, balances] = await Promise.all([
     prisma.order.findMany({
       where: { chain, nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
@@ -331,7 +312,6 @@ tokens.get("/:contract/:tokenId", async (c) => {
   return c.json({ data: serializeToken(token, activeOrders, balances) });
 });
 
-// GET /v1/tokens/:contract/:tokenId/history
 tokens.get("/:contract/:tokenId/history", async (c) => {
   const { contract, tokenId } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -359,7 +339,6 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
     }),
   ]);
 
-  // Suppress transfer rows that are part of a sale (same txHash)
   const saleTxHashes = new Set(fills.map((fill) => fill.txHash));
 
   const activities = [
@@ -401,6 +380,5 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
 
   return c.json({ data: activities, meta: { page, limit } });
 });
-
 
 export default tokens;

@@ -9,10 +9,6 @@ import type { RawStarknetEvent } from "../../types/starknet.js";
 
 const log = createLogger("mirror:ip1155Factory");
 
-/**
- * Decode a Cairo ByteArray from a flat array of felt hex strings starting at `offset`.
- * ByteArray layout: [data_len, ...data_chunks, pending_word, pending_word_len]
- */
 function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
   if (offset >= felts.length) return { value: "", nextOffset: offset };
   const dataLen = Number(BigInt(felts[offset]));
@@ -40,19 +36,6 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
   };
 }
 
-/**
- * Handle a CollectionDeployed event from the IP-Programmable-ERC1155-Collections factory.
- *
- * Event key layout (Cairo 2.x, #[key] fields):
- *   keys[0] = selector("CollectionDeployed")
- *   keys[1] = collection_address (ContractAddress)
- *   keys[2] = owner             (ContractAddress)
- *
- * Event data layout (ByteArray fields, v2 factory):
- *   data[0..n] = name     (ByteArray: data_len, ...chunks, pending_word, pending_word_len)
- *   data[n..m] = symbol   (ByteArray)
- *   data[m..p] = base_uri (ByteArray)
- */
 export async function handleIP1155CollectionDeployed(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
   try {

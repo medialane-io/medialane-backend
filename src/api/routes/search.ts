@@ -7,7 +7,6 @@ import { parseSingleChain } from "../utils/chainFilter.js";
 
 const search = new Hono();
 
-// GET /v1/search?q=...
 search.get("/", publicCache(60), async (c) => {
   const q = c.req.query("q")?.trim();
   if (!q || q.length < 2) {
@@ -66,8 +65,6 @@ search.get("/", publicCache(60), async (c) => {
     `,
   ]);
 
-  // Strip rank; compose floorPrice into the API display shape (value + currency
-  // live in separate columns so numeric sorts stay valid SQL).
   const tokens = tokenRows.map(({ rank: _rank, ...rest }) => rest);
   const collections = collectionRows.map(({ rank: _rank, floorCurrency, ...rest }) => ({
     ...rest,

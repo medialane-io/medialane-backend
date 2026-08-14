@@ -23,10 +23,6 @@ export interface WalletActivityRow {
   createdAt: Date;
 }
 
-/** How long a cursor is trusted before a fresh background sync is enqueued
- * on read. Matches WALLET_ACTIVITY_REFRESH_INTERVAL_MS in the periodic
- * refresh loop (walletActivityRefresh.ts) — both exist to answer the same
- * question ("is this account's data fresh enough?"), so they must agree. */
 export const STALE_AFTER_MS = 2 * 60 * 1000;
 
 export interface WalletActivityDeps {
@@ -35,23 +31,10 @@ export interface WalletActivityDeps {
   enqueueSync: (chain: Chain, accountAddress: string) => void;
 }
 
-/**
- * Prisma's `blockNumber` is a native BigInt — Hono's `c.json()` calls
- * `JSON.stringify` under the hood, which throws on BigInt unconditionally.
- * Same pitfall as `serializeOrder` (CLAUDE.md), same fix: stringify it.
- */
 export function serializeWalletActivity(row: WalletActivityRow) {
   return { ...row, blockNumber: row.blockNumber.toString() };
 }
 
-/**
- * A plain read like any other /v1 endpoint — no wallet-ownership check.
- * Transaction history is public on-chain data (any block explorer shows it
- * for any address with no signature), so there is nothing here to protect
- * beyond the standard apiKeyGate every /v1/* route already goes through.
- * Freshness is handled by enqueueing a background sync when the cursor is
- * missing or stale, never by blocking the request on a live RPC crawl.
- */
 export function createWalletActivityRoutes(deps: WalletActivityDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 

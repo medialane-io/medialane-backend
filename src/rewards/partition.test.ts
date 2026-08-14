@@ -12,8 +12,8 @@ describe("mintActionForService", () => {
     expect(mintActionForService("ip-club")).toBeNull();
   });
   test("pop/drop/external/unknown mints score nothing here", () => {
-    expect(mintActionForService("pop-protocol")).toBeNull(); // claim_pop owns it
-    expect(mintActionForService("drop-collection")).toBeNull(); // claim_drop owns it
+    expect(mintActionForService("pop-protocol")).toBeNull();
+    expect(mintActionForService("drop-collection")).toBeNull();
     expect(mintActionForService("external-erc721")).toBeNull();
     expect(mintActionForService(undefined)).toBeNull();
   });

@@ -3,12 +3,6 @@ import { getCoordinates } from "@medialane/sdk";
 import { base58 } from "@scure/base";
 import { env } from "../config/env.js";
 
-/**
- * Solana read adapter — on-demand, read-only. Metaplex Core account layouts:
- * BaseAssetV1 = key(1) + owner(32) + …; BaseCollectionV1 = key(1) +
- * update_authority(32) + …. Raw JSON-RPC; no web3.js dependency server-side.
- */
-
 function rpcUrl(): string {
   if (env.SOLANA_RPC_URL) return env.SOLANA_RPC_URL;
   return (getCoordinates("SOLANA") as { rpcUrl: string }).rpcUrl;
@@ -31,8 +25,6 @@ async function getAccountData(pubkey: string): Promise<Uint8Array | null> {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
-/** Does `owner` hold any of the known Core assets? Asset pubkeys come from
- *  the indexer's token rows (capped); ownership is read on-chain. */
 export async function solanaHoldsToken(
   _chain: Chain,
   _collection: string,
@@ -51,7 +43,6 @@ export async function solanaHoldsToken(
   return false;
 }
 
-/** The Core collection's update authority — the creator (claim verification). */
 export async function solanaCollectionOwner(_chain: Chain, collection: string): Promise<string> {
   const data = await getAccountData(collection);
   if (!data || data.length < 33) throw new Error(`Solana collection account not found: ${collection}`);

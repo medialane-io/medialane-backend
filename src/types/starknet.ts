@@ -1,4 +1,4 @@
-// Raw RPC event shapes (from starknet_getEvents response)
+
 export interface RawStarknetEvent {
   block_hash: string;
   block_number: number;

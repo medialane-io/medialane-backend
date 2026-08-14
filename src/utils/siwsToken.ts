@@ -2,26 +2,20 @@ import { createHmac, timingSafeEqual } from "crypto";
 import type { Chain } from "@prisma/client";
 import { env } from "../config/env.js";
 
-const TTL_SECONDS = 86_400; // 24 hours
+const TTL_SECONDS = 86_400;
 
 interface TokenPayload {
-  sub: string; // normalized wallet address
-  chain?: Chain; // wallet chain (07-identity §I). Optional → legacy tokens predate this; read as STARKNET.
-  iat: number; // issued-at unix seconds
-  exp: number; // expiry unix seconds
+  sub: string;
+  chain?: Chain;
+  iat: number;
+  exp: number;
 }
 
-/** A verified caller identity: the (chain, address) pair (07-identity §I/§II). */
 export interface VerifiedIdentity {
   address: string;
   chain: Chain;
 }
 
-/**
- * Issue a bearer token for a verified wallet identity. The token carries the
- * (chain, address) pair (spec 2026-06-13 §3.4) — not a bare address.
- * Format: siws_<base64url(payload)>.<hex(hmac-sha256)>
- */
 export function issueToken(chain: Chain, wallet: string): string {
   const iat = Math.floor(Date.now() / 1000);
   const payload = b64u(JSON.stringify({ sub: wallet, chain, iat, exp: iat + TTL_SECONDS }));
@@ -29,12 +23,6 @@ export function issueToken(chain: Chain, wallet: string): string {
   return `siws_${payload}.${sig}`;
 }
 
-/**
- * Verify a raw bearer token string.
- * Returns the verified (chain, address) identity on success, null on any
- * failure (expired, tampered, wrong format). Tokens issued before the chain
- * field existed verify as STARKNET (back-compat for live sessions).
- */
 export function verifyToken(raw: string): VerifiedIdentity | null {
   if (!raw.startsWith("siws_")) return null;
   const inner = raw.slice(5);
@@ -45,7 +33,6 @@ export function verifyToken(raw: string): VerifiedIdentity | null {
   const provided = inner.slice(dot + 1);
   const expected = hmac(payload);
 
-  // Constant-time comparison — both are 64-char hex strings from HMAC-SHA256
   if (provided.length !== expected.length) return null;
   try {
     if (!timingSafeEqual(Buffer.from(provided, "hex"), Buffer.from(expected, "hex"))) return null;
@@ -63,10 +50,7 @@ export function verifyToken(raw: string): VerifiedIdentity | null {
   if (!data.sub || !data.exp || !data.iat) return null;
   const now = Math.floor(Date.now() / 1000);
   if (data.exp < now) return null;
-  // Reject `iat` in the future. The HMAC binds the payload so only a
-  // holder of SIWS_SECRET could forge this, but the check costs nothing
-  // and removes the value of leaked-key forgeries dated in the future.
-  // Tiny clock-skew tolerance (60s) — issuers and verifiers may drift.
+
   if (data.iat > now + 60) return null;
 
   return { address: data.sub, chain: data.chain ?? "STARKNET" };

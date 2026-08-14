@@ -9,20 +9,11 @@ import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
 import { worker } from "../../orchestrator/worker.js";
 
-// Use AppEnv generic so c.set/c.get are typed correctly for all AppVariables keys
 const claims = new Hono<AppEnv>();
 
 import { createSlidingWindow } from "../../utils/slidingWindow.js";
 
-// 10 requests per 60s per account ID
 const checkRateLimit = createSlidingWindow(10, 60_000);
-
-// Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
-// on /v1/* by apiKeyGate (src/api/middleware/apiKeyGate.ts), mounted before
-// this router in server.ts — no per-route wiring needed here.
-
-// ─── PATH 1: On-chain auto claim ────────────────────────────────────────────
-// Auth: x-api-key (tenant) + Authorization: Bearer (SIWS token)
 
 claims.post(
   "/",
@@ -41,13 +32,11 @@ claims.post(
       return c.json({ error: "Wallet address does not match authenticated session" }, 403);
     }
 
-    // Rate limit: 10 claim attempts per minute per account
     const accountId = c.get("account").id;
     if (!checkRateLimit(`claim:${accountId}`)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
-    // Idempotency: return existing approved claim
     const existing = await prisma.collectionClaim.findFirst({
       where: { contractAddress: normContract, claimantAddress: normWallet, status: { in: ["AUTO_APPROVED", "APPROVED"] } },
     });
@@ -59,7 +48,6 @@ claims.post(
       return c.json({ verified: true, collection: sc });
     }
 
-    // On-chain owner() via the single chain-read dispatch (spec §3.3).
     try {
       const onChainOwner = await getCollectionOwner("STARKNET", normContract);
       const ZERO = normalizeAddress("STARKNET", "0x0");
@@ -70,8 +58,6 @@ claims.post(
       return c.json({ verified: false, reason: "owner_check_failed" });
     }
 
-    // Update-only: a claim records ownership of an already-indexed collection.
-    // If the indexer hasn't seen it yet, surface that rather than inventing a row.
     const existingCollection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
     });
@@ -89,14 +75,10 @@ claims.post(
 
     worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: normContract });
 
-    // Serialize BigInt startBlock before JSON response
     const sc = { ...collection, startBlock: collection.startBlock.toString() };
     return c.json({ verified: true, collection: sc });
   }
 );
-
-// ─── PATH 2: Challenge ───────────────────────────────────────────────────────
-// Auth: standard x-api-key (no user auth needed).
 
 claims.post(
   "/challenge",
@@ -106,14 +88,12 @@ claims.post(
     const normContract = normalizeAddress("STARKNET", contractAddress);
     const normWallet = normalizeAddress("STARKNET", walletAddress);
 
-    // Enforce 20-challenge cap per wallet (evict oldest)
     const count = await prisma.claimChallenge.count({ where: { walletAddress: normWallet } });
     if (count >= 20) {
       const oldest = await prisma.claimChallenge.findFirst({ where: { walletAddress: normWallet }, orderBy: { createdAt: "asc" } });
       if (oldest) await prisma.claimChallenge.delete({ where: { id: oldest.id } });
     }
 
-    // Delete existing challenge for this pair + clean up expired ones
     await prisma.claimChallenge.deleteMany({ where: { contractAddress: normContract, walletAddress: normWallet } });
     await prisma.claimChallenge.deleteMany({ where: { expiresAt: { lt: new Date() } } });
 
@@ -124,8 +104,6 @@ claims.post(
     return c.json({ challenge, expiresAt: expiresAt.toISOString() });
   }
 );
-
-// ─── PATH 2: Verify signature ────────────────────────────────────────────────
 
 claims.post(
   "/verify",
@@ -149,7 +127,6 @@ claims.post(
       return c.json({ verified: false, reason: "challenge_mismatch" }, 400);
     }
 
-    // Verify SNIP-12 signature using starknet.js v6
     try {
       const typedDataObj = {
         domain: { name: "Medialane", version: "1", chainId: "SN_MAIN", revision: "1" },
@@ -170,10 +147,7 @@ claims.post(
       };
 
       const isValid = await callRpc((provider) => {
-        // v10 moved signature verification off Account (which requires a real
-        // signer) onto the provider itself — no dummy Account needed to check
-        // a signature against an address that's just a claimant, not a signer
-        // we hold keys for.
+
         return provider.verifyMessageInStarknet(
           typedDataObj,
           [BigInt(signature.r).toString(), BigInt(signature.s).toString()],
@@ -209,8 +183,6 @@ claims.post(
   }
 );
 
-// ─── PATH 3: Manual off-chain request ────────────────────────────────────────
-
 claims.post(
   "/request",
   zValidator("json", z.object({
@@ -224,19 +196,16 @@ claims.post(
     const normContract = normalizeAddress("STARKNET", contractAddress);
     const normWallet = walletAddress ? normalizeAddress("STARKNET", walletAddress) : null;
 
-    // Rate limit: 10 requests per minute per account
     const accountId = c.get("account").id;
     if (!checkRateLimit(`request:${accountId}`)) {
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
-    // Dedup by email+contract — prevents spamming an email address with repeated requests
     const emailDup = await prisma.collectionClaim.findFirst({
       where: { contractAddress: normContract, claimantEmail: email, status: "PENDING" },
     });
     if (emailDup) return c.json({ claim: emailDup });
 
-    // Dedup for wallet-identified requests
     if (normWallet) {
       const existing = await prisma.collectionClaim.findFirst({
         where: { contractAddress: normContract, claimantAddress: normWallet, status: "PENDING" },

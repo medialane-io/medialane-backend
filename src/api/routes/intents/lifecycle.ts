@@ -1,11 +1,5 @@
-// Lifecycle routes — read + transition an existing intent's state.
-//   GET    /v1/intents/:id            — read (auto-expires PENDING past TTL on read)
-//   PATCH  /v1/intents/:id/signature  — submit signature, populate calldata
-//   POST   /v1/intents/:id/hydrate    — account-safe repair for confirmed marketplace txs
-//   PATCH  /v1/intents/:id/confirm    — submit tx hash; verifyAndSettle runs fire-and-forget
-//
-// Creation routes (POST /v1/intents/<type>) live in build.ts; settlement
-// + hydration helpers live in settle.ts.
+
+
 import type { Hono } from "hono";
 import { type Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../../db/client.js";
@@ -26,19 +20,17 @@ import {
 } from "./settle.js";
 
 export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
-  // GET /v1/intents/:id
+
   intents.get("/:id", async (c) => {
     const { id } = c.req.param();
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    // Account isolation: only the account that created the intent can read it
     const callerAccountId = c.get("account").id;
     if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
-    // Check expiry — updateMany with conditional to avoid race between concurrent requests
     if (intent.expiresAt < new Date() && intent.status === "PENDING") {
       const { count } = await prisma.transactionIntent.updateMany({
         where: { id, status: "PENDING" },
@@ -50,7 +42,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: intent });
   });
 
-  // PATCH /v1/intents/:id/signature — Submit signature
   intents.patch("/:id/signature", async (c) => {
     const { id } = c.req.param();
     const body = await c.req.json().catch(() => null);
@@ -63,7 +54,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    // Ownership check — accountId is set on all new intents; null means a pre-cutover intent
     const callerAccountId = c.get("account").id;
     if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
@@ -76,7 +66,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: `Intent is ${intent.status}` }, 409);
     }
 
-    // Populate calldata for the marketplace calls using the stored message + signature
     const populatedCalls = buildPopulatedCalls(
       intent.type,
       (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
@@ -93,7 +82,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: updated });
   });
 
-  // POST /v1/intents/:id/hydrate — account-safe repair for confirmed marketplace txs
   intents.post("/:id/hydrate", async (c) => {
     const { id } = c.req.param();
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
@@ -133,7 +121,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: { id, txHash: intent.txHash, orderHashes } });
   });
 
-  // PATCH /v1/intents/:id/confirm — submit tx hash; background verification settles status
   intents.patch("/:id/confirm", async (c) => {
     const { id } = c.req.param();
     const body = await c.req.json().catch(() => null);
@@ -147,7 +134,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    // Ownership check — accountId is set on all new intents; null means a pre-cutover intent
     const callerAccountId = c.get("account").id;
     if (intent.accountId && intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
@@ -157,7 +143,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: "Intent type does not require tx confirmation" }, 400);
     }
 
-    // Idempotent — already processing or settled
     if (intent.status === "SUBMITTED" || intent.status === "CONFIRMED" || intent.status === "FAILED") {
       return c.json({ data: intent });
     }
@@ -171,7 +156,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       data: { status: "SUBMITTED", txHash },
     });
 
-    // Fire-and-forget — client polls GET /:id for the terminal status
     verifyAndSettle(id, txHash).catch((err) => {
       log.error({ err, id, txHash }, "verifyAndSettle threw unexpectedly");
     });

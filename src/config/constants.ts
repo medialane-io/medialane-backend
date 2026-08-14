@@ -16,9 +16,6 @@ import {
 } from "@medialane/sdk";
 import { env } from "./env.js";
 
-// Per-chain coordinates. Contract addresses come from the SDK's chain-named
-// constants (single source — no env overrides); only the RPC URL is env. Only
-// STARKNET today; another chain adds an entry from its SDK constants.
 interface BackendChainCoords {
   rpcUrl: string;
   marketplace721: string;
@@ -43,8 +40,6 @@ export function chainCoords(chain: Chain): BackendChainCoords {
   return c;
 }
 
-// Contract addresses — the SDK's chain-named constants, re-exported so callers
-// import them from here. Single source; no local short aliases.
 export {
   STARKNET_MARKETPLACE_721_CONTRACT,
   STARKNET_MARKETPLACE_1155_CONTRACT,
@@ -59,13 +54,10 @@ export {
   STARKNET_IP_SPONSORSHIP_CONTRACT,
 };
 
-// Indexer starting block
 export const START_BLOCK = env.INDEXER_START_BLOCK;
-// Chain-named, single-sourced from the SDK (`chains.ts`) — no env var. The
-// registry's deploy block is a Starknet fact, so it carries the chain prefix.
+
 export const COLLECTION_721_START_BLOCK = STARKNET_COLLECTION_721_START_BLOCK;
 
-// Event selectors (computed once at startup)
 export const ORDER_CREATED_SELECTOR = hash.getSelectorFromName("OrderCreated");
 export const ORDER_FULFILLED_SELECTOR =
   hash.getSelectorFromName("OrderFulfilled");
@@ -74,7 +66,7 @@ export const ORDER_CANCELLED_SELECTOR =
 export const COUNTER_INCREMENTED_SELECTOR =
   hash.getSelectorFromName("CounterIncremented");
 export const TRANSFER_SELECTOR = hash.getSelectorFromName("Transfer");
-// ERC-1155 transfer event selectors
+
 export const TRANSFER_SINGLE_SELECTOR = hash.getSelectorFromName("TransferSingle");
 export const TRANSFER_BATCH_SELECTOR = hash.getSelectorFromName("TransferBatch");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
@@ -82,12 +74,11 @@ export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
-// Unrug.top memecoin factory — external (not a Medialane contract), so it stays env.
+
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 export const CLUB_DEPLOYED_SELECTOR = hash.getSelectorFromName("ClubDeployed");
 
-// IP Sponsorship v3 (single contract — registry + license collection)
 export const OFFER_CREATED_SELECTOR = hash.getSelectorFromName("OfferCreated");
 export const OFFER_STATUS_UPDATED_SELECTOR = hash.getSelectorFromName("OfferStatusUpdated");
 export const BID_PLACED_SELECTOR = hash.getSelectorFromName("BidPlaced");
@@ -98,43 +89,31 @@ export const PROPOSAL_CLOSED_SELECTOR = hash.getSelectorFromName("ProposalClosed
 export const PROPOSAL_ACCEPTED_SELECTOR = hash.getSelectorFromName("ProposalAccepted");
 export const LICENSE_MINTED_SELECTOR = hash.getSelectorFromName("LicenseMinted");
 
-// Token catalogue + lookup come from @medialane/sdk (single source of truth).
-// Re-exported here so internal callers keep their existing import path.
 export {
   SUPPORTED_TOKENS,
   getTokenByAddress,
   type SupportedToken,
 } from "@medialane/sdk";
 
-// MediaWallet account-contract events (multiowner_account/events.cairo) —
-// used by wallet-native activity sync, not the bulk protocol indexer.
 export const ACCOUNT_CREATED_GUID_SELECTOR = hash.getSelectorFromName("AccountCreatedGuid");
 export const GUARDIAN_ADDED_GUID_SELECTOR = hash.getSelectorFromName("GuardianAddedGuid");
 export const ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR = hash.getSelectorFromName("EscapeOwnerTriggeredGuid");
 export const OWNER_ESCAPED_GUID_SELECTOR = hash.getSelectorFromName("OwnerEscapedGuid");
 export const ESCAPE_CANCELED_SELECTOR = hash.getSelectorFromName("EscapeCanceled");
 
-// IPFS gateways (in priority order). ipfs.io leads — it's the fastest and
-// most consistently reachable of the three in practice. cloudflare-ipfs.com
-// was dropped: the domain no longer resolves (Cloudflare retired it), so it
-// only ever wasted a fetch slot before falling through. gateway.pinata.cloud
-// is the shared/free public Pinata gateway (not a dedicated one) and can take
-// several seconds under load, so it's kept as a fallback rather than primary.
 export const IPFS_GATEWAYS = [
   "https://ipfs.io/ipfs",
   `https://${env.PINATA_GATEWAY}/ipfs`,
   "https://dweb.link/ipfs",
 ];
 
-// Chain IDs. Medialane is mainnet-only (no network/Sepolia axis).
 export const CHAIN_IDS = {
-  mainnet: "0x534e5f4d41494e" as const, // SN_MAIN
+  mainnet: "0x534e5f4d41494e" as const,
 };
 
 export function getChainId(): string {
   return CHAIN_IDS.mainnet;
 }
 
-// Zero address
 export const ZERO_ADDRESS =
   "0x0000000000000000000000000000000000000000000000000000000000000000";

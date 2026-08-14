@@ -1,11 +1,6 @@
 import { normalizeAddress } from "../utils/starknet.js";
 import { env } from "../config/env.js";
 
-/**
- * Is `address` an admin? Off-chain allowlist (STARKNET_ADMIN_ADDRESSES, comma-separated)
- * today; the single seam to later swap for an on-chain role read. Only ever
- * reached AFTER the wallet signature is verified, so the allowlist is unforgeable.
- */
 export async function isAdmin(address: string): Promise<boolean> {
   const raw = env.STARKNET_ADMIN_ADDRESSES;
   if (!raw) return false;

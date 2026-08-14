@@ -14,7 +14,6 @@ import {
 
 const activities = new Hono();
 
-/** Feed item built from a Transfer row — "mint" when fromAddress is the zero address. */
 interface TransferActivityItem {
   type: "mint" | "transfer";
   chain: Chain;
@@ -28,7 +27,6 @@ interface TransferActivityItem {
   timestamp: Date;
 }
 
-/** Feed item built from an Order row. */
 interface OrderActivityItem {
   type: "sale" | "offer" | "listing" | "cancelled";
   chain: Chain;
@@ -49,29 +47,15 @@ function isTransferActivityItem(item: ActivityFeedItem): item is TransferActivit
   return item.type === "mint" || item.type === "transfer";
 }
 
-/** The (contract, tokenId) pair an activity item refers to — field names differ
- *  by which table the item came from (Transfer vs Order). */
 function activityItemToken(item: ActivityFeedItem): { contract: string | null; tokenId: string | null } {
   if (isTransferActivityItem(item)) return { contract: item.contractAddress, tokenId: item.tokenId };
   return { contract: item.nftContract, tokenId: item.nftTokenId };
 }
 
-/** Classify a Transfer row as "mint" (fromAddress is zero) or "transfer". */
 function transferType(fromAddress: string): "mint" | "transfer" {
   return fromAddress === ZERO_ADDRESS ? "mint" : "transfer";
 }
 
-/**
- * Fetch token name/image/animationUrl for a list of activity items (single
- * DB query). `animationUrl` matters beyond a nice-to-have: for living-render
- * collections (e.g. gol_starknet) the cached `image` is a point-in-time
- * snapshot of on-chain state that can legitimately be near-blank (most
- * cells dead at whatever generation the indexer last cached) — the frontend
- * needs `animationUrl` to render the live piece instead, exactly like
- * `tokens.ts`'s token-detail endpoint already does (`ActivityCard` was the
- * one surface still missing it, confirmed 2026-08-04 from a blank Discover
- * activity thumbnail for a gol_starknet token).
- */
 async function batchActivityTokenMeta(
   feed: ActivityFeedItem[]
 ): Promise<Map<string, { name: string | null; image: string | null; animationUrl: string | null }>> {
@@ -95,11 +79,6 @@ async function batchActivityTokenMeta(
   );
 }
 
-/**
- * Moderation filter shared by both activity feeds: contracts/tokens flagged
- * isHidden are excluded from results. Two cheap indexed findFirst probes skip
- * the full list fetch when nothing is hidden (the common case).
- */
 async function loadHiddenContentFilter(): Promise<{
   hiddenTokenSet: Set<string>;
   hiddenContractFilter: { notIn: string[] } | undefined;
@@ -134,14 +113,6 @@ async function loadHiddenContentFilter(): Promise<{
   };
 }
 
-/**
- * Pure where-clause builder for the GET / activity feed — no DB access, so
- * it's unit-testable without a database. An explicit `contract` (a
- * collection's own page asking for its own feed) always wins over the
- * global hidden-content filter — the collection page already shows its own
- * HiddenContentBanner when relevant, so hiding its activity too would be
- * confusing rather than protective.
- */
 export function buildActivityWhere(params: {
   chainFilter: { chain: Chain } | "all";
   type?: string;
@@ -178,7 +149,6 @@ export function buildActivityWhere(params: {
   return { transferWhere, orderWhere };
 }
 
-// GET /v1/activities
 activities.get("/", publicCache(15), async (c) => {
   const page = Number(c.req.query("page") ?? 1);
   const limit = Number(c.req.query("limit") ?? 20);
@@ -188,7 +158,6 @@ activities.get("/", publicCache(15), async (c) => {
 
   const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
 
-  // "mint" and "transfer" both come from the Transfer table; mints have fromAddress = ZERO_ADDRESS
   const wantTransfers = !type || type === "transfer" || type === "mint";
   const wantOrders = !type || ["sale", "listing", "offer", "cancelled"].includes(type);
 
@@ -221,109 +190,6 @@ activities.get("/", publicCache(15), async (c) => {
     wantOrders ? prisma.order.count({ where: orderWhere }) : 0,
   ]);
 
-  // Collect txHashes of sale orders so we can suppress the redundant Transfer
-  // row that the marketplace contract emits during a sale (same tx, misleading type).
-  const saleTxHashes = new Set(
-    orders
-      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
-      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
-  );
-
-  const rawFeed: ActivityFeedItem[] = [
-    ...transfers
-      .filter((t) => !saleTxHashes.has(t.txHash)) // suppress transfer rows that belong to a sale
-      .map((t): TransferActivityItem => ({
-        type: transferType(t.fromAddress),
-        chain: t.chain,
-        contractAddress: t.contractAddress,
-        tokenId: t.tokenId,
-        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
-        to: t.toAddress,
-        blockNumber: t.blockNumber.toString(),
-        amount: t.amount ?? "1",
-        txHash: t.txHash,
-        timestamp: t.createdAt,
-      })),
-    ...orders.map((o): OrderActivityItem => ({
-      type:
-        isOrderSale(o)
-          ? "sale"
-          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
-          ? "offer"
-          : o.status === "ACTIVE"
-          ? "listing"
-          : "cancelled",
-      chain: o.chain,
-      orderHash: o.orderHash,
-      nftContract: o.nftContract,
-      nftTokenId: o.nftTokenId,
-      offerer: o.offerer,
-      fulfiller: o.fulfiller,
-      price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
-      tokenStandard: o.offerItemType === "ERC20" ? o.considerationItemType : o.offerItemType,
-      txHash: o.createdTxHash,
-      timestamp: o.updatedAt,
-    })),
-  ]
-    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    .slice(0, limit);
-
-  const feed =
-    hiddenTokenSet.size > 0
-      ? rawFeed.filter((item) => {
-          const { contract, tokenId } = activityItemToken(item);
-          return !hiddenTokenSet.has(`${contract}:${tokenId}`);
-        })
-      : rawFeed;
-
-  // Enrich feed items with token name/image/animationUrl
-  const tokenMeta = await batchActivityTokenMeta(feed);
-  const enrichedFeed = feed.map((item) => {
-    const { contract, tokenId } = activityItemToken(item);
-    const meta = tokenMeta.get(`${contract}-${tokenId}`);
-    return { ...item, token: meta ? { name: meta.name, image: meta.image, animationUrl: meta.animationUrl } : null };
-  });
-
-  return c.json({ data: enrichedFeed, meta: { page, limit, total: transferCount + orderCount } });
-});
-
-// GET /v1/activities/:address
-activities.get("/:address", publicCache(15), async (c) => {
-  const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
-  const skip = (page - 1) * limit;
-  const addr = normalizeAddress(chain, address);
-
-  const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
-
-  const transferWhere: Prisma.TransferWhereInput = {
-    chain,
-    OR: [{ fromAddress: addr }, { toAddress: addr }],
-  };
-  if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
-
-  const orderWhere: Prisma.OrderWhereInput = { chain, OR: [{ offerer: addr }, { fulfiller: addr }] };
-  if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
-
-  const [transfers, orders] = await Promise.all([
-    prisma.transfer.findMany({
-      where: transferWhere,
-      orderBy: { blockNumber: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.order.findMany({
-      where: orderWhere,
-      orderBy: { updatedAt: "desc" },
-      skip,
-      take: limit,
-    }),
-  ]);
-
-  // Suppress transfer rows that are part of a sale
   const saleTxHashes = new Set(
     orders
       .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
@@ -377,7 +243,104 @@ activities.get("/:address", publicCache(15), async (c) => {
         })
       : rawFeed;
 
-  // Enrich feed items with token name/image/animationUrl
+  const tokenMeta = await batchActivityTokenMeta(feed);
+  const enrichedFeed = feed.map((item) => {
+    const { contract, tokenId } = activityItemToken(item);
+    const meta = tokenMeta.get(`${contract}-${tokenId}`);
+    return { ...item, token: meta ? { name: meta.name, image: meta.image, animationUrl: meta.animationUrl } : null };
+  });
+
+  return c.json({ data: enrichedFeed, meta: { page, limit, total: transferCount + orderCount } });
+});
+
+activities.get("/:address", publicCache(15), async (c) => {
+  const { address } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const page = Number(c.req.query("page") ?? 1);
+  const limit = Number(c.req.query("limit") ?? 20);
+  const skip = (page - 1) * limit;
+  const addr = normalizeAddress(chain, address);
+
+  const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
+
+  const transferWhere: Prisma.TransferWhereInput = {
+    chain,
+    OR: [{ fromAddress: addr }, { toAddress: addr }],
+  };
+  if (hiddenContractFilter) transferWhere.contractAddress = hiddenContractFilter;
+
+  const orderWhere: Prisma.OrderWhereInput = { chain, OR: [{ offerer: addr }, { fulfiller: addr }] };
+  if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
+
+  const [transfers, orders] = await Promise.all([
+    prisma.transfer.findMany({
+      where: transferWhere,
+      orderBy: { blockNumber: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.order.findMany({
+      where: orderWhere,
+      orderBy: { updatedAt: "desc" },
+      skip,
+      take: limit,
+    }),
+  ]);
+
+  const saleTxHashes = new Set(
+    orders
+      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
+      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
+  );
+
+  const rawFeed: ActivityFeedItem[] = [
+    ...transfers
+      .filter((t) => !saleTxHashes.has(t.txHash))
+      .map((t): TransferActivityItem => ({
+        type: transferType(t.fromAddress),
+        chain: t.chain,
+        contractAddress: t.contractAddress,
+        tokenId: t.tokenId,
+        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
+        to: t.toAddress,
+        blockNumber: t.blockNumber.toString(),
+        amount: t.amount ?? "1",
+        txHash: t.txHash,
+        timestamp: t.createdAt,
+      })),
+    ...orders.map((o): OrderActivityItem => ({
+      type:
+        isOrderSale(o)
+          ? "sale"
+          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
+          ? "offer"
+          : o.status === "ACTIVE"
+          ? "listing"
+          : "cancelled",
+      chain: o.chain,
+      orderHash: o.orderHash,
+      nftContract: o.nftContract,
+      nftTokenId: o.nftTokenId,
+      offerer: o.offerer,
+      fulfiller: o.fulfiller,
+      price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
+      tokenStandard: o.offerItemType === "ERC20" ? o.considerationItemType : o.offerItemType,
+      txHash: o.createdTxHash,
+      timestamp: o.updatedAt,
+    })),
+  ]
+    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+    .slice(0, limit);
+
+  const feed =
+    hiddenTokenSet.size > 0
+      ? rawFeed.filter((item) => {
+          const { contract, tokenId } = activityItemToken(item);
+          return !hiddenTokenSet.has(`${contract}:${tokenId}`);
+        })
+      : rawFeed;
+
   const tokenMeta = await batchActivityTokenMeta(feed);
   const enrichedFeed = feed.map((item) => {
     const { contract, tokenId } = activityItemToken(item);

@@ -12,12 +12,6 @@ const log = createLogger("solana-ingestor");
 const POLL_MS = Number(process.env.SOLANA_POLL_INTERVAL_MS ?? 20_000);
 const PAGE = 100;
 
-/**
- * Solana chain ingestor — pages `getSignaturesForAddress` over our two
- * programs (issuance + venue), decodes Anchor events from each transaction's
- * logs, and reduces them into the shared write paths. Cursor = the newest
- * processed signature (IndexerCursor.continuationToken). Deploy-gated.
- */
 export function makeSolanaIngestor(): ChainIngestor {
   return {
     chain: "SOLANA" as Chain,
@@ -57,8 +51,7 @@ async function rpc<T>(url: string, method: string, params: unknown[]): Promise<T
 }
 
 export async function pollProgram(rpcUrl: string, program: string): Promise<void> {
-  // Per-program signature cursors live as a JSON map in the chain's
-  // IndexerCursor.continuationToken (lastBlock carries the latest slot).
+
   const cursor = await prisma.indexerCursor.findUnique({ where: { chain: "SOLANA" } });
   const map: Record<string, string> = cursor?.continuationToken
     ? (JSON.parse(cursor.continuationToken) as Record<string, string>)
@@ -71,7 +64,6 @@ export async function pollProgram(rpcUrl: string, program: string): Promise<void
   ]);
   if (signatures.length === 0) return;
 
-  // Oldest-first so the cursor only advances past applied transactions.
   for (const { signature } of [...signatures].reverse()) {
     const tx = await rpc<{ meta?: { logMessages?: string[] }; slot?: number } | null>(
       rpcUrl,
@@ -113,8 +105,7 @@ export async function applyEvents(
         });
         break;
       case "AssetMinted":
-        // Core assets are their own accounts; the token row keys on the
-        // collection with the asset pubkey as the token id.
+
         await prisma.token.upsert({
           where: {
             chain_contractAddress_tokenId: {
@@ -160,7 +151,7 @@ export async function applyEvents(
         });
         break;
       case "CounterIncremented":
-        break; // informational; order invalidation is enforced on-chain at fill
+        break;
     }
   }
 }

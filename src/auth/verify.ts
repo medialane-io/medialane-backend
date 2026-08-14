@@ -4,18 +4,6 @@ import { createPublicClient, http } from "viem";
 import { getCoordinates } from "@medialane/sdk";
 import { env } from "../config/env.js";
 
-/**
- * Chain-dispatched wallet signature verification (spec 2026-06-13 §3.4).
- * Starknet (SNIP-12 / `is_valid_signature`) today; EVM (EIP-4361 / EIP-1271)
- * and Solana (ed25519) add a `case` here (litmus test) — no formal interface
- * until a second implementor exists.
- *
- * Returns a discriminated result so the caller maps reasons to HTTP codes:
- *   - `{ ok: true }`                    → issue a session token
- *   - `{ ok: false, reason: "invalid" }`      → 401
- *   - `{ ok: false, reason: "not_deployed" }` → 400 (counterfactual smart wallet)
- * Throws for unexpected RPC failures — the caller logs and returns 401.
- */
 export type VerifyResult =
   | { ok: true }
   | { ok: false; reason: "invalid" | "not_deployed" };
@@ -25,7 +13,7 @@ export async function verifyWalletSignature(args: {
   address: string;
   typedData: unknown;
   signature: string[];
-  /** EVM chains verify a plain EIP-191 message (sign-in-with-wallet). */
+
   message?: string;
 }): Promise<VerifyResult> {
   switch (args.chain) {
@@ -43,16 +31,6 @@ export async function verifyWalletSignature(args: {
   }
 }
 
-/**
- * Retries an is_valid_signature attempt on "Contract not found" before
- * concluding the wallet is genuinely undeployed. The deploy endpoint waits
- * for its transaction receipt before returning, but a receipt-confirmed
- * write and a moments-later `starknet_call` read can still land on
- * different, independently-lagging replicas behind the same RPC provider —
- * this closes that residual propagation gap without weakening the real
- * "genuinely not deployed" (counterfactual account) signal, which still
- * exists after retries are exhausted.
- */
 export async function verifyStarknetWithRetry(
   attempt: () => Promise<boolean>,
   opts: { retries?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
@@ -67,7 +45,7 @@ export async function verifyStarknetWithRetry(
       return isValid ? { ok: true } : { ok: false, reason: "invalid" };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("Contract not found")) throw err; // unexpected RPC error — caller logs + 401
+      if (!msg.includes("Contract not found")) throw err;
       if (i === retries) return { ok: false, reason: "not_deployed" };
       await sleep(delayMs);
     }
@@ -83,15 +61,12 @@ async function verifyStarknet(
   const normalizedSignature = signature.map((value) => BigInt(value).toString());
   return verifyStarknetWithRetry(() =>
     callRpc((provider) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       provider.verifyMessageInStarknet(typedData as any, normalizedSignature, address),
     ),
   );
 }
 
-
-/** EIP-191 personal-sign verification with EIP-1271 fallback for smart
- *  accounts — viem's client-level verifyMessage handles both. */
 async function verifyEvm(
   chain: Chain,
   address: string,
@@ -121,9 +96,6 @@ async function verifyEvm(
   }
 }
 
-
-/** Ed25519 verification of a plain sign-in message (Solana wallets sign raw
- *  bytes; the address IS the public key). Signature = base58 in signature[0]. */
 async function verifySolana(
   address: string,
   message: string,
@@ -144,9 +116,6 @@ async function verifySolana(
   }
 }
 
-
-/** Ed25519 verification for Stellar accounts — the G… strkey decodes to the
- *  public key; signature[0] is hex or base64. */
 async function verifyStellar(
   address: string,
   message: string,

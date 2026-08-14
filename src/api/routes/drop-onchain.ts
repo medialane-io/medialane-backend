@@ -1,10 +1,5 @@
-// Metered pass-through read for live DropCollection state (claim conditions,
-// total minted, max supply, allowlist/pause flags). The chain is the only
-// authority for current conditions/supply (architecture 01 §I) — a DB mirror
-// written fire-and-forget by the create flow (see dropClaimConditions in
-// drop.ts's /info route) can drift stale if that write ever fails. Rather
-// than accept a permanent client-side RPC bypass to work around that, this
-// does the same on-chain read server-side, credited, with a short cache.
+
+
 import { Hono } from "hono";
 import { Contract } from "starknet";
 import { DropCollectionABI } from "@medialane/sdk/starknet";
@@ -58,7 +53,6 @@ export function parseDropOnchainState(raw: {
 
 const drop = new Hono<AppEnv>();
 
-// 30s in-process micro-cache — same pattern as tickets-onchain.ts.
 drop.get("/:contract/state", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const col = new Contract({ abi: DropCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-// env preloaded via bunfig.toml → importing mdln.js (which loads utils/starknet
-// → env) is safe without mocks. We test only the pure tier function.
+
 import { multiplierForBalance } from "./mdln.js";
 
 describe("multiplierForBalance", () => {

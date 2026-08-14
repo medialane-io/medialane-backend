@@ -8,7 +8,7 @@ describe("isDue", () => {
   test("cadence source is due when interval elapsed", () => {
     expect(isDue(120000, 0, 120000)).toBe(true);
     expect(isDue(120000, 100000, 219999)).toBe(false);
-    expect(isDue(120000, undefined, 50)).toBe(true); // never polled → due
+    expect(isDue(120000, undefined, 50)).toBe(true);
   });
 });
 

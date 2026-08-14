@@ -10,7 +10,6 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("middleware:meter");
 const SCHEMES = [new StarknetUsdcScheme()];
 
-/** Injectable collaborators — tests pass stubs instead of mocking modules. */
 export interface MeterDeps {
   costForRequest: typeof defaultCostForRequest;
   debitCredits: typeof defaultDebitCredits;
@@ -18,11 +17,6 @@ export interface MeterDeps {
   settlePayment: typeof defaultSettlePayment;
 }
 
-/**
- * Pay-per-use metering. Placed AFTER apiKeyAuth on /v1/*. Resolves a credit cost
- * for the route (null = unmetered → skip), funds via X-PAYMENT if present, then
- * atomically debits. On insufficient funds returns 402 + x402 paymentRequirements.
- */
 export function meter(deps: MeterDeps = {
   costForRequest: defaultCostForRequest,
   debitCredits: defaultDebitCredits,
@@ -31,21 +25,15 @@ export function meter(deps: MeterDeps = {
 }): MiddlewareHandler<AppEnv> {
   const { costForRequest, debitCredits, refundCredits, settlePayment } = deps;
   return async (c, next) => {
-    // getBody is only invoked by costForRequest for service-aware actionKeys
-    // (mint/create-collection) — Hono caches c.req.json(), so the route
-    // handler's own parse below still works.
+
     const cost = await costForRequest(c.req.method, c.req.path, {
       getBody: () => c.req.json().catch(() => null),
     });
-    if (cost === null) return next(); // unmetered route
+    if (cost === null) return next();
 
     const apiClient = c.get("apiClient");
     if (!apiClient) return c.json({ error: "Unauthorized" }, 401);
 
-    // If the agent supplied a payment, settle it to top up their balance before
-    // debiting. A failed settlement (stale txHash, already credited, etc.) is
-    // non-fatal: we fall through and let debitCredits decide — an agent with a
-    // sufficient existing credit balance should not be blocked by a bad header.
     const header = c.req.header("x-payment");
     if (header) {
       const payload = decodePaymentHeader(header);
@@ -75,13 +63,9 @@ export function meter(deps: MeterDeps = {
       );
     }
 
-    c.header("X-Credits-Remaining", "deducted"); // exact remaining is read via /v1/portal/me
+    c.header("X-Credits-Remaining", "deducted");
     log.debug({ apiClient: apiClient.id, cost, path: c.req.path }, "metered");
 
-    // The debit above is a RESERVATION. Charge stands for a 2xx (work delivered)
-    // or a 4xx (caller's bad input). Refund only when WE failed the caller — an
-    // uncaught error, or a handler that returned 5xx — so our own faults never
-    // show up as a charge on a paying agent's ledger. See credits.refundCredits.
     try {
       await next();
     } catch (err) {

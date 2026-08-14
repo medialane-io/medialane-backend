@@ -13,16 +13,9 @@ import {
 const log = createLogger("routes:events");
 const events = new Hono();
 
-const SSE_MAX_DURATION_MS = 10 * 60 * 1000; // 10 minutes, then client reconnects
+const SSE_MAX_DURATION_MS = 10 * 60 * 1000;
 const SSE_KEEPALIVE_INTERVAL_MS = 15000;
 
-/**
- * Live protocol events over SSE. One shared poll loop (EventsBroadcaster)
- * feeds every connected client — a connection costs one catch-up query pair
- * up front, then zero DB work of its own. Event shapes are unchanged from the
- * old per-client poller: `transfer` + `order.created|fulfilled|cancelled`
- * (serialized order rows), `ping` keepalive, `reconnect` on max duration.
- */
 events.get("/", async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
@@ -44,9 +37,7 @@ events.get("/", async (c) => {
     });
 
     try {
-      // One-time catch-up so reconnects (Last-Event-ID) miss nothing. New
-      // rows arrive via the broadcaster; a rare overlap between the two is a
-      // duplicate event, which SSE consumers already tolerate on reconnect.
+
       const since = lastEventId ? new Date(lastEventId) : new Date(Date.now() - 30_000);
       const [transfers, orders] = await Promise.all([
         prisma.transfer.findMany({
@@ -74,7 +65,7 @@ events.get("/", async (c) => {
         }
 
         if (queue.length === 0) {
-          // Wait for the next broadcast or the keepalive deadline.
+
           await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, SSE_KEEPALIVE_INTERVAL_MS);
             notify = () => {

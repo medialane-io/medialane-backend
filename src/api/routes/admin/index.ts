@@ -36,15 +36,10 @@ import { registerPricingRoutes } from "./pricing.js";
 const log = createLogger("routes:admin");
 const admin = new Hono();
 
-// Simple IP-based rate limiter for admin routes (20 req/min per IP)
 const adminRateLimitStore = new InMemoryRateLimitStore();
 const ADMIN_RATE_LIMIT = 20;
 const ADMIN_WINDOW_MS = 60_000;
 
-// All admin routes require admin auth + IP-based rate limit. adminAuth accepts
-// EITHER signed-request auth (x-ml-admin-* headers; browsers/agents) OR the
-// master key / scoped PORTAL_SERVICE_SECRET (CLI/scripts; the latter only on
-// /admin/accounts/*). Server-to-server callers are unchanged.
 admin.use("*", adminAuth);
 admin.use("*", async (c, next) => {
   const ip = getClientIp(c);
@@ -56,7 +51,6 @@ admin.use("*", async (c, next) => {
   await next();
 });
 
-// Domain route registrars — same `admin` instance, original registration order.
 registerAccountRoutes(admin);
 registerApiClientRoutes(admin);
 registerCollectionRoutes(admin);

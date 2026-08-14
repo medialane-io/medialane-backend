@@ -16,10 +16,6 @@ import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 
 const users = new Hono<AppEnv>();
 
-// walletType is a free-form wallet-software label on the wallet Identity — no longer
-// a closed enum (the WalletType enum was dropped in the identity unification, 07 §II,
-// permissionless). We accept any short string and lowercase it into Identity.provider;
-// the platform never gates on it. Apps may send "braavos"/"ready"/"mediawallet"/… (any case).
 const walletTypeSchema = z.string().max(64);
 const appSourceEnum = z.enum(APP_SOURCE_INPUT);
 const chainEnum = z.nativeEnum(Chain);
@@ -39,41 +35,21 @@ const registerBodySchema = z.object({
 const meBodySchema = z.object({
   walletType: walletTypeSchema.optional(),
   appSource: appSourceEnum.optional(),
-  // 07-identity §I: the Wallet identifier is (chain, address). Accepting
-  // `chain` from the client lets callers explicitly assert the chain
-  // they're registering — currently always STARKNET, but locking the
-  // shape in v1 is what keeps the year-2 multichain path unblocked.
-  // Optional and defaults to STARKNET so older clients keep working.
+
   chain: chainEnum.optional(),
-  // Collected at signup, unverified. Additive only — never blocks
-  // registration, never overwrites an existing Identity row (whether it
-  // already belongs to this account or a different one). Verification
-  // happens later, opt-in, from settings (see emailVerificationToken).
+
   email: z.string().email().optional(),
-  // Proves the caller's email was verified moments ago via a one-time code
-  // (io's /wallet-onboarding flow). Additive only — missing/expired/invalid
-  // never blocks registration (email is a label, never a gate; 07 §II).
+
   emailVerificationToken: z.string().optional(),
-  // Proves this wallet is being deployed for an account that already
-  // exists (created at the email step — account-first onboarding, design
-  // spec 2026-08-07). Additive only — missing/expired/invalid never blocks
-  // registration; ensureAccountForWallet just falls back to its existing
-  // wallet-address-first lookup, exactly as if this field were absent.
+
   accountToken: z.string().optional(),
 });
 
 const generateWalletBodySchema = z.object({
-  // A full SIWS token for the newly-deployed wallet — proves the caller
-  // controls it, reusing the exact same verification siws.ts's own
-  // /verify route already produces tokens for. No new crypto needed.
+
   newWalletSiwsToken: z.string(),
 });
 
-/**
- * POST /v1/users/register
- * Frictionless registration — authenticated by tenant API key.
- * Address provided in body. Idempotent: returns existing Account if already known.
- */
 users.post(
   "/register",
   zValidator("json", registerBodySchema),
@@ -112,10 +88,6 @@ users.post(
   }
 );
 
-/**
- * POST /v1/users/me
- * Upsert the SIWS-authenticated caller's account.
- */
 users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const raw = await c.req.json<unknown>().catch(() => ({}));
@@ -127,11 +99,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const appSource = normalizeAppSource(parsed.data.appSource ?? "MEDIALANE_IO");
   const chain: Chain = parsed.data.chain ?? "STARKNET";
 
-  // identityAuth only issues tokens for Starknet wallets in v1 (SIWS proves
-  // a Starknet signature). Accepting a non-STARKNET chain from the body
-  // would mis-register a Starknet-derived address under another chain.
-  // When SIWE / SIWB land and identityAuth issues tokens for other chains,
-  // this guard relaxes.
   if (chain !== "STARKNET") {
     return c.json({
       error: "Only STARKNET is supported on /v1/users/me in v1 — cross-chain registration arrives with SIWE/SIWB",
@@ -167,9 +134,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
         },
       });
     }
-    // Already attached (to this account or a different one) — leave it
-    // exactly as-is. Never downgrade a verified email, never reassign
-    // someone else's.
+
   }
 
   if (parsed.data.emailVerificationToken) {
@@ -188,20 +153,12 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
         update: { verifiedAt: new Date() },
       });
     }
-    // Invalid/expired token: silently skip. Email is additive, never a gate
-    // (07-identity-model.md §II) — registration must not fail on it.
+
   }
 
   return c.json({ walletAddress });
 });
 
-/**
- * POST /v1/users/me/generate-wallet
- * Attach a new wallet to the caller's existing account, making it primary.
- * Manual fix for the rare "someone else finished wallet setup on an
- * account keyed to my email before I did" edge case (design spec §4.6/§6)
- * — not automatic detection, a deliberate user action from settings.
- */
 users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const raw = await c.req.json<unknown>().catch(() => ({}));
@@ -244,10 +201,6 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   return c.json({ walletAddress: newAddress });
 });
 
-/**
- * GET /v1/users/me
- * Return the JWT-authenticated caller's account info, or 404.
- */
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const identity = await prisma.identity.findUnique({
@@ -271,14 +224,6 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   });
 });
 
-/**
- * GET /v1/users/count
- * Returns account count with optional filters.
- * Auth: tenant API key. Used for Starknet Foundation grant reporting.
- *
- * Filters all delegate to Identity (chain, provider, appSource) — an Account
- * with any matching Identity is counted once, regardless of how many it has.
- */
 users.get(
   "/count",
   async (c) => {

@@ -1,6 +1,5 @@
-// Background settlement + hydration helpers. Not Hono routes — invoked by
-// the lifecycle handlers (`PATCH /:id/confirm` fires verifyAndSettle;
-// `POST /:id/hydrate` calls the hydrate* helpers directly).
+
+
 import { num } from "starknet";
 import type { Hono } from "hono";
 import prisma from "../../../db/client.js";
@@ -28,15 +27,8 @@ import {
   isNftTransferEvent,
 } from "./_shared.js";
 
-// Hono unused import suppression — kept here so future settle-side route
-// additions can grow this file without re-importing.
 export type _HonoMarker = Hono;
 
-/** Background: verify tx receipt and settle intent to CONFIRMED or FAILED.
- *  For FULFILL_ORDER and CANCEL_ORDER intents, also syncs the order status in DB
- *  so the UI reflects the correct state before the indexer catches up (~6s delay).
- *  On cancel failure, checks on-chain status: if the order is already Cancelled
- *  on-chain (stale DB), syncs DB to CANCELLED so the listing disappears immediately. */
 export async function verifyAndSettle(intentId: string, txHash: string): Promise<void> {
   const intent = await prisma.transactionIntent.findUnique({
     where: { id: intentId },
@@ -46,9 +38,6 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
     ? await verifyMarketplaceTx(txHash)
     : await verifyTransactionSucceeded(txHash);
 
-  // Map intent types to the order status they should settle to.
-  // Both branches do an atomic (intent + order) update so the UI reflects
-  // the correct state before the indexer catches up.
   const ORDER_SETTLE_STATUS = {
     CANCEL_ORDER: "CANCELLED",
   } as const;
@@ -91,7 +80,7 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
         }),
       ]);
     } else if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
-      // Atomic: confirm intent + mark order CANCELLED immediately (don't wait for indexer)
+
       await prisma.$transaction([
         prisma.transactionIntent.update({
           where: { id: intentId },
@@ -116,8 +105,6 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
     });
     log.warn({ intentId, txHash, reason: verifyResult.failReason }, "Intent FAILED");
 
-    // On cancel failure: the inner cancel_order call panicked — most likely because
-    // the order was already cancelled on-chain (DB is stale). Check on-chain and sync.
     if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
       const order = await prisma.order.findUnique({
         where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },

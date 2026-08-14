@@ -1,16 +1,5 @@
-// POST /v1/intents/<type> — the intent creation endpoints. Each one:
-//   1. Validates the body against its schema (from _shared.ts).
-//   2. Calls into orchestrator/intent.ts to build typedData + calldata.
-//   3. Persists a TransactionIntent row scoped to the caller's Account.
-//
-// Most routes are this shape exactly, differing only in schema/builder/type/
-// which field holds the requester address/whether SNIP-12 signing is needed
-// — those are registered via registerIntentRoute() below. A few routes carry
-// real extra logic (DB validation, custom typedData, batching) and stay
-// hand-written: offer, counter-offer, create-collection, checkout.
-//
-// Lifecycle (GET/PATCH/POST on /:id) lives in lifecycle.ts; background
-// verification + hydration lives in settle.ts.
+
+
 import type { Hono } from "hono";
 import type { Context } from "hono";
 import { type Prisma as PrismaTypes, type IntentType } from "@prisma/client";
@@ -73,20 +62,15 @@ interface IntentRouteConfig<T> {
   path: string;
   schema: ZodType<T, any, any>;
   type: IntentType;
-  /** Body field holding the address that becomes TransactionIntent.requester. */
+
   requesterField: keyof T & string;
   build: (body: T) => Promise<{ typedData?: unknown; calls: unknown }>;
-  /** true: PENDING row, real typedData, client must sign (SNIP-12).
-   *  false: SIGNED row, typedData {}, calls are already fully populated. */
+
   requiresSignature: boolean;
-  /** Body field holding an existing order's hash — stored on the row, and
-   *  guarded: if the caller omitted tokenStandard, the order must already be
-   *  indexed (otherwise we can't tell ERC-721 from ERC-1155 routing). */
+
   orderHashField?: keyof T & string;
 }
 
-/** Registers the common "validate → build → persist → respond" shape shared
- *  by most /v1/intents/* routes. See the file header for what stays hand-written. */
 function registerIntentRoute<T>(
   intents: Hono<AppEnv>,
   cfg: IntentRouteConfig<T>
@@ -290,9 +274,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     requiresSignature: false,
   });
 
-  // POST /v1/intents/offer — kept hand-written: the tokenStandard-omitted
-  // case is a warn-and-continue (routing determined later by DB lookup),
-  // not a guard, so it doesn't fit registerIntentRoute's hard-guard shape.
   intents.post("/offer", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = offerSchema.safeParse(body);
@@ -326,7 +307,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  // POST /v1/intents/counter-offer
   intents.post("/counter-offer", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = counterOfferSchema.safeParse(body);
@@ -337,7 +317,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed.data;
     const normalizedSeller = normalizeAddress("STARKNET", sellerAddress);
 
-    // 1. Validate original order: must be active + a bid (ERC20 offer)
     const originalOrder = await prisma.order.findFirst({
       where: {
         chain: "STARKNET",
@@ -350,18 +329,16 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: "Original order not found or not active" }, 400);
     }
 
-    // Counter-offer only supported for ERC-721 orders — ERC-1155 uses a different contract and domain.
     if (originalOrder.considerationItemType === "ERC1155") {
       return c.json({ error: "Counter-offer is not supported for ERC-1155 orders" }, 400);
     }
 
-    // 2. Validate seller owns the NFT (considerationRecipient on a bid = NFT owner)
     if (normalizedSeller !== normalizeAddress("STARKNET", originalOrder.considerationRecipient)) {
       return c.json({ error: "sellerAddress does not match order recipient" }, 400);
     }
 
     try {
-      // Currency is derived server-side from the original bid — never trusted from client
+
       const { typedData, calls } = await buildCounterOfferIntent({
         sellerAddress:   normalizedSeller,
         nftContract:     originalOrder.considerationToken,
@@ -373,9 +350,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
       const ttl = expiresAt();
 
-      // Atomic: re-check for existing counter INSIDE the transaction to close the TOCTOU
-      // window. Two concurrent requests both passing the outer check could previously
-      // both succeed and create duplicate counter-offer intents for the same bid.
       const intent = await prisma.$transaction(async (tx) => {
         const existingCounter = await tx.order.findFirst({
           where: { chain: "STARKNET", parentOrderHash: originalOrderHash, status: "ACTIVE" },
@@ -399,13 +373,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           },
         });
 
-        // The parent bid stays `status: ACTIVE`. Its "has been countered"
-        // affordance is computed at read time via `hasActiveCounterOffer`
-        // (serialize.ts:counterOfferFlags). Counter-offers are linked orders,
-        // not a third lifecycle state on the parent — 01-core-model §V.
-        // Removed the legacy `tx.order.update({ status: "COUNTER_OFFERED" })`
-        // write on 2026-05-25 (audit P0-1 Phase B).
-
         return created;
       });
 
@@ -419,9 +386,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  // POST /v1/intents/create-collection — kept hand-written: typedData stores
-  // name/description/image (not the builder's typedData) so
-  // COLLECTION_METADATA_FETCH can recover them.
   intents.post("/create-collection", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = createCollectionSchema.safeParse(body);
@@ -461,7 +425,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  // POST /v1/intents/checkout — batch fulfill order intents
   intents.post("/checkout", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = checkoutBodySchema.safeParse(body);
@@ -474,18 +437,12 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     const normalizedFulfiller = normalizeAddress("STARKNET", fulfiller);
     const accountId = c.get("account").id;
 
-    // 1) Batch existence check — one query instead of N findFirst calls. Guard:
-    //    if the order isn't indexed yet we cannot safely determine ERC721 vs
-    //    ERC1155 routing and would silently submit ERC1155 orders to the
-    //    ERC721 contract.
     const indexed = await prisma.order.findMany({
       where: { chain: "STARKNET", orderHash: { in: orderHashes } },
       select: { orderHash: true },
     });
     const indexedSet = new Set(indexed.map((o) => o.orderHash));
 
-    // 2) Build typed data + calls in parallel. Build failures land in `results`
-    //    as per-order errors without aborting the batch.
     type Built =
       | { ok: true; orderHash: string; calls: unknown }
       | { ok: false; orderHash: string; error: string };
@@ -515,8 +472,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       })
     );
 
-    // 3) Bulk-insert successful builds in one round trip via createManyAndReturn
-    //    (Prisma 5.14+), preserving generated ids so we can echo them back.
     const successful = builds.filter((b): b is Extract<Built, { ok: true }> => b.ok);
     const insertedIntents = successful.length
       ? await prisma.transactionIntent.createManyAndReturn({
@@ -534,9 +489,6 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         })
       : [];
 
-    // 4) Assemble response in input order. createManyAndReturn preserves the
-    //    input order on Postgres but we look up by orderHash anyway to be
-    //    defensive.
     const idByHash = new Map(insertedIntents.map((row) => [row.orderHash, row.id]));
     const builtByHash = new Map(successful.map((b) => [b.orderHash, b]));
     const results = builds.map((b) => {

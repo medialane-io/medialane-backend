@@ -23,12 +23,9 @@ const log = createLogger("routes:collections");
 
 const collections = new Hono();
 
-// Valid sort values for GET /v1/collections
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-
-// GET /v1/collections
 collections.get("/", publicCache(30), async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
@@ -46,13 +43,6 @@ collections.get("/", publicCache(30), async (c) => {
 
   const skip = (page - 1) * limit;
 
-  // floor and volume are numeric-only String? columns (currency lives in
-  // floorCurrency/volumeCurrency) — sorted with a ::numeric cast via raw SQL.
-  // Cross-currency semantics: values in different currencies are not
-  // comparable without an oracle (deliberately no new infra), so the sort
-  // GROUPS by currency — canonical USDC first, then the rest — and orders
-  // correctly within each group. Full USD normalization is a future product
-  // decision (audit #12).
   if (sort === "floor" || sort === "volume") {
     const conditions: Prisma.Sql[] = [Prisma.sql`"isHidden" = false`];
     if (chainFilter !== "all") conditions.push(Prisma.sql`chain = ${chainFilter.chain}::"Chain"`);
@@ -64,8 +54,7 @@ collections.get("/", publicCache(30), async (c) => {
     }
     if (service)   conditions.push(Prisma.sql`service = ${service}`);
     if (standardFilter) {
-      // $queryRaw sends params as text; TokenStandard is an enum — cast each value
-      // explicitly or Postgres errors "operator does not exist: TokenStandard = text".
+
       const casted = standardFilter.map((s) => Prisma.sql`${s}::"TokenStandard"`);
       conditions.push(Prisma.sql`standard IN (${Prisma.join(casted)})`);
     }
@@ -94,7 +83,6 @@ collections.get("/", publicCache(30), async (c) => {
     });
   }
 
-  // ORM path for recent / supply / name
   const where: any = { ...chainWhere(chainFilter), isHidden: false };
   if (isFeatured === "true")  where.isFeatured = true;
   if (isFeatured === "false") where.isFeatured = false;
@@ -109,7 +97,7 @@ collections.get("/", publicCache(30), async (c) => {
   const orderBy =
     sort === "supply" ? { totalSupply: "desc" as const } :
     sort === "name"   ? { name: "asc"  as const }        :
-                        { createdAt: "desc" as const };  // "recent" — new default
+                        { createdAt: "desc" as const };
 
   const [data, total] = await Promise.all([
     prisma.collection.findMany({
@@ -119,8 +107,7 @@ collections.get("/", publicCache(30), async (c) => {
       take: limit,
       include: {
         profile: {
-          // image/displayName/description: platform-layer identity (coin launch
-          // studio uploads) — list consumers (CoinCard) fall back to profile.image.
+
           select: { hasGatedContent: true, gatedContentTitle: true, slug: true, image: true, displayName: true, description: true },
         },
       },
@@ -131,7 +118,6 @@ collections.get("/", publicCache(30), async (c) => {
   return c.json({ data: data.map(serializeCollection), meta: { page, limit, total } });
 });
 
-// GET /v1/collections/by-slug/:slug — resolve a vanity slug to a full collection
 collections.get("/by-slug/:slug", publicCache(60), async (c) => {
   const slug = c.req.param("slug").toLowerCase().trim();
 
@@ -142,11 +128,6 @@ collections.get("/by-slug/:slug", publicCache(60), async (c) => {
 
   if (!profile) return c.json({ error: "Collection not found" }, 404);
 
-  // SECURITY: gatedContentUrl + gatedContentType are holder-only; fetch
-  // them via GET /v1/collections/:contract/gated-content (which verifies
-  // on-chain token ownership). They MUST NOT appear in the public
-  // by-slug response. Whitelist-by-select makes "did I leak it" a
-  // grep on this query rather than a runtime audit.
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: profile.chain, contractAddress: profile.contractAddress } },
     include: {
@@ -179,7 +160,6 @@ collections.get("/by-slug/:slug", publicCache(60), async (c) => {
   return c.json({ data: { ...serializeCollection(col), profile: col.profile } });
 });
 
-// GET /v1/collections/:contract
 collections.get("/:contract", publicCache(30), async (c) => {
   const { contract } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
@@ -195,8 +175,7 @@ collections.get("/:contract", publicCache(30), async (c) => {
   if (include === "profile") {
     const profile = (col as any).profile ?? null;
     if (profile) {
-      // gatedContentUrl and gatedContentType are only returned to verified
-      // token holders via GET /v1/collections/:contract/gated-content
+
       const { gatedContentUrl: _url, gatedContentType: _type, ...safeProfile } = profile;
       profileData = safeProfile;
     }
@@ -210,7 +189,6 @@ collections.get("/:contract", publicCache(30), async (c) => {
   });
 });
 
-// GET /v1/collections/:contract/tokens
 collections.get("/:contract/tokens", publicCache(30), async (c) => {
   const { contract } = c.req.param();
   const page = Number(c.req.query("page") ?? 1);
@@ -244,9 +222,6 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
 
   const skip = (page - 1) * limit;
 
-  // "price" needs a per-token cheapest-active-listing lookup — not a plain
-  // column, so it goes through raw SQL (same ::numeric NULLS LAST convention
-  // as /v1/orders' price_asc). Every other sort stays on the ORM path.
   if (sort === "price") {
     const [data, total] = await Promise.all([
       prisma.$queryRaw<RawTokenRow[]>`
@@ -305,10 +280,6 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
   });
 });
 
-// Per-token current holders — without this the collection list returned
-// balances:null, so clients couldn't tell which tokens the viewer owns
-// (every card showed Buy/Offer, even to the owner). One indexed batch query,
-// shared by every sort branch of GET /v1/collections/:contract/tokens.
 async function batchTokenBalances(chain: import("@prisma/client").Chain, contractAddress: string, tokenIds: string[]) {
   const balanceRows = tokenIds.length
     ? await prisma.tokenBalance.findMany({
@@ -330,11 +301,6 @@ async function batchTokenBalances(chain: import("@prisma/client").Chain, contrac
   return balancesByToken;
 }
 
-
-
-
-// Write paths (sync-tx / register / admin create) live in collections-sync.ts —
-// same router, registrar pattern (split 2026-07-11, audit follow-up #8).
 registerCollectionSyncRoutes(collections);
 
 export default collections;

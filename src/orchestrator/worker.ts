@@ -47,7 +47,6 @@ class InMemoryWorker {
     if (!this.running) this.drain();
   }
 
-  /** Wait for the in-flight job and queue to empty, or until timeoutMs elapses. */
   async waitDrain(timeoutMs: number): Promise<void> {
     if (!this.running && this.queue.length === 0) return;
     return new Promise<void>((resolve) => {
@@ -67,12 +66,7 @@ class InMemoryWorker {
     while (this.queue.length > 0) {
       const entry = this.queue.shift()!;
       const k = this.key(entry.item);
-      // The key stays in pendingKeys for the item's entire lifetime — queued,
-      // actively processing, and retrying — only cleared on final success or
-      // exhausted retries. Clearing it the moment the item is shifted (the
-      // previous behavior) left a gap where an enqueue() racing a still-
-      // in-flight job of the same key would wrongly be accepted as new,
-      // silently double-processing it.
+
       try {
         await this.process(entry.item);
         this.pendingKeys.delete(k);

@@ -7,11 +7,6 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
-// Tenant-key auth (auth, FREE-tier quota, x402 metering) is applied globally
-// on /v1/* by apiKeyGate (src/api/middleware/apiKeyGate.ts), mounted before
-// this router in server.ts — no per-route wiring needed here. `GET /:id` is
-// tenant-gated too (the SDK always sends x-api-key there); only its SIWS
-// participant check is optional.
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
 import { createLogger } from "../../utils/logger.js";
@@ -23,10 +18,7 @@ const remixOffers = new Hono<AppEnv>();
 import { createSlidingWindow } from "../../utils/slidingWindow.js";
 import { verifyTransactionSucceeded, fetchReceiptEvents } from "../../utils/txVerifier.js";
 
-// 20 offer creations per 60s per wallet
 const checkOfferRateLimit = createSlidingWindow(20, 60_000);
-
-// ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const createOfferSchema = z.object({
   originalContract: z.string().min(1),
@@ -72,8 +64,6 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 type TokenAttr = { trait_type: string; value: string };
 
 type OpenLicenseTerms = {
@@ -91,10 +81,6 @@ type OpenLicenseResult =
 
 const OPEN_LICENSES = ["CC0", "CC BY", "CC BY-SA", "CC BY-NC"] as const;
 
-/**
- * Resolve remix license terms from a token's IPFS attributes.
- * Returns either the parsed terms or a structured error ready to forward as a response.
- */
 function resolveOpenLicenseTerms(attrs: TokenAttr[]): OpenLicenseResult {
   const licenseAttr = attrs.find((a) => a.trait_type === "License");
   if (!licenseAttr || !(OPEN_LICENSES as readonly string[]).includes(licenseAttr.value)) {
@@ -135,7 +121,6 @@ function resolveOpenLicenseTerms(attrs: TokenAttr[]): OpenLicenseResult {
   };
 }
 
-/** Parse "License Price" attribute format: "<amount> <SYMBOL>" → { price, currencyAddress } */
 function parseLicensePrice(value: string): { price: string; currencyAddress: string } | null {
   const parts = value.trim().split(/\s+/);
   if (parts.length !== 2) return null;
@@ -144,28 +129,17 @@ function parseLicensePrice(value: string): { price: string; currencyAddress: str
     (t) => t.symbol.toUpperCase() === symbol.toUpperCase()
   );
   if (!token || isNaN(parseFloat(amount))) return null;
-  // Convert human-readable amount to raw wei
+
   const raw = BigInt(Math.round(parseFloat(amount) * 10 ** token.decimals)).toString();
   return { price: raw, currencyAddress: token.address };
 }
 
-/**
- * Duplicate-offer guard for POST / and POST /auto: both create inside a
- * $transaction that re-checks for an existing active offer, throwing this
- * typed error to short-circuit the transaction and be caught by the caller.
- */
 class DuplicateOfferError extends Error {
   constructor() {
     super("Active offer already exists");
   }
 }
 
-/**
- * Shared preamble for the /:id/confirm, /:id/reject, /:id/extend actions:
- * load the offer, 404 if missing, 403 if the caller isn't the authorized
- * party, 409 if its status isn't actionable. Each route's own logic (the
- * actual update) starts once this returns ok.
- */
 async function loadActionableOffer(
   id: string,
   walletAddress: string,
@@ -184,7 +158,6 @@ async function loadActionableOffer(
   return { ok: true, offer };
 }
 
-/** Serialise a RemixOffer for API response — no sensitive fields for non-participants. */
 function serializeOffer(offer: RemixOffer, callerWallet?: string) {
   const isParticipant =
     !callerWallet ||
@@ -226,9 +199,6 @@ function serializeOffer(offer: RemixOffer, callerWallet?: string) {
   };
 }
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
-
-/** POST /v1/remix-offers — submit a custom license offer */
 remixOffers.post(
   "/",
 
@@ -245,7 +215,6 @@ remixOffers.post(
     const originalContract = normalizeAddress("STARKNET", body.originalContract);
     const originalTokenId = body.originalTokenId;
 
-    // Look up current holder via TokenBalance
     const tokenExists = await prisma.token.findFirst({
       where: { contractAddress: originalContract, tokenId: originalTokenId },
       select: { id: true },
@@ -259,14 +228,12 @@ remixOffers.post(
     const creatorAddress = holderBalance ? normalizeAddress("STARKNET", holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
 
-    // Owner cannot offer on their own token
     if (requesterAddress === creatorAddress) {
       return c.json({ error: "Use the self-remix endpoint for your own tokens" }, 400);
     }
 
     const expiresAt = new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000);
 
-    // Dedup + create inside a transaction to prevent race-condition duplicates (F-04)
     let offer;
     try {
       offer = await prisma.$transaction(async (tx) => {
@@ -307,7 +274,6 @@ remixOffers.post(
   }
 );
 
-/** POST /v1/remix-offers/auto — instant offer for open-license assets */
 remixOffers.post(
   "/auto",
 
@@ -349,7 +315,7 @@ remixOffers.post(
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
     }
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days default
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     let offer;
     try {
@@ -390,7 +356,6 @@ remixOffers.post(
   }
 );
 
-/** POST /v1/remix-offers/self/confirm — record completed owner self-remix */
 remixOffers.post(
   "/self/confirm",
 
@@ -403,13 +368,12 @@ remixOffers.post(
     const originalContract = normalizeAddress("STARKNET", body.originalContract);
     const originalTokenId = body.originalTokenId;
 
-    // Verify caller owns the original token
     const holderBalance = await prisma.tokenBalance.findFirst({
       where: { contractAddress: originalContract, tokenId: originalTokenId, owner: walletAddress, amount: { not: "0" } },
       select: { id: true },
     });
     if (!holderBalance) {
-      // Distinguish between token not indexed and not owned
+
       const tokenExists = await prisma.token.findFirst({
         where: { contractAddress: originalContract, tokenId: originalTokenId },
         select: { id: true },
@@ -418,10 +382,6 @@ remixOffers.post(
       return c.json({ error: "You do not own this token" }, 403);
     }
 
-    // The claimed mint must exist on-chain: same trust posture as intents
-    // (txVerifier), not a bare self-assertion. The receipt must have
-    // SUCCEEDED and contain at least one event emitted by the claimed remix
-    // contract — otherwise anyone could record arbitrary "remixes".
     const remixContract = normalizeAddress("STARKNET", body.remixContract);
     const verified = await verifyTransactionSucceeded(body.txHash);
     if (verified.status !== "CONFIRMED") {
@@ -447,7 +407,7 @@ remixOffers.post(
         royaltyPct: body.royaltyPct,
         remixContract,
         remixTokenId: body.remixTokenId,
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year sentinel
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       },
     });
 
@@ -456,7 +416,6 @@ remixOffers.post(
   }
 );
 
-/** POST /v1/remix-offers/:id/confirm — record completed mint + listing (Paths 2 & 3) */
 remixOffers.post(
   "/:id/confirm",
 
@@ -486,7 +445,6 @@ remixOffers.post(
   }
 );
 
-/** POST /v1/remix-offers/:id/reject */
 remixOffers.post(
   "/:id/reject",
 
@@ -508,7 +466,6 @@ remixOffers.post(
   }
 );
 
-/** POST /v1/remix-offers/:id/extend — requester extends expiry of a pending offer */
 remixOffers.post(
   "/:id/extend",
 
@@ -544,7 +501,6 @@ remixOffers.post(
   }
 );
 
-/** GET /v1/remix-offers — list offers for authenticated user */
 remixOffers.get(
   "/",
 
@@ -576,19 +532,18 @@ remixOffers.get(
   }
 );
 
-/** GET /v1/remix-offers/:id — single offer, public */
 remixOffers.get("/:id", async (c) => {
   const { id } = c.req.param();
-  // Try to resolve caller if a SIWS token is present (for participant check)
+
   let callerWallet: string | undefined;
   try {
     const authHeader = c.req.header("Authorization");
     if (authHeader?.startsWith("Bearer ")) {
-      // Soft-resolve — ignore errors for unauthenticated callers
+
       await identityAuth(c, async () => {});
       callerWallet = c.get("walletAddress") as string | undefined;
     }
-  } catch { /* not authenticated — show public fields only */ }
+  } catch {  }
 
   const offer = await prisma.remixOffer.findUnique({ where: { id } });
   if (!offer) return c.json({ error: "Offer not found" }, 404);

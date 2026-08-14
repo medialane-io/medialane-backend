@@ -1,10 +1,5 @@
-// Metered pass-through read for the ip-erc721 genesis contract's audited
-// get_full_token_data view (owner/metadataUri/originalCreator/registeredAt).
-// This is genesis-specific state the generic Token model doesn't carry
-// (originalCreator survives transfers; Token has no such column) — not
-// worth a schema change for one contract's view. Does the same on-chain
-// call io's use-full-token-data.ts used to make directly (unmetered,
-// keyless public RPC), server-side, credited, with a short cache.
+
+
 import { Hono } from "hono";
 import { cairo, Contract, num } from "starknet";
 import { IPNftABI } from "@medialane/sdk/starknet";
@@ -35,8 +30,6 @@ export function parseFullTokenDataResult(raw: [unknown, unknown, unknown, unknow
 
 const ipnft = new Hono<AppEnv>();
 
-// 30s in-process micro-cache — same pattern as tickets-onchain.ts. Immutable
-// except `owner`, which only changes on transfer (infrequent per token).
 ipnft.get("/:contract/:tokenId", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
@@ -47,7 +40,7 @@ ipnft.get("/:contract/:tokenId", publicCache(30), async (c) => {
     })) as unknown as [unknown, unknown, unknown, unknown];
     return c.json({ data: parseFullTokenDataResult(raw) });
   } catch {
-    // Legacy / external collections that don't implement get_full_token_data.
+
     return c.json({ data: null });
   }
 });

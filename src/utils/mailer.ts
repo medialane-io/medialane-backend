@@ -58,11 +58,6 @@ export async function sendUsernameClaimRejected(to: string, username: string, ad
   }
 }
 
-/**
- * Pure HTML builder, split out from sendProvisioningClaimEmail so its content can be
- * unit-tested without mocking the mail transport (mock.module leaks process-globally
- * in this repo's bun test runs — DI or pure functions only).
- */
 export function buildProvisioningClaimEmailHtml(claimUrl: string): string {
   return `
     <p>Hi there,</p>
@@ -88,10 +83,6 @@ export async function sendProvisioningClaimEmail(to: string, claimUrl: string): 
   }
 }
 
-/**
- * Pure HTML builder, same pattern as buildProvisioningClaimEmailHtml —
- * split out so it's unit-testable without mocking the mail transport.
- */
 export function buildVerificationCodeEmailHtml(code: string): string {
   return `
     <p>Hi there,</p>
@@ -102,12 +93,6 @@ export function buildVerificationCodeEmailHtml(code: string): string {
   `;
 }
 
-/**
- * Railway's outbound network blocks SMTP ports (25/465/587) on the current
- * plan — direct nodemailer sends from this service always ETIMEDOUT on
- * connect. medialane-io's Vercel deployment has unrestricted outbound
- * network, so relay through its internal, secret-gated route instead.
- */
 async function sendViaRelay(to: string, code: string): Promise<boolean> {
   if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
   const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-verification-email`, {

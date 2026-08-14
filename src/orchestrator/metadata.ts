@@ -6,9 +6,6 @@ import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
 
-// Validated attribute shape — each entry must have trait_type (string) and
-// value (string | number | boolean). Unknown shapes are dropped to prevent
-// arbitrary data from landing in the DB.
 const attributeSchema = z.object({
   trait_type: z.string(),
   value: z.union([z.string(), z.number(), z.boolean()]),
@@ -19,8 +16,6 @@ const attributesArraySchema = z.array(attributeSchema);
 
 const log = createLogger("orchestrator:metadata");
 
-// ERC721 metadata ABI — ByteArray variant (OZ v0.14+, most modern contracts)
-// The struct definition is required so starknet.js decodes the ByteArray into a string.
 const ERC721_METADATA_ABI_BYTEARRAY = [
   {
     type: "struct",
@@ -47,7 +42,6 @@ const ERC721_METADATA_ABI_BYTEARRAY = [
   },
 ];
 
-// Legacy fallback ABI — Array<felt252> (older contracts)
 const ERC721_METADATA_ABI_FELT_ARRAY = [
   {
     type: "function",
@@ -65,7 +59,6 @@ const ERC721_METADATA_ABI_FELT_ARRAY = [
   },
 ];
 
-// ERC-1155 metadata ABI — ByteArray variant
 const ERC1155_METADATA_ABI_BYTEARRAY = [
   {
     type: "struct",
@@ -85,7 +78,6 @@ const ERC1155_METADATA_ABI_BYTEARRAY = [
   },
 ];
 
-// ERC-1155 metadata ABI — Array<felt252> fallback
 const ERC1155_METADATA_ABI_FELT_ARRAY = [
   {
     type: "function",
@@ -96,8 +88,6 @@ const ERC1155_METADATA_ABI_FELT_ARRAY = [
   },
 ];
 
-// ABI variants tried in order: ERC-721 ByteArray → ERC-721 felt array → ERC-1155 ByteArray → ERC-1155 felt array
-// Each entry pairs an ABI with the function names it exposes.
 const ABI_VARIANTS: Array<{ abi: any[]; fns: string[] }> = [
   { abi: ERC721_METADATA_ABI_BYTEARRAY,   fns: ["token_uri", "tokenURI"] },
   { abi: ERC721_METADATA_ABI_FELT_ARRAY,  fns: ["token_uri", "tokenURI"] },
@@ -105,7 +95,6 @@ const ABI_VARIANTS: Array<{ abi: any[]; fns: string[] }> = [
   { abi: ERC1155_METADATA_ABI_FELT_ARRAY, fns: ["uri"] },
 ];
 
-// Cache the winning { abi, fn } pair per contract to skip failing variants on repeat calls.
 type AbiCacheEntry = { abi: any[]; fn: string };
 const contractAbiCache = new Map<string, AbiCacheEntry>();
 
@@ -117,7 +106,6 @@ export async function handleMetadataFetch(payload: {
   const { contractAddress, tokenId } = payload;
   const chain = payload.chain as Chain;
 
-  // Mark as fetching
   await prisma.token.updateMany({
     where: { chain, contractAddress, tokenId, metadataStatus: { in: ["PENDING", "FAILED"] } },
     data: { metadataStatus: "FETCHING" },
@@ -135,10 +123,8 @@ export async function handleMetadataFetch(payload: {
       return;
     }
 
-    // Fetch and parse metadata
     const metadata = await resolveMetadata(tokenUri);
 
-    // Helper: scan OpenSea-style attributes array for a trait value
     const _findAttr = (attrs: unknown[], name: string): string | null =>
       ((attrs ?? []).find(
         (a: any) =>
@@ -195,7 +181,7 @@ async function fetchTokenUri(
   tokenId: string,
   chain: Chain
 ): Promise<string | null> {
-  // Convert tokenId to u256 (low, high)
+
   const tokenIdBig = BigInt(tokenId);
   const low = tokenIdBig & ((1n << 128n) - 1n);
   const high = tokenIdBig >> 128n;
@@ -206,13 +192,6 @@ async function fetchTokenUri(
     select: { standard: true, service: true },
   });
 
-  // Collections we issued ourselves (any service other than "external-*") are always
-  // modern OZ ByteArray contracts — that's guaranteed by what we deploy, not a guess.
-  // Never probe or fall back to the legacy Array<felt252> ABI for these: a transient
-  // RPC error must not be able to silently downgrade a known-modern contract to a
-  // lossy decoder (that decoder drops the ByteArray's trailing partial word). If the
-  // ByteArray call fails, return null — the caller marks the token FAILED and retries
-  // with the same (correct) ABI later.
   const isOwnCollection = col != null && !col.service?.startsWith("external-");
   if (isOwnCollection) {
     const abi = col.standard === "ERC1155" ? ERC1155_METADATA_ABI_BYTEARRAY : ERC721_METADATA_ABI_BYTEARRAY;
@@ -230,15 +209,11 @@ async function fetchTokenUri(
         }
       }
     } catch {
-      // Real failure — no legacy fallback for our own contracts. Caller retries later.
+
     }
     return null;
   }
 
-  // Everything below is for external-* collections (contracts we don't control),
-  // where the legacy Array<felt252> ABI is a genuine possibility.
-
-  // If we already know which ABI + function works for this contract, use it directly.
   const cached = contractAbiCache.get(contractAddress);
   if (cached) {
     try {
@@ -254,12 +229,11 @@ async function fetchTokenUri(
         }
       }
     } catch {
-      // Cache miss — fall through to full probe below
+
       contractAbiCache.delete(contractAddress);
     }
   }
 
-  // Probe all variants in order: ERC-721 ByteArray, ERC-721 felt array, ERC-1155 ByteArray, ERC-1155 felt array
   for (const { abi, fns } of ABI_VARIANTS) {
     for (const fn of fns) {
       try {
@@ -276,7 +250,7 @@ async function fetchTokenUri(
           }
         }
       } catch {
-        // Try next variant
+
       }
     }
   }
@@ -284,11 +258,6 @@ async function fetchTokenUri(
   return null;
 }
 
-/**
- * EIP-1155 {id} substitution: replace `{id}` in the URI template with the
- * lowercase hex-encoded token ID, zero-padded to 64 characters.
- * If the URI contains no `{id}`, it is returned unchanged.
- */
 function resolveErc1155Uri(template: string, tokenId: string): string {
   if (!template.includes("{id}")) return template;
   const hex = BigInt(tokenId).toString(16).padStart(64, "0");
@@ -298,7 +267,7 @@ function resolveErc1155Uri(template: string, tokenId: string): string {
 function decodeTokenUri(raw: unknown): string | null {
   if (typeof raw === "string") return raw;
   if (Array.isArray(raw)) {
-    // Array of felts — decode as short strings joined
+
     try {
       const parts = raw.map((f: any) =>
         shortString.decodeShortString(f.toString())

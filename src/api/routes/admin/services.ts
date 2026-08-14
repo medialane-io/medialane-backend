@@ -8,8 +8,6 @@ import { toErrorMessage } from "../../../utils/error.js";
 
 const log = createLogger("routes:admin:services");
 
-// Inline catalog — mirrors @medialane/sdk services/registry.ts (05-service-model §VI).
-// Update when new services are added to the SDK registry.
 const SERVICE_CATALOG = [
   { id: "mip-erc721",                    displayName: "IP Collection",                    standard: "ERC721"  },
   { id: "mip-erc1155",                   displayName: "NFT Editions",                     standard: "ERC1155" },
@@ -34,13 +32,11 @@ const UpdateSchema = z.object({
 });
 
 export function registerServicesRoutes(admin: Hono) {
-  // GET /admin/services/catalog — service list for the portal UI
-  // Must be registered BEFORE /admin/services/:id to avoid route shadowing.
+
   admin.get("/services/catalog", (c) => {
     return c.json({ data: SERVICE_CATALOG });
   });
 
-  // GET /admin/services — all registered contracts
   admin.get("/services", async (c) => {
     try {
       const contracts = await prisma.serviceContract.findMany({
@@ -53,7 +49,6 @@ export function registerServicesRoutes(admin: Hono) {
     }
   });
 
-  // POST /admin/services — register a deployed contract
   admin.post("/services", async (c) => {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
@@ -69,8 +64,7 @@ export function registerServicesRoutes(admin: Hono) {
         data: {
           serviceId,
           chain,
-          // ServiceContract is the operational per-chain registry — normalize
-          // the address for the chain it's registered on, not always Starknet.
+
           contractAddress: normalizeAddress(chain, contractAddress),
           startBlock,
           notes,
@@ -83,7 +77,6 @@ export function registerServicesRoutes(admin: Hono) {
     }
   });
 
-  // PATCH /admin/services/:id — toggle active or update notes
   admin.patch("/services/:id", async (c) => {
     const { id } = c.req.param();
     const body = await c.req.json().catch(() => null);

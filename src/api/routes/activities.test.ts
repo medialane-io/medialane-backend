@@ -15,7 +15,7 @@ test("contract param — scopes both tables to that contract, skips hiddenContra
   const { transferWhere, orderWhere } = buildActivityWhere({
     chainFilter: CHAIN,
     contract: CONTRACT,
-    hiddenContractFilter: { notIn: [CONTRACT] }, // even if hidden, an explicit collection page still shows its own feed
+    hiddenContractFilter: { notIn: [CONTRACT] },
   });
   expect(transferWhere.contractAddress).toBe(CONTRACT);
   expect(orderWhere.nftContract).toBe(CONTRACT);

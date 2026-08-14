@@ -41,7 +41,6 @@ export async function runReaper(): Promise<void> {
   });
   if (intentDeleted > 0) log.info({ count: intentDeleted }, "Reaper: purged old terminal intents");
 
-  // Expire PENDING/SIGNED TransactionIntents that passed their expiresAt
   const { count: intentsExpired } = await prisma.transactionIntent.updateMany({
     where: {
       status: { in: ["PENDING", "SIGNED"] },
@@ -51,7 +50,6 @@ export async function runReaper(): Promise<void> {
   });
   if (intentsExpired > 0) log.info({ count: intentsExpired }, "Reaper: expired stale transaction intents");
 
-  // Expire remix offers that passed their expiresAt
   const { count: offersExpired } = await prisma.remixOffer.updateMany({
     where: {
       status: { in: ["PENDING", "AUTO_PENDING"] },
@@ -61,16 +59,11 @@ export async function runReaper(): Promise<void> {
   });
   if (offersExpired > 0) log.info({ count: offersExpired }, "Reaper: expired remix offers");
 
-  // Delete expired ClaimChallenges (one-time nonces — no status field, just TTL)
   const { count: challengesDeleted } = await prisma.claimChallenge.deleteMany({
     where: { expiresAt: { lt: new Date() } },
   });
   if (challengesDeleted > 0) log.info({ count: challengesDeleted }, "Reaper: purged expired claim challenges");
 
-  // Unverified emails older than 7 days get cleared — not a restriction
-  // (no feature gating), just prevents a stale/mistyped, never-confirmed
-  // email from permanently squatting on Identity's @@unique([scheme, value])
-  // and blocking its real owner from ever attaching it later.
   const { count: unverifiedEmailsDeleted } = await prisma.identity.deleteMany({
     where: {
       scheme: IDENTITY_SCHEME.EMAIL,

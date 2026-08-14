@@ -9,7 +9,6 @@ health.get("/", async (c) => {
     timestamp: new Date().toISOString(),
   };
 
-  // DB check
   try {
     await prisma.$queryRaw`SELECT 1`;
     checks.database = "ok";
@@ -18,7 +17,6 @@ health.get("/", async (c) => {
     checks.status = "degraded";
   }
 
-  // Indexer cursor — presence check only, no block numbers exposed publicly
   try {
     const cursor = await prisma.indexerCursor.findUnique({
       where: { chain: "STARKNET" },

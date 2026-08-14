@@ -1,6 +1,5 @@
 import type { Chain, OrderStatus, MetadataStatus, TokenStandard } from "@prisma/client";
 
-/** Raw row returned by SELECT * FROM "Order" via $queryRaw */
 export interface RawOrderRow {
   id: string;
   chain: Chain;
@@ -39,7 +38,6 @@ export interface RawOrderRow {
   updatedAt: Date;
 }
 
-/** Raw row returned by SELECT * FROM "Collection" via $queryRaw */
 export interface RawCollectionRow {
   id: string;
   chain: Chain;
@@ -70,12 +68,10 @@ export interface RawCollectionRow {
   updatedAt: Date;
 }
 
-/** Raw count row from SELECT COUNT(*) AS count */
 export interface RawCountRow {
   count: bigint;
 }
 
-/** Raw row returned by SELECT t.* FROM "Token" t via $queryRaw (price sort) */
 export interface RawTokenRow {
   id: string;
   chain: Chain;
@@ -98,7 +94,6 @@ export interface RawTokenRow {
   minPrice: string | null;
 }
 
-/** Raw row returned by full-text search on Token */
 export interface RawSearchTokenRow {
   contractAddress: string;
   tokenId: string;
@@ -108,7 +103,6 @@ export interface RawSearchTokenRow {
   rank: number;
 }
 
-/** Raw row returned by full-text search on Collection */
 export interface RawSearchCollectionRow {
   contractAddress: string;
   name: string | null;

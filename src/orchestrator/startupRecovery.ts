@@ -6,12 +6,6 @@ const log = createLogger("orchestrator:startup-recovery");
 
 const CHAIN = "STARKNET" as const;
 
-/**
- * Resets tokens stuck in FETCHING status back to PENDING.
- * This can happen when the process is killed mid-fetch, leaving tokens in an
- * intermediate state that the normal worker loop never re-processes.
- * Run once on startup before the worker loop begins.
- */
 export async function recoverStuckFetchingTokens(): Promise<void> {
   const result = await prisma.token.updateMany({
     where: { metadataStatus: "FETCHING" },
@@ -23,13 +17,6 @@ export async function recoverStuckFetchingTokens(): Promise<void> {
   }
 }
 
-/**
- * Re-enqueues work that survived a restart but never completed:
- * - PENDING tokens with no metadata
- * - Collections with no name (never had COLLECTION_METADATA_FETCH run to completion)
- *
- * Safe to call multiple times — the worker deduplicates by key.
- */
 export async function recoverPendingWork(): Promise<void> {
   const [pendingTokens, unnamedCollections] = await Promise.all([
     prisma.token.findMany({

@@ -4,7 +4,7 @@ import { readTotalSupply } from "./coin.js";
 describe("readTotalSupply", () => {
   test("reads total_supply and returns it as a decimal string", async () => {
     const callRpc = mock(async (fn: (provider: unknown) => Promise<string[]>) =>
-      fn({ callContract: async () => ["0x3e8", "0x0"] } as any) // 1000
+      fn({ callContract: async () => ["0x3e8", "0x0"] } as any)
     );
     const result = await readTotalSupply("0xcoin", { callRpc: callRpc as any });
     expect(result).toBe("1000");
@@ -17,7 +17,7 @@ describe("readTotalSupply", () => {
       return fn({
         callContract: async ({ entrypoint }: { entrypoint: string }) => {
           if (entrypoint === "total_supply") throw new Error("entrypoint not found");
-          return ["0x64", "0x0"]; // 100
+          return ["0x64", "0x0"];
         },
       } as any);
     });

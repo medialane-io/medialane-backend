@@ -1,14 +1,4 @@
-/**
- * Seed default x402 credit pricing (PricingRule). Safe to re-run — upsert.
- *
- * Seeds the chain-agnostic, service-agnostic ("ALL"/"ALL") default for every
- * actionKey, matching today's live flat pricing (1 credit for reads, 5 for
- * every intent) so running this the first time is a pricing no-op. Retune
- * via the admin pricing endpoints from there — this file is the starting
- * point, not the source of ongoing truth.
- *
- * Usage: bun run src/scripts/seed-pricing.ts
- */
+
 
 import prisma from "../db/client.js";
 

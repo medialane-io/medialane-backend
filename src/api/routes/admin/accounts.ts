@@ -1,15 +1,4 @@
-/**
- * Account-scoped admin endpoints — identity only (search, suspend/reactivate,
- * resolve-by-wallet). Billing (plan/credits/keys/webhooks) lives on the
- * caller's ApiClient, if it has one — see ./apiClients.ts and
- * docs/superpowers/specs/2026-08-05-api-client-model-design.md.
- *
- * The developer portal authenticates a wallet by signature, resolves the
- * AccountID, then calls these with the single portal service secret
- * (API_SECRET_KEY via adminSecretAuth) + the accountId. This is the
- * "master key + id" shape, but keyed on AccountID (not a bare address) and
- * gated behind the portal's signature auth — so it is not the spoofable model.
- */
+
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { Chain } from "@prisma/client";
@@ -20,10 +9,7 @@ import { createLogger } from "../../../utils/logger.js";
 const log = createLogger("routes:admin:accounts");
 
 export function registerAccountRoutes(admin: Hono) {
-  // GET /admin/accounts — paginated account list for the portal admin console
-  // (replaces the tenant list; Phase D). ?q= filters by id, name/email of a
-  // linked identity, or wallet address. Each row's `apiClient` is null unless
-  // this account is also an SDK/API consumer.
+
   admin.get("/accounts", async (c) => {
     const page = Math.max(1, Number(c.req.query("page") ?? 1));
     const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 50)));
@@ -81,9 +67,6 @@ export function registerAccountRoutes(admin: Hono) {
     });
   });
 
-  // PATCH /admin/accounts/:id — update status (suspend = every key on this
-  // account's ApiClient, if any, stops authenticating; apiKeyAuth checks
-  // account.status regardless of billing state).
   admin.patch("/accounts/:id", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = z.object({
@@ -105,7 +88,6 @@ export function registerAccountRoutes(admin: Hono) {
     }
   });
 
-  // POST /admin/accounts/resolve — find-or-create the Account for a wallet.
   admin.post("/accounts/resolve", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = z.object({ chain: z.string().min(1), address: z.string().min(1) }).safeParse(body);

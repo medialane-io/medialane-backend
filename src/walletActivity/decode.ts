@@ -13,7 +13,6 @@ export interface TransferLeg {
   blockNumber: bigint;
 }
 
-/** Standard ERC-20 Transfer: keys = [selector, from, to], data = [value_low, value_high]. */
 export function decodeTransferLeg(event: RawStarknetEvent, tokenAddress: string): TransferLeg | null {
   if (event.keys[0] !== TRANSFER_SELECTOR) return null;
   const [from, to] = [event.keys[1], event.keys[2]];
@@ -30,14 +29,6 @@ const ACCOUNT_EVENT_TYPES: Record<string, "DEPLOY" | "GUARDIAN_SET" | "GUARDIAN_
   [ESCAPE_CANCELED_SELECTOR]: "GUARDIAN_CANCEL_ESCAPE",
 };
 
-/**
- * Recognizes the account-contract events wallet-native activity cares about.
- * EscapeCanceled carries no distinguishing data (`pub struct EscapeCanceled {}`)
- * — an owner-escape cancel and a guardian-escape cancel are indistinguishable
- * from the event alone. Both map to GUARDIAN_CANCEL_ESCAPE; this is a known,
- * accepted limitation, not a bug to chase — self-guardian v1 practically only
- * ever exercises the owner-escape path.
- */
 export function decodeAccountEvent(event: RawStarknetEvent): { type: "DEPLOY" | "GUARDIAN_SET" | "GUARDIAN_TRIGGER_ESCAPE" | "GUARDIAN_COMPLETE_ESCAPE" | "GUARDIAN_CANCEL_ESCAPE" } | null {
   const type = ACCOUNT_EVENT_TYPES[event.keys[0]];
   return type ? { type } : null;
@@ -52,12 +43,6 @@ export interface SwapPair {
   amountOut: string;
 }
 
-/**
- * Groups transfer legs by txHash; a tx with exactly one leg OUT of the account
- * and one leg IN to the account, on two different tokens, is a swap. Anything
- * else (a lone leg, same-token legs, more than two legs) stays as individual
- * transfer legs — safer to under-merge than to guess wrong on an unusual tx.
- */
 export function pairSwapLegs(legs: TransferLeg[], accountAddress: string): { swaps: SwapPair[]; remaining: TransferLeg[] } {
   const byTx = new Map<string, TransferLeg[]>();
   for (const leg of legs) {

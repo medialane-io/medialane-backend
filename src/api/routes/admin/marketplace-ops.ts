@@ -27,13 +27,7 @@ import { isNftTransferEvent, ORDER_CREATED_SELECTOR_HEX } from "./_shared.js";
 const log = createLogger("routes:admin");
 
 export function registerMarketplaceOpsRoutes(admin: Hono) {
-// POST /admin/orders/:orderHash/resync — re-fetch order details from chain and fix price
-// Routes by the venue resolved from `marketplaceContract` via the SDK registry
-// (05-service-model §V) — NOT `offerItemType`. A zombie row read empty off a
-// lagging node has `offerItemType = ""`, and a bid has `offerItemType = "ERC20"`,
-// so branching on it mis-routes both to the ERC-721 path (the 2026-06-08
-// incident). Both handlers re-read `get_order_details` on-chain themselves.
-// ---------------------------------------------------------------------------
+
 admin.post("/orders/:orderHash/resync", async (c) => {
   const orderHash = c.req.param("orderHash");
   const order = await prisma.order.findFirst({ where: { orderHash } });
@@ -41,9 +35,7 @@ admin.post("/orders/:orderHash/resync", async (c) => {
 
   const venue = getServiceByMarketplaceAddress(order.marketplaceContract);
   if (!venue) {
-    // Unregistered / retired marketplace — the current handlers only query the
-    // live venues, so an on-chain re-read would return zeros. Refuse rather than
-    // silently routing to the wrong handler.
+
     return c.json(
       { error: "Order is on an unregistered or retired marketplace — cannot resync against the current protocol" },
       422,
@@ -77,9 +69,6 @@ admin.post("/orders/:orderHash/resync", async (c) => {
   return c.json({ priceRaw: updated?.priceRaw, priceFormatted: updated?.priceFormatted, currencySymbol: updated?.currencySymbol });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/marketplace/tx/:txHash/hydrate — hydrate OrderCreated rows from a tx receipt
-// ---------------------------------------------------------------------------
 admin.post("/marketplace/tx/:txHash/hydrate", async (c) => {
   const txHash = c.req.param("txHash");
   if (!/^0x[0-9a-fA-F]{1,64}$/.test(txHash)) {
@@ -121,9 +110,6 @@ admin.post("/marketplace/tx/:txHash/hydrate", async (c) => {
   return c.json({ txHash, orderHashes: hydrated });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/transfers/tx/:txHash/hydrate — hydrate NFT Transfer rows from a tx receipt
-// ---------------------------------------------------------------------------
 admin.post("/transfers/tx/:txHash/hydrate", async (c) => {
   const txHash = c.req.param("txHash");
   if (!/^0x[0-9a-fA-F]{1,64}$/.test(txHash)) {
@@ -170,9 +156,6 @@ admin.post("/transfers/tx/:txHash/hydrate", async (c) => {
   return c.json({ txHash, hydrated, followup });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/orders/:orderHash/cancel — force-cancel an order that the indexer missed
-// ---------------------------------------------------------------------------
 admin.post("/orders/:orderHash/cancel", async (c) => {
   const orderHash = c.req.param("orderHash");
   const order = await prisma.order.findFirst({ where: { orderHash } });
@@ -190,12 +173,6 @@ admin.post("/orders/:orderHash/cancel", async (c) => {
   return c.json({ status: "CANCELLED", orderHash });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/pop/allowlist — bulk-add wallets to a POP collection allowlist
-// Body: { collectionAddress: string, addresses: string[] }
-// Upserts allowed=true for each address. Use DELETE endpoint or on-chain remove_from_allowlist
-// to revoke individual entries.
-// ---------------------------------------------------------------------------
 admin.post("/pop/allowlist", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { collectionAddress, addresses } = body as { collectionAddress?: string; addresses?: unknown };
@@ -227,7 +204,6 @@ admin.post("/pop/allowlist", async (c) => {
     inserted += result.count;
   }
 
-  // Re-enable any previously disabled entries
   await prisma.popAllowlist.updateMany({
     where: {
       chain: "STARKNET",
@@ -242,8 +218,6 @@ admin.post("/pop/allowlist", async (c) => {
   return c.json({ data: { collectionAddress: normalizedCollection, total: addresses.length, inserted } });
 });
 
-// DELETE /admin/pop/allowlist — remove wallets from a POP collection allowlist
-// Body: { collectionAddress: string, addresses: string[] }
 admin.delete("/pop/allowlist", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { collectionAddress, addresses } = body as { collectionAddress?: string; addresses?: unknown };

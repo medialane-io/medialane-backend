@@ -1,14 +1,4 @@
-/**
- * Rewards compute engine — retroactive XP + badge computation.
- * Reads all historical indexed data, applies DAO-configured action weights,
- * daily caps, and multipliers, then rebuilds UserScore + PointEvent + UserBadge.
- *
- * Runs from two places: the orchestrator's scheduled loop and the admin
- * endpoint (both via runComputeGuarded in orchestrator/rewardsCompute.ts),
- * plus the CLI wrapper src/scripts/compute-rewards.ts.
- *
- * Safe to re-run: rebuilds PointEvent / UserBadge / UserScore atomically.
- */
+
 
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
@@ -19,14 +9,9 @@ import { mintActionForService, creationActionForService } from "./partition.js";
 
 const log = createLogger("rewards:compute");
 
-// ZERO address — mints come from here
 const ZERO = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-// Beta period end: platform launched publicly after this (exclusive)
-// All activity before this date qualifies for the beta_tester multiplier.
 const BETA_END = new Date("2026-12-31T00:00:00Z");
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ActionConfig {
   type: string;
@@ -40,19 +25,17 @@ interface MultiplierConfig {
   factor: number;
 }
 
-// Sorted ascending by level — used to search the current level
 interface LevelConfig {
   level: number;
   xpRequired: number;
 }
 
-// Raw event ready to be aggregated (before daily-cap enforcement)
 export interface RawEvent {
   address: string;
   actionType: string;
   xp: number;
   txHash: string | null;
-  date: string; // "YYYY-MM-DD" for daily cap grouping
+  date: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -64,8 +47,6 @@ export interface ComputeSummary {
   top10: { address: string; totalXp: number; level: number }[];
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 export function levelForXp(xp: number, levels: LevelConfig[]): number {
   let level = 1;
   for (const l of levels) {
@@ -74,8 +55,6 @@ export function levelForXp(xp: number, levels: LevelConfig[]): number {
   }
   return level;
 }
-
-// ── Data loaders ──────────────────────────────────────────────────────────────
 
 async function loadConfig() {
   const [actions, multipliers, levels] = await Promise.all([
@@ -89,9 +68,8 @@ async function loadConfig() {
   return { actionMap, multipliers, levels };
 }
 
-// Returns a Set of normalized addresses of the first N distinct users by earliest activity
 async function firstNUsers(n: number): Promise<Set<string>> {
-  // "User" = anyone who ever placed an order or received a non-mint transfer
+
   const rows = await prisma.$queryRaw<{ address: string; earliest: Date }[]>`
     SELECT address, MIN(ts) AS earliest FROM (
       SELECT offerer AS address, "createdAt" AS ts FROM "Order"
@@ -105,7 +83,6 @@ async function firstNUsers(n: number): Promise<Set<string>> {
   return new Set(rows.map((r) => normalizeAddress("STARKNET", r.address)));
 }
 
-// contractAddress → service, for the partition invariant (see partition.ts)
 async function loadServiceMap(): Promise<Map<string, string>> {
   const cols = await prisma.collection.findMany({
     select: { contractAddress: true, service: true },
@@ -113,11 +90,8 @@ async function loadServiceMap(): Promise<Map<string, string>> {
   return new Map(cols.map((c) => [c.contractAddress, c.service]));
 }
 
-// ── Event gatherers (one per action type) ─────────────────────────────────────
-
 async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
-  // Profile data lives on AccountProfile (accountId-keyed); the rewards engine
-  // is address-keyed, so resolve each account's wallet address.
+
   const profiles = await prisma.accountProfile.findMany({
     where: { OR: [{ bio: { not: null } }, { avatarImage: { not: null } }] },
     select: {
@@ -136,9 +110,6 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
     }));
 }
 
-// Classifies every mint Transfer by the collection's service (partition
-// invariant): issuance mints → mint_asset. Pop/drop/external mints emit
-// nothing here.
 async function gatherMints(
   actionMap: Map<string, ActionConfig>,
   serviceMap: Map<string, string>
@@ -164,9 +135,6 @@ async function gatherMints(
   return events;
 }
 
-// Classifies every collection creation by service: issuance → create_collection.
-// Drop/pop creations emit nothing here (launch_launchpad owns them); other
-// services score nothing.
 async function gatherCreations(actionMap: Map<string, ActionConfig>): Promise<RawEvent[]> {
   const collections = await prisma.collection.findMany({
     where: { owner: { not: null }, deletedAt: null },
@@ -192,19 +160,18 @@ async function gatherCreations(actionMap: Map<string, ActionConfig>): Promise<Ra
 }
 
 async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
-  // Launchpad = collection with configured drop or POP conditions
+
   const [drops, pops] = await Promise.all([
     prisma.dropClaimConditions.findMany({
       select: { collectionAddress: true, createdAt: true },
     }),
-    // POP = collection that has at least one PopAllowlist entry
+
     prisma.popAllowlist.findMany({
       distinct: ["collectionAddress"],
       select: { collectionAddress: true },
     }),
   ]);
 
-  // Resolve owner for each launchpad collection
   const allContracts = [
     ...drops.map((d) => ({ contract: d.collectionAddress, createdAt: d.createdAt })),
     ...pops.map((p) => ({ contract: p.collectionAddress, createdAt: new Date() })),
@@ -249,7 +216,7 @@ async function gatherCreateRemix(xp: number): Promise<RawEvent[]> {
 }
 
 async function gatherListAsset(xp: number, minValueUsdc: number | null): Promise<RawEvent[]> {
-  // Listing = Order where offerItemType is ERC721 or ERC1155
+
   const listings = await prisma.order.findMany({
     where: { offerItemType: { in: ["ERC721", "ERC1155"] } },
     select: { offerer: true, createdAt: true, orderHash: true, priceRaw: true, currencySymbol: true },
@@ -259,7 +226,7 @@ async function gatherListAsset(xp: number, minValueUsdc: number | null): Promise
     .filter((o) => {
       if (!minValueUsdc) return true;
       if (!o.priceRaw) return false;
-      // Only USDC/USDT listings pass the minimum; ETH/STRK skip filter for now
+
       const sym = o.currencySymbol?.toUpperCase() ?? "";
       if (!["USDC", "USDT"].includes(sym)) return true;
       const val = parseFloat(o.priceRaw);
@@ -276,7 +243,7 @@ async function gatherListAsset(xp: number, minValueUsdc: number | null): Promise
 }
 
 async function gatherBuyAsset(xp: number, minValueUsdc: number | null): Promise<RawEvent[]> {
-  // Buy = OrderFill where underlying order is a listing (ERC721/1155 offer)
+
   const fills = await prisma.orderFill.findMany({
     where: { order: { offerItemType: { in: ["ERC721", "ERC1155"] } } },
     include: { order: { select: { offerItemType: true } } },
@@ -300,7 +267,7 @@ async function gatherBuyAsset(xp: number, minValueUsdc: number | null): Promise<
 }
 
 async function gatherMakeOffer(xp: number, minValueUsdc: number | null): Promise<RawEvent[]> {
-  // Offer/bid = Order where offerItemType is ERC20
+
   const offers = await prisma.order.findMany({
     where: { offerItemType: "ERC20" },
     select: { offerer: true, createdAt: true, orderHash: true, priceRaw: true, currencySymbol: true },
@@ -325,7 +292,7 @@ async function gatherMakeOffer(xp: number, minValueUsdc: number | null): Promise
 }
 
 async function gatherCounterOffer(xp: number): Promise<RawEvent[]> {
-  // Counter offer = Order with a parentOrderHash set
+
   const counters = await prisma.order.findMany({
     where: { parentOrderHash: { not: null } },
     select: { offerer: true, createdAt: true, orderHash: true },
@@ -341,7 +308,7 @@ async function gatherCounterOffer(xp: number): Promise<RawEvent[]> {
 }
 
 async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<RawEvent[]> {
-  // Bid fills: OrderFill on an ERC20-offer order
+
   const fills = await prisma.orderFill.findMany({
     where: { order: { offerItemType: "ERC20" } },
     select: {
@@ -354,7 +321,7 @@ async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<R
 
   const events: RawEvent[] = [];
   for (const f of fills) {
-    // Seller = consideration recipient (receives ERC-20 payment)
+
     if (f.order.considerationRecipient) {
       events.push({
         address: normalizeAddress("STARKNET", f.order.considerationRecipient),
@@ -364,7 +331,7 @@ async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<R
         date: f.createdAt.toISOString().slice(0, 10),
       });
     }
-    // Buyer = the original offerer whose bid was accepted
+
     events.push({
       address: normalizeAddress("STARKNET", f.order.offerer),
       actionType: "offer_accepted_buyer",
@@ -377,7 +344,7 @@ async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<R
 }
 
 async function gatherClaimPop(xp: number): Promise<RawEvent[]> {
-  // POP claim = Transfer to address from a collection that has PopAllowlist entries
+
   const popContracts = await prisma.popAllowlist.findMany({
     distinct: ["collectionAddress"],
     select: { collectionAddress: true },
@@ -399,7 +366,7 @@ async function gatherClaimPop(xp: number): Promise<RawEvent[]> {
 }
 
 async function gatherClaimDrop(xp: number): Promise<RawEvent[]> {
-  // Drop claim = Transfer to address from a collection that has DropClaimConditions
+
   const dropContracts = await prisma.dropClaimConditions.findMany({
     select: { collectionAddress: true },
   });
@@ -448,10 +415,8 @@ async function gatherComments(xp: number): Promise<RawEvent[]> {
   }));
 }
 
-// ── Daily cap enforcement ─────────────────────────────────────────────────────
-
 export function applyCaps(rawEvents: RawEvent[], actionMap: Map<string, ActionConfig>): RawEvent[] {
-  // Group by (address, actionType, date) and enforce daily cap
+
   const counters = new Map<string, number>();
   const result: RawEvent[] = [];
 
@@ -470,8 +435,6 @@ export function applyCaps(rawEvents: RawEvent[], actionMap: Map<string, ActionCo
   return result;
 }
 
-// ── Multiplier resolution ─────────────────────────────────────────────────────
-
 function resolveMultiplier(
   address: string,
   multipliers: MultiplierConfig[],
@@ -482,12 +445,10 @@ function resolveMultiplier(
   for (const m of multipliers) {
     if (m.condition === "beta_tester" && isBetaUser) factor = Math.max(factor, m.factor);
     if (m.condition === "first_100" && first100.has(address)) factor = Math.max(factor, m.factor);
-    // "loyalty" multiplier: applied manually by admin — skip in auto-compute
+
   }
   return factor;
 }
-
-// ── Badge awarding ────────────────────────────────────────────────────────────
 
 async function computeBadges(
   scoresByAddress: Map<string, { totalXp: number; breakdown: Record<string, number> }>,
@@ -502,7 +463,6 @@ async function computeBadges(
     badges.set(address, list);
   };
 
-  // OG — beta participation: earliest activity before the beta end date
   const BETA_END_DAY = BETA_END.toISOString().slice(0, 10);
   const allAddresses = [...scoresByAddress.keys()];
   for (const address of allAddresses) {
@@ -510,12 +470,10 @@ async function computeBadges(
     if (earliest && earliest < BETA_END_DAY) award(address, "og");
   }
 
-  // Early Believer — among the first 100 on Medialane
   for (const address of first100) {
     if (scoresByAddress.has(address)) award(address, "early_believer");
   }
 
-  // Creator badges
   const collectionsByOwner = await prisma.collection.groupBy({
     by: ["owner"],
     _count: { id: true },
@@ -527,7 +485,6 @@ async function computeBadges(
     if (row._count.id >= 1) award(addr, "first_drop");
   }
 
-  // Sold Out — every edition claimed
   const drops = await prisma.dropClaimConditions.findMany({
     select: { collectionAddress: true, maxSupply: true },
   });
@@ -544,7 +501,6 @@ async function computeBadges(
     }
   }
 
-  // Remixed — someone built on your work
   const remixedCreators = await prisma.remixOffer.findMany({
     where: { status: { in: ["APPROVED", "COMPLETED", "SELF_MINTED"] } },
     select: { creatorAddress: true },
@@ -554,7 +510,6 @@ async function computeBadges(
     award(normalizeAddress("STARKNET", r.creatorAddress), "remixed");
   }
 
-  // Platinum — 1000 USDC in total sales
   const sales = await prisma.orderFill.findMany({
     where: { currencySymbol: { in: ["USDC", "USDT"] } },
     include: { order: { select: { considerationRecipient: true } } },
@@ -571,7 +526,6 @@ async function computeBadges(
     if (total >= 1000) award(addr, "platinum");
   }
 
-  // Voice — 50 on-chain comments
   const commentCounts = await prisma.comment.groupBy({
     by: ["author"],
     _count: { id: true },
@@ -581,9 +535,6 @@ async function computeBadges(
     if (row._count.id >= 50) award(normalizeAddress("STARKNET", row.author), "voice");
   }
 
-  // Connector — referred 10 active users (not tracked yet, skip)
-
-  // Supporter — made offers on 25 different assets
   const offersByOfferer = await prisma.order.groupBy({
     by: ["offerer", "nftTokenId"],
     where: { offerItemType: "ERC20", nftTokenId: { not: null } },
@@ -600,7 +551,6 @@ async function computeBadges(
     if (assetSet.size >= 25) award(addr, "supporter");
   }
 
-  // 100 Club — collected from 100 different creators
   const tokenOwnerships = await prisma.transfer.findMany({
     where: { fromAddress: { not: ZERO } },
     select: { toAddress: true, contractAddress: true },
@@ -611,14 +561,14 @@ async function computeBadges(
   for (const t of tokenOwnerships) {
     const addr = normalizeAddress("STARKNET", t.toAddress);
     if (!contractOwnerMap.has(t.contractAddress)) {
-      // Will be populated below
+
       contractOwnerMap.set(t.contractAddress, null);
     }
     const set = creatorsByCollector.get(addr) ?? new Set();
     set.add(t.contractAddress);
     creatorsByCollector.set(addr, set);
   }
-  // Resolve owners in one query
+
   const uniqueContracts = [...contractOwnerMap.keys()];
   if (uniqueContracts.length > 0) {
     const cols = await prisma.collection.findMany({
@@ -632,9 +582,6 @@ async function computeBadges(
     if (uniqueCreators.size >= 100) award(addr, "100_club");
   }
 
-  // Auteur — active across 3+ IP types
-  // IP types inferred from Collection.standard (ERC721 vs ERC1155) and remix activity
-  // This is a simplified proxy: creator has collections + remix offers
   for (const address of allAddresses) {
     const bd = scoresByAddress.get(address)!.breakdown;
     let types = 0;
@@ -645,7 +592,6 @@ async function computeBadges(
     if (types >= 3) award(address, "auteur");
   }
 
-  // Full Set — currently holds every token of a drop collection
   const dropContractRows = await prisma.dropClaimConditions.findMany({
     select: { collectionAddress: true },
   });
@@ -663,9 +609,6 @@ async function computeBadges(
     }
   }
 
-  // Diamond Hands — received a token ≥180 days ago and never sent it since.
-  // Transfer has no chain timestamp; createdAt is index time (backfilled rows
-  // carry backfill time) — an acceptable approximation for this badge.
   const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
   const oldReceipts = await prisma.transfer.findMany({
     where: { createdAt: { lt: sixMonthsAgo } },
@@ -683,7 +626,6 @@ async function computeBadges(
     if (sentAfter === 0) award(normalizeAddress("STARKNET", r.toAddress), "diamond_hands");
   }
 
-  // Taste Maker — bought an asset that later resold for ≥5× (same stable currency)
   const stableFills = await prisma.orderFill.findMany({
     where: {
       currencySymbol: { in: ["USDC", "USDT"] },
@@ -711,7 +653,6 @@ async function computeBadges(
     }
   }
 
-  // Coin Creator — launched a creator coin
   const coinCreators = await prisma.coin.findMany({
     where: { service: "creator-coin", creator: { not: null } },
     select: { creator: true },
@@ -719,7 +660,6 @@ async function computeBadges(
   });
   for (const c of coinCreators) award(normalizeAddress("STARKNET", c.creator!), "coin_creator");
 
-  // Only enabled badges are ever awarded (this is what disables e.g. connector)
   const enabledKeys = new Set(
     (await prisma.badgeDefinition.findMany({ where: { enabled: true }, select: { key: true } })).map((b) => b.key)
   );
@@ -729,8 +669,6 @@ async function computeBadges(
 
   return badges;
 }
-
-// ── Main ──────────────────────────────────────────────────────────────────────
 
 export async function computeRewards(
   opts: { dryRun?: boolean; skipBadges?: boolean } = {}
@@ -748,7 +686,6 @@ export async function computeRewards(
 
   const serviceMap = await loadServiceMap();
 
-  // ── Gather all raw events ──────────────────────────────────────────────────
   const allRaw: RawEvent[] = [];
 
   const gather = async (type: string, fn: () => Promise<RawEvent[]>) => {
@@ -762,8 +699,6 @@ export async function computeRewards(
 
   await gather("complete_profile",    () => gatherCompleteProfile(a("complete_profile").xp));
 
-  // Mints + creations are classified per collection service internally
-  // (mint_asset; create_collection)
   {
     const mintEvents = await gatherMints(actionMap, serviceMap);
     allRaw.push(...mintEvents);
@@ -781,7 +716,6 @@ export async function computeRewards(
   await gather("counter_offer",       () => gatherCounterOffer(a("counter_offer").xp));
   await gather("comment",             () => gatherComments(a("comment").xp));
 
-  // offer_accepted handles both seller and buyer variants
   if (actionMap.has("offer_accepted_seller") && actionMap.has("offer_accepted_buyer")) {
     const events = await gatherOfferAccepted(
       a("offer_accepted_seller").xp,
@@ -798,14 +732,11 @@ export async function computeRewards(
 
   log.info({ total: allRaw.length }, "Total raw events");
 
-  // ── Apply daily caps ───────────────────────────────────────────────────────
   const cappedEvents = applyCaps(allRaw, actionMap);
   log.info({ count: cappedEvents.length }, "After daily caps");
 
-  // ── Aggregate per address ──────────────────────────────────────────────────
   const scoresByAddress = new Map<string, { totalXp: number; breakdown: Record<string, number> }>();
 
-  // Earliest activity date per address — drives the beta multiplier + og badge
   const minDateByAddress = new Map<string, string>();
 
   for (const ev of cappedEvents) {
@@ -819,7 +750,6 @@ export async function computeRewards(
     if (!prev || ev.date < prev) minDateByAddress.set(ev.address, ev.date);
   }
 
-  // ── Apply multipliers ──────────────────────────────────────────────────────
   const mConfigs: MultiplierConfig[] = multipliers.map((m) => ({ condition: m.condition, factor: m.factor }));
   const BETA_END_DAY = BETA_END.toISOString().slice(0, 10);
   const isBeta = (address: string) => (minDateByAddress.get(address) ?? "9999") < BETA_END_DAY;
@@ -833,7 +763,6 @@ export async function computeRewards(
 
   log.info({ addresses: scoresByAddress.size }, "Unique addresses");
 
-  // ── Compute badges ─────────────────────────────────────────────────────────
   let badgesByAddress = new Map<string, string[]>();
   if (!skipBadges) {
     badgesByAddress = await computeBadges(scoresByAddress, first100, minDateByAddress);
@@ -855,7 +784,6 @@ export async function computeRewards(
     return { dryRun: true, addresses: scoresByAddress.size, events: cappedEvents.length, badgeGrants, top10 };
   }
 
-  // ── Write to DB (one transaction — a crash leaves previous scores intact) ──
   log.info("Writing to DB…");
 
   const BATCH = 500;
@@ -900,8 +828,6 @@ export async function computeRewards(
         }
       }
 
-      // Opportunistic accountId backfill — links reputation rows to Accounts
-      // where the wallet is known. Activity-only addresses stay null.
       await tx.$executeRaw`
         UPDATE "UserScore" us SET "accountId" = w."accountId"
         FROM "Identity" w

@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { meter, type MeterDeps } from "./meter.js";
 
-// Stub deps — no module mocking, so nothing leaks across test files.
 function deps(over: Partial<MeterDeps> = {}): MeterDeps {
   return {
     costForRequest: async (_m: string, path: string) => (path.startsWith("/v1/portal") ? null : 1),

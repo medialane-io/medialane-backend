@@ -34,8 +34,7 @@ test("returns activity for any address — no wallet-ownership check (public on-
     enqueueSync: () => {},
   };
   const app = makeApp(deps);
-  // OTHER_ADDRESS — deliberately not "the caller's own" anything, since there
-  // is no identity on this route anymore. This is the point of the test.
+
   const res = await app.request(`/v1/wallet-activity?address=${OTHER_ADDRESS}`);
   expect(res.status).toBe(200);
   const body = (await res.json()) as { data: unknown[] };

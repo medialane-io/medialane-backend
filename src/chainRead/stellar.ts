@@ -3,9 +3,6 @@ import type { Chain } from "@prisma/client";
 import { getCoordinates } from "@medialane/sdk";
 import { env } from "../config/env.js";
 
-/** Stellar (Soroban) read adapter — simulated view calls on the collection
- *  contracts (owner_of / owner). On-demand, read-only. */
-
 const PASSPHRASE = "Public Global Stellar Network ; September 2015";
 const SIM_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 
@@ -38,7 +35,7 @@ export async function stellarHoldsToken(
       const holder = await view(contract, "owner_of", [nativeToScVal(Number(id), { type: "u32" })]);
       if (holder === owner) return true;
     } catch {
-      // nonexistent token — keep scanning
+
     }
   }
   return false;

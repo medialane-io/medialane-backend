@@ -9,19 +9,12 @@ import { toErrorMessage } from "../../../utils/error.js";
 
 const log = createLogger("routes:admin");
 
-/**
- * Token-level admin ops (force metadata refresh, balance rebuild). Split out
- * of admin/collections.ts 2026-07-11 (registrar pattern, audit follow-up #8).
- */
 export function registerTokenOpsRoutes(admin: Hono) {
-// POST /admin/tokens/:contract/:tokenId/refresh — force sync metadata
-// ---------------------------------------------------------------------------
+
 admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   const { contract, tokenId } = c.req.param();
   const contractAddress = normalizeAddress("STARKNET", contract);
 
-  // Guard: only refresh tokens from registered collections to prevent
-  // arbitrary on-chain RPC calls for unregistered contracts.
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
     select: { id: true },
@@ -39,10 +32,6 @@ admin.post("/tokens/:contract/:tokenId/refresh", async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/tokens/:contract/:tokenId/rebuild-balances — replay indexed
-// transfers for one token and replace TokenBalance with deterministic state.
-// ---------------------------------------------------------------------------
 admin.post("/tokens/:contract/:tokenId/rebuild-balances", async (c) => {
   const { contract, tokenId } = c.req.param();
   const contractAddress = normalizeAddress("STARKNET", contract);

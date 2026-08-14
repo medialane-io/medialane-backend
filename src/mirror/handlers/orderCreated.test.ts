@@ -2,10 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { assertOrderPopulated } from "./orderGuards.js";
 import type { OnChainOrderDetails } from "../../types/marketplace.js";
 
-// Guards against the 2026-06-08 "zombie listing" incident: a lagging RPC node
-// returns an all-zero order from get_order_details with no error, which used to
-// be persisted as an ACTIVE order with null nftContract/nftTokenId.
-
 const populated: OnChainOrderDetails = {
   offerer: "0x07af58a635dd8f8991b984ca02a8837be6c2ee99e3bf27e1886af560b6d8e07e",
   offerItemType: "ERC1155",

@@ -2,8 +2,6 @@ import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { x402Config } from "../../config/x402.js";
 import type { PaymentRequirement, PaymentScheme, VerifyResult, X402Payload } from "./types.js";
 
-// ERC-20 Transfer event selector on Starknet (Cairo). Same value the retired
-// portal USDC-deposit poll used.
 const TRANSFER_KEY = "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9";
 
 function u256FromLowHigh(low: string, high: string): bigint {
@@ -18,11 +16,6 @@ export interface StarknetReceipt {
   events?: Array<{ from_address: string; keys: string[]; data: string[] }>;
 }
 
-/**
- * Pure verification of a USDC transfer receipt — no RPC, fully testable.
- * Confirms the tx succeeded and carries a USDC Transfer to the treasury,
- * returning the amount + payer.
- */
 export function parseUsdcTransfer(
   receipt: StarknetReceipt,
   params: { usdc: string; treasury: string; txHash: string; nonce: string },
@@ -30,9 +23,7 @@ export function parseUsdcTransfer(
   if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
     return { ok: false, reason: "transaction reverted" };
   }
-  // Reject a receipt that isn't finalized yet (e.g. still PENDING/RECEIVED) —
-  // crediting against a tx that could still be reorged out risks granting
-  // credits for a payment that never actually settles.
+
   if (receipt.finality_status && !FINALIZED_STATUSES.has(receipt.finality_status)) {
     return { ok: false, reason: "transaction not yet finalized" };
   }
@@ -41,7 +32,7 @@ export function parseUsdcTransfer(
   for (const ev of receipt.events ?? []) {
     if (normalizeAddress("STARKNET", ev.from_address) !== usdc) continue;
     if (ev.keys[0] !== TRANSFER_KEY) continue;
-    // keys: [Transfer, from, to]; data: [amount_low, amount_high].
+
     const from = ev.keys[1];
     const to = ev.keys[2];
     if (!to || normalizeAddress("STARKNET", to) !== treasury) continue;
@@ -50,22 +41,13 @@ export function parseUsdcTransfer(
       ok: true,
       amountAtomic: amount,
       payer: from ? normalizeAddress("STARKNET", from) : undefined,
-      // Dedup key = the on-chain tx alone, so one USDC transfer credits exactly
-      // once regardless of path (agent X-PAYMENT vs portal fund endpoint). The
-      // 402 `nonce` still binds the challenge but must NOT widen this key.
-      // (v1 assumes one funding transfer per tx.)
+
       proofNonce: params.txHash,
     };
   }
   return { ok: false, reason: "no USDC transfer to treasury found" };
 }
 
-/**
- * Push model: the agent has already transferred USDC to the treasury. verify()
- * confirms the tx is finalized, contains a USDC Transfer to the treasury, and
- * reports the amount + payer. settle() is implicit (funds already moved), so
- * this scheme exposes only verify().
- */
 export class StarknetUsdcScheme implements PaymentScheme {
   readonly scheme = "starknet-transfer";
   readonly network = "starknet";

@@ -1,7 +1,4 @@
-/**
- * Format a raw token amount to human-readable string.
- * e.g. formatAmount("1000000", 6) → "1.000000"
- */
+
 export function formatAmount(raw: string, decimals: number): string {
   try {
     const n = BigInt(raw);
@@ -15,9 +12,6 @@ export function formatAmount(raw: string, decimals: number): string {
   }
 }
 
-/**
- * Parse a felt252 value from hex or decimal string to BigInt.
- */
 export function feltToBigInt(felt: string): bigint {
   try {
     if (felt.startsWith("0x") || felt.startsWith("0X")) {
@@ -29,9 +23,6 @@ export function feltToBigInt(felt: string): bigint {
   }
 }
 
-/**
- * Combine low/high parts of a u256 into a single BigInt.
- */
 export function u256ToBigInt(low: string, high: string): bigint {
   try {
     const lo = BigInt(low);
@@ -42,9 +33,6 @@ export function u256ToBigInt(low: string, high: string): bigint {
   }
 }
 
-/**
- * Convert BigInt to decimal string.
- */
 export function bigIntToString(n: bigint): string {
   return n.toString();
 }

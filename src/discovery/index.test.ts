@@ -1,7 +1,5 @@
-// Regression guard: a data: token_uri was being rejected as a false-positive
-// SSRF attempt. Root cause: new URL("data:...").hostname is "", and Node's
-// dns.lookup("") resolves the empty string to loopback, so the layer-2 SSRF
-// guard (which only makes sense for network URLs) flagged every data: URI.
+
+
 import { describe, expect, test } from "bun:test";
 import { resolveMetadata } from "./index.js";
 

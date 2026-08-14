@@ -26,10 +26,6 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
   const toBlock = await deps.getLatestBlock();
   if (fromBlock > toBlock) return;
 
-  // Two queries per token: one for legs OUT of the account (keys[1]=account),
-  // one for legs IN to it (keys[1]=any via [], keys[2]=account) — Starknet's
-  // getEvents keys filter is positional-OR-within-position, not OR-across-
-  // positions, so "from OR to = account" needs two calls.
   const tokenEvents = (
     await mapWithConcurrency(SUPPORTED_TOKENS, TOKEN_POLL_CONCURRENCY, async (token) => {
       const [outLegs, inLegs] = await Promise.all([
@@ -48,7 +44,7 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
     const leg = decodeTransferLeg(event, tokenAddress);
     if (!leg) continue;
     const dedupeKey = `${leg.txHash}:${tokenAddress}:${leg.from}:${leg.to}`;
-    if (seenTxType.has(dedupeKey)) continue; // the two-query fan-out can return the same leg twice
+    if (seenTxType.has(dedupeKey)) continue;
     seenTxType.add(dedupeKey);
     legs.push(leg);
   }
@@ -113,9 +109,6 @@ const productionDeps: SyncDeps = {
     const block = await callRpc((provider) => provider.getBlockWithTxHashes(blockNumber));
     const timestamp = new Date(block.timestamp * 1000);
 
-    // Best-effort cache write — a duplicate-key race from a concurrent sync
-    // hitting the same uncached block is fine to ignore; the read above
-    // will hit the cache next time either way.
     await prisma.blockTimestamp
       .upsert({
         where: { chain_blockNumber: { chain: "STARKNET", blockNumber: BigInt(blockNumber) } },

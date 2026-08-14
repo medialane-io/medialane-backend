@@ -42,7 +42,7 @@ test("a fetch error does not kill the loop", async () => {
   const b = new EventsBroadcaster(failingOnce, 60_000);
   const seen: string[] = [];
   const unsub = b.subscribe({ chain: "all", push: (e) => seen.push(e.id) });
-  await b.tick(); // error swallowed
+  await b.tick();
   await b.tick();
   expect(seen).toEqual(["after"]);
   unsub();

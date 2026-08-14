@@ -1,12 +1,6 @@
 import { callRpc } from "../utils/starknet.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
-/**
- * Fetch events from one contract for a block range, following continuation-
- * token pagination. The single RPC fetch primitive behind every event source
- * (see `sources.ts` — which contract, which selectors, and how often are all
- * declared there, never here).
- */
 export async function pollContractEvents(params: {
   address: string;
   fromBlock: number;

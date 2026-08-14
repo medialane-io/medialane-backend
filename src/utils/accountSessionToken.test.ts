@@ -15,7 +15,7 @@ test("rejects a tampered token", () => {
 
 test("rejects an expired token", () => {
   const realNow = Date.now;
-  Date.now = () => realNow() - 25 * 60 * 60 * 1000; // issue 25 hours in the past
+  Date.now = () => realNow() - 25 * 60 * 60 * 1000;
   const token = issueAccountSessionToken("acc_ABC123");
   Date.now = realNow;
   expect(verifyAccountSessionToken(token)).toBeNull();

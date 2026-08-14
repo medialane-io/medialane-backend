@@ -2,14 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 
-// apiKeyAuth talks to prisma directly (no injected deps today) — this test
-// exercises the context-shape contract via a hand-built downstream handler,
-// not a live DB. Full behavior is covered by the existing integration-style
-// route tests; this guards the specific account/apiClient split.
 describe("apiKeyAuth context shape", () => {
   test("downstream handlers can read both c.get('account') (identity-only) and c.get('apiClient') (billing)", async () => {
     const a = new Hono<AppEnv>();
-    // Simulates what apiKeyAuth sets post-cutover, without touching the DB.
+
     a.use("*", async (c, next) => {
       c.set("account", { id: "acc1", status: "ACTIVE" });
       c.set("apiClient", { id: "ac1", accountId: "acc1", plan: "FREE", creditBalance: 500 });

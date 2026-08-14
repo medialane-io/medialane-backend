@@ -16,12 +16,10 @@ const log = createLogger("main");
 async function main() {
   log.info({ chain: "STARKNET", port: env.PORT }, "Starting Medialane Backend");
 
-  // Warn about optional-but-important env vars that have empty defaults
   if (!env.PINATA_JWT) {
     log.warn("PINATA_JWT is not set — metadata uploads and IPFS pinning will fail");
   }
 
-  // Verify DB connection
   try {
     await prisma.$connect();
     log.info("Database connected");
@@ -30,10 +28,8 @@ async function main() {
     process.exit(1);
   }
 
-  // Start background services concurrently
   const app = createApp();
 
-  // Start HTTP server
   serve(
     { fetch: app.fetch, port: env.PORT },
     (info) => {
@@ -41,10 +37,6 @@ async function main() {
     }
   );
 
-  // Start Mirror and Orchestrator in background (non-blocking)
-  // Starknet's ingestor wraps the existing mirror unchanged; EVM/Solana/
-  // Stellar ingestors (platform-federation Phases C–E) join this list,
-  // deploy-gated on their coordinates.
   const starknetIngestor: ChainIngestor = {
     chain: "STARKNET",
     start: () =>
@@ -60,15 +52,13 @@ async function main() {
     process.exit(1);
   });
 
-  // Graceful shutdown
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 }
 
 async function shutdown() {
   log.info("Shutting down Medialane...");
-  // Drain the in-memory worker queue before exiting so in-flight metadata/stats
-  // jobs are not abandoned mid-execution. Give it up to 10 seconds.
+
   await worker.waitDrain(10_000);
   await prisma.$disconnect();
   process.exit(0);

@@ -8,16 +8,6 @@ import { recordOrderFill } from "./orderFill.js";
 
 const log = createLogger("handler:orderFulfilled");
 
-/**
- * Unified OrderFulfilled handler — works for both ERC-721 (always single-fill,
- * status flips to FULFILLED) and ERC-1155 (partial fills, status stays ACTIVE
- * until remainingAmount === "0").
- *
- * Returns `isFinalFill` so callers can gate per-final-fill side effects like
- * ghost-listing cleanup. For ERC-721 events, `quantity` defaults to "1" and
- * `remainingAmount` defaults to "0" — meaning every ERC-721 fulfillment is
- * final by definition.
- */
 export async function handleOrderFulfilled(
   event: ParsedOrderFulfilled,
   tx: Prisma.TransactionClient,
@@ -47,14 +37,13 @@ export async function handleOrderFulfilled(
       fulfiller: event.fulfiller,
       status: isFinalFill ? "FULFILLED" : "ACTIVE",
       fulfilledTxHash: isFinalFill ? event.txHash : undefined,
-      // Only write remainingAmount for ERC-1155 (event carries it)
+
       ...(event.remainingAmount !== undefined ? { remainingAmount } : {}),
     },
   });
 
   if (isFinalFill) {
-    // Complete any RemixOffer whose listing was just fully fulfilled.
-    // Works for both standards now — previously only the ERC-721 path did this.
+
     const { count } = await tx.remixOffer.updateMany({
       where: { orderHash: event.orderHash, status: "APPROVED" },
       data: { status: "COMPLETED" },
@@ -75,19 +64,6 @@ export async function handleOrderFulfilled(
   return { isFinalFill };
 }
 
-/**
- * Parse an ERC-1155 OrderFulfilled raw event into ParsedOrderFulfilled shape.
- *
- * Event structure (Medialane1155 V2 — deployed 2026-04-28):
- *   keys[1] = order_hash       (felt252, indexed)
- *   keys[2] = offerer          (ContractAddress, indexed)
- *   keys[3] = fulfiller        (ContractAddress, indexed)
- *   data[0] = quantity         (felt252) - units bought in this fill
- *   data[1] = remaining_amount (felt252) - units still available
- *   data[2] = royalty_receiver (ContractAddress)
- *   data[3] = royalty_amount.low  (u256 low)
- *   data[4] = royalty_amount.high (u256 high)
- */
 export function parseRawOrderFulfilled1155(
   rawEvent: RawStarknetEvent,
   logIndex: number,

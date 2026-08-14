@@ -5,22 +5,6 @@ import { evmCollectionOwner, evmHoldsToken } from "./evm.js";
 import { solanaCollectionOwner, solanaHoldsToken } from "./solana.js";
 import { stellarCollectionOwner, stellarHoldsToken } from "./stellar.js";
 
-/**
- * On-demand, read-only chain reads behind ONE dispatch point (spec 2026-06-13
- * §3.3). Starknet-only today; adding a chain adds a `case` here (litmus test) —
- * no formal interface until a second implementor exists. The Starknet bulk
- * poller is unchanged; foreign chains use only this on-demand path, triggered
- * by claim / gated-content / admin flows, never by polling.
- *
- * Reads throw on RPC failure — callers surface 503 and MUST NOT fall back to
- * the DB cache for an authorization decision (07-identity §V).
- */
-
-/**
- * Does `owner` hold ≥1 token of `contract`? The on-chain authority for
- * token-gated content (07-identity §V). ERC-721 → `balance_of`; ERC-1155 →
- * `balance_of_batch` over the indexer's known token ids (capped).
- */
 export async function holdsToken(
   chain: Chain,
   contract: string,
@@ -43,11 +27,6 @@ export async function holdsToken(
   }
 }
 
-/**
- * Collection-level `owner()` — used by on-chain claim verification. Returns the
- * normalized owner (may be the zero address); throws on RPC failure so callers
- * can distinguish "checked, mismatched" from "could not check".
- */
 export async function getCollectionOwner(chain: Chain, contract: string): Promise<string> {
   switch (chain) {
     case "STARKNET":
@@ -64,11 +43,6 @@ export async function getCollectionOwner(chain: Chain, contract: string): Promis
   }
 }
 
-/**
- * Is `ownerPubkey` currently a registered owner of the MediaWallet account at
- * `accountAddress`? Used to verify business-provisioning handoffs on-chain
- * before trusting a claim as complete — never trust the DB alone for this.
- */
 export async function isAccountOwner(chain: Chain, accountAddress: string, ownerPubkey: string): Promise<boolean> {
   switch (chain) {
     case "STARKNET":
@@ -78,8 +52,6 @@ export async function isAccountOwner(chain: Chain, accountAddress: string, owner
   }
 }
 
-// ─── Starknet implementations ────────────────────────────────────────────────
-
 async function starknetHoldsToken(
   contract: string,
   owner: string,
@@ -87,7 +59,7 @@ async function starknetHoldsToken(
   knownTokenIds?: string[],
 ): Promise<boolean> {
   if (standard === "ERC721") {
-    // OZ Cairo ERC-721: balance_of(account) → u256 [low, high].
+
     const res = await callRpc((provider) => provider.callContract({
       contractAddress: contract,
       entrypoint: "balance_of",
@@ -96,7 +68,6 @@ async function starknetHoldsToken(
     return res.length >= 2 && (BigInt(res[0] ?? "0x0") !== 0n || BigInt(res[1] ?? "0x0") !== 0n);
   }
 
-  // ERC-1155: no "owns any in collection" call — batch over known ids (capped).
   if (!knownTokenIds || knownTokenIds.length === 0) return false;
   const ids = knownTokenIds.slice(0, 100);
   const accounts = new Array<string>(ids.length).fill(owner);
@@ -138,14 +109,12 @@ async function starknetIsAccountOwner(accountAddress: string, ownerPubkey: strin
   return callRpc((provider) => __unstable_starknetIsAccountOwnerWithProvider(provider, accountAddress, ownerPubkey));
 }
 
-// Exported under an intentionally unstable name — exists only so tests can inject a
-// fake provider without a live RPC. Not part of the module's public surface.
 export async function __unstable_starknetIsAccountOwnerWithProvider(
   provider: { callContract: (call: { contractAddress: string; entrypoint: string; calldata: string[] }) => Promise<string[]> },
   accountAddress: string,
   ownerPubkey: string,
 ): Promise<boolean> {
-  // Signer::Starknet(StarknetSigner{ pubkey }) → Serde [tag=0, pubkey].
+
   const res = await provider.callContract({
     contractAddress: accountAddress,
     entrypoint: "is_owner",

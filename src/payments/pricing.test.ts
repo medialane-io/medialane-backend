@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveActionKey } from "./pricing.js";
 
-// costForRequest itself hits the DB (PricingRule cache + Collection lookups
-// for mint/create-collection) — covered by integration/e2e, not unit tests.
-// resolveActionKey is the pure, DB-free routing logic and is what's worth
-// unit-testing here.
 describe("resolveActionKey", () => {
   test("GET data routes resolve to the default read action", () => {
     expect(resolveActionKey("GET", "/v1/tokens/0xabc")).toBe("read");

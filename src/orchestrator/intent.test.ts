@@ -1,9 +1,5 @@
-// Sanity tests for the SDK SNIP-12 builders that the backend depends on.
-//
-// Guards against the incident class where the backend signs the wrong protocol
-// version/shape: signatures the Cairo contracts reject, so marketplace orders
-// silently fail. Cheap to verify; catastrophic to miss. Updated for the
-// redesigned venues (domain v4 / v3, single-amount schema, unsigned fulfil).
+
+
 import { describe, expect, test } from "bun:test";
 import {
   buildOrderTypedData,
@@ -102,9 +98,9 @@ describe("buildOrderParams — shared order-field assembly (DRY refactor safety 
 
   test("every numeric/address field is hex-encoded regardless of input representation", () => {
     const params = buildOrderParams(base);
-    expect(params.offerer).toBe("0x7b"); // 123 decimal
-    expect(params.marketplace).toBe("0x456"); // already hex — passthrough
-    expect(params.offer.token).toBe("0x315"); // 789 decimal
+    expect(params.offerer).toBe("0x7b");
+    expect(params.marketplace).toBe("0x456");
+    expect(params.offer.token).toBe("0x315");
     expect(params.offer.identifier_or_criteria).toBe("0x5");
     expect(params.offer.amount).toBe("0x1");
     expect(params.consideration.amount).toBe("0x" + BigInt("5000000000000000000").toString(16));
@@ -121,9 +117,7 @@ describe("buildOrderParams — shared order-field assembly (DRY refactor safety 
   });
 
   test("hex-string and decimal-string field representations yield the same signed hash", () => {
-    // Regression guard for the H1 refactor: buildOrderParams always emits hex,
-    // but confirms hex vs decimal representations of an equal value hash
-    // identically under buildOrderTypedData — see 2026-08-05 verification.
+
     const hexParams = buildOrderParams(base);
     const decParams = buildOrderParams({
       ...base,
@@ -200,7 +194,7 @@ describe("Sponsorship intent builders — pure calldata, no signing", () => {
       duration: 86400, paymentToken: "0x3", licenseTermsUri: "ipfs://x",
       transferable: true, royaltyBps: 250,
     });
-    expect(calls).toHaveLength(1); // validUntil ?? 0 must not throw when omitted
+    expect(calls).toHaveLength(1);
   });
 
   test("buildWithdrawSponsorshipProposalIntent returns one populated withdraw_proposal call", async () => {

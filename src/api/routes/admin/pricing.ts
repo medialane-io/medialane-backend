@@ -1,8 +1,4 @@
-/**
- * x402 pricing admin — the portal's server-side interface for tuning credit
- * costs per action, chain, and service without a code deploy. Mirrors the
- * accounts.ts / RewardAction admin patterns.
- */
+
 import type { Hono } from "hono";
 import { z } from "zod";
 import prisma from "../../../db/client.js";
@@ -12,7 +8,7 @@ import { createLogger } from "../../../utils/logger.js";
 const log = createLogger("routes:admin:pricing");
 
 export function registerPricingRoutes(admin: Hono) {
-  // GET /admin/pricing — every rule, most specific first (per actionKey).
+
   admin.get("/pricing", async (c) => {
     const rules = await prisma.pricingRule.findMany({
       orderBy: [{ actionKey: "asc" }, { chain: "asc" }, { service: "asc" }],
@@ -20,11 +16,6 @@ export function registerPricingRoutes(admin: Hono) {
     return c.json({ data: rules });
   });
 
-  // PATCH /admin/pricing/:actionKey — upsert a price. Body: { credits, chain?,
-  // service?, label? }. chain/service default to "ALL" (the wildcard
-  // sentinel) — omit both to set the actionKey's chain-agnostic,
-  // service-agnostic default; supply either to add/update a more specific
-  // override. Takes effect immediately (cache invalidated on write).
   admin.patch("/pricing/:actionKey", async (c) => {
     const actionKey = c.req.param("actionKey");
     const body = await c.req.json().catch(() => null);
@@ -48,10 +39,6 @@ export function registerPricingRoutes(admin: Hono) {
     return c.json({ data: rule });
   });
 
-  // DELETE /admin/pricing/:actionKey?chain=&service= — remove a specific
-  // override row (defaults to ALL/ALL if omitted). Removing the ALL/ALL row
-  // for an actionKey drops it back to the hardcoded fallback in pricing.ts —
-  // intentionally allowed (never leaves metering unable to resolve a price).
   admin.delete("/pricing/:actionKey", async (c) => {
     const actionKey = c.req.param("actionKey");
     const chain = c.req.query("chain") ?? "ALL";

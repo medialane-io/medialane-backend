@@ -9,10 +9,9 @@ import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 const log = createLogger("routes:metadata");
 const metadata = new Hono();
 
-const MAX_JSON_BYTES = 512 * 1024;    // 512 KB for metadata JSON
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB for media files
+const MAX_JSON_BYTES = 512 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
-// Singleton — SDK holds no per-request state
 const pinata = new PinataSDK({
   pinataJwt: env.PINATA_JWT,
   pinataGateway: env.PINATA_GATEWAY,
@@ -28,8 +27,7 @@ const SIGNED_URL_MIME_TYPES: Record<"image" | "document", string[]> = {
     "application/rtf",
     "text/plain",
     "text/markdown",
-    // Browsers report .md/.rtf/.odt inconsistently — often as octet-stream.
-    // Caller auth + size cap + short expiry are the real guards here.
+
     "application/octet-stream",
   ],
 };
@@ -38,12 +36,11 @@ const SIGNED_URL_MAX_BYTES: Record<"image" | "document", number> = {
   document: 20 * 1024 * 1024,
 };
 
-// GET /v1/metadata/signed-url?kind=image|document (defaults to image)
 metadata.get("/signed-url", async (c) => {
   const kind: "image" | "document" = c.req.query("kind") === "document" ? "document" : "image";
   try {
     const url = await pinata.upload.public.createSignedURL({
-      expires: 120, // 2 minutes — enough for slow connections
+      expires: 120,
       maxFileSize: SIGNED_URL_MAX_BYTES[kind],
       mimeTypes: SIGNED_URL_MIME_TYPES[kind],
     });
@@ -56,7 +53,6 @@ metadata.get("/signed-url", async (c) => {
   }
 });
 
-// POST /v1/metadata/upload — Upload metadata JSON
 metadata.post("/upload", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? 0);
   if (contentLength > MAX_JSON_BYTES) {
@@ -85,21 +81,20 @@ metadata.post("/upload", async (c) => {
 });
 
 const ALLOWED_MIME_TYPES = new Set([
-  // Images
+
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
-  // Video
+
   "video/mp4", "video/webm", "video/ogg",
-  // Audio
+
   "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
-  // Documents
+
   "application/pdf",
-  // Generic binary (e.g. 3D models) — name-checked below
+
   "application/octet-stream",
 ]);
 
 const ALLOWED_EXTENSIONS = /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogv|ogg|mp3|wav|flac|pdf|glb|gltf)$/i;
 
-// POST /v1/metadata/upload-file — Upload media file
 metadata.post("/upload-file", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? 0);
   if (contentLength > MAX_FILE_BYTES) {
@@ -115,7 +110,6 @@ metadata.post("/upload-file", async (c) => {
       return c.json({ error: "File too large (max 10 MB)" }, 413);
     }
 
-    // MIME type allowlist — reject executables, HTML, scripts, etc.
     const mimeBase = file.type.split(";")[0].trim().toLowerCase();
     const nameOk = ALLOWED_EXTENSIONS.test(file.name);
     if (!ALLOWED_MIME_TYPES.has(mimeBase) && !nameOk) {
@@ -130,19 +124,9 @@ metadata.post("/upload-file", async (c) => {
   }
 });
 
-const MAX_DIRECTORY_FILES = 2001; // 2000 items + collection.json
-const MAX_DIRECTORY_BYTES = 5 * 1024 * 1024; // 5 MB total across every file
+const MAX_DIRECTORY_FILES = 2001;
+const MAX_DIRECTORY_BYTES = 5 * 1024 * 1024;
 
-/**
- * Builds the multipart form for Pinata's directory-pin endpoint. Pure
- * function (no network) so the directory-vs-flat-pin invariant is unit
- * testable without a live Pinata key: Pinata pins a DIRECTORY only when
- * every file shares a common folder prefix in its name AND
- * `pinataOptions.wrapWithDirectory` is `false` — it then returns the CID
- * of that folder, so children resolve at `<cid>/<name>`. Flat names or
- * `wrap:true` get rejected with "More than one file ... provided for
- * pinning". Do not change this shape without re-verifying against Pinata.
- */
 export function buildDirectoryPinForm(
   files: { name: string; content: unknown }[],
   folder: string,
@@ -157,10 +141,6 @@ export function buildDirectoryPinForm(
   return form;
 }
 
-// POST /v1/metadata/upload-directory — Pin a set of named JSON files together
-// under one folder CID (base_uri = ipfs://<cid>/, each file at ipfs://<cid>/<name>).
-// Generic: this route doesn't know about asset/drop metadata shape, callers
-// send already-built JSON documents keyed by filename.
 metadata.post("/upload-directory", async (c) => {
   const jwt = env.PINATA_JWT;
   if (!jwt) return c.json({ error: "Pinata not configured" }, 500);
@@ -211,12 +191,10 @@ metadata.post("/upload-directory", async (c) => {
   }
 });
 
-// GET /v1/metadata/resolve?uri=...
 metadata.get("/resolve", async (c) => {
   const uri = c.req.query("uri");
   if (!uri) return c.json({ error: "uri query param required" }, 400);
 
-  // SSRF guard — only allow ipfs://, data:, and https:// URIs pointing at public hosts.
   if (!uri.startsWith("ipfs://") && !uri.startsWith("data:")) {
     if (isPrivateOrInsecureUrl(uri)) {
       return c.json({ error: "Only ipfs://, data:, and https:// URIs to public hosts are supported" }, 400);

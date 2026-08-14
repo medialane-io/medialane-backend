@@ -4,8 +4,6 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:metadata-retry");
 
-// Re-enqueue FAILED tokens and collections every 6 hours. Batch size kept
-// small to avoid overwhelming the queue on instances with many failures.
 const RETRY_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
 
@@ -18,7 +16,7 @@ export async function startMetadataRetryLoop(): Promise<void> {
         where: { metadataStatus: "FAILED" },
         select: { chain: true, contractAddress: true, tokenId: true },
         take: BATCH_SIZE,
-        orderBy: { updatedAt: "asc" }, // oldest failures first
+        orderBy: { updatedAt: "asc" },
       });
 
       if (failed.length > 0) {
@@ -32,7 +30,7 @@ export async function startMetadataRetryLoop(): Promise<void> {
         where: { metadataStatus: "FAILED" },
         select: { chain: true, contractAddress: true },
         take: BATCH_SIZE,
-        orderBy: { updatedAt: "asc" }, // oldest failures first
+        orderBy: { updatedAt: "asc" },
       });
 
       if (failedCollections.length > 0) {

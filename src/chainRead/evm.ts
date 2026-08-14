@@ -3,12 +3,6 @@ import type { Chain } from "@prisma/client";
 import { getCoordinates } from "@medialane/sdk";
 import { env } from "../config/env.js";
 
-/**
- * EVM read adapter (Ethereum + Base) for the chainRead dispatch — on-demand,
- * read-only (spec 2026-06-13 §3.3; platform-federation §3.3). RPC precedence:
- * env override → the chain registry's rpcUrl.
- */
-
 const ERC721_READS = parseAbi([
   "function balanceOf(address owner) view returns (uint256)",
   "function owner() view returns (address)",

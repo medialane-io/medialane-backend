@@ -12,9 +12,6 @@ const log = createLogger("routes:drop");
 
 const drop = new Hono<AppEnv>();
 
-// GET /v1/drop/mint-status/:collection/:wallet
-// Returns how many tokens the wallet has minted from a drop collection,
-// plus the total minted across all wallets.
 drop.get("/mint-status/:collection/:wallet", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -43,12 +40,6 @@ const conditionsSchema = z.object({
   maxPerWallet: z.string().regex(/^\d+$/, "maxPerWallet must be a non-negative integer string").default("1"),
 });
 
-// POST /v1/drop/conditions
-// Store claim conditions after a successful create_drop transaction.
-// Requires a verified wallet identity (SIWS) — only the collection
-// owner (claimedBy or owner field) may set conditions. Ownership is the real
-// gate (below), independent of the auth mechanism that proved the wallet.
-// Body: { collectionAddress, maxSupply, price, paymentToken, startTime, endTime, maxPerWallet }
 drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ error: "Invalid request body" }, 400);
@@ -62,7 +53,6 @@ drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => 
   const collectionAddress = normalizeAddress("STARKNET", data.collectionAddress);
   const callerWallet = c.get("walletAddress") as string | undefined;
 
-  // Ownership check: caller must match the collection owner or claimedBy wallet
   const collection = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain: "STARKNET", contractAddress: collectionAddress } },
     select: { owner: true, claimedBy: true },
@@ -118,8 +108,6 @@ drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => 
   );
 });
 
-// GET /v1/drop/:contract/info
-// Returns collection metadata merged with claim conditions.
 drop.get("/:contract/info", publicCache(30), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);

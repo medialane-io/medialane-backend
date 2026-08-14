@@ -1,4 +1,4 @@
-// --- Medialane Simplified Marketplace Types (Matching On-Chain ABI) ---
+
 
 export interface OfferItem {
   item_type: string;
@@ -23,8 +23,6 @@ export interface OrderParameters {
   counter: string;
 }
 
-// Fulfillment removed — fulfill is unsigned (caller is the fulfiller).
-
 export type Cancelation = {
   order_hash: string;
   offerer: string;
@@ -34,8 +32,6 @@ export interface Order {
   parameters: OrderParameters;
   signature: string[];
 }
-
-// --- Parsed on-chain event shapes ---
 
 export interface ParsedOrderCreated {
   type: "OrderCreated";
@@ -54,9 +50,9 @@ export interface ParsedOrderFulfilled {
   blockNumber: bigint;
   txHash: string;
   logIndex: number;
-  /** ERC-1155 only - units bought in this fill. Defaults to "1" for ERC-721. */
+
   quantity?: string;
-  /** ERC-1155 only - units still available after this fill. "0" means the order is fully fulfilled. */
+
   remainingAmount?: string;
 }
 
@@ -96,7 +92,7 @@ export interface ParsedTransferSingle {
   from: string;
   to: string;
   tokenId: string;
-  amount: string; // decimal string
+  amount: string;
   blockNumber: bigint;
   txHash: string;
   logIndex: number;
@@ -111,12 +107,12 @@ export interface ParsedTransferBatch {
   transfers: Array<{ tokenId: string; amount: string }>;
   blockNumber: bigint;
   txHash: string;
-  logIndex: number; // base logIndex — individual Transfer rows use logIndex * 10000 + itemIndex
+  logIndex: number;
 }
 
 export interface ParsedCollectionCreated {
   type: "CollectionCreated";
-  collectionId: string; // decimal string
+  collectionId: string;
   owner: string;
   blockNumber: bigint;
   txHash: string;
@@ -133,8 +129,6 @@ export type ParsedEvent =
   | ParsedTransferBatch
   | ParsedCollectionCreated;
 
-// --- Order details from RPC ---
-
 export interface OnChainOrderDetails {
   offerer: string;
   offerItemType: string;
@@ -149,7 +143,7 @@ export interface OnChainOrderDetails {
   royaltyMaxBps: string;
   startTime: bigint;
   endTime: bigint;
-  /** ERC-1155 only - units still available. Absent for ERC-721 (always single-fill). */
+
   remainingAmount?: string;
   status: "active" | "fulfilled" | "cancelled";
 }

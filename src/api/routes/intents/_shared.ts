@@ -1,6 +1,5 @@
-// Schemas, sets, helpers shared across the intents route group.
-// Keep this small — anything used by exactly one of build/lifecycle/settle
-// belongs in that file.
+
+
 import { z } from "zod";
 import { num } from "starknet";
 import { createLogger } from "../../../utils/logger.js";
@@ -23,7 +22,7 @@ export const listingSchema = z.object({
   price: z.string(),
   endTime: z.number(),
   salt: z.string().optional(),
-  /** ERC-1155 only: number of units to list. Omit for ERC-721. */
+
   amount: z.string().optional(),
 });
 
@@ -48,14 +47,12 @@ export const cancelSchema = z.object({
 export const mintSchema = z.object({
   owner: starknetAddress,
   recipient: starknetAddress,
-  // Registry mint (mip-erc721/ip-erc721, the default): collectionId + tokenUri required.
+
   collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string").optional(),
   tokenUri: z.string().min(1).optional(),
-  // EIP-2981 royalty (bps, 0–10_000), receiver = creator. Registry mint only. Optional for
-  // back-compat with pre-v0.4.0 app bundles (defaults to 0); the app caps input at 50% (5000).
+
   royaltyBps: z.number().int().min(0).max(10000).optional().default(0),
-  // Per-creator-factory mint (mip-erc1155/ip-tickets/ip-club, resolved from collectionContract):
-  // mip-erc1155 needs tokenUri (above) + value; ip-tickets/ip-club need an existing tokenId + amount.
+
   tokenId: z.string().regex(/^\d+$/, "tokenId must be a non-negative integer string").optional(),
   amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string").optional(),
   value: z.string().regex(/^\d+$/, "value must be a non-negative integer string").optional(),
@@ -70,13 +67,12 @@ export const createCollectionSchema = z.object({
   description: z.string().optional(),
   image: z.string().optional(),
   collectionContract: starknetAddress.optional(),
-  // Omitted (default): registry entry for mip-erc721/ip-erc721. One of these
-  // deploys a new per-creator contract via that service's factory instead.
+
   service: z.enum(COLLECTION_SERVICE_IDS).optional(),
-  // pop-protocol only.
+
   claimEndTimestamp: z.number().int().nonnegative().optional(),
   eventType: z.string().optional(),
-  // drop-collection only.
+
   maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string").optional(),
   conditions: z.object({
     startTime: z.number().int().nonnegative(),
@@ -98,8 +94,6 @@ export const createTierSchema = z.object({
   metadataUri: z.string().min(1),
 });
 
-// ── Creator Coin schemas ─────────────────────────────────────────────────────
-
 export const createCoinSchema = z.object({
   owner: starknetAddress,
   name: z.string().min(1),
@@ -118,8 +112,6 @@ export const launchCoinSchema = z.object({
   maxPercentageBuyLaunch: z.number().int().nonnegative().optional(),
   quoteFundAmount: z.string().regex(/^\d+$/, "quoteFundAmount must be a non-negative integer string").optional(),
 });
-
-// ── IP-Sponsorship schemas ───────────────────────────────────────────────────
 
 export const sponsorshipOfferSchema = z.object({
   author: starknetAddress,
@@ -207,7 +199,6 @@ export const signatureSchema = z.object({
   signature: z.array(z.string()).min(1, "signature array required"),
 });
 
-// Intent types that go through the marketplace contract and need event verification
 export const MARKETPLACE_INTENT_TYPES = new Set([
   "CREATE_LISTING",
   "MAKE_OFFER",

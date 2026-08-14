@@ -1,9 +1,4 @@
-/**
- * CLI wrapper — the engine lives in src/rewards/compute.ts (also run by the
- * orchestrator's scheduled loop and the admin endpoint).
- *
- * Usage: bun run src/scripts/compute-rewards.ts [--dry-run] [--no-badges]
- */
+
 
 import prisma from "../db/client.js";
 import { computeRewards } from "../rewards/compute.js";

@@ -5,18 +5,12 @@ import { createRedisStore } from "./redisRateLimit.js";
 import { env } from "../../config/env.js";
 
 const PER_MINUTE_LIMIT = 3000;
-const WINDOW_MS = 60_000; // 1 minute
+const WINDOW_MS = 60_000;
 
-// ---------------------------------------------------------------------------
-// Store interface — swap to RedisRateLimitStore for multi-instance production
-// ---------------------------------------------------------------------------
 export interface RateLimitStore {
   increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number }>;
 }
 
-// ---------------------------------------------------------------------------
-// In-memory implementation (used for PREMIUM per-minute limiting)
-// ---------------------------------------------------------------------------
 interface Entry {
   count: number;
   resetAt: number;
@@ -37,7 +31,6 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 
     this.map.set(key, entry);
 
-    // Cleanup when store grows large
     if (this.map.size > 50_000) {
       for (const [k, e] of this.map) {
         if (now >= e.resetAt) this.map.delete(k);
@@ -48,19 +41,14 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-// Singleton store for PREMIUM per-minute rate limiting
 const defaultStore: RateLimitStore = env.REDIS_URL
   ? createRedisStore(env.REDIS_URL)
   : new InMemoryRateLimitStore();
 
-// ---------------------------------------------------------------------------
-// Middleware factory — keyed by API key ID (not IP)
-// ---------------------------------------------------------------------------
 export function apiKeyRateLimit(store: RateLimitStore = defaultStore): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const apiKey = c.get("apiKey");
 
-    // If auth hasn't run yet, skip rate limiting (shouldn't happen in normal wiring)
     if (!apiKey) {
       await next();
       return;

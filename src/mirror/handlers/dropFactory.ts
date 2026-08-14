@@ -9,19 +9,6 @@ import type { RawStarknetEvent } from "../../types/starknet.js";
 
 const log = createLogger("mirror:dropFactory");
 
-/**
- * Handle a DropCreated event from the Collection Drop factory.
- *
- * Event key layout (Cairo 2.x, #[key] fields):
- *   keys[0] = selector("DropCreated")
- *   keys[1] = drop_id.low  (u256 split — low 128 bits)
- *   keys[2] = drop_id.high (u256 split — high 128 bits)
- *   keys[3] = organizer (ContractAddress)
- *
- * Event data layout:
- *   data[0] = collection_address (ContractAddress)
- *   data[1..] = name ByteArray + max_supply u256 + timestamp u64 (not parsed — COLLECTION_METADATA_FETCH handles it)
- */
 export async function handleDropCreated(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
   try {
@@ -65,20 +52,6 @@ export async function handleDropCreated(event: RawStarknetEvent): Promise<void> 
   }
 }
 
-/**
- * Handle an AllowlistUpdated event from a Collection Drop collection.
- * Layout is identical to POP Protocol AllowlistUpdated — stored in the same PopAllowlist table.
- *
- * Event key layout:
- *   keys[0] = selector("AllowlistUpdated")
- *   keys[1] = user (ContractAddress)
- *
- * Event data layout:
- *   data[0] = allowed (bool as 0x0 or 0x1)
- *   data[1] = timestamp (u64)
- *
- * The collection address is event.from_address.
- */
 export async function handleDropAllowlistUpdated(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
   try {

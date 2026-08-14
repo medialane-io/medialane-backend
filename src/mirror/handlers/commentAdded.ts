@@ -3,18 +3,6 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 
-/**
- * Decode a Cairo ByteArray serialization as UTF-8.
- * byteArray.stringFromByteArray from starknet.js is ASCII-only and throws on
- * multi-byte characters (Japanese, emoji, etc.). This implementation collects
- * all bytes from the felt252 chunks and decodes them with TextDecoder.
- *
- * Serialization format (array of hex felt strings):
- *   [0]           = data.len (number of 31-byte chunks)
- *   [1..dataLen]  = each chunk as felt252 (31 bytes, big-endian, MSB first)
- *   [1+dataLen]   = pending_word felt252
- *   [2+dataLen]   = pending_word_len (number of valid bytes in pending_word)
- */
 function utf8FromByteArray(felts: string[]): string {
   const dataLen = Number(BigInt(felts[0]));
   const pendingWord = BigInt(felts[1 + dataLen]);
@@ -27,7 +15,7 @@ function utf8FromByteArray(felts: string[]): string {
       bytes[offset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
     }
   }
-  // pending_word is right-aligned: bytes are at (pendingWordLen-1)*8 .. 0, NOT at (30-j)*8
+
   for (let j = 0; j < pendingWordLen; j++) {
     bytes[offset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
   }
@@ -36,21 +24,6 @@ function utf8FromByteArray(felts: string[]): string {
 
 const log = createLogger("mirror:commentAdded");
 
-/**
- * Parse and persist a CommentAdded event.
- * Idempotent — upsert on (txHash, logIndex).
- *
- * Event key layout:
- *   keys[0] = selector("CommentAdded")
- *   keys[1] = nft_contract (felt252)
- *   keys[2] = token_id.low (felt252)   ← u256 split
- *   keys[3] = token_id.high (felt252)
- *   keys[4] = author (felt252)
- *
- * Event data layout:
- *   [...ByteArray felts..., timestamp]
- *   timestamp is the last felt; everything before it is the ByteArray.
- */
 export async function handleCommentAdded(
   event: RawStarknetEvent,
   txHash: string,
@@ -63,7 +36,6 @@ export async function handleCommentAdded(
     const tokenId = ((tokenIdHigh << 128n) | tokenIdLow).toString();
     const author = normalizeAddress("STARKNET", event.keys[4]);
 
-    // Only index comments for tokens that exist on the platform
     const tokenExists = await prisma.token.findUnique({
       where: { chain_contractAddress_tokenId: { chain: "STARKNET", contractAddress: nftContract, tokenId } },
       select: { id: true },
@@ -73,7 +45,6 @@ export async function handleCommentAdded(
       return;
     }
 
-    // Timestamp is the last felt in data; everything before it is the ByteArray.
     const dataArr = event.data;
     const blockTimestamp = BigInt(parseInt(dataArr[dataArr.length - 1], 16));
     const byteArrayData = dataArr.slice(0, dataArr.length - 1);
@@ -92,7 +63,6 @@ export async function handleCommentAdded(
       return;
     }
 
-    // Sanitize: strip null bytes and non-printable control characters
     const sanitized = content.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").trim();
     if (!sanitized) return;
 

@@ -6,15 +6,6 @@ import { STALE_AFTER_MS } from "../api/routes/wallet-activity.js";
 
 const log = createLogger("orchestrator:wallet-activity-refresh");
 
-// Check every minute; re-enqueue any account whose cursor is stale (matches
-// the same STALE_AFTER_MS threshold GET /v1/wallet-activity uses for its
-// own on-read enqueue, so a background-refreshed account never looks stale
-// to a reader) AND was itself synced within the last 24h — bounding cost to
-// "someone has actually looked at this recently," not every address that
-// ever synced once. An account nobody's viewed in a day just stops being
-// proactively refreshed; the on-read enqueue in the route picks it back up
-// instantly if someone does look again (same self-healing shape as
-// metadataRetryLoop re-enqueueing FAILED tokens).
 const CHECK_INTERVAL_MS = 60 * 1000;
 const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
@@ -36,7 +27,7 @@ const productionDeps: WalletActivityRefreshDeps = {
       },
       select: { chain: true, accountAddress: true },
       take: BATCH_SIZE,
-      orderBy: { updatedAt: "asc" }, // stalest first
+      orderBy: { updatedAt: "asc" },
     });
   },
   enqueueSync: (chain, accountAddress) => worker.enqueue({ type: "WALLET_ACTIVITY_SYNC", chain, accountAddress }),

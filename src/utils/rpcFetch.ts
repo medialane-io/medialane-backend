@@ -4,14 +4,8 @@ import { createLogger } from "./logger.js";
 
 const log = createLogger("utils:rpcFetch");
 
-// Each RPC request gets 15s before being aborted — prevents hang accumulation.
 const RPC_TIMEOUT_MS = 15_000;
 
-/**
- * Ordered Starknet RPC endpoints: configured private endpoints first, then the
- * SDK's shared public fallback list (lava.build, …). Single source of the
- * endpoint order, shared by every raw-fetch RPC path in the backend.
- */
 export function rpcEndpoints(): string[] {
   return Array.from(new Set([
     env.ALCHEMY_RPC_URL,
@@ -20,7 +14,6 @@ export function rpcEndpoints(): string[] {
   ].filter((url): url is string => Boolean(url))));
 }
 
-/** Host + first path segments only — never log API keys embedded in the URL. */
 export function redactRpcUrl(url: string): string {
   try {
     const parsed = new URL(url);
@@ -30,18 +23,6 @@ export function redactRpcUrl(url: string): string {
   }
 }
 
-/**
- * POST a JSON-RPC request, rotating across {@link rpcEndpoints} until one
- * returns a `result`. An endpoint that responds with a JSON-RPC `error`, an
- * empty body, or a network/timeout failure is logged and skipped; if no
- * endpoint yields a result, the last error is thrown.
- *
- * Single source for the rotation loop that was previously hand-copied into
- * txVerifier (receipts), orderCreated (1155 order details), and intent
- * (counter / royalty reads). Callers keep their own result decoding/validation.
- *
- * `ctx` is merged into the warn logs for traceability (e.g. `{ txHash }`).
- */
 export async function postRpc<T = unknown>(
   body: object,
   ctx: Record<string, unknown> = {},

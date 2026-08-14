@@ -15,7 +15,7 @@ test("rejects a tampered token", () => {
 
 test("rejects an expired token", () => {
   const realNow = Date.now;
-  Date.now = () => realNow() - 11 * 60 * 1000; // issue 11 minutes in the past
+  Date.now = () => realNow() - 11 * 60 * 1000;
   const token = issueEmailVerifiedToken("alice@example.com");
   Date.now = realNow;
   expect(verifyEmailVerifiedToken(token)).toBeNull();

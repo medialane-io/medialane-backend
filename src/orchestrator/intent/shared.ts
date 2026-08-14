@@ -1,6 +1,5 @@
-// Helpers shared across the intent builders in this directory: counter/
-// royalty RPC reads, the SNIP-12 OrderParameters assembler, and small pure
-// utilities (salt, amount parsing, ByteArray encoding).
+
+
 import { cairo, hash, num } from "starknet";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT, STARKNET_COLLECTION_721_CONTRACT } from "../../config/constants.js";
@@ -53,12 +52,6 @@ async function fetchCounterFromContract(contractAddress: string, address: string
   return BigInt(result[0]).toString();
 }
 
-/**
- * Signed EIP-2981 royalty cap (bps) for an NFT, read live via
- * royalty_info(tokenId, 10000) — the returned amount equals the bps at
- * salePrice 10000. Any non-2981 NFT or RPC failure yields "0" (no royalty —
- * never over-pay). Mirrors the SDK's resolveRoyaltyMaxBps.
- */
 export async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise<string> {
   const id = cairo.uint256(tokenId);
   const calldata = [id.low.toString(), id.high.toString(), "10000", "0"];
@@ -79,10 +72,10 @@ export async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): 
       },
       { nftContract },
     );
-    // result = [receiver, amount.low, amount.high]; amount == bps at salePrice 10000
+
     if (result?.[1] !== undefined) return BigInt(result[1]).toString();
   } catch {
-    // non-2981 NFT or RPC failure — fall through to "0" (never over-pay)
+
   }
   return "0";
 }
@@ -95,13 +88,6 @@ interface OrderLegInput {
   recipient?: string;
 }
 
-/**
- * Assembles the `OrderParameters` object literal shared by every SNIP-12
- * order (listing, offer, counter-offer). The typed-data SHAPE (domain,
- * field order) is the SDK's `buildOrderTypedData`/`build1155OrderTypedData`
- * — this only DRYs the near-identical field-population block that used to
- * be repeated at each call site in this file.
- */
 export function buildOrderParams(input: {
   offerer: string;
   marketplace: string;
@@ -138,7 +124,7 @@ export function buildOrderParams(input: {
 }
 
 export function generateSalt(): string {
-  // 248-bit: salt is the sole order-hash uniqueness source now that nonce is gone.
+
   const bytes = new Uint8Array(31);
   crypto.getRandomValues(bytes);
   return "0x" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -148,7 +134,6 @@ export function resolveCollectionContract(override?: string): string {
   return override ? normalizeAddress("STARKNET", override) : STARKNET_COLLECTION_721_CONTRACT;
 }
 
-/** Convert a human-readable amount (e.g. "1.5") to raw token units as BigInt. */
 export function parseAmount(humanAmount: string, decimals: number): bigint {
   const parts = humanAmount.replace(/,/g, "").split(".");
   const integer = BigInt(parts[0] || "0");
@@ -156,12 +141,6 @@ export function parseAmount(humanAmount: string, decimals: number): bigint {
   return integer * BigInt(10 ** decimals) + BigInt(fraction);
 }
 
-/** Serialize a string as Cairo ByteArray calldata felts.
- *
- * starknet.js's `byteArray.byteArrayFromString` internally calls `encodeShortString`
- * which rejects non-ASCII characters (e.g. accented letters). We implement UTF-8
- * encoding directly: convert to bytes, pack into 31-byte chunks as big-endian felts.
- */
 export function encodeByteArray(str: string): string[] {
   const bytes = new TextEncoder().encode(str);
   const fullChunks: string[] = [];

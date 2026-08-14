@@ -69,16 +69,10 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const code = String(randomInt(100_000, 1_000_000));
     await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
 
-    // Fire-and-forget, same pattern as sendUsernameClaimApproved elsewhere
-    // in this codebase — a slow/unreachable SMTP connection must never
-    // block this response (nodemailer's connection timeout alone is 2
-    // minutes by default, which reads as a hung request to the client).
     deps.sendCode(email, code).catch((err: unknown) => {
       log.error({ err, email }, "Failed to send verification code");
     });
 
-    // Always 200 regardless of whether this email has an account already —
-    // never let response shape/timing leak account existence.
     return c.json({ ok: true });
   });
 
@@ -185,13 +179,7 @@ const productionDeps: AuthEmailDeps = {
         });
         return { accountId: account.id, alreadyExisted: false };
       } catch (err) {
-        // P2002: unique constraint violation on Identity.(scheme,value) — a
-        // concurrent request registered this exact email a moment ago.
-        // That's a race between two legitimate near-simultaneous attempts
-        // (e.g. a doubled network request), not an attacker — recover by
-        // returning the account that now owns this email instead of
-        // erroring, same "additive, never blocking" spirit as everywhere
-        // else email touches this codebase.
+
         const isUniqueViolation =
           typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
         if (!isUniqueViolation) throw err;
@@ -200,8 +188,7 @@ const productionDeps: AuthEmailDeps = {
           select: { accountId: true },
         });
         if (existing) return { accountId: existing.accountId, alreadyExisted: true };
-        // Extremely unlikely: the racing row was deleted between the P2002
-        // and this lookup (e.g. reaper sweep). Retry the whole create.
+
       }
     }
     throw new Error("Failed to create account after 3 attempts");

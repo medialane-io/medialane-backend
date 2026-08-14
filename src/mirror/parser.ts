@@ -28,7 +28,6 @@ import { decodeCollectionCreatedEvent } from "./handlers/collectionCreated.js";
 
 const log = createLogger("parser");
 
-// Precompute hex selectors once at module load — avoids repeated conversion per event
 const SEL_ORDER_CREATED        = num.toHex(ORDER_CREATED_SELECTOR);
 const SEL_ORDER_FULFILLED      = num.toHex(ORDER_FULFILLED_SELECTOR);
 const SEL_ORDER_CANCELLED      = num.toHex(ORDER_CANCELLED_SELECTOR);
@@ -85,7 +84,7 @@ export function parseEvent(
     }
 
     if (selector === SEL_COUNTER_INCREMENTED) {
-      // CounterIncremented { offerer #key, new_counter } → keys[1], data[0]
+
       return {
         type: "CounterIncremented",
         offerer: normalizeAddress("STARKNET", keys[1]),
@@ -97,7 +96,7 @@ export function parseEvent(
     }
 
     if (selector === SEL_TRANSFER) {
-      // Cairo 1 ERC-721: keys = [selector, from, to, tokenId.low, tokenId.high]
+
       if (keys.length >= 5) {
         return {
           type: "Transfer",
@@ -110,7 +109,7 @@ export function parseEvent(
           logIndex,
         } satisfies ParsedTransfer;
       }
-      // Cairo 0 ERC-721: keys = [selector, from, to, tokenId] (tokenId as felt252)
+
       if (keys.length === 4) {
         return {
           type: "Transfer",
@@ -123,7 +122,7 @@ export function parseEvent(
           logIndex,
         } satisfies ParsedTransfer;
       }
-      // Cairo 0 ERC-721: keys = [selector, from, to], tokenId as u256 in data
+
       if (keys.length === 3 && event.data.length >= 2) {
         return {
           type: "Transfer",
@@ -136,8 +135,7 @@ export function parseEvent(
           logIndex,
         } satisfies ParsedTransfer;
       }
-      // Cairo 0 ERC-721 (old format): only selector in keys, all fields in data
-      // data = [from, to, tokenId.low, tokenId.high]
+
       if (keys.length === 1 && event.data.length >= 4) {
         return {
           type: "Transfer",
@@ -153,9 +151,7 @@ export function parseEvent(
     }
 
     if (selector === SEL_TRANSFER_SINGLE) {
-      // ERC-1155 TransferSingle
-      // keys = [selector, operator, from, to]
-      // data = [tokenId.low, tokenId.high, amount.low, amount.high]
+
       if (keys.length >= 4 && event.data.length >= 4) {
         return {
           type: "TransferSingle",
@@ -173,15 +169,13 @@ export function parseEvent(
     }
 
     if (selector === SEL_TRANSFER_BATCH) {
-      // ERC-1155 TransferBatch
-      // keys = [selector, operator, from, to]
-      // data = [ids_len, id0.low, id0.high, ..., amounts_len, amount0.low, amount0.high, ...]
+
       if (keys.length >= 4 && event.data.length >= 1) {
         const data = event.data;
         const idsLen = Number(BigInt(data[0]));
-        // Each id is a u256 (2 felts). IDs start at data[1].
+
         const idsEnd = 1 + idsLen * 2;
-        if (data.length < idsEnd + 1) return null; // malformed
+        if (data.length < idsEnd + 1) return null;
         const amountsLen = Number(BigInt(data[idsEnd]));
         if (idsLen !== amountsLen) {
           log.warn({ txHash, idsLen, amountsLen }, "TransferBatch ids/amounts length mismatch — skipping");
@@ -232,9 +226,7 @@ export function parseEvent(
 }
 
 export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
-  // Assign logIndex per-transaction (0 = first event from that tx, 1 = second, etc.)
-  // so that the unique constraint [chain, txHash, logIndex] stays stable across
-  // re-processing — regardless of where each event falls in the overall batch array.
+
   const txCounters = new Map<string, number>();
   const results: ParsedEvent[] = [];
   for (const event of events) {

@@ -7,13 +7,8 @@ import type { RawStarknetEvent } from "../types/starknet.js";
 
 const log = createLogger("txVerifier");
 
-// Retry delays for receipt fetching: 0s, 3s, 5s, 7s, 10s.
-// Backend uses a private Alchemy node — no load-balancer randomness.
-// A short sequence is sufficient; the frontend handles user-facing timeout.
 const RETRY_DELAYS_MS = [0, 3000, 5000, 7000, 10_000];
 
-// Built once at module load — both marketplace contracts are static constants.
-// An event from either address counts as a confirmed marketplace operation.
 const VALID_MARKETPLACE_CONTRACTS = new Set([
   normalizeAddress("STARKNET", STARKNET_MARKETPLACE_721_CONTRACT),
   normalizeAddress("STARKNET", STARKNET_MARKETPLACE_1155_CONTRACT),
@@ -32,12 +27,6 @@ export type MarketplaceReceiptEvent = {
   block_hash: string;
 };
 
-/**
- * Verify that a Starknet transaction emitted at least one event from a
- * marketplace contract (ERC-721 or ERC-1155). Catches silent failures from
- * a non-atomic relayer, where the outer multicall reports SUCCEEDED but the
- * inner marketplace call panics.
- */
 export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult> {
   for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
     if (RETRY_DELAYS_MS[attempt] > 0) {
@@ -63,14 +52,13 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
       }
 
       if (execStatus !== "SUCCEEDED") {
-        // Still pending — retry
+
         log.debug({ txHash, execStatus, attempt }, "Tx not yet finalized, retrying");
         continue;
       }
 
       const events = (receipt.events as Array<{ from_address?: string }>) ?? [];
 
-      // Events present — check for marketplace event (ERC-721 or ERC-1155 contract)
       if (events.length > 0) {
         const hasMarketplaceEvent = events.some(
           (e) => VALID_MARKETPLACE_CONTRACTS.has(safeNormalizeAddress(e.from_address))
@@ -81,7 +69,6 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
           return { status: "CONFIRMED" };
         }
 
-        // Events present but none from marketplace — silent inner-call failure
         log.warn({
           txHash,
           eventCount: events.length,
@@ -96,7 +83,6 @@ export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult>
         };
       }
 
-      // Empty events array — might be RPC indexing lag, retry
       log.debug({ txHash, attempt }, "Empty events, retrying");
     } catch (err) {
       log.warn({ err, txHash, attempt }, "Receipt fetch failed, retrying");
@@ -214,15 +200,9 @@ function safeNormalizeAddress(address?: string): string {
   }
 }
 
-// OrderDetails flat layout: [offerer, offer×5, consideration×6, start_time, end_time, order_status, ...]
 const ORDER_STATUS_INDEX = { erc721: 14, erc1155: 14 };
 const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
 
-/**
- * Call get_order_details on-chain and return true if the order's status is Cancelled.
- * Used to detect orders that are already cancelled on-chain but still ACTIVE in the DB.
- * Returns false on any error (safe fallback — don't make incorrect updates).
- */
 export async function checkOnChainOrderCancelled(orderHash: string, is1155: boolean): Promise<boolean> {
   const contractAddress = is1155 ? STARKNET_MARKETPLACE_1155_CONTRACT : STARKNET_MARKETPLACE_721_CONTRACT;
   const statusIndex = is1155 ? ORDER_STATUS_INDEX.erc1155 : ORDER_STATUS_INDEX.erc721;
@@ -246,8 +226,7 @@ export async function checkOnChainOrderCancelled(orderHash: string, is1155: bool
     );
     if (!result || result.length <= statusIndex) return false;
 
-    // Cairo OrderStatus enum: 0=None, 1=Created, 2=Filled, 3=Cancelled
-    return Number(BigInt(result[statusIndex])) === 3; // Cancelled
+    return Number(BigInt(result[statusIndex])) === 3;
   } catch (err) {
     log.warn({ err, orderHash }, "checkOnChainOrderCancelled: RPC call failed");
     return false;

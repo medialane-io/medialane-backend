@@ -11,9 +11,8 @@ const log = createLogger("orchestrator");
 export async function startOrchestrator(): Promise<void> {
   log.info("Orchestrator starting...");
 
-  // Reset any tokens stuck in FETCHING from a previous crash before starting loops
   await recoverStuckFetchingTokens();
-  // Re-enqueue tokens and collections that were left pending from a previous run
+
   await recoverPendingWork();
 
   startReaper().catch((err) => log.error({ err }, "Reaper crashed"));

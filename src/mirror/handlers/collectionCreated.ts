@@ -20,14 +20,6 @@ export interface DecodedCollectionCreated {
   owner: string;
 }
 
-/**
- * Decode the audited CollectionCreated event layout (MIP-Collections-ERC721 v3,
- * deployed 2026-05-14). collection_id is a `#[key]` u256 emitted as low+high in
- * keys[1..2]; owner is the first data field.
- *
- * Returns null when keys/data are malformed. Single source of truth — when the
- * event shape changes again, this is the only place to update.
- */
 export function decodeCollectionCreatedEvent(
   event: { keys?: string[]; data?: string[] }
 ): DecodedCollectionCreated | null {
@@ -39,10 +31,6 @@ export function decodeCollectionCreatedEvent(
   };
 }
 
-/**
- * Decode Cairo ByteArray raw felts from provider.callContract().
- * Raw layout: [data_len, ...31-byte chunks, pending_word, pending_word_len].
- */
 function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
   if (offset >= felts.length) return { value: "", nextOffset: offset };
   const dataLen = Number(BigInt(felts[offset]));
@@ -70,11 +58,6 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
   };
 }
 
-/**
- * Resolve a CollectionCreated event by calling get_collection() on the registry
- * to get the ip_nft (ERC-721 contract address).
- * Returns a ResolvedCollection to be upserted into the DB after the tx commits.
- */
 export async function resolveCollectionCreated(
   event: ParsedCollectionCreated
 ): Promise<ResolvedCollection | null> {

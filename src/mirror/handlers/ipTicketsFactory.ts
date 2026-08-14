@@ -36,22 +36,6 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
   };
 }
 
-/**
- * Handle a CollectionDeployed event from the IP Tickets Collection factory.
- *
- * Event key layout:
- *   keys[0] = selector("CollectionDeployed")
- *   keys[1] = collection_address (ContractAddress)
- *   keys[2] = owner             (ContractAddress)
- *
- * Event data layout (ByteArray fields):
- *   data[0..n] = name   (ByteArray)
- *   data[n..m] = symbol (ByteArray)
- *
- * base_uri is not in the event — the collection exposes it on-chain and the
- * COLLECTION_METADATA_FETCH job reads it (per-ticket metadata stays on each
- * token's uri()).
- */
 export async function handleIPTicketsCollectionDeployed(event: RawStarknetEvent): Promise<void> {
   const txHash = event.transaction_hash ?? "";
   try {

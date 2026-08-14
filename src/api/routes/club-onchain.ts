@@ -1,9 +1,5 @@
-// Metered pass-through reads for ip-club tier state (maxSupply/minted/
-// validity window/royalty) and per-wallet membership checks. Genuinely
-// mutable (minted/membership change on every mint) and low-cardinality/
-// low-traffic — not worth a full mirror-indexed pipeline. Does the same
-// on-chain get_membership/is_member_of call io's use-club.ts used to make
-// directly (unmetered), server-side, credited, with a short cache.
+
+
 import { Hono } from "hono";
 import { cairo, Contract } from "starknet";
 import { IPClubCollectionABI } from "@medialane/sdk/starknet";
@@ -47,8 +43,6 @@ export function parseMembershipResult(raw: {
 
 const club = new Hono<AppEnv>();
 
-// 30s in-process micro-cache — same pattern as tickets-onchain.ts. Membership
-// tiers change rarely (only on mint / create_membership).
 club.get("/:contract/:tokenId", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
@@ -57,7 +51,6 @@ club.get("/:contract/:tokenId", publicCache(30), async (c) => {
   return c.json({ data: parseMembershipResult(raw) });
 });
 
-// Per-wallet membership check — balance + validity window, not cached (identity-scoped).
 club.get("/:contract/:tokenId/member/:wallet", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");

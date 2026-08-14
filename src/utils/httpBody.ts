@@ -1,16 +1,4 @@
-/**
- * Read a fetch Response body as text, capped at `maxBytes`.
- *
- * `res.json()` / `res.text()` buffer the ENTIRE body into memory before any
- * limit can be applied — a hostile or broken endpoint returning a multi-GB
- * body can exhaust the process. This streams the body and stops once the cap
- * is reached, returning whatever was read plus a `truncated` flag so the
- * caller decides whether a truncated body is usable (webhook: store the first
- * N bytes) or a hard failure (metadata JSON: reject — a partial object won't
- * parse anyway).
- *
- * A `Content-Length` larger than the cap short-circuits before reading a byte.
- */
+
 export async function readTextCapped(
   res: { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
   maxBytes: number,

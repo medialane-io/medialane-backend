@@ -5,12 +5,6 @@ import {
   EvmVenueABI,
 } from "@medialane/sdk/evm";
 
-/**
- * Pure decode layer for the EVM ingestor — chain-native logs in, the
- * protocol's event vocabulary out (platform-federation spec §3.2). No RPC,
- * no DB: unit-testable with synthetic logs.
- */
-
 export type EvmProtocolEvent =
   | {
       kind: "CollectionCreated";

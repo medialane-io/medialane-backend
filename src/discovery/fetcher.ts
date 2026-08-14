@@ -4,14 +4,9 @@ import { readTextCapped } from "../utils/httpBody.js";
 
 const log = createLogger("fetcher");
 const DEFAULT_TIMEOUT_MS = 10_000;
-// Metadata JSON is small (name/description/attributes/image URI). Cap the
-// response so a hostile token_uri host can't OOM the indexer with a huge body
-// — a truncated object won't parse, so we reject rather than partial-parse.
-const MAX_METADATA_BYTES = 512 * 1024; // 512 KB, matches the upload-route cap
 
-/**
- * Fetch a URL with a timeout, returning parsed JSON or null.
- */
+const MAX_METADATA_BYTES = 512 * 1024;
+
 export async function fetchJson(
   url: string,
   timeoutMs = DEFAULT_TIMEOUT_MS
@@ -60,15 +55,12 @@ export async function fetchJson(
 
 function decodeDataUri(uri: string): Record<string, unknown> | null {
   try {
-    // Split on the FIRST comma only — the payload (raw JSON) can itself
-    // contain commas, so `uri.split(",")[1]` silently truncated it.
+
     const commaIndex = uri.indexOf(",");
     if (commaIndex === -1) return null;
     const header = uri.slice(0, commaIndex);
     const payload = uri.slice(commaIndex + 1);
-    // `data:application/json,<raw>` (no `;base64`) is valid and used by
-    // gas-optimized on-chain renderers (e.g. gol_starknet) to skip the
-    // base64 cost — decode per the header, not unconditionally as base64.
+
     const decoded = header.includes(";base64")
       ? Buffer.from(payload, "base64").toString("utf-8")
       : decodeURIComponent(payload);

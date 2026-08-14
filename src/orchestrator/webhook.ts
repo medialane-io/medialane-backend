@@ -36,14 +36,6 @@ export async function processDelivery(deliveryId: string): Promise<void> {
     return;
   }
 
-  // Re-validate the URL at delivery time. portal.ts checks the URL string at
-  // create-time, but a public-looking host can point its DNS at an internal IP
-  // after registration (rebinding). Two layers, mirroring the metadata path
-  // (src/discovery/index.ts): (1) the literal host/IP string check, then
-  // (2) actually resolve the hostname and reject if any address is private.
-  // The fetch below also uses redirect:"manual" so a 3xx to an internal URL is
-  // never followed. Residual gap (same as metadata): the resolve→fetch race is
-  // not IP-pinned; full closure needs a connect-time dispatcher.
   let ssrfBlockReason: string | null = null;
   if (isPrivateOrInsecureUrl(delivery.endpoint.url)) {
     ssrfBlockReason = "URL fails SSRF re-validation at delivery time";
@@ -92,9 +84,7 @@ export async function processDelivery(deliveryId: string): Promise<void> {
       },
       body,
       signal: controller.signal,
-      // Never follow a redirect — a 3xx to an internal URL would defeat the
-      // SSRF checks above. A redirecting endpoint is treated as a failed
-      // delivery (res.ok is false for 3xx).
+
       redirect: "manual",
     });
 

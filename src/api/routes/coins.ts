@@ -18,12 +18,10 @@ import { toErrorMessage } from "../../utils/error.js";
 const log = createLogger("routes:coins");
 const coins = new Hono<AppEnv>();
 
-/** Coin.startBlock is BigInt — stringify it for JSON responses. */
 function serializeCoin(coin: Coin) {
   return { ...coin, startBlock: coin.startBlock.toString() };
 }
 
-/** Decode a felt252 short string (OZ 0.8 ERC-20 name/symbol); null on failure. */
 function decodeShortStr(felt: string): string | null {
   try {
     const s = shortString.decodeShortString(felt);
@@ -33,20 +31,6 @@ function decodeShortStr(felt: string): string | null {
   }
 }
 
-/**
- * POST /v1/coins/sync — index a Creator Coin on demand.
- *
- * The primary indexing path for Creator Coins: the dapp calls this right after a
- * successful launch so the coin appears instantly (the 50s factory poll is only a
- * backstop). Also used to backfill a specific coin (e.g. the smoke-launch coin).
- *
- * Verifies the address via the Factory's `is_creator_coin` before writing — only
- * genuine Factory-deployed coins can be indexed through this route. Reads
- * name/symbol on-chain (ERC-20 felt252) and upserts a Collection(ERC20,
- * "creator-coin"). Idempotent.
- *
- * Body: { coinAddress: string, owner?: string }
- */
 coins.post("/sync", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
@@ -63,7 +47,7 @@ coins.post("/sync", async (c) => {
   const coinAddress = normalizeAddress("STARKNET", parsed.data.coinAddress);
 
   try {
-    // Gate: only genuine Factory-deployed Creator Coins.
+
     const verify = await callRpc((provider) =>
       provider.callContract({
         contractAddress: STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
@@ -76,7 +60,6 @@ coins.post("/sync", async (c) => {
       return c.json({ error: "Address is not a Creator Coin (is_creator_coin = false)" }, 400);
     }
 
-    // ERC-20 metadata (OZ 0.8 → felt252 short strings; decimals → u8).
     const [nameRes, symbolRes, decRes] = await Promise.all([
       callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "name", calldata: [] })),
       callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "symbol", calldata: [] })),
@@ -85,9 +68,7 @@ coins.post("/sync", async (c) => {
     const name = decodeShortStr(nameRes[0] ?? "0x0");
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
     const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
-    // Fixed-supply coins never change post-deploy — capture once at index
-    // time so consumers stop paying an RPC call for this. Never blocks
-    // indexing the coin itself on a supply-read failure.
+
     const totalSupply = await readTotalSupply(coinAddress).catch(() => null);
 
     await upsertCoin(prisma, {
@@ -113,7 +94,6 @@ coins.post("/sync", async (c) => {
   }
 });
 
-// GET /v1/coins — paginated coin list; ?service=creator-coin|external-erc20, ?page, ?limit
 coins.get("/", publicCache(30), async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
@@ -127,7 +107,6 @@ coins.get("/", publicCache(30), async (c) => {
   return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total } });
 });
 
-// GET /v1/coins/:contract — single coin
 coins.get("/:contract", publicCache(30), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -139,16 +118,12 @@ coins.get("/:contract", publicCache(30), async (c) => {
   return c.json({ data: serializeCoin(coin) });
 });
 
-// PATCH /v1/coins/:contract — creator-authed coin profile (image, description).
-// Mirrors collection-profile editing: identityAuth (SIWS) + ownership.
-// The creator is `coin.creator` (trustless — from the factory event), never a body param.
 coins.patch("/:contract", identityAuth, async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract") ?? "");
   const jwtWallet = c.get("walletAddress") as string;
   const parsed = z
     .object({
-      // ipfs:// or https:// — the apps' upload pipeline produces the URI; we don't
-      // constrain the scheme here, just bound the length.
+
       image: z.string().max(400).nullable().optional(),
       description: z.string().max(500).nullable().optional(),
     })

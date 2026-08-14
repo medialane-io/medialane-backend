@@ -55,7 +55,7 @@ describe("settlePayment", () => {
       deps,
     );
     expect(res.ok).toBe(true);
-    expect(res.creditedAmount).toBe(120); // 1_000_000 atomic / 10_000 per credit = 100, * 1.2
+    expect(res.creditedAmount).toBe(120);
     expect(credited).toHaveLength(1);
     expect(credited[0].mdlnMultiplier).toBe(1.2);
   });
@@ -85,7 +85,7 @@ describe("settlePayment", () => {
     const deps = {
       creditAccount: async () => {},
       mdlnMultiplier: async () => 1.0,
-      isWalletLinkedToAccount: async () => true, // would link, but payer is undefined — must still reject
+      isWalletLinkedToAccount: async () => true,
     };
     const res = await settlePayment(
       noPayerScheme,

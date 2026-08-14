@@ -10,12 +10,6 @@ const log = createLogger("routes:rewards");
 
 const rewards = new Hono();
 
-// ── Public tenant routes ──────────────────────────────────────────────────────
-// NOTE: /config and /batch MUST be registered before /:address — Hono matches
-// in registration order, and /:address would otherwise swallow them.
-
-// GET /v1/rewards/config — public reward configuration (levels ladder, action
-// XP values for optimistic UI, badge catalog incl. locked ones). Rarely changes.
 rewards.get("/config", async (c) => {
   const [levels, actions, badges] = await Promise.all([
     prisma.rewardLevel.findMany({
@@ -37,8 +31,6 @@ rewards.get("/config", async (c) => {
   return c.json({ data: { levels, actions, badges } });
 });
 
-// GET /v1/rewards/batch?addresses=0x1,0x2 — minimal level info for list
-// surfaces (activities, comments). One call per page, never per row.
 rewards.get("/batch", async (c) => {
   const raw = (c.req.query("addresses") ?? "").split(",").map((a) => a.trim()).filter(Boolean);
   if (raw.length === 0 || raw.length > 50) return c.json({ error: "Provide 1–50 addresses" }, 400);
@@ -65,7 +57,6 @@ rewards.get("/batch", async (c) => {
   });
 });
 
-// GET /v1/rewards/:address — score + level + badges for one address
 rewards.get("/:address", async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
 
@@ -86,7 +77,7 @@ rewards.get("/:address", async (c) => {
   const publicId = walletIdentity?.account?.publicId ?? null;
 
   if (!score) {
-    // Return zeroed state for addresses not yet in the system
+
     const starterLevel = levels[0] ?? { level: 1, name: "Starter", xpRequired: 0, badgeColor: "#64748b" };
     return c.json({
       data: {
@@ -136,7 +127,6 @@ rewards.get("/:address", async (c) => {
   });
 });
 
-// GET /v1/rewards — leaderboard
 rewards.get("/", async (c) => {
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") ?? "50", 10)));
@@ -154,7 +144,6 @@ rewards.get("/", async (c) => {
   const levels = await prisma.rewardLevel.findMany({ orderBy: { level: "asc" } });
   const levelMap = new Map(levels.map((l) => [l.level, l]));
 
-  // Batch-fetch publicIds for scores that have an accountId — one query, no N+1.
   const accountIds = scores.map((s) => s.accountId).filter((id): id is string => id != null);
   const accounts = accountIds.length
     ? await prisma.account.findMany({
@@ -179,7 +168,6 @@ rewards.get("/", async (c) => {
   });
 });
 
-// GET /v1/rewards/:address/events — point history for an address
 rewards.get("/:address/events", async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
   const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
@@ -210,12 +198,9 @@ rewards.get("/:address/events", async (c) => {
   });
 });
 
-// ── Admin routes ──────────────────────────────────────────────────────────────
-
 const adminRewards = new Hono();
 adminRewards.use("*", authMiddleware);
 
-// GET /admin/rewards/config — read current DAO config
 adminRewards.get("/config", async (c) => {
   const [actions, multipliers, levels] = await Promise.all([
     prisma.rewardAction.findMany({ orderBy: { type: "asc" } }),
@@ -225,7 +210,6 @@ adminRewards.get("/config", async (c) => {
   return c.json({ data: { actions, multipliers, levels } });
 });
 
-// PATCH /admin/rewards/levels/:level — update a level's XP threshold or name
 const patchLevelSchema = z.object({
   name: z.string().min(1).max(50).optional(),
   xpRequired: z.number().int().nonnegative().optional(),
@@ -245,7 +229,6 @@ adminRewards.patch("/levels/:level", async (c) => {
   return c.json({ data: updated });
 });
 
-// PATCH /admin/rewards/actions/:type — update action weight
 const patchActionSchema = z.object({
   xp: z.number().int().nonnegative().optional(),
   dailyCap: z.number().int().nonnegative().nullable().optional(),
@@ -267,7 +250,6 @@ adminRewards.patch("/actions/:type", async (c) => {
   return c.json({ data: updated });
 });
 
-// PATCH /admin/rewards/multipliers/:id — toggle or adjust a multiplier
 const patchMultiplierSchema = z.object({
   factor: z.number().positive().optional(),
   enabled: z.boolean().optional(),
@@ -287,13 +269,11 @@ adminRewards.patch("/multipliers/:id", async (c) => {
   return c.json({ data: updated });
 });
 
-// GET /admin/rewards/badges — list all badge definitions
 adminRewards.get("/badges", async (c) => {
   const badges = await prisma.badgeDefinition.findMany({ orderBy: [{ category: "asc" }, { key: "asc" }] });
   return c.json({ data: badges });
 });
 
-// PATCH /admin/rewards/badges/:key — update a badge definition
 const patchBadgeSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -315,7 +295,6 @@ adminRewards.patch("/badges/:key", async (c) => {
   return c.json({ data: updated });
 });
 
-// POST /admin/rewards/badges/:address — manually award a badge
 adminRewards.post("/badges/:address", async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
   const body = await c.req.json().catch(() => null);
@@ -333,9 +312,6 @@ adminRewards.post("/badges/:address", async (c) => {
   return c.json({ data: award }, 201);
 });
 
-// POST /admin/rewards/compute — trigger retroactive XP + badge computation
-// in-process (shares a single-flight guard with the scheduled loop).
-// Accepts optional ?dry_run=true to preview without writing.
 adminRewards.post("/compute", async (c) => {
   const dryRun = c.req.query("dry_run") === "true";
   log.info({ dryRun }, "Reward computation via admin endpoint");

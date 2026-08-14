@@ -2,10 +2,6 @@ import { Hono } from "hono";
 import { pricingTable } from "../../payments/pricing.js";
 import { x402Config, CREDITS_PER_USDC } from "../../config/x402.js";
 
-/**
- * Unauthenticated, machine-readable payment discovery so agents can learn how to
- * pay before they hold a key. Mounted before apiKeyAuth.
- */
 export const x402Discovery = new Hono();
 
 async function manifest() {

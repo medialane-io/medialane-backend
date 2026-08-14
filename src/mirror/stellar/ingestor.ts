@@ -12,11 +12,6 @@ const log = createLogger("stellar-ingestor");
 const POLL_MS = Number(process.env.STELLAR_POLL_INTERVAL_MS ?? 20_000);
 const LEDGER_BATCH = 5_000;
 
-/**
- * Stellar chain ingestor — Soroban `getEvents` (xdrFormat "json") over our
- * venue + registry contract ids, ledger-ranged with the chain's
- * IndexerCursor. Deploy-gated; foreign contracts never bulk-indexed.
- */
 export function makeStellarIngestor(): ChainIngestor {
   return {
     chain: "STELLAR" as Chain,
@@ -148,8 +143,6 @@ export async function applyEvents(events: StellarProtocolEvent[]): Promise<void>
   }
 }
 
-/** Canonical Stellar order id (spec §3.2b): digest of (contract, offerer,
- *  salt) — matches the SDK's stellarOrderRef. */
 function orderRef(e: { venue: string; offerer: string; salt: bigint }): string {
   const { createHash } = require("node:crypto") as typeof import("node:crypto");
   return (

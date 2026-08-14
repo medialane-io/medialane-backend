@@ -1,9 +1,5 @@
-// Metered pass-through reads for ip-tickets tier state (maxSupply/minted/
-// validity window/royalty). This is genuinely mutable (minted changes on
-// every mint) and low-cardinality/low-traffic — not worth a full
-// mirror-indexed pipeline. Does the same on-chain get_ticket/ticket_count
-// call the dapp's use-tickets.ts used to make directly (unmetered),
-// server-side, credited, with a short cache.
+
+
 import { Hono } from "hono";
 import { cairo, Contract } from "starknet";
 import { IPTicketCollectionABI } from "@medialane/sdk/starknet";
@@ -47,9 +43,6 @@ export function parseTicketResult(raw: {
 
 const tickets = new Hono<AppEnv>();
 
-// 30s in-process micro-cache — same pattern as stats.ts. Ticket tiers change
-// rarely (only on mint / create_ticket), a short cache absorbs repeat reads
-// of the same tier without adding staleness that matters for display.
 tickets.get("/:contract/count", publicCache(30), async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const col = new Contract({ abi: IPTicketCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });

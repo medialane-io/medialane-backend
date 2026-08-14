@@ -13,9 +13,6 @@ function validateSlug(slug: string): string | null {
   return validateSlugLike(slug, "slug");
 }
 
-// ─── GET /v1/collection-slug-claims/check/:slug ───────────────────────────────
-// Public availability check — no auth required.
-
 collectionSlugClaims.get("/check/:slug", async (c) => {
   const slug = c.req.param("slug").toLowerCase().trim();
 
@@ -34,10 +31,6 @@ collectionSlugClaims.get("/check/:slug", async (c) => {
   return c.json({ available: true });
 });
 
-// ─── POST /v1/collection-slug-claims ─────────────────────────────────────────
-// Submit a slug claim for a collection. Caller must be the collection owner.
-// Auth: tenant API key (global apiKeyGate) + SIWS token.
-
 collectionSlugClaims.post(
   "/",
   identityAuth,
@@ -55,7 +48,6 @@ collectionSlugClaims.post(
     const validationError = validateSlug(slug);
     if (validationError) return c.json({ error: validationError }, 400);
 
-    // Verify caller is the collection owner
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
       select: { owner: true, claimedBy: true, profile: { select: { slug: true } } },
@@ -67,12 +59,10 @@ collectionSlugClaims.post(
       (collection.claimedBy && normalizeAddress("STARKNET", collection.claimedBy) === jwtWallet);
     if (!isOwner) return c.json({ error: "Only the collection owner can claim a slug." }, 403);
 
-    // Collection already has an approved slug
     if (collection.profile?.slug) {
       return c.json({ error: "This collection already has an approved slug." }, 409);
     }
 
-    // Already has a pending claim for this collection
     const pendingFromContract = await prisma.collectionSlugClaim.findFirst({
       where: { contractAddress: normContract, status: "PENDING" },
     });
@@ -82,7 +72,6 @@ collectionSlugClaims.post(
       }, 409);
     }
 
-    // Check if slug is taken (approved profile or pending/approved claim)
     const takenProfile = await prisma.collectionProfile.findUnique({
       where: { slug },
       select: { contractAddress: true },
@@ -108,9 +97,6 @@ collectionSlugClaims.post(
     return c.json({ claim }, 201);
   }
 );
-
-// ─── GET /v1/collection-slug-claims/me ───────────────────────────────────────
-// Returns all slug claims submitted by the authenticated wallet.
 
 collectionSlugClaims.get(
   "/me",

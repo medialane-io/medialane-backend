@@ -12,7 +12,6 @@ import { parseEvents } from "../../../mirror/parser.js";
 import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR, TRANSFER_SELECTOR, TRANSFER_SINGLE_SELECTOR, TRANSFER_BATCH_SELECTOR } from "../../../config/constants.js";
 import { num, shortString } from "starknet";
 
-
 import { toErrorMessage } from "../../../utils/error.js";
 import { getClientIp } from "./_shared.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../../mirror/handlers/collectionCreated.js";
@@ -22,19 +21,15 @@ const log = createLogger("routes:admin");
 
 export function registerCollectionRoutes(admin: Hono) {
 
-// ---------------------------------------------------------------------------
-// POST /admin/collections — register a new collection address + enqueue metadata fetch
-// ---------------------------------------------------------------------------
 admin.post("/collections", async (c) => {
   const body = await c.req.json().catch(() => null);
   const schema = z.object({
     contractAddress: z.string().min(1),
     chain: z.string().optional().default("STARKNET"),
     startBlock: z.number().optional().default(0),
-    // Standard is required for create — every collection has a real ABI surface,
-    // there's no longer an UNKNOWN fallback.
+
     standard: z.enum(["ERC721", "ERC1155"]),
-    // Caller may pass a service ID; otherwise we default to external-<standard>.
+
     service: z.string().optional(),
   });
   const parsed = schema.safeParse(body);
@@ -43,7 +38,6 @@ admin.post("/collections", async (c) => {
   const { contractAddress: rawAddr, chain, startBlock, standard, service } = parsed.data;
   const contractAddress = normalizeAddress("STARKNET", rawAddr);
 
-  // service is required on Collection. Default to external-<standard>.
   const resolvedService =
     service ?? (standard === "ERC1155" ? "external-erc1155" : "external-erc721");
 
@@ -70,9 +64,6 @@ admin.post("/collections", async (c) => {
   return c.json({ data: { id: col.id, contractAddress, chain, metadataStatus: col.metadataStatus } }, 201);
 });
 
-// ---------------------------------------------------------------------------
-// PATCH /admin/collections/:contract — update collection fields (name, description, image, isFeatured)
-// ---------------------------------------------------------------------------
 admin.patch("/collections/:contract", async (c) => {
   const { contract } = c.req.param();
   const body = await c.req.json().catch(() => ({}));
@@ -108,9 +99,6 @@ admin.patch("/collections/:contract", async (c) => {
   return c.json({ data: { contractAddress: updated.contractAddress, name: updated.name, isFeatured: updated.isFeatured } });
 });
 
-// ---------------------------------------------------------------------------
-// DELETE /admin/collections/:contract — soft-delete (sets isHidden + records deletion metadata)
-// ---------------------------------------------------------------------------
 admin.delete("/collections/:contract", async (c) => {
   const { contract } = c.req.param();
   const contractAddress = normalizeAddress("STARKNET", contract);
@@ -133,15 +121,11 @@ admin.delete("/collections/:contract", async (c) => {
   return c.json({ data: { contractAddress, deletedAt: new Date().toISOString() } });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/collections/:contract/refresh — force sync collection metadata
-// ---------------------------------------------------------------------------
 admin.post("/collections/:contract/refresh", async (c) => {
   const { contract } = c.req.param();
   const contractAddress = normalizeAddress("STARKNET", contract);
   try {
-    // Reset status so the alreadyComplete guard in handleCollectionMetadataFetch
-    // does not short-circuit — makes this endpoint a true force-refresh.
+
     await prisma.collection.updateMany({
       where: { chain: "STARKNET", contractAddress },
       data: { metadataStatus: "PENDING" },
@@ -157,9 +141,6 @@ admin.post("/collections/:contract/refresh", async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/collections/:contract/stats-refresh — force sync stats + backfill image/description
-// ---------------------------------------------------------------------------
 admin.post("/collections/:contract/stats-refresh", async (c) => {
   const { contract } = c.req.param();
   const contractAddress = normalizeAddress("STARKNET", contract);
@@ -174,12 +155,6 @@ admin.post("/collections/:contract/stats-refresh", async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/collections/:contract/backfill-transfers — scan historical Transfer events
-// ---------------------------------------------------------------------------
-// Fetches Transfer, TransferSingle, and TransferBatch events for the contract.
-// Works for both ERC-721 and ERC-1155 collections.
-// Use this when a collection was registered after its mints already happened.
 admin.post("/collections/:contract/backfill-transfers", async (c) => {
   const { contract } = c.req.param();
   const contractAddress = normalizeAddress("STARKNET", contract);
@@ -224,7 +199,7 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
         });
         inserted++;
       } catch (err: unknown) {
-        // P2002 = unique constraint — already processed
+
         if ((err as { code?: string }).code === "P2002") {
           skipped++;
         } else {
@@ -234,7 +209,6 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
       }
     }
 
-    // Enqueue metadata fetch for all PENDING tokens in this collection
     const pendingTokens = await prisma.token.findMany({
       where: { chain: "STARKNET", contractAddress, metadataStatus: "PENDING" },
       select: { tokenId: true },
@@ -243,7 +217,6 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
       worker.enqueue({ type: "METADATA_FETCH", chain: "STARKNET", contractAddress, tokenId: t.tokenId });
     }
 
-    // Trigger stats update
     worker.enqueue({ type: "STATS_UPDATE", chain: "STARKNET", contractAddress });
 
     log.info({ contractAddress, inserted, skipped, metadataJobs: pendingTokens.length }, "Transfer backfill complete");
@@ -266,9 +239,6 @@ admin.post("/collections/:contract/backfill-transfers", async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/collections/backfill-metadata — enqueue fetch for all PENDING
-// ---------------------------------------------------------------------------
 admin.post("/collections/backfill-metadata", async (c) => {
   const collections = await prisma.collection.findMany({
     where: {
@@ -288,11 +258,6 @@ admin.post("/collections/backfill-metadata", async (c) => {
 
   return c.json({ data: { enqueued: collections.length } });
 });
-
-// ---------------------------------------------------------------------------
-// POST /admin/collections/backfill-registry — scan all CollectionCreated events
-// on-chain and upsert every collection that's missing from the DB.
-// ---------------------------------------------------------------------------
 
 admin.post("/collections/backfill-registry", async (c) => {
   const latestBlock = await getLatestBlock();
@@ -356,16 +321,12 @@ admin.post("/collections/backfill-registry", async (c) => {
   return c.json({ data: { inserted, skipped } });
 });
 
-// ---------------------------------------------------------------------------
-// POST /admin/indexer/reset-cursor — reset IndexerCursor to INDEXER_START_BLOCK
-// Optional body: { chain?: "STARKNET" | ... } — defaults to the active mirror chain
-// ---------------------------------------------------------------------------
 admin.post("/indexer/reset-cursor", async (c) => {
   const { resetCursor } = await import("../../../mirror/cursor.js");
   const { CHAIN } = await import("../../../mirror/index.js");
   const body = await c.req.json().catch(() => ({}));
   const chain = (body?.chain ?? CHAIN) as typeof CHAIN;
-  // Optional `block` param lets you advance/rewind the cursor to any block.
+
   const toBlock = body?.block != null ? BigInt(body.block) : undefined;
   await resetCursor(chain, toBlock);
   const { env } = await import("../../../config/env.js");
@@ -373,9 +334,6 @@ admin.post("/indexer/reset-cursor", async (c) => {
   return c.json({ data: { chain, lastBlock } });
 });
 
-// ---------------------------------------------------------------------------
-// GET /admin/collections — list collections with optional filters
-// ---------------------------------------------------------------------------
 admin.get("/collections", async (c) => {
   const page = parseInt(c.req.query("page") ?? "1");
   const limit = parseInt(c.req.query("limit") ?? "20");
@@ -404,14 +362,6 @@ admin.get("/collections", async (c) => {
   return c.json({ collections: serialized, total, page, limit });
 });
 
-// ---------------------------------------------------------------------------
-// GET /admin/collections/service-coverage — service-model distribution view.
-// Originally the pre-drop migration gate; legacy `Collection.source` has now
-// been dropped (Phase 2D.4 complete), so `missingService` is structurally 0
-// and this endpoint stays as a permanent per-`service` distribution diagnostic.
-// Response shape is preserved so the io admin panel keeps working unchanged.
-// Static SQL, read-only.
-// ---------------------------------------------------------------------------
 admin.get("/collections/service-coverage", async (c) => {
   const byService = await prisma.$queryRawUnsafe<{ service: string | null; count: number }[]>(
     `SELECT service, COUNT(*)::int AS count FROM "Collection" GROUP BY service ORDER BY count DESC`
@@ -426,5 +376,4 @@ admin.get("/collections/service-coverage", async (c) => {
   });
 });
 
-// ---------------------------------------------------------------------------
 }
