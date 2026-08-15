@@ -28,6 +28,7 @@ search.get("/", publicCache(60), async (c) => {
       FROM "Token"
       WHERE chain = ${chain}::"Chain"
         AND "isHidden" = false
+        AND "metadataStatus" = 'FETCHED'
         AND "contractAddress" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)
         AND to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId")
             @@ plainto_tsquery('english', ${q})

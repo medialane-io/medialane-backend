@@ -236,11 +236,11 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
               AND o."offerItemType" IN ('ERC721', 'ERC1155')
           ) AS "minPrice"
         FROM "Token" t
-        WHERE t.chain = ${chain}::"Chain" AND t."contractAddress" = ${addr} AND t."isHidden" = false
+        WHERE t.chain = ${chain}::"Chain" AND t."contractAddress" = ${addr} AND t."isHidden" = false AND t."metadataStatus" = 'FETCHED'
         ORDER BY "minPrice"::numeric ASC NULLS LAST
         LIMIT ${limit} OFFSET ${skip}
       `,
-      prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
+      prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" } }),
     ]);
 
     const balancesByToken = await batchTokenBalances(chain, addr, data.map((t) => t.tokenId));
@@ -258,7 +258,7 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain, contractAddress: addr, isHidden: false },
+      where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" },
       orderBy:
         sort === "oldest"
           ? { createdAt: "asc" }
@@ -269,7 +269,7 @@ collections.get("/:contract/tokens", publicCache(30), async (c) => {
       take: limit,
       include: { collection: { select: { standard: true } } },
     }),
-    prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
+    prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" } }),
   ]);
 
   const balancesByToken = await batchTokenBalances(chain, addr, data.map((t) => t.tokenId));
