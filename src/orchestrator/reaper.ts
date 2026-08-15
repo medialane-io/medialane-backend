@@ -2,30 +2,18 @@ import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:reaper");
-// Maintenance-only cleanup (old closed orders/transfers, terminal webhook
-// deliveries, expired intents) — not user-facing, so this runs on a slow
-// cadence rather than the platform's near-real-time loops.
+// Maintenance-only cleanup of records with no read consumers anywhere
+// (terminal webhook deliveries, terminal transaction intents, expired claim
+// challenges) — not user-facing, so this runs on a slow cadence rather than
+// the platform's near-real-time loops. Transfer and Order history are real
+// platform data (read by activities.ts/tokens.ts/orders.ts/portal.ts) and
+// are never deleted here.
 const REAPER_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-const TRANSFER_TTL_MS = 90 * 24 * 60 * 60 * 1000;
-const ORDER_HISTORY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function runReaper(): Promise<void> {
-  const { count: transfersDeleted } = await prisma.transfer.deleteMany({
-    where: { createdAt: { lt: new Date(Date.now() - TRANSFER_TTL_MS) } },
-  });
-  if (transfersDeleted > 0) log.info({ count: transfersDeleted }, "Reaper: purged old transfers");
-
-  const { count: ordersDeleted } = await prisma.order.deleteMany({
-    where: {
-      status: { in: ["FULFILLED", "CANCELLED"] },
-      updatedAt: { lt: new Date(Date.now() - ORDER_HISTORY_TTL_MS) },
-    },
-  });
-  if (ordersDeleted > 0) log.info({ count: ordersDeleted }, "Reaper: purged old closed orders");
-
   const { count: deliveriesDeleted } = await prisma.webhookDelivery.deleteMany({
     where: {
       isTerminal: true,
