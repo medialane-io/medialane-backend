@@ -1,15 +1,16 @@
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
 
 const log = createLogger("orchestrator:reaper");
-const REAPER_POLL_INTERVAL_MS = 5 * 60 * 1000;
+// Maintenance-only cleanup (old closed orders/transfers, terminal webhook
+// deliveries, expired intents) — not user-facing, so this runs on a slow
+// cadence rather than the platform's near-real-time loops.
+const REAPER_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const TRANSFER_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const ORDER_HISTORY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const UNVERIFIED_EMAIL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function runReaper(): Promise<void> {
   const { count: transfersDeleted } = await prisma.transfer.deleteMany({
@@ -63,15 +64,6 @@ export async function runReaper(): Promise<void> {
     where: { expiresAt: { lt: new Date() } },
   });
   if (challengesDeleted > 0) log.info({ count: challengesDeleted }, "Reaper: purged expired claim challenges");
-
-  const { count: unverifiedEmailsDeleted } = await prisma.identity.deleteMany({
-    where: {
-      scheme: IDENTITY_SCHEME.EMAIL,
-      verifiedAt: null,
-      createdAt: { lt: new Date(Date.now() - UNVERIFIED_EMAIL_TTL_MS) },
-    },
-  });
-  if (unverifiedEmailsDeleted > 0) log.info({ count: unverifiedEmailsDeleted }, "Reaper: purged stale unverified emails");
 }
 
 export async function startReaper(): Promise<void> {
