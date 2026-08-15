@@ -13,6 +13,7 @@ import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
+import { getCurrentEmailIdentity, isEmailVerificationRequired } from "../../utils/emailVerification.js";
 
 const users = new Hono<AppEnv>();
 
@@ -205,22 +206,17 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const identity = await prisma.identity.findUnique({
     where: { chain_address: { chain: "STARKNET", address: walletAddress } },
-    include: {
-      account: {
-        include: {
-          identities: { where: { scheme: IDENTITY_SCHEME.EMAIL }, take: 1 },
-        },
-      },
-    },
+    select: { address: true, accountId: true, account: { select: { publicId: true } } },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);
-  const emailIdentity = identity.account.identities[0];
+  const emailIdentity = await getCurrentEmailIdentity(identity.accountId);
   return c.json({
     walletAddress: identity.address,
-    accountId: identity.account.id,
+    accountId: identity.accountId,
     publicId: identity.account.publicId,
     email: emailIdentity?.email ?? null,
     emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
+    requiresEmailVerification: isEmailVerificationRequired(emailIdentity),
   });
 });
 
