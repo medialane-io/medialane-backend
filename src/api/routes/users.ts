@@ -138,7 +138,8 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           verifiedAt: null,
         },
       });
-      issueVerificationCode(parsed.data.email).catch((err: unknown) => {
+      const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+      issueVerificationCode(parsed.data.email, ip).catch((err: unknown) => {
         log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
       });
     }
@@ -225,6 +226,60 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
     emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
     requiresEmailVerification: isEmailVerificationRequired(emailIdentity),
   });
+});
+
+const changeEmailSchema = z.object({ email: z.string().email() });
+
+// Replaces the caller's account's current email — always resets to
+// unverified, always re-sends a code, whether or not the old one was
+// verified. Deliberately not folded into POST /me (account bootstrap) —
+// single-responsibility endpoint for an existing account's own action.
+users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
+  const walletAddress = c.get("walletAddress") as string;
+  const raw = await c.req.json<unknown>().catch(() => ({}));
+  const parsed = changeEmailSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
+  }
+  const email = parsed.data.email;
+
+  const identity = await prisma.identity.findUnique({
+    where: { chain_address: { chain: "STARKNET", address: walletAddress } },
+    select: { accountId: true },
+  });
+  if (!identity) return c.json({ error: "User not found" }, 404);
+  const accountId = identity.accountId;
+
+  const existingOwner = await prisma.identity.findUnique({
+    where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+    select: { accountId: true },
+  });
+  if (existingOwner && existingOwner.accountId !== accountId) {
+    return c.json({ error: "That email is already in use on another account." }, 409);
+  }
+  if (existingOwner && existingOwner.accountId === accountId) {
+    return c.json({ error: "That's already your current email." }, 409);
+  }
+
+  await prisma.$transaction([
+    prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL } }),
+    prisma.identity.create({
+      data: {
+        accountId,
+        scheme: IDENTITY_SCHEME.EMAIL,
+        value: email,
+        email,
+        appSource: "MEDIALANE_IO",
+        verifiedAt: null,
+      },
+    }),
+  ]);
+
+  const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const result = await issueVerificationCode(email, ip);
+  if (!result.ok) return c.json({ error: result.error }, 429);
+
+  return c.json({ email, emailVerified: false });
 });
 
 users.get(
