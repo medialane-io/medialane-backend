@@ -63,15 +63,8 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const { email } = c.req.valid("json");
     const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
-    const allowed = await deps.checkRateLimit(email, ip);
-    if (!allowed) return c.json({ error: "Too many requests" }, 429);
-
-    const code = String(randomInt(100_000, 1_000_000));
-    await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
-
-    deps.sendCode(email, code).catch((err: unknown) => {
-      log.error({ err, email }, "Failed to send verification code");
-    });
+    const result = await issueVerificationCodeWithDeps(deps, email, ip);
+    if (!result.ok) return c.json({ error: result.error }, 429);
 
     return c.json({ ok: true });
   });
@@ -212,13 +205,31 @@ const productionDeps: AuthEmailDeps = {
 
 // Shared with users.ts — sends a fresh code the moment an email is added to
 // an account, not just when a user later happens to visit Settings and ask
-// for one. Same code path (storage, hashing, delivery) as /request-code.
-export async function issueVerificationCode(email: string): Promise<void> {
+// for one. Same code path (storage, hashing, delivery, and — critically —
+// rate limiting) as /request-code; every code-send route goes through this
+// one function so there's exactly one place that can be under-protected.
+// Takes deps explicitly so /request-code (inside createAuthEmailRoutes) can
+// use whatever deps it was constructed with — real or test-mocked — while
+// external callers (users.ts) get the production-bound convenience wrapper
+// below instead of reaching into this module's internals directly.
+export async function issueVerificationCodeWithDeps(
+  deps: AuthEmailDeps,
+  email: string,
+  ip: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const allowed = await deps.checkRateLimit(email, ip);
+  if (!allowed) return { ok: false, error: "Too many requests" };
+
   const code = String(randomInt(100_000, 1_000_000));
-  await productionDeps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
-  productionDeps.sendCode(email, code).catch((err: unknown) => {
+  await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
+  deps.sendCode(email, code).catch((err: unknown) => {
     log.error({ err, email }, "Failed to send verification code");
   });
+  return { ok: true };
+}
+
+export function issueVerificationCode(email: string, ip: string) {
+  return issueVerificationCodeWithDeps(productionDeps, email, ip);
 }
 
 export const authEmail = createAuthEmailRoutes(productionDeps);
