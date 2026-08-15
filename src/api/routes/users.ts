@@ -14,6 +14,10 @@ import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js"
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, isEmailVerificationRequired } from "../../utils/emailVerification.js";
+import { issueVerificationCode } from "./auth-email.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("routes:users");
 
 const users = new Hono<AppEnv>();
 
@@ -133,6 +137,9 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           appSource,
           verifiedAt: null,
         },
+      });
+      issueVerificationCode(parsed.data.email).catch((err: unknown) => {
+        log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
       });
     }
 

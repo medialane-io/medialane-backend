@@ -210,4 +210,15 @@ const productionDeps: AuthEmailDeps = {
   },
 };
 
+// Shared with users.ts — sends a fresh code the moment an email is added to
+// an account, not just when a user later happens to visit Settings and ask
+// for one. Same code path (storage, hashing, delivery) as /request-code.
+export async function issueVerificationCode(email: string): Promise<void> {
+  const code = String(randomInt(100_000, 1_000_000));
+  await productionDeps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
+  productionDeps.sendCode(email, code).catch((err: unknown) => {
+    log.error({ err, email }, "Failed to send verification code");
+  });
+}
+
 export const authEmail = createAuthEmailRoutes(productionDeps);
