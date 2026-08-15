@@ -5,6 +5,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { resolveAccountIdFromWallet } from "../../utils/account.js";
+import { requiresEmailVerification } from "../../utils/emailVerification.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -45,6 +46,11 @@ usernameClaims.post(
     if (validationError) return c.json({ error: validationError }, 400);
 
     const callerAccountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
+
+    if (callerAccountId && (await requiresEmailVerification(callerAccountId))) {
+      return c.json({ error: "Verify your email to claim a username." }, 403);
+    }
+
     if (callerAccountId) {
       const profile = await prisma.accountProfile.findUnique({
         where: { accountId: callerAccountId },
