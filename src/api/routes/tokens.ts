@@ -38,7 +38,7 @@ tokens.get("/", async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
 
-  const where: Prisma.TokenWhereInput = { ...chainWhere(chainFilter), isHidden: false };
+  const where: Prisma.TokenWhereInput = { ...chainWhere(chainFilter), isHidden: false, metadataStatus: "FETCHED" };
 
   if (ipTypeSlug) {
     if (ipTypeSlug === "nft") {
