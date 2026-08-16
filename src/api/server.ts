@@ -14,7 +14,6 @@ import collections from "./routes/collections.js";
 import activities from "./routes/activities.js";
 import intents from "./routes/intents/index.js";
 import metadata from "./routes/metadata.js";
-import media from "./routes/media.js";
 import prices from "./routes/prices.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
@@ -56,7 +55,6 @@ export function createApp(): Hono<AppEnv> {
   app.route("/health", health);
 
   app.route("/", x402Discovery);
-  app.route("/media", media);
 
   app.route("/admin", admin);
   app.route("/admin/rewards", adminRewards);

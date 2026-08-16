@@ -1,31 +1,11 @@
 import { getIpfsFallbackUrls, resolveUri } from "./resolver.js";
-import { fetchJson, fetchBinary, type FetchedBinary } from "./fetcher.js";
+import { fetchJson } from "./fetcher.js";
 import { getCachedMetadata, setCachedMetadata } from "./cache.js";
 import { isIpfsUri } from "../utils/ipfs.js";
 import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
 import { createLogger } from "../utils/logger.js";
-import { env } from "../config/env.js";
 
 const log = createLogger("discovery");
-
-export async function resolveFile(uri: string, maxBytes: number): Promise<FetchedBinary | null> {
-  if (isIpfsUri(uri)) {
-    const cid = uri.slice(7);
-    return fetchBinary(`https://${env.PINATA_GATEWAY}/ipfs/${cid}`, maxBytes);
-  }
-
-  const { url } = resolveUri(uri);
-  if (isPrivateOrInsecureUrl(url, false)) {
-    log.warn({ url }, "Blocked SSRF attempt in file URI");
-    return null;
-  }
-  const hostname = new URL(url).hostname;
-  if (await resolvesToPrivateHost(hostname)) {
-    log.warn({ url, hostname }, "Blocked SSRF attempt — hostname resolves to a private address");
-    return null;
-  }
-  return fetchBinary(url, maxBytes);
-}
 
 export async function resolveMetadata(
   uri: string
