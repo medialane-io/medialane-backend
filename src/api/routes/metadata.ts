@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { PinataSDK } from "pinata";
 import { env } from "../../config/env.js";
-import { resolveMetadata, resolveFile } from "../../discovery/index.js";
+import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
@@ -203,34 +203,6 @@ metadata.get("/resolve", async (c) => {
 
   const resolved = await resolveMetadata(uri);
   return c.json({ data: resolved });
-});
-
-const CID_PATH_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44,}|b[a-z2-7]{58,})(\/[\w.\-/]*)?$/;
-const SAFE_CONTENT_TYPE_PREFIXES = [
-  "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/svg+xml",
-  "video/", "audio/", "model/", "font/", "application/json", "application/octet-stream",
-];
-
-metadata.get("/file/*", async (c) => {
-  const cidPath = c.req.path.replace(/^.*\/v1\/metadata\/file\//, "");
-  if (!CID_PATH_RE.test(cidPath) || cidPath.split("/").includes("..")) {
-    return c.json({ error: "Invalid IPFS path" }, 400);
-  }
-
-  const result = await resolveFile(`ipfs://${cidPath}`, MAX_FILE_BYTES);
-  if (!result) {
-    return c.json({ error: "Failed to fetch file" }, 502);
-  }
-
-  const contentType = SAFE_CONTENT_TYPE_PREFIXES.some((p) => result.contentType.startsWith(p))
-    ? result.contentType
-    : "application/octet-stream";
-
-  return c.body(new Uint8Array(result.body), 200, {
-    "Content-Type": contentType,
-    "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
-  });
 });
 
 export default metadata;
