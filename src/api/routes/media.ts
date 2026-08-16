@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { resolveFile } from "../../discovery/index.js";
 import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../../utils/ssrf.js";
+import { getCachedFile, setCachedFile } from "../../discovery/fileCache.js";
 
 const media = new Hono();
 
@@ -45,17 +46,22 @@ media.get("/ipfs/*", async (c) => {
     return c.json({ error: "Invalid IPFS path" }, 400);
   }
 
-  const result = await resolveFile(`ipfs://${cidPath}`, MAX_FILE_BYTES);
-  if (!result) {
-    return c.json({ error: "Failed to fetch file" }, 502);
+  const cacheKey = `ipfs:${cidPath}`;
+  let file = getCachedFile(cacheKey);
+  if (!file) {
+    const result = await resolveFile(`ipfs://${cidPath}`, MAX_FILE_BYTES);
+    if (!result) {
+      return c.json({ error: "Failed to fetch file" }, 502);
+    }
+    const contentType = IPFS_CONTENT_TYPE_PREFIXES.some((p) => result.contentType.startsWith(p))
+      ? result.contentType
+      : "application/octet-stream";
+    file = { body: result.body, contentType };
+    setCachedFile(cacheKey, result.body, contentType);
   }
 
-  const contentType = IPFS_CONTENT_TYPE_PREFIXES.some((p) => result.contentType.startsWith(p))
-    ? result.contentType
-    : "application/octet-stream";
-
-  return c.body(new Uint8Array(result.body), 200, {
-    "Content-Type": contentType,
+  return c.body(new Uint8Array(file.body), 200, {
+    "Content-Type": file.contentType,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
     "Access-Control-Allow-Origin": "*",
@@ -79,16 +85,22 @@ media.get("/external", async (c) => {
     return c.json({ error: "URL not allowed" }, 400);
   }
 
-  const result = await resolveFile(raw, MAX_FILE_BYTES);
-  if (!result) {
-    return c.json({ error: "Failed to fetch image" }, 502);
-  }
-  if (!EXTERNAL_IMAGE_CONTENT_TYPES.has(result.contentType.split(";")[0].trim().toLowerCase())) {
-    return c.json({ error: "Not an image" }, 400);
+  const cacheKey = `external:${raw}`;
+  let file = getCachedFile(cacheKey);
+  if (!file) {
+    const result = await resolveFile(raw, MAX_FILE_BYTES);
+    if (!result) {
+      return c.json({ error: "Failed to fetch image" }, 502);
+    }
+    if (!EXTERNAL_IMAGE_CONTENT_TYPES.has(result.contentType.split(";")[0].trim().toLowerCase())) {
+      return c.json({ error: "Not an image" }, 400);
+    }
+    file = { body: result.body, contentType: result.contentType };
+    setCachedFile(cacheKey, result.body, result.contentType);
   }
 
-  return c.body(new Uint8Array(result.body), 200, {
-    "Content-Type": result.contentType,
+  return c.body(new Uint8Array(file.body), 200, {
+    "Content-Type": file.contentType,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
     "Access-Control-Allow-Origin": "*",
