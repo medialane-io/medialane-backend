@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { resolveFile } from "../../discovery/index.js";
 import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../../utils/ssrf.js";
 import { getCachedFile, setCachedFile } from "../../discovery/fileCache.js";
@@ -32,68 +33,32 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-function requestIp(c: { req: { header(name: string): string | undefined } }): string {
+function requestIp(c: Context): string {
   return c.req.header("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
 }
 
-media.get("/ipfs/*", async (c) => {
+async function serveFile(
+  c: Context,
+  cacheKey: string,
+  uri: string,
+  cacheControl: string,
+  allowedContentTypes: string[] | Set<string>,
+): Promise<Response> {
   if (!checkRateLimit(requestIp(c))) {
     return c.json({ error: "Too many requests" }, 429);
   }
 
-  const cidPath = c.req.path.replace(/^.*\/media\/ipfs\//, "");
-  if (!CID_PATH_RE.test(cidPath) || cidPath.split("/").includes("..")) {
-    return c.json({ error: "Invalid IPFS path" }, 400);
-  }
-
-  const cacheKey = `ipfs:${cidPath}`;
   let file = getCachedFile(cacheKey);
   if (!file) {
-    const result = await resolveFile(`ipfs://${cidPath}`, MAX_FILE_BYTES);
+    const result = await resolveFile(uri, MAX_FILE_BYTES);
     if (!result) {
       return c.json({ error: "Failed to fetch file" }, 502);
     }
-    const contentType = IPFS_CONTENT_TYPE_PREFIXES.some((p) => result.contentType.startsWith(p))
-      ? result.contentType
-      : "application/octet-stream";
-    file = { body: result.body, contentType };
-    setCachedFile(cacheKey, result.body, contentType);
-  }
-
-  return c.body(new Uint8Array(file.body), 200, {
-    "Content-Type": file.contentType,
-    "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
-    "Access-Control-Allow-Origin": "*",
-  });
-});
-
-media.get("/external", async (c) => {
-  if (!checkRateLimit(requestIp(c))) {
-    return c.json({ error: "Too many requests" }, 429);
-  }
-
-  const raw = c.req.query("url");
-  if (!raw) {
-    return c.json({ error: "Missing url" }, 400);
-  }
-  if (isPrivateOrInsecureUrl(raw)) {
-    return c.json({ error: "URL not allowed" }, 400);
-  }
-  const hostname = new URL(raw).hostname;
-  if (await resolvesToPrivateHost(hostname)) {
-    return c.json({ error: "URL not allowed" }, 400);
-  }
-
-  const cacheKey = `external:${raw}`;
-  let file = getCachedFile(cacheKey);
-  if (!file) {
-    const result = await resolveFile(raw, MAX_FILE_BYTES);
-    if (!result) {
-      return c.json({ error: "Failed to fetch image" }, 502);
-    }
-    if (!EXTERNAL_IMAGE_CONTENT_TYPES.has(result.contentType.split(";")[0].trim().toLowerCase())) {
-      return c.json({ error: "Not an image" }, 400);
+    const isAllowed = Array.isArray(allowedContentTypes)
+      ? allowedContentTypes.some((p) => result.contentType.startsWith(p))
+      : allowedContentTypes.has(result.contentType.split(";")[0].trim().toLowerCase());
+    if (!isAllowed) {
+      return c.json({ error: "Unsupported content type" }, 400);
     }
     file = { body: result.body, contentType: result.contentType };
     setCachedFile(cacheKey, result.body, result.contentType);
@@ -102,9 +67,45 @@ media.get("/external", async (c) => {
   return c.body(new Uint8Array(file.body), 200, {
     "Content-Type": file.contentType,
     "X-Content-Type-Options": "nosniff",
-    "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
+    "Cache-Control": cacheControl,
     "Access-Control-Allow-Origin": "*",
   });
+}
+
+media.get("/ipfs/*", async (c) => {
+  const cidPath = c.req.path.replace(/^.*\/media\/ipfs\//, "");
+  if (!CID_PATH_RE.test(cidPath) || cidPath.split("/").includes("..")) {
+    return c.json({ error: "Invalid IPFS path" }, 400);
+  }
+
+  return serveFile(
+    c,
+    `ipfs:${cidPath}`,
+    `ipfs://${cidPath}`,
+    "public, max-age=31536000, s-maxage=31536000, immutable",
+    IPFS_CONTENT_TYPE_PREFIXES,
+  );
+});
+
+media.get("/external", async (c) => {
+  const raw = c.req.query("url");
+  if (!raw) {
+    return c.json({ error: "Missing url" }, 400);
+  }
+  if (isPrivateOrInsecureUrl(raw)) {
+    return c.json({ error: "URL not allowed" }, 400);
+  }
+  if (await resolvesToPrivateHost(new URL(raw).hostname)) {
+    return c.json({ error: "URL not allowed" }, 400);
+  }
+
+  return serveFile(
+    c,
+    `external:${raw}`,
+    raw,
+    "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
+    EXTERNAL_IMAGE_CONTENT_TYPES,
+  );
 });
 
 export default media;

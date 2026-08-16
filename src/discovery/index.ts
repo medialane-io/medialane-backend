@@ -4,17 +4,14 @@ import { getCachedMetadata, setCachedMetadata } from "./cache.js";
 import { isIpfsUri } from "../utils/ipfs.js";
 import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
 import { createLogger } from "../utils/logger.js";
+import { env } from "../config/env.js";
 
 const log = createLogger("discovery");
 
 export async function resolveFile(uri: string, maxBytes: number): Promise<FetchedBinary | null> {
   if (isIpfsUri(uri)) {
-    for (const url of getIpfsFallbackUrls(uri)) {
-      const result = await fetchBinary(url, maxBytes);
-      if (result) return result;
-      log.debug({ url }, "IPFS gateway failed to serve file, trying next");
-    }
-    return null;
+    const cid = uri.slice(7);
+    return fetchBinary(`https://${env.PINATA_GATEWAY}/ipfs/${cid}`, maxBytes);
   }
 
   const { url } = resolveUri(uri);
