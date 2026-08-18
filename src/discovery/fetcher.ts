@@ -1,6 +1,7 @@
 import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
 import { readTextCapped } from "../utils/httpBody.js";
+import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
 
 const log = createLogger("fetcher");
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -9,7 +10,8 @@ const MAX_METADATA_BYTES = 512 * 1024;
 
 export async function fetchJson(
   url: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  allowRedirect = true
 ): Promise<Record<string, unknown> | null> {
   if (url.startsWith("data:application/json")) {
     return decodeDataUri(url);
@@ -26,8 +28,20 @@ export async function fetchJson(
     });
 
     if (res.status >= 300 && res.status < 400) {
-      log.warn({ url, status: res.status }, "Redirect blocked");
-      return null;
+      const location = res.headers.get("location");
+      if (!allowRedirect || !location) {
+        log.warn({ url, status: res.status }, "Redirect blocked");
+        return null;
+      }
+
+      const target = new URL(location, url).toString();
+      if (isPrivateOrInsecureUrl(target, false) || (await resolvesToPrivateHost(new URL(target).hostname))) {
+        log.warn({ url, target }, "Blocked SSRF attempt via redirect");
+        return null;
+      }
+
+      log.debug({ url, target }, "Following single-hop redirect");
+      return fetchJson(target, timeoutMs, false);
     }
 
     if (!res.ok) {

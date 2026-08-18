@@ -4,7 +4,7 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:metadata-retry");
 
-const RETRY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const RETRY_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
 
 export async function startMetadataRetryLoop(): Promise<void> {
