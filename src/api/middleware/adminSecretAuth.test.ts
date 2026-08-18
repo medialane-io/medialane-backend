@@ -10,6 +10,7 @@ function app() {
   const a = new Hono();
   a.use("*", adminOrPortalAccountAuth);
   a.get("/admin/accounts/x", (c) => c.json({ ok: true }));
+  a.get("/admin/api-clients/x", (c) => c.json({ ok: true }));
   a.get("/admin/tenants", (c) => c.json({ ok: true }));
   return a;
 }
@@ -27,6 +28,9 @@ describe("adminOrPortalAccountAuth", () => {
   });
   test("portal secret works on account routes", async () => {
     expect((await req("/admin/accounts/x", PORTAL)).status).toBe(200);
+  });
+  test("portal secret works on api-client routes", async () => {
+    expect((await req("/admin/api-clients/x", PORTAL)).status).toBe(200);
   });
   test("portal secret is REJECTED on non-account admin routes", async () => {
     expect((await req("/admin/tenants", PORTAL)).status).toBe(401);

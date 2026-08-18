@@ -28,9 +28,9 @@ export const adminOrPortalAccountAuth: MiddlewareHandler<AppEnv> = async (c, nex
     return next();
   }
 
-  const isAccountRoute = c.req.path.startsWith("/admin/accounts");
-  if (isAccountRoute && secretMatches(apiKey, env.PORTAL_SERVICE_SECRET)) {
-
+  const isPortalScopedRoute =
+    c.req.path.startsWith("/admin/accounts") || c.req.path.startsWith("/admin/api-clients");
+  if (isPortalScopedRoute && secretMatches(apiKey, env.PORTAL_SERVICE_SECRET)) {
     return next();
   }
 
