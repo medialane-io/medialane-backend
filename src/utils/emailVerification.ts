@@ -23,12 +23,6 @@ export interface CurrentEmailIdentity extends EmailIdentityInfo {
   email: string | null;
 }
 
-// An account can end up with more than one email Identity row (e.g. the
-// user submits a second email before verifying the first — POST /v1/users/me
-// creates a new row per distinct email value, it never updates or removes
-// an existing one for the account). Prefer a verified row if any exists,
-// since that reflects the account's real current state; among unverified
-// rows, prefer the most recently created one as "the current attempt."
 export async function getCurrentEmailIdentity(accountId: string): Promise<CurrentEmailIdentity | null> {
   return prisma.identity.findFirst({
     where: { accountId, scheme: IDENTITY_SCHEME.EMAIL },
@@ -43,4 +37,23 @@ export async function requiresEmailVerification(
 ): Promise<boolean> {
   const identity = await getCurrentEmailIdentity(accountId);
   return isEmailVerificationRequired(identity, graceDays);
+}
+
+export interface EmailClaimDecision {
+  allowed: boolean;
+  reason: "already-yours" | "verified-elsewhere" | null;
+}
+
+export function canClaimEmail(
+  callerAccountId: string,
+  existingOwner: { accountId: string; verifiedAt: Date | null } | null,
+): EmailClaimDecision {
+  if (!existingOwner) return { allowed: true, reason: null };
+  if (existingOwner.accountId === callerAccountId) {
+    return { allowed: false, reason: "already-yours" };
+  }
+  if (existingOwner.verifiedAt) {
+    return { allowed: false, reason: "verified-elsewhere" };
+  }
+  return { allowed: true, reason: null };
 }

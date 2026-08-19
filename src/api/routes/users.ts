@@ -13,7 +13,7 @@ import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
-import { getCurrentEmailIdentity, isEmailVerificationRequired } from "../../utils/emailVerification.js";
+import { getCurrentEmailIdentity, isEmailVerificationRequired, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -242,10 +242,6 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
 
 const changeEmailSchema = z.object({ email: z.string().email() });
 
-// Replaces the caller's account's current email — always resets to
-// unverified, always re-sends a code, whether or not the old one was
-// verified. Deliberately not folded into POST /me (account bootstrap) —
-// single-responsibility endpoint for an existing account's own action.
 users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const raw = await c.req.json<unknown>().catch(() => ({}));
@@ -264,17 +260,19 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
 
   const existingOwner = await prisma.identity.findUnique({
     where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
-    select: { accountId: true },
+    select: { accountId: true, verifiedAt: true },
   });
-  if (existingOwner && existingOwner.accountId !== accountId) {
-    return c.json({ error: "That email is already in use on another account." }, 409);
-  }
-  if (existingOwner && existingOwner.accountId === accountId) {
-    return c.json({ error: "That's already your current email." }, 409);
+  const decision = canClaimEmail(accountId, existingOwner);
+  if (!decision.allowed) {
+    const message = decision.reason === "already-yours"
+      ? "That's already your current email."
+      : "That email is already in use on another account.";
+    return c.json({ error: message }, 409);
   }
 
   await prisma.$transaction([
     prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL } }),
+    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: email } }),
     prisma.identity.create({
       data: {
         accountId,

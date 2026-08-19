@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { isEmailVerificationRequired } from "./emailVerification.js";
+import { isEmailVerificationRequired, canClaimEmail } from "./emailVerification.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date("2026-08-15T00:00:00Z");
@@ -31,4 +31,23 @@ test("unverified, created 8 days ago (past 7-day grace) — required", () => {
 test("unverified, past grace, custom graceDays — respects the override", () => {
   const identity = { verifiedAt: null, createdAt: new Date(NOW.getTime() - 2 * DAY_MS) };
   expect(isEmailVerificationRequired(identity, 1, NOW)).toBe(true);
+});
+
+test("canClaimEmail: no existing owner — allowed", () => {
+  expect(canClaimEmail("acc_A", null)).toEqual({ allowed: true, reason: null });
+});
+
+test("canClaimEmail: caller already owns it — blocked, already-yours", () => {
+  const existingOwner = { accountId: "acc_A", verifiedAt: null };
+  expect(canClaimEmail("acc_A", existingOwner)).toEqual({ allowed: false, reason: "already-yours" });
+});
+
+test("canClaimEmail: verified on a different account — blocked, verified-elsewhere", () => {
+  const existingOwner = { accountId: "acc_B", verifiedAt: new Date("2026-01-01T00:00:00Z") };
+  expect(canClaimEmail("acc_A", existingOwner)).toEqual({ allowed: false, reason: "verified-elsewhere" });
+});
+
+test("canClaimEmail: unverified on a different account — allowed, the stale claim can be reclaimed", () => {
+  const existingOwner = { accountId: "acc_B", verifiedAt: null };
+  expect(canClaimEmail("acc_A", existingOwner)).toEqual({ allowed: true, reason: null });
 });
