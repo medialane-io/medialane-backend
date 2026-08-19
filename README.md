@@ -79,18 +79,18 @@ GET  /v1/activities/:address              Activity by user
 
 ### Remix Offers
 ```
-POST /v1/remix-offers                     Submit a custom license offer (Clerk JWT required)
-POST /v1/remix-offers/auto                Auto-approve offer for open-license assets (Clerk JWT required)
-POST /v1/remix-offers/self/confirm        Record completed self-remix (owner only, Clerk JWT required)
+POST /v1/remix-offers                     Submit a custom license offer (SIWS token required)
+POST /v1/remix-offers/auto                Auto-approve offer for open-license assets (SIWS token required)
+POST /v1/remix-offers/self/confirm        Record completed self-remix (owner only, SIWS token required)
 GET  /v1/remix-offers                     List offers for authenticated user (?role=creator|requester, ?status, page, limit)
 GET  /v1/remix-offers/:id                 Single offer
-POST /v1/remix-offers/:id/approve         Creator approves offer (sets approvedCollection, Clerk JWT required)
-POST /v1/remix-offers/:id/reject          Creator rejects offer (Clerk JWT required)
-POST /v1/remix-offers/:id/confirm         Mark offer completed after mint (Clerk JWT required)
+POST /v1/remix-offers/:id/approve         Creator approves offer (sets approvedCollection, SIWS token required)
+POST /v1/remix-offers/:id/reject          Creator rejects offer (SIWS token required)
+POST /v1/remix-offers/:id/confirm         Mark offer completed after mint (SIWS token required)
 GET  /v1/tokens/:contract/:tokenId/remixes  Public remixes for a token (page, limit)
 ```
 
-All remix-offer mutation endpoints require both a valid `x-api-key` header and `Authorization: Bearer <clerk-jwt>`. The Clerk JWT is used to derive the caller's Starknet wallet address. Price/currency fields are only visible in responses to the creator or requester — not to third parties.
+All remix-offer mutation endpoints require both a valid `x-api-key` header and `Authorization: Bearer <siws-token>`. The SIWS token is used to derive the caller's Starknet wallet address. Price/currency fields are only visible in responses to the creator or requester — not to third parties.
 
 **RemixOffer statuses**: `PENDING` (awaiting creator), `AUTO_PENDING` (open-license, auto-approved), `APPROVED` (creator approved), `COMPLETED` (remix minted + listed), `REJECTED`, `EXPIRED`, `SELF_MINTED` (owner self-remix recorded).
 
@@ -104,7 +104,7 @@ GET  /v1/search?q=...                     Search tokens + collections + creators
 GET  /v1/creators                         List creators (search, page, limit)
 GET  /v1/creators/by-username/:username   Resolve username slug → creator profile
 GET  /v1/creators/:address                Creator profile by wallet address
-PATCH /v1/creators/:address/profile       Update profile (Clerk JWT required)
+PATCH /v1/creators/:address/profile       Update profile (SIWS token required)
 ```
 
 ### Intents (Transaction orchestration)
@@ -126,7 +126,9 @@ PATCH /v1/intents/:id/signature           Submit SNIP-12 signature
 GET  /v1/metadata/signed-url              Pinata presigned URL (30s TTL)
 POST /v1/metadata/upload                  Upload JSON to IPFS → ipfs:// URI
 POST /v1/metadata/upload-file             Upload file to IPFS (multipart)
+POST /v1/metadata/upload-directory        Upload a directory of JSON files → ipfs:// base URI
 GET  /v1/metadata/resolve?uri=...         Resolve ipfs://, data:, https://
+GET  /v1/metadata/image/*cid              Stream an IPFS image through the dedicated gateway (authenticated)
 ```
 
 ### Portal (Tenant self-service)
@@ -206,12 +208,17 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 
 | Contract | Address |
 |---|---|
-| Marketplace Protocol (ERC-721) | `0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6` |
-| Marketplace Protocol (ERC-1155) | `0x02bfa521c25461a09d735889b469418608d7d92f8b26e3d37ef174a4c2e22f99` |
-| Collection Protocol (ERC-721 registry) | `0x05c49ee5d3208a2c2e150fdd0c247d1195ed9ab54fa2d5dea7a633f39e4b205b` |
-| Collection Protocol (ERC-1155 factory) | `0x006b2dc7ca7c4f466bb4575ba043d934310f052074f849caf853a86bcb819fd6` |
-| NFTComments | `0x024f97eb5abe659fb650bf162b5fc16501f8f3863a7369901ce6099462e62799` |
-| Indexer start block | `9196722` |
+| Marketplace Protocol (ERC-721) | `0x03eda9a2b6ad90845a43591bac8083ebaf677d51fdf20f503b2c01889e3131fc` |
+| Marketplace Protocol (ERC-1155) | `0x07c4ce1c19ea48cc11135ed22b19ff745f5aec508c3828593002e4f76fdb1b38` |
+| Collection Protocol (ERC-721 registry) | `0x0225c3ae09506b8d97adc39649ca740dad5aac195b7f5f0441cc1852947acaea` |
+| Collection Protocol (ERC-1155 factory) | `0x015368976d46fae5bfa1c58600f641d5aa5dbbf53ebc6b78aa3922194aad3551` |
+| NFTComments | `0x02cdac70c94447189af0389dfea63f4d5e4154ea8a563de288a5ab1c39e37843` |
+| Indexer start block | `11198146` |
+
+This is a partial list. The full current registry — including Launchpad services
+(IP Tickets, IP Club, IP Sponsorship, POP, Collection Drop) and Creator Coin,
+all of which this indexer also mirrors — lives in `@medialane/sdk`'s
+`src/chains.ts` (`getCoordinates("STARKNET")`), the single source of truth.
 
 ---
 
@@ -237,7 +244,8 @@ bun dev
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ALCHEMY_RPC_URL` | Starknet mainnet RPC |
 | `PINATA_JWT` | Pinata JWT for metadata uploads |
-| `PINATA_GATEWAY` | Pinata gateway hostname |
+| `PINATA_GATEWAY` | Your account's dedicated gateway domain (Pinata dashboard > Gateways), not the public `gateway.pinata.cloud` |
+| `PINATA_GATEWAY_TOKEN` | Gateway Keys access-control token (Pinata dashboard > Access Controls) — required to serve CIDs not pinned through this account on a dedicated gateway |
 | `API_SECRET_KEY` | Min 16 chars — admin routes auth |
 | `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://medialane.io,https://www.medialane.io`) |
 
@@ -307,9 +315,10 @@ After adding or changing environment variables in Railway, **manually trigger a 
 
 | Repo | Description |
 |---|---|
-| [medialane-io](https://github.com/medialane-io/medialane-io) | Consumer dApp (Next.js 15, creator launchpad + marketplace) |
-| [@medialane/sdk](https://github.com/medialane-io/sdk) | TypeScript SDK — wraps this API |
-| [medialane-xyz](https://github.com/medialane-io/medialane-xyz) | Developer portal (API keys, docs, webhooks) |
+| [medialane-io](https://github.com/medialane-io/medialane-io) | Consumer app — Media Wallet, email login, sponsored transactions |
+| [medialane-starknet](https://github.com/medialane-io/medialane-starknet) | Wallet-sovereign Starknet app — creator launchpad + marketplace |
+| [medialane-sdk](https://github.com/medialane-io/medialane-sdk) | TypeScript SDK (`@medialane/sdk`) — wraps this API |
+| [medialane-portal](https://github.com/medialane-io/medialane-portal) | Developer portal (API keys, docs, webhooks) |
 
 ---
 
