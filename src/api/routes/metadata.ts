@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { PinataSDK } from "pinata";
 import { env } from "../../config/env.js";
 import { resolveMetadata } from "../../discovery/index.js";
@@ -189,6 +190,79 @@ metadata.post("/upload-directory", async (c) => {
     log.error({ err }, "Failed to upload directory");
     return c.json({ error: toErrorMessage(err) }, 500);
   }
+});
+
+const IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+const IMAGE_SAFE_PREFIXES = [
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/svg+xml",
+  "video/", "audio/", "model/", "font/", "application/json", "application/octet-stream",
+];
+
+metadata.get("/image/*", async (c) => {
+  const cidPath = c.req.path.replace(/^.*\/v1\/metadata\/image\//, "");
+  if (!/^(Qm[1-9A-HJ-NP-Za-km-z]{44,}|b[a-z2-7]{58,})(\/[\w.\-/]*)?$/.test(cidPath)) {
+    return c.json({ error: "Invalid IPFS path" }, 400);
+  }
+  if (cidPath.split("/").includes("..")) {
+    return c.json({ error: "Invalid IPFS path" }, 400);
+  }
+
+  const url = `https://${env.PINATA_GATEWAY}/ipfs/${cidPath}`;
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, {
+      headers: env.PINATA_JWT ? { Authorization: `Bearer ${env.PINATA_JWT}` } : {},
+      signal: AbortSignal.timeout(18_000),
+    });
+  } catch {
+    return c.json({ error: "Failed to fetch from IPFS" }, 502);
+  }
+
+  if (!upstream.ok) {
+    return c.json({ error: "IPFS content unavailable" }, upstream.status as ContentfulStatusCode);
+  }
+
+  const upstreamContentType = upstream.headers.get("content-type") ?? "";
+  const upstreamContentLength = Number(upstream.headers.get("content-length") ?? 0);
+  if (upstreamContentLength > IMAGE_MAX_BYTES) {
+    return c.json({ error: "IPFS content too large" }, 413);
+  }
+  if (!upstream.body) {
+    return c.json({ error: "IPFS gateway returned no body" }, 502);
+  }
+
+  const reader = upstream.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > IMAGE_MAX_BYTES) {
+      await reader.cancel();
+      return c.json({ error: "IPFS content too large" }, 413);
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  const safeContentType = IMAGE_SAFE_PREFIXES.some((p) => upstreamContentType.startsWith(p))
+    ? upstreamContentType
+    : "application/octet-stream";
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": safeContentType,
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
+    },
+  });
 });
 
 metadata.get("/resolve", async (c) => {
