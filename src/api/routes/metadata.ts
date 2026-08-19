@@ -211,6 +211,7 @@ metadata.get("/image/*", async (c) => {
   let upstream: Response;
   try {
     upstream = await fetch(url, {
+      headers: env.PINATA_GATEWAY_TOKEN ? { "x-pinata-gateway-token": env.PINATA_GATEWAY_TOKEN } : {},
       signal: AbortSignal.timeout(18_000),
     });
   } catch {

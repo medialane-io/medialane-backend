@@ -38,6 +38,7 @@ const envSchema = z.object({
   LAUNCHPAD_POLL_INTERVAL_MS: z.coerce.number().default(300000),
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
+  PINATA_GATEWAY_TOKEN: z.string().default(""),
   PORT: z.coerce.number().default(3000),
 
   HMAC_KEY: z.string().min(32, "HMAC_KEY must be at least 32 characters"),
