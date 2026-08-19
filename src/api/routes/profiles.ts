@@ -13,9 +13,7 @@ import {
   addAccountRole,
 } from "../../utils/account.js";
 import { createLogger } from "../../utils/logger.js";
-import { env } from "../../config/env.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
-import { secretMatches } from "../middleware/adminSecretAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:profiles");
@@ -82,35 +80,23 @@ profiles.get("/collections/:contract/profile", async (c) => {
 
 profiles.patch(
   "/collections/:contract/profile",
-  async (c, next) => {
-
-    const key = c.req.header("x-api-key") ?? "";
-    if (secretMatches(key, env.API_SECRET_KEY)) {
-      c.set("isAdmin", true);
-      return next();
-    }
-
-    return identityAuth(c, next);
-  },
+  identityAuth,
   zValidator("json", collectionProfileSchema),
   async (c) => {
     const contract = normalizeAddress("STARKNET", c.req.param("contract"));
     const data = c.req.valid("json");
-    const isAdmin = c.get("isAdmin");
 
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
     });
     if (!collection) return c.json({ error: "Collection not found — register the collection first" }, 404);
 
-    if (!isAdmin) {
-      const jwtWallet = c.get("walletAddress") as string;
-      if (!collection.claimedBy || normalizeAddress("STARKNET", collection.claimedBy) !== jwtWallet) {
-        return c.json({ error: "Not authorized to edit this collection. Collections with no claimer can only be updated via admin API key." }, 403);
-      }
+    const jwtWallet = c.get("walletAddress") as string;
+    if (!collection.claimedBy || normalizeAddress("STARKNET", collection.claimedBy) !== jwtWallet) {
+      return c.json({ error: "Not authorized to edit this collection. Claim the collection first." }, 403);
     }
 
-    const updatedBy = isAdmin ? "admin" : (c.get("walletAddress") as string);
+    const updatedBy = c.get("walletAddress") as string;
 
     const hasGatedContent = data.gatedContentUrl != null
       ? data.gatedContentUrl.length > 0

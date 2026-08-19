@@ -39,11 +39,6 @@ const envSchema = z.object({
   PINATA_JWT: z.string().default(""),
   PINATA_GATEWAY: z.string().default("gateway.pinata.cloud"),
   PORT: z.coerce.number().default(3000),
-  API_SECRET_KEY: z.string().min(16),
-
-  PORTAL_SERVICE_SECRET: z.string().min(16).optional(),
-
-  STARKNET_ADMIN_ADDRESSES: z.string().optional(),
 
   HMAC_KEY: z.string().min(32, "HMAC_KEY must be at least 32 characters"),
   SIWS_SECRET: z.string().min(32),

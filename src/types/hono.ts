@@ -25,9 +25,6 @@ export type AppVariables = {
   apiClient: AuthedApiClient;
   apiKey: AuthedApiKey;
   walletAddress?: string;
-  isAdmin?: boolean;
-
-  adminWallet?: string;
 };
 
 export type AppEnv = { Variables: AppVariables };

@@ -6,6 +6,10 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
+import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
+import { generateApiKey } from "../../utils/apiKey.js";
+import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
+import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -61,9 +65,10 @@ siws.post(
     walletAddress: z.string().min(1),
     nonce:         z.string().min(1),
     signature:     z.array(z.string()).min(1),
+    appSource:     z.enum(APP_SOURCE_INPUT).optional(),
   })),
   async (c) => {
-    const { walletAddress, nonce, signature } = c.req.valid("json");
+    const { walletAddress, nonce, signature, appSource } = c.req.valid("json");
     const wallet = normalizeAddress("STARKNET", walletAddress);
 
     const record = await prisma.siwsNonce.findUnique({ where: { nonce } });
@@ -104,8 +109,47 @@ siws.post(
 
     await prisma.siwsNonce.delete({ where: { nonce } });
 
-    return c.json({ token: issueToken("STARKNET", wallet) });
+    const token = issueToken("STARKNET", wallet);
+    if (!appSource) return c.json({ token });
+
+    const { accountId } = await ensureAccountForWallet({
+      chain: "STARKNET",
+      address: wallet,
+      appSource: normalizeAppSource(appSource),
+    });
+    const apiClient = await prisma.apiClient.upsert({
+      where: { accountId },
+      create: { accountId },
+      update: {},
+      select: { id: true },
+    });
+
+    return c.json({ token, accountId, apiClientId: apiClient.id });
   }
 );
+
+/** Mint a fresh API key for the caller's own account, proven only by their own wallet signature — no shared secret involved. */
+siws.post("/keys", identityAuth, async (c) => {
+  const wallet = c.get("walletAddress") as string;
+  const accountId = await resolveAccountIdFromWallet("STARKNET", wallet);
+  if (!accountId) return c.json({ error: "Account not found — sign in first" }, 404);
+
+  const apiClient = await prisma.apiClient.findUnique({ where: { accountId }, select: { id: true } });
+  if (!apiClient) return c.json({ error: "ApiClient not found — sign in first" }, 404);
+
+  await prisma.apiKey.updateMany({
+    where: { apiClientId: apiClient.id, label: "portal-session", status: "ACTIVE" },
+    data: { status: "REVOKED" },
+  });
+
+  const { plaintext, prefix, keyHash } = generateApiKey();
+  const key = await prisma.apiKey.create({
+    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session" },
+    select: { id: true, prefix: true, label: true },
+  });
+
+  log.info({ keyId: key.id, apiClientId: apiClient.id }, "Self-service session key minted via SIWS");
+  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext } }, 201);
+});
 
 export default siws;

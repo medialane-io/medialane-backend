@@ -2,8 +2,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { type Collection } from "@prisma/client";
 import prisma from "../../db/client.js";
-import { authMiddleware } from "../middleware/adminSecretAuth.js";
-import { env } from "../../config/env.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
 import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
@@ -252,50 +250,4 @@ collections.post("/register", async (c) => {
   return c.json({ data: serializeCollection(collection) }, 201);
 });
 
-collections.post("/", authMiddleware, async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (!body?.contractAddress) {
-    return c.json({ error: "contractAddress required" }, 400);
-  }
-
-  const startBlock = body.startBlock
-    ? BigInt(body.startBlock)
-    : BigInt(env.INDEXER_START_BLOCK);
-
-  const contractAddress = normalizeAddress("STARKNET", body.contractAddress);
-
-  if (body.standard !== "ERC721" && body.standard !== "ERC1155") {
-    return c.json({ error: "standard is required (ERC721 or ERC1155)" }, 400);
-  }
-  const adminStandard = body.standard as "ERC721" | "ERC1155";
-  const adminService =
-    body.service ?? (adminStandard === "ERC1155" ? "external-erc1155" : "external-erc721");
-  const col = await prisma.collection.upsert({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
-    create: {
-      chain: "STARKNET",
-      contractAddress,
-      name: body.name ?? null,
-      symbol: body.symbol ?? null,
-      description: body.description ?? null,
-      image: body.image ?? null,
-      baseUri: body.baseUri ?? null,
-      owner: body.owner ? normalizeAddress("STARKNET", body.owner) : null,
-      standard: adminStandard,
-      service: adminService,
-      startBlock,
-    },
-    update: {
-      name: body.name ?? undefined,
-      symbol: body.symbol ?? undefined,
-      description: body.description ?? undefined,
-      image: body.image ?? undefined,
-      baseUri: body.baseUri ?? undefined,
-      owner: body.owner ? normalizeAddress("STARKNET", body.owner) : undefined,
-      standard: adminStandard,
-    },
-  });
-
-  return c.json({ data: serializeCollection(col) }, 201);
-});
 }
