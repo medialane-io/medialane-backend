@@ -17,7 +17,6 @@ import metadata from "./routes/metadata.js";
 import prices from "./routes/prices.js";
 import search from "./routes/search.js";
 import portal from "./routes/portal.js";
-import admin from "./routes/admin/index.js";
 import claims from "./routes/claims.js";
 import { businessProvisioningRoutes } from "./routes/business-provisioning.js";
 import { walletActivityRoutes } from "./routes/wallet-activity.js";
@@ -41,7 +40,7 @@ import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
 import siws from "./routes/siws.js";
 import { authEmail } from "./routes/auth-email.js";
-import { rewards, adminRewards } from "./routes/rewards.js";
+import { rewards } from "./routes/rewards.js";
 import sponsorship from "./routes/sponsorship.js";
 import { x402Discovery } from "./routes/x402.js";
 
@@ -55,9 +54,6 @@ export function createApp(): Hono<AppEnv> {
   app.route("/health", health);
 
   app.route("/", x402Discovery);
-
-  app.route("/admin", admin);
-  app.route("/admin/rewards", adminRewards);
 
   app.use("/v1/*", apiKeyGate);
 

@@ -5,7 +5,6 @@ import { Prisma, type Collection } from "@prisma/client";
 import { chainWhere, parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
 import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
-import { authMiddleware } from "../middleware/adminSecretAuth.js";
 import { env } from "../../config/env.js";
 import { serializeToken, serializeCollection } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
