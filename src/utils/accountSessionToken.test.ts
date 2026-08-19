@@ -15,10 +15,18 @@ test("rejects a tampered token", () => {
 
 test("rejects an expired token", () => {
   const realNow = Date.now;
-  Date.now = () => realNow() - 25 * 60 * 60 * 1000;
+  Date.now = () => realNow() - 31 * 24 * 60 * 60 * 1000;
   const token = issueAccountSessionToken("acc_ABC123");
   Date.now = realNow;
   expect(verifyAccountSessionToken(token)).toBeNull();
+});
+
+test("does not reject a token that is 25 hours old (TTL is 30 days, not 24 hours)", () => {
+  const realNow = Date.now;
+  Date.now = () => realNow() - 25 * 60 * 60 * 1000;
+  const token = issueAccountSessionToken("acc_ABC123");
+  Date.now = realNow;
+  expect(verifyAccountSessionToken(token)).toBe("acc_ABC123");
 });
 
 test("rejects a malformed token", () => {

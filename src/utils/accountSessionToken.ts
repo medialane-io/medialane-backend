@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { env } from "../config/env.js";
 
-const TTL_SECONDS = 24 * 60 * 60;
+const TTL_SECONDS = 30 * 24 * 60 * 60;
 const PREFIX = "account_session_";
 
 interface TokenPayload {
