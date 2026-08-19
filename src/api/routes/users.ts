@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { ensureAccountForWallet } from "../../utils/account.js";
+import { ensureAccountForWallet, AccountRequiresEmailError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { AppSource } from "@prisma/client";
@@ -114,13 +114,25 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     ? (verifyAccountSessionToken(parsed.data.accountToken) ?? undefined)
     : undefined;
 
-  const { accountId } = await ensureAccountForWallet({
-    chain,
-    address: walletAddress,
-    provider,
-    appSource,
-    linkToAccountId,
-  });
+  let accountId: string;
+  try {
+    ({ accountId } = await ensureAccountForWallet({
+      chain,
+      address: walletAddress,
+      provider,
+      appSource,
+      linkToAccountId,
+      requireExistingAccountLink: appSource === "MEDIALANE_IO",
+    }));
+  } catch (err) {
+    if (err instanceof AccountRequiresEmailError) {
+      return c.json({
+        error: "ACCOUNT_LINK_REQUIRED",
+        message: "Register with your email first, then set up your wallet from there.",
+      }, 400);
+    }
+    throw err;
+  }
 
   if (parsed.data.email) {
     const existing = await prisma.identity.findUnique({

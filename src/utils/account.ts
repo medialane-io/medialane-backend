@@ -48,6 +48,25 @@ export async function addAccountRole(
   `;
 }
 
+export class AccountRequiresEmailError extends Error {
+  constructor() {
+    super(
+      "This app requires a wallet to be linked to an already-registered account. " +
+      "No valid accountToken was provided, so a new account cannot be created for it directly.",
+    );
+    this.name = "AccountRequiresEmailError";
+  }
+}
+
+// Pure so it's unit-testable without a DB: the only inputs that decide
+// whether a brand-new, unlinked account is allowed are these two.
+export function shouldRejectNewAccountForWallet(params: {
+  linkToAccountId?: string;
+  requireExistingAccountLink?: boolean;
+}): boolean {
+  return Boolean(params.requireExistingAccountLink) && !params.linkToAccountId;
+}
+
 export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
@@ -56,6 +75,8 @@ export async function ensureAccountForWallet(params: {
   email?: string;
 
   linkToAccountId?: string;
+
+  requireExistingAccountLink?: boolean;
 }): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
@@ -86,6 +107,10 @@ export async function ensureAccountForWallet(params: {
       },
     });
     return { accountId: params.linkToAccountId, created: false };
+  }
+
+  if (shouldRejectNewAccountForWallet(params)) {
+    throw new AccountRequiresEmailError();
   }
 
   const accountId = await prisma.$transaction(async (tx) => {
