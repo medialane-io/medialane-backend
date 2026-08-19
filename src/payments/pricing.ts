@@ -31,7 +31,9 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/intents/sponsorship-proposal", actionKey: "intent:sponsorship-proposal" },
 
   { method: "POST", prefix: "/v1/metadata/upload-file", actionKey: "metadata:upload-file" },
+  { method: "POST", prefix: "/v1/metadata/upload-directory", actionKey: "metadata:upload-directory" },
   { method: "POST", prefix: "/v1/metadata/upload", actionKey: "metadata:upload-json" },
+  { method: "GET", prefix: "/v1/metadata/signed-url", actionKey: "metadata:signed-url" },
   { method: "GET", prefix: "/v1/prices", actionKey: "price:read" },
   { method: "GET", prefix: "/v1/tickets", actionKey: "tickets:read-onchain" },
   { method: "GET", prefix: "/v1/club", actionKey: "club:read-onchain" },
@@ -76,6 +78,8 @@ const FALLBACK_COST: Record<string, number> = {
 
   "metadata:upload-json": 3,
   "metadata:upload-file": 8,
+  "metadata:upload-directory": 8,
+  "metadata:signed-url": 8,
   "price:read": 1,
   "tickets:read-onchain": 1,
   "club:read-onchain": 1,

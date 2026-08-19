@@ -34,10 +34,13 @@ describe("resolveActionKey", () => {
   test("metadata upload routes resolve to their own actionKeys, not the generic default", () => {
     expect(resolveActionKey("POST", "/v1/metadata/upload")).toBe("metadata:upload-json");
     expect(resolveActionKey("POST", "/v1/metadata/upload-file")).toBe("metadata:upload-file");
+    expect(resolveActionKey("POST", "/v1/metadata/upload-directory")).toBe("metadata:upload-directory");
+  });
+  test("the Pinata signed-url grant is priced like a real upload, not a generic read", () => {
+    expect(resolveActionKey("GET", "/v1/metadata/signed-url")).toBe("metadata:signed-url");
   });
   test("other metadata routes stay the default read price", () => {
     expect(resolveActionKey("GET", "/v1/metadata/resolve")).toBe("read");
-    expect(resolveActionKey("GET", "/v1/metadata/signed-url")).toBe("read");
   });
   test("paymaster routes resolve to their own actionKeys, not the generic default", () => {
     expect(resolveActionKey("POST", "/v1/paymaster/invoke/build")).toBe("paymaster:invoke-build");
