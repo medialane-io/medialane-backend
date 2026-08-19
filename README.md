@@ -4,7 +4,7 @@
 
 **Starknet Indexer + Marketplace API for Medialane**
 
-The backend service that powers [Medialane.io](https://medialane.io) — a programmable IP marketplace on Starknet. It continuously indexes on-chain events, resolves token metadata from IPFS, and exposes a REST API for dApps and SDK consumers.
+The backend service that powers [Medialane.io](https://medialane.io), a programmable IP marketplace on Starknet. It continuously indexes on-chain events, resolves token metadata from IPFS, and exposes a REST API for dApps and SDK consumers.
 
 ---
 
@@ -33,8 +33,8 @@ Polls the `Job` table every 2s with optimistic locking, exponential backoff, and
 | Job | What it does |
 |---|---|
 | `METADATA_FETCH` | Resolves `token_uri` on-chain, fetches JSON from IPFS (Pinata → Cloudflare → ipfs.io fallback), stores on `Token` |
-| `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection`. Floor price is stored as `"1.5 USDC"` (human-readable + symbol). If the consideration token is unknown, floor price is set to `null` — raw wei is never stored. |
-| `COLLECTION_METADATA_FETCH` | Fetches collection name/symbol/baseUri on-chain; recovers image/description/owner from `CREATE_COLLECTION` intent typedData; uses upsert — can create new collection records from scratch |
+| `STATS_UPDATE` | Recomputes floor price, total volume, holder count, total supply for a `Collection`. Floor price is stored as `"1.5 USDC"` (human-readable + symbol), or `null` when the consideration token is unknown, keeping raw wei out of the column. |
+| `COLLECTION_METADATA_FETCH` | Fetches collection name/symbol/baseUri on-chain; recovers image/description/owner from `CREATE_COLLECTION` intent typedData; upserts, so it can create new collection records from scratch |
 | `METADATA_PIN` | Not yet implemented (Pinata free plan doesn't support `pin_by_cid`) |
 
 ### REST API (Hono)
@@ -90,7 +90,7 @@ POST /v1/remix-offers/:id/confirm         Mark offer completed after mint (SIWS 
 GET  /v1/tokens/:contract/:tokenId/remixes  Public remixes for a token (page, limit)
 ```
 
-All remix-offer mutation endpoints require both a valid `x-api-key` header and `Authorization: Bearer <siws-token>`. The SIWS token is used to derive the caller's Starknet wallet address. Price/currency fields are only visible in responses to the creator or requester — not to third parties.
+All remix-offer mutation endpoints require both a valid `x-api-key` header and `Authorization: Bearer <siws-token>`. The SIWS token is used to derive the caller's Starknet wallet address. Price/currency fields are visible only in responses to the creator or requester.
 
 **RemixOffer statuses**: `PENDING` (awaiting creator), `AUTO_PENDING` (open-license, auto-approved), `APPROVED` (creator approved), `COMPLETED` (remix minted + listed), `REJECTED`, `EXPIRED`, `SELF_MINTED` (owner self-remix recorded).
 
@@ -215,9 +215,9 @@ Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Res
 | NFTComments | `0x02cdac70c94447189af0389dfea63f4d5e4154ea8a563de288a5ab1c39e37843` |
 | Indexer start block | `11198146` |
 
-This is a partial list. The full current registry — including Launchpad services
+This is a partial list. The full current registry, including Launchpad services
 (IP Tickets, IP Club, IP Sponsorship, POP, Collection Drop) and Creator Coin,
-all of which this indexer also mirrors — lives in `@medialane/sdk`'s
+all of which this indexer also mirrors, lives in `@medialane/sdk`'s
 `src/chains.ts` (`getCoordinates("STARKNET")`), the single source of truth.
 
 ---
@@ -244,9 +244,9 @@ bun dev
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ALCHEMY_RPC_URL` | Starknet mainnet RPC |
 | `PINATA_JWT` | Pinata JWT for metadata uploads |
-| `PINATA_GATEWAY` | Your account's dedicated gateway domain (Pinata dashboard > Gateways), not the public `gateway.pinata.cloud` |
-| `PINATA_GATEWAY_TOKEN` | Gateway Keys access-control token (Pinata dashboard > Access Controls) — required to serve CIDs not pinned through this account on a dedicated gateway |
-| `API_SECRET_KEY` | Min 16 chars — admin routes auth |
+| `PINATA_GATEWAY` | Your account's dedicated gateway domain, from the Pinata dashboard's Gateways tab |
+| `PINATA_GATEWAY_TOKEN` | Gateway Keys access-control token (Pinata dashboard > Access Controls), opening the dedicated gateway to serve any CID |
+| `API_SECRET_KEY` | Min 16 chars, used for admin routes auth |
 | `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://medialane.io,https://www.medialane.io`) |
 
 Optional env vars (all have sensible defaults):
@@ -280,22 +280,22 @@ bun run reset-cursor   # Reset indexer cursor to start block (mirror replays the
 ## Critical Implementation Notes
 
 ### Cairo ByteArray token_uri
-Modern OpenZeppelin ERC-721 contracts return `token_uri` as a Cairo `ByteArray` struct. The ABI must include the `core::byte_array::ByteArray` struct definition alongside the function entry, or starknet.js v6 will drop `pending_word` bytes — truncating IPFS CIDs and making them invalid. The backend tries ByteArray ABI first, then falls back to felt array for legacy contracts.
+Modern OpenZeppelin ERC-721 contracts return `token_uri` as a Cairo `ByteArray` struct. The ABI must include the `core::byte_array::ByteArray` struct definition alongside the function entry; otherwise starknet.js v6 drops `pending_word` bytes, truncating IPFS CIDs into invalid ones. The backend tries ByteArray ABI first, then falls back to felt array for legacy contracts.
 
 ### Order parsing
-`OrderCreated` events only include `order_hash` in the keys — full order parameters must be fetched by calling `get_order_details(order_hash)` on-chain. Bid orders (ERC20 → ERC721) derive `nftContract` from the **consideration** side, not the offer side.
+`OrderCreated` events only include `order_hash` in the keys, so full order parameters are fetched by calling `get_order_details(order_hash)` on-chain. Bid orders (ERC20 → ERC721) derive `nftContract` from the **consideration** side.
 
 ### Address normalization
 All route handlers apply `normalizeAddress(chain, address)` (`src/utils/starknet.ts`, re-exported from `@medialane/sdk`) to every address parameter before DB queries. Chain-dispatched (v0.37.0): Starknet pads to `0x` + 64 lowercase hex; EVM uses EIP-55; Solana base58. DB stores each chain's canonical form. Today every live caller is Starknet (`"STARKNET"`); the chain dimension is wired so non-Starknet assets/accounts slot in without a rewrite.
 
 ### BigInt serialization
-Prisma fields `startTime`, `endTime`, and `createdBlockNumber` are stored as `String` in the DB (Starknet felts). Always use the `serializeOrder()` / `serializeToken()` helper functions before returning orders in API responses — never spread raw Prisma objects into `c.json()`.
+Prisma fields `startTime`, `endTime`, and `createdBlockNumber` are stored as `String` in the DB (Starknet felts). Always run orders through the `serializeOrder()` / `serializeToken()` helper functions before returning them in API responses.
 
 ### Price sorting
-`priceRaw` is a String column. Sorting uses `$queryRaw` with `::numeric NULLS LAST` cast — do not change to ORM sort.
+`priceRaw` is a String column, so sorting stays on `$queryRaw` with an `::numeric NULLS LAST` cast.
 
 ### Collections sort
-`GET /v1/collections` supports `sort` query param with values: `recent` (default, `createdAt DESC`), `supply` (`totalSupply DESC`), `name` (`name ASC`), `floor` (`floorPrice::numeric ASC NULLS LAST` — raw SQL), `volume` (`totalVolume::numeric DESC NULLS LAST` — raw SQL). Floor and volume use `$queryRaw` because the columns are stored as `String` in the DB. Page/limit are clamped: `limit = min(100, max(1, …))`, `page = max(1, …)`.
+`GET /v1/collections` supports a `sort` query param with values: `recent` (default, `createdAt DESC`), `supply` (`totalSupply DESC`), `name` (`name ASC`), `floor` (`floorPrice::numeric ASC NULLS LAST`, raw SQL), `volume` (`totalVolume::numeric DESC NULLS LAST`, raw SQL). Floor and volume use `$queryRaw` because the columns are stored as `String` in the DB. Page/limit are clamped: `limit = min(100, max(1, …))`, `page = max(1, …)`.
 
 ---
 
@@ -307,7 +307,7 @@ bunx prisma migrate deploy; bun run src/index.ts
 ```
 Migrations run automatically on every deploy. Health check: `GET /health` (60s timeout).
 
-After adding or changing environment variables in Railway, **manually trigger a redeploy** — Railway does not auto-deploy on env changes.
+After adding or changing environment variables in Railway, **manually trigger a redeploy** to pick them up.
 
 ---
 
@@ -315,9 +315,9 @@ After adding or changing environment variables in Railway, **manually trigger a 
 
 | Repo | Description |
 |---|---|
-| [medialane-io](https://github.com/medialane-io/medialane-io) | Consumer app — Media Wallet, email login, sponsored transactions |
-| [medialane-starknet](https://github.com/medialane-io/medialane-starknet) | Wallet-sovereign Starknet app — creator launchpad + marketplace |
-| [medialane-sdk](https://github.com/medialane-io/medialane-sdk) | TypeScript SDK (`@medialane/sdk`) — wraps this API |
+| [medialane-io](https://github.com/medialane-io/medialane-io) | Consumer app: Media Wallet, email login, sponsored transactions |
+| [medialane-starknet](https://github.com/medialane-io/medialane-starknet) | Wallet-sovereign Starknet app: creator launchpad + marketplace |
+| [medialane-sdk](https://github.com/medialane-io/medialane-sdk) | TypeScript SDK (`@medialane/sdk`), wraps this API |
 | [medialane-portal](https://github.com/medialane-io/medialane-portal) | Developer portal (API keys, docs, webhooks) |
 
 ---
