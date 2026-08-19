@@ -211,7 +211,6 @@ metadata.get("/image/*", async (c) => {
   let upstream: Response;
   try {
     upstream = await fetch(url, {
-      headers: env.PINATA_JWT ? { Authorization: `Bearer ${env.PINATA_JWT}` } : {},
       signal: AbortSignal.timeout(18_000),
     });
   } catch {
