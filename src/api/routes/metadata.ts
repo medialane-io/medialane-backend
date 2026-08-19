@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { PinataSDK } from "pinata";
+import {
+  isValidIpfsCidPath,
+  resolveSafeImageContentType,
+  MAX_IPFS_GATEWAY_RESPONSE_BYTES,
+} from "@medialane/sdk";
 import { env } from "../../config/env.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
@@ -192,18 +197,9 @@ metadata.post("/upload-directory", async (c) => {
   }
 });
 
-const IMAGE_MAX_BYTES = 25 * 1024 * 1024;
-const IMAGE_SAFE_PREFIXES = [
-  "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/svg+xml",
-  "video/", "audio/", "model/", "font/", "application/json", "application/octet-stream",
-];
-
 metadata.get("/image/*", async (c) => {
   const cidPath = c.req.path.replace(/^.*\/v1\/metadata\/image\//, "");
-  if (!/^(Qm[1-9A-HJ-NP-Za-km-z]{44,}|b[a-z2-7]{58,})(\/[\w.\-/]*)?$/.test(cidPath)) {
-    return c.json({ error: "Invalid IPFS path" }, 400);
-  }
-  if (cidPath.split("/").includes("..")) {
+  if (!isValidIpfsCidPath(cidPath)) {
     return c.json({ error: "Invalid IPFS path" }, 400);
   }
 
@@ -224,7 +220,7 @@ metadata.get("/image/*", async (c) => {
 
   const upstreamContentType = upstream.headers.get("content-type") ?? "";
   const upstreamContentLength = Number(upstream.headers.get("content-length") ?? 0);
-  if (upstreamContentLength > IMAGE_MAX_BYTES) {
+  if (upstreamContentLength > MAX_IPFS_GATEWAY_RESPONSE_BYTES) {
     return c.json({ error: "IPFS content too large" }, 413);
   }
   if (!upstream.body) {
@@ -238,7 +234,7 @@ metadata.get("/image/*", async (c) => {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.byteLength;
-    if (total > IMAGE_MAX_BYTES) {
+    if (total > MAX_IPFS_GATEWAY_RESPONSE_BYTES) {
       await reader.cancel();
       return c.json({ error: "IPFS content too large" }, 413);
     }
@@ -251,9 +247,7 @@ metadata.get("/image/*", async (c) => {
     offset += chunk.byteLength;
   }
 
-  const safeContentType = IMAGE_SAFE_PREFIXES.some((p) => upstreamContentType.startsWith(p))
-    ? upstreamContentType
-    : "application/octet-stream";
+  const safeContentType = resolveSafeImageContentType(upstreamContentType);
 
   return new Response(body, {
     status: 200,
