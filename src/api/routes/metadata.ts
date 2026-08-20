@@ -23,7 +23,7 @@ const pinata = new PinataSDK({
   pinataGateway: env.PINATA_GATEWAY,
 });
 
-const SIGNED_URL_MIME_TYPES: Record<"image" | "document", string[]> = {
+const SIGNED_URL_MIME_TYPES: Record<"image" | "document" | "media", string[]> = {
   image: ["image/jpeg", "image/png", "image/gif", "image/svg+xml", "image/webp"],
   document: [
     "application/pdf",
@@ -36,14 +36,23 @@ const SIGNED_URL_MIME_TYPES: Record<"image" | "document", string[]> = {
 
     "application/octet-stream",
   ],
+  media: [
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
+    "video/mp4", "video/webm", "video/ogg",
+    "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
+    "application/pdf",
+  ],
 };
-const SIGNED_URL_MAX_BYTES: Record<"image" | "document", number> = {
+const SIGNED_URL_MAX_BYTES: Record<"image" | "document" | "media", number> = {
   image: 10 * 1024 * 1024,
   document: 20 * 1024 * 1024,
+  media: 100 * 1024 * 1024,
 };
 
 metadata.get("/signed-url", async (c) => {
-  const kind: "image" | "document" = c.req.query("kind") === "document" ? "document" : "image";
+  const kindParam = c.req.query("kind");
+  const kind: "image" | "document" | "media" =
+    kindParam === "document" ? "document" : kindParam === "media" ? "media" : "image";
   try {
     const url = await pinata.upload.public.createSignedURL({
       expires: 120,
