@@ -14,7 +14,7 @@ function createTransporter() {
   });
 }
 
-const from = () => env.CONTACT_FROM_EMAIL || env.SMTP_USER;
+const from = () => ({ name: "Medialane.io", address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
 
 export async function sendUsernameClaimApproved(to: string, username: string): Promise<void> {
   const transporter = createTransporter();
@@ -125,7 +125,7 @@ export async function sendVerificationCode(to: string, code: string): Promise<vo
     await transporter.sendMail({
       from: from(),
       to,
-      subject: "Your Medialane verification code",
+      subject: "Your verification code",
       html: buildVerificationCodeEmailHtml(code),
     });
   } catch (err) {
