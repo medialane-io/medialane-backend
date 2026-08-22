@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { readTotalSupply, upsertCoin } from "./coin.js";
+import { readTotalSupply, upsertCoin, exposesUnruggableInterface } from "./coin.js";
 
 describe("readTotalSupply", () => {
   test("reads total_supply and returns it as a decimal string", async () => {
@@ -72,5 +72,47 @@ describe("upsertCoin", () => {
         startBlock: 0n,
       }),
     ).rejects.toThrow(/Unknown coin service/);
+  });
+});
+
+describe("exposesUnruggableInterface", () => {
+  function provider(available: Set<string>) {
+    return mock(async (fn: (p: unknown) => Promise<string[]>) =>
+      fn({
+        callContract: async ({ entrypoint }: { entrypoint: string }) => {
+          if (!available.has(entrypoint)) throw new Error("entrypoint not found");
+          return ["0x1", "0x0"];
+        },
+      } as any)
+    );
+  }
+
+  test("true when both is_launched and get_team_allocation answer", async () => {
+    const callRpc = provider(new Set(["is_launched", "get_team_allocation"]));
+    expect(await exposesUnruggableInterface("0xc", { callRpc: callRpc as any })).toBe(true);
+  });
+
+  test("false for a plain ERC-20 exposing neither", async () => {
+    const callRpc = provider(new Set(["name", "symbol", "total_supply"]));
+    expect(await exposesUnruggableInterface("0xc", { callRpc: callRpc as any })).toBe(false);
+  });
+
+  test("false when only one half of the interface answers", async () => {
+    const callRpc = provider(new Set(["is_launched"]));
+    expect(await exposesUnruggableInterface("0xc", { callRpc: callRpc as any })).toBe(false);
+  });
+});
+
+describe("upsertCoin unruggable service", () => {
+  test("accepts unruggable-erc20", async () => {
+    const calls: any[] = [];
+    const db = { coin: { upsert: async (a: any) => { calls.push(a); } } } as any;
+    await upsertCoin(db, {
+      chain: "STARKNET",
+      contractAddress: "0xcoin",
+      service: "unruggable-erc20",
+      startBlock: 0n,
+    });
+    expect(calls[0].create.service).toBe("unruggable-erc20");
   });
 });

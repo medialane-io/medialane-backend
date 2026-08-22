@@ -9,7 +9,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { STARKNET_CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
-import { upsertCoin, readTotalSupply } from "../../utils/coin.js";
+import { upsertCoin, readTotalSupply, exposesUnruggableInterface } from "../../utils/coin.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
@@ -56,7 +56,11 @@ coins.post("/sync", async (c) => {
       })
     );
     const isCreatorCoin = verify.length > 0 && BigInt(verify[0] ?? "0x0") !== 0n;
-    const service = isCreatorCoin ? "creator-coin" : "external-erc20";
+    const service = isCreatorCoin
+      ? "creator-coin"
+      : (await exposesUnruggableInterface(coinAddress))
+        ? "unruggable-erc20"
+        : "external-erc20";
 
     const [nameRes, symbolRes, decRes] = await Promise.all([
       callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "name", calldata: [] })),
