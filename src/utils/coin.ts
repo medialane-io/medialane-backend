@@ -4,7 +4,22 @@ import { callRpc as defaultCallRpc } from "./starknet.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-const COIN_SERVICES = new Set(["creator-coin", "external-erc20"]);
+const COIN_SERVICES = new Set(["creator-coin", "unruggable-erc20", "external-erc20"]);
+
+export async function exposesUnruggableInterface(
+  contractAddress: string,
+  deps: { callRpc: typeof defaultCallRpc } = { callRpc: defaultCallRpc },
+): Promise<boolean> {
+  const call = (entrypoint: string) =>
+    deps.callRpc((provider) => provider.callContract({ contractAddress, entrypoint, calldata: [] }));
+
+  const [launched, allocation] = await Promise.all([
+    call("is_launched").catch(() => null),
+    call("get_team_allocation").catch(() => null),
+  ]);
+
+  return launched != null && allocation != null;
+}
 
 export async function readTotalSupply(
   contractAddress: string,
