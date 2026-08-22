@@ -63,7 +63,7 @@ export function meter(deps: MeterDeps = {
       );
     }
 
-    c.header("X-Credits-Remaining", "deducted");
+    c.header("X-Credits-Remaining", String(Math.max(0, apiClient.creditBalance - cost)));
     log.debug({ apiClient: apiClient.id, cost, path: c.req.path }, "metered");
 
     try {

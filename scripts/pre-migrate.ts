@@ -117,13 +117,14 @@ async function main() {
   await prisma.$executeRaw`ALTER TABLE "Report" DROP COLUMN IF EXISTS "reporterUserId"`;
   // DEFAULT '' makes this safe for any pre-existing rows; Prisma always supplies the value.
   await prisma.$executeRaw`ALTER TABLE "Report" ADD COLUMN IF NOT EXISTS "reporterWallet" TEXT NOT NULL DEFAULT ''`;
-  await prisma.$executeRaw`ALTER TABLE "User" DROP COLUMN IF EXISTS "clerkUserId"`;
-  await prisma.$executeRaw`ALTER TABLE "User" DROP COLUMN IF EXISTS "id"`;
+  await prisma.$executeRaw`ALTER TABLE IF EXISTS "User" DROP COLUMN IF EXISTS "clerkUserId"`;
+  await prisma.$executeRaw`ALTER TABLE IF EXISTS "User" DROP COLUMN IF EXISTS "id"`;
   // Re-key User to walletAddress PK — idempotent: skip if walletAddress is already the PK.
   await prisma.$executeRaw`
     DO $$
     BEGIN
-      IF NOT EXISTS (
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'User')
+      AND NOT EXISTS (
         SELECT 1
         FROM information_schema.key_column_usage kcu
         JOIN information_schema.table_constraints tc
