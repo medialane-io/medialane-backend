@@ -6,10 +6,16 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 const COIN_SERVICES = new Set(["creator-coin", "unruggable-erc20", "external-erc20"]);
 
-export async function exposesUnruggableInterface(
+export interface UnruggableProbe {
+  exposesInterface: boolean;
+
+  isLaunched: boolean | null;
+}
+
+export async function probeUnruggableInterface(
   contractAddress: string,
   deps: { callRpc: typeof defaultCallRpc } = { callRpc: defaultCallRpc },
-): Promise<boolean> {
+): Promise<UnruggableProbe> {
   const call = (entrypoint: string) =>
     deps.callRpc((provider) => provider.callContract({ contractAddress, entrypoint, calldata: [] }));
 
@@ -18,7 +24,8 @@ export async function exposesUnruggableInterface(
     call("get_team_allocation").catch(() => null),
   ]);
 
-  return launched != null && allocation != null;
+  if (launched == null || allocation == null) return { exposesInterface: false, isLaunched: null };
+  return { exposesInterface: true, isLaunched: BigInt(launched[0] ?? "0x0") !== 0n };
 }
 
 export async function readTotalSupply(
@@ -52,6 +59,7 @@ export async function upsertCoin(
     description?: string | null;
     image?: string | null;
     creator?: string | null;
+    isLaunched?: boolean | null;
     startBlock: bigint;
   },
 ): Promise<void> {
@@ -74,6 +82,7 @@ export async function upsertCoin(
       description: params.description ?? undefined,
       image: params.image ?? undefined,
       creator: params.creator ?? undefined,
+      isLaunched: params.isLaunched ?? undefined,
       startBlock: params.startBlock,
     },
     update: {
@@ -85,6 +94,7 @@ export async function upsertCoin(
       description: params.description ?? undefined,
       image: params.image ?? undefined,
       creator: params.creator ?? undefined,
+      isLaunched: params.isLaunched ?? undefined,
     },
   });
 }

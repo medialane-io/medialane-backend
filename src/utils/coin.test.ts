@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { readTotalSupply, upsertCoin, exposesUnruggableInterface } from "./coin.js";
+import { readTotalSupply, upsertCoin, probeUnruggableInterface } from "./coin.js";
 
 describe("readTotalSupply", () => {
   test("reads total_supply and returns it as a decimal string", async () => {
@@ -75,7 +75,7 @@ describe("upsertCoin", () => {
   });
 });
 
-describe("exposesUnruggableInterface", () => {
+describe("probeUnruggableInterface", () => {
   function provider(available: Set<string>) {
     return mock(async (fn: (p: unknown) => Promise<string[]>) =>
       fn({
@@ -89,17 +89,24 @@ describe("exposesUnruggableInterface", () => {
 
   test("true when both is_launched and get_team_allocation answer", async () => {
     const callRpc = provider(new Set(["is_launched", "get_team_allocation"]));
-    expect(await exposesUnruggableInterface("0xc", { callRpc: callRpc as any })).toBe(true);
+    expect((await probeUnruggableInterface("0xc", { callRpc: callRpc as any })).exposesInterface).toBe(true);
   });
 
   test("false for a plain ERC-20 exposing neither", async () => {
     const callRpc = provider(new Set(["name", "symbol", "total_supply"]));
-    expect(await exposesUnruggableInterface("0xc", { callRpc: callRpc as any })).toBe(false);
+    const r = await probeUnruggableInterface("0xc", { callRpc: callRpc as any });
+    expect(r.exposesInterface).toBe(false);
+    expect(r.isLaunched).toBeNull();
   });
 
   test("false when only one half of the interface answers", async () => {
     const callRpc = provider(new Set(["is_launched"]));
-    expect(await exposesUnruggableInterface("0xc", { callRpc: callRpc as any })).toBe(false);
+    expect((await probeUnruggableInterface("0xc", { callRpc: callRpc as any })).exposesInterface).toBe(false);
+  });
+
+  test("reports the launch state it already read", async () => {
+    const callRpc = provider(new Set(["is_launched", "get_team_allocation"]));
+    expect((await probeUnruggableInterface("0xc", { callRpc: callRpc as any })).isLaunched).toBe(true);
   });
 });
 
