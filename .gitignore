@@ -46,3 +46,6 @@ bun.lockb
 # Remove this line when you're ready to commit migrations to production
 # prisma/migrations/
 .worktrees/
+
+# Internal planning/spec documents must never be committed to a public repo.
+docs/
