@@ -19,21 +19,28 @@ const coin = (address: string, decimals = 18) => ({ contractAddress: address, de
 beforeEach(() => clearCoinPriceCache());
 
 describe("getCoinPrices", () => {
-  test("converts the quoted USDC buyAmount into a decimal price", async () => {
-    const d = deps(() => [{ buyAmount: (25n * 10n ** BigInt(USDC_DECIMALS)).toString() }]);
+  test("derives the price from how many coins a fixed USDC notional buys", async () => {
+
+    const d = deps(() => [{ buyAmount: (400n * 10n ** 18n).toString() }]);
     const out = await getCoinPrices([coin("0xa")], d);
-    expect(out["0xa"]).toEqual({ usdc: 25 });
+    expect(out["0xa"]).toEqual({ usdc: 10 / 400 });
   });
 
-  test("sells exactly one whole coin, respecting its decimals", async () => {
+  test("quotes a meaningful USDC notional rather than one dust-sized coin", async () => {
+
     const seen: bigint[] = [];
     const d = deps((args) => {
       seen.push(args.sellAmount);
-      return [{ buyAmount: "1000000" }];
+      return [{ buyAmount: (400n * 10n ** 18n).toString() }];
     });
-    await getCoinPrices([coin("0xa", 18), coin("0xb", 6)], d);
-    expect(seen).toContain(10n ** 18n);
-    expect(seen).toContain(10n ** 6n);
+    await getCoinPrices([coin("0xa", 18)], d);
+    expect(seen).toEqual([10n * 10n ** BigInt(USDC_DECIMALS)]);
+  });
+
+  test("respects the coin's decimals when converting the bought amount", async () => {
+    const d = deps(() => [{ buyAmount: (400n * 10n ** 6n).toString() }]);
+    const out = await getCoinPrices([coin("0xa", 6)], d);
+    expect(out["0xa"]).toEqual({ usdc: 10 / 400 });
   });
 
   test("returns null when no route exists rather than throwing", async () => {
