@@ -9,7 +9,9 @@ import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { STARKNET_CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
-import { upsertCoin, readTotalSupply, exposesUnruggableInterface } from "../../utils/coin.js";
+import { upsertCoin, readTotalSupply, probeUnruggableInterface } from "../../utils/coin.js";
+import { getCoinPrices } from "../../utils/coinPrice.js";
+import { getTokenBySymbol } from "@medialane/sdk";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
@@ -56,9 +58,10 @@ coins.post("/sync", async (c) => {
       })
     );
     const isCreatorCoin = verify.length > 0 && BigInt(verify[0] ?? "0x0") !== 0n;
+    const probe = await probeUnruggableInterface(coinAddress);
     const service = isCreatorCoin
       ? "creator-coin"
-      : (await exposesUnruggableInterface(coinAddress))
+      : probe.exposesInterface
         ? "unruggable-erc20"
         : "external-erc20";
 
@@ -89,6 +92,7 @@ coins.post("/sync", async (c) => {
       decimals,
       totalSupply,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
+      isLaunched: probe.isLaunched,
       startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
@@ -114,6 +118,21 @@ coins.get("/", publicCache(30), async (c) => {
     prisma.coin.count({ where }),
   ]);
   return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total } });
+});
+
+coins.get("/prices", publicCache(30), async (c) => {
+  const rows = await prisma.coin.findMany({
+    where: { isHidden: false },
+    select: { contractAddress: true, decimals: true },
+  });
+
+  const inputs = rows.map((r) => ({ contractAddress: r.contractAddress, decimals: r.decimals }));
+
+  const strk = getTokenBySymbol("STRK");
+  if (strk) inputs.push({ contractAddress: normalizeAddress("STARKNET", strk.address), decimals: strk.decimals });
+
+  const prices = await getCoinPrices(inputs);
+  return c.json({ data: prices });
 });
 
 coins.get("/:contract", publicCache(30), async (c) => {

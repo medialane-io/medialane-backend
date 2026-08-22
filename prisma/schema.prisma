@@ -278,6 +278,7 @@ model Coin {
   description     String?
   image           String?
   creator         String?       // launcher/creator wallet where known (trustless: from event)
+  isLaunched      Boolean?      // unruggable-interface coins only: liquidity launched on chain
   startBlock      BigInt
   isHidden        Boolean       @default(false)
   createdAt       DateTime      @default(now())
