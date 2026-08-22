@@ -73,6 +73,7 @@ export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionC
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
 export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
+export const CLAIM_CONDITIONS_UPDATED_SELECTOR = hash.getSelectorFromName("ClaimConditionsUpdated");
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
 
 export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;

@@ -1,14 +1,10 @@
 import { Hono } from "hono";
 import { publicCache } from "../middleware/publicCache.js";
-import { z } from "zod";
 import prisma from "../../db/client.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { identityAuth } from "../middleware/identityAuth.js";
-import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 
-const log = createLogger("routes:drop");
 
 const drop = new Hono<AppEnv>();
 
@@ -30,97 +26,14 @@ drop.get("/mint-status/:collection/:wallet", async (c) => {
   return c.json({ data: { mintedByWallet, totalMinted } });
 });
 
-const conditionsSchema = z.object({
-  collectionAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid collection address"),
-  maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string"),
-  price: z.string().regex(/^\d+$/, "price must be a non-negative integer string").default("0"),
-  paymentToken: z.string().default("0x0"),
-  startTime: z.number().int().nonnegative("startTime must be a non-negative integer"),
-  endTime: z.number().int().nonnegative("endTime must be a non-negative integer"),
-  maxPerWallet: z.string().regex(/^\d+$/, "maxPerWallet must be a non-negative integer string").default("1"),
-});
-
-drop.post("/conditions", async (c, next) => identityAuth(c, next), async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (!body) return c.json({ error: "Invalid request body" }, 400);
-
-  const parsed = conditionsSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, 400);
-  }
-  const data = parsed.data;
-
-  const collectionAddress = normalizeAddress("STARKNET", data.collectionAddress);
-  const callerWallet = c.get("walletAddress") as string | undefined;
-
-  const collection = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: collectionAddress } },
-    select: { owner: true, claimedBy: true },
-  });
-
-  if (!collection) {
-    return c.json({ error: "Collection not found" }, 404);
-  }
-
-  const ownerMatch = collection.owner && callerWallet &&
-    normalizeAddress("STARKNET", collection.owner) === callerWallet;
-  const claimedByMatch = collection.claimedBy && callerWallet &&
-    normalizeAddress("STARKNET", collection.claimedBy) === callerWallet;
-
-  if (!ownerMatch && !claimedByMatch) {
-    return c.json({ error: "Not authorized to set conditions for this collection" }, 403);
-  }
-
-  const paymentToken = data.paymentToken === "0x0" ? "0x0" : normalizeAddress("STARKNET", data.paymentToken);
-
-  const conditions = await prisma.dropClaimConditions.upsert({
-    where: { chain_collectionAddress: { chain: "STARKNET", collectionAddress } },
-    create: {
-      chain: "STARKNET",
-      collectionAddress,
-      maxSupply: data.maxSupply,
-      price: data.price,
-      paymentToken,
-      startTime: BigInt(data.startTime),
-      endTime: BigInt(data.endTime),
-      maxPerWallet: data.maxPerWallet,
-    },
-    update: {
-      maxSupply: data.maxSupply,
-      price: data.price,
-      paymentToken,
-      startTime: BigInt(data.startTime),
-      endTime: BigInt(data.endTime),
-      maxPerWallet: data.maxPerWallet,
-    },
-  });
-
-  log.info({ collectionAddress, callerWallet }, "Drop conditions stored");
-  return c.json(
-    {
-      data: {
-        ...conditions,
-        startTime: conditions.startTime.toString(),
-        endTime: conditions.endTime.toString(),
-      },
-    },
-    201
-  );
-});
-
 drop.get("/:contract/info", publicCache(30), async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const contractAddress = normalizeAddress(chain, c.req.param("contract"));
 
-  const [collection, conditions] = await Promise.all([
-    prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain, contractAddress } },
-    }),
-    prisma.dropClaimConditions.findUnique({
-      where: { chain_collectionAddress: { chain, collectionAddress: contractAddress } },
-    }),
-  ]);
+  const collection = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+  });
 
   if (!collection) {
     return c.json({ error: "Drop not found" }, 404);
@@ -135,16 +48,6 @@ drop.get("/:contract/info", publicCache(30), async (c) => {
       image: collection.image,
       owner: collection.owner,
       totalMinted: collection.totalSupply,
-      conditions: conditions
-        ? {
-            maxSupply: conditions.maxSupply,
-            price: conditions.price,
-            paymentToken: conditions.paymentToken,
-            startTime: conditions.startTime.toString(),
-            endTime: conditions.endTime.toString(),
-            maxPerWallet: conditions.maxPerWallet,
-          }
-        : null,
     },
   });
 });

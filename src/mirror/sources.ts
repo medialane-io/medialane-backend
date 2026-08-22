@@ -30,6 +30,7 @@ import {
   COMMENT_ADDED_SELECTOR,
   POP_ALLOWLIST_UPDATED_SELECTOR,
   DROP_CREATED_SELECTOR,
+  CLAIM_CONDITIONS_UPDATED_SELECTOR,
   CREATOR_COIN_CREATED_SELECTOR,
   OFFER_CREATED_SELECTOR,
   OFFER_STATUS_UPDATED_SELECTOR,
@@ -43,7 +44,7 @@ import {
 } from "../config/constants.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
 import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
-import { handleDropCreated, handleDropAllowlistUpdated } from "./handlers/dropFactory.js";
+import { handleDropCreated, handleDropAllowlistUpdated, handleDropClaimConditionsUpdated } from "./handlers/dropFactory.js";
 import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { handleIPTicketsCollectionDeployed } from "./handlers/ipTicketsFactory.js";
@@ -153,6 +154,10 @@ async function applyDropAllowlist(events: RawStarknetEvent[]): Promise<void> {
   for (const event of events) await handleDropAllowlistUpdated(event);
 }
 
+async function applyDropConditions(events: RawStarknetEvent[]): Promise<void> {
+  for (const event of events) await handleDropClaimConditionsUpdated(event);
+}
+
 export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_MARKETPLACE_721, scope: { kind: "contract", address: STARKNET_MARKETPLACE_721_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
   { id: CORE_MARKETPLACE_1155, scope: { kind: "contract", address: STARKNET_MARKETPLACE_1155_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
@@ -180,6 +185,7 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: "factory:creator-coin", scope: { kind: "contract", address: STARKNET_CREATOR_COIN_FACTORY_CONTRACT }, selectors: [hex(CREATOR_COIN_CREATED_SELECTOR)], cadenceMs: env.CREATOR_COIN_POLL_INTERVAL_MS, apply: applyCreatorCoinFactory },
   { id: "allowlist:pop", scope: { kind: "collections", service: "pop-protocol" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyPopAllowlist },
   { id: "allowlist:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyDropAllowlist },
+  { id: "conditions:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(CLAIM_CONDITIONS_UPDATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropConditions },
 ];
 
 export function isDue(cadenceMs: number | undefined, lastPollTime: number | undefined, now: number): boolean {
