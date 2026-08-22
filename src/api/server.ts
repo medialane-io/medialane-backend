@@ -35,7 +35,7 @@ import ipnft from "./routes/ipnft-onchain.js";
 import dropOnchain from "./routes/drop-onchain.js";
 import rpcMeter from "./routes/rpc-meter.js";
 import rpcProxy from "./routes/rpc.js";
-import paymasterMeter from "./routes/paymaster-meter.js";
+import paymasterProxy from "./routes/paymaster.js";
 import swapProxy from "./routes/swap.js";
 import coins from "./routes/coins.js";
 import drop from "./routes/drop.js";
@@ -92,7 +92,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/drop", dropOnchain);
   app.route("/v1/rpc", rpcProxy());
   app.route("/v1/rpc", rpcMeter);
-  app.route("/v1/paymaster", paymasterMeter);
+  app.route("/v1/paymaster", paymasterProxy());
   app.route("/v1/swap", swapProxy());
   app.route("/v1/sponsorship", sponsorship);
   app.route("/v1/rewards", rewards);
