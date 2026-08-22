@@ -43,8 +43,8 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
   { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
   { method: "POST", prefix: "/v1/paymaster/deploy/execute", actionKey: "paymaster:deploy-execute" },
-  { method: "POST", prefix: "/v1/swap/quote/meter", actionKey: "swap:quote" },
-  { method: "POST", prefix: "/v1/swap/build/meter", actionKey: "swap:build" },
+  { method: "POST", prefix: "/v1/swap/quote", actionKey: "swap:quote" },
+  { method: "POST", prefix: "/v1/swap/build", actionKey: "swap:build" },
 ];
 
 const SERVICE_AWARE_ACTIONS = new Set(["intent:mint", "intent:create-collection"]);
