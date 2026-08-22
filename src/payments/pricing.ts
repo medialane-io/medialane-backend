@@ -38,7 +38,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "GET", prefix: "/v1/tickets", actionKey: "tickets:read-onchain" },
   { method: "GET", prefix: "/v1/club", actionKey: "club:read-onchain" },
   { method: "GET", prefix: "/v1/ipnft", actionKey: "ipnft:read-onchain" },
-  { method: "POST", prefix: "/v1/rpc/meter", actionKey: "rpc:call" },
+  { method: "POST", prefix: "/v1/rpc", actionKey: "rpc:call" },
   { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
   { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
