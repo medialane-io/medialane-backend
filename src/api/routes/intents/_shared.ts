@@ -186,10 +186,35 @@ export const counterOfferSchema = z.object({
   message:           z.string().max(500).optional(),
 });
 
-export const checkoutBodySchema = z.object({
-  fulfiller: z.string().min(1),
-  orderHashes: z.array(z.string().min(1)).min(1).max(20),
+const checkoutItemSchema = z.object({
+  orderHash: z.string().min(1),
+  quantity: z.string().regex(/^[1-9][0-9]*$/).optional(),
 });
+
+export const checkoutBodySchema = z
+  .object({
+    fulfiller: z.string().min(1),
+    orderHashes: z.array(z.string().min(1)).min(1).max(20).optional(),
+    items: z.array(checkoutItemSchema).min(1).max(20).optional(),
+  })
+  .refine((b) => Boolean(b.items?.length || b.orderHashes?.length), {
+    message: "Provide items or orderHashes",
+  });
+
+export interface CheckoutItemInput {
+  orderHash: string;
+  quantity: string | undefined;
+}
+
+export function normalizeCheckoutItems(body: {
+  orderHashes?: string[];
+  items?: { orderHash: string; quantity?: string }[];
+}): CheckoutItemInput[] {
+  if (body.items?.length) {
+    return body.items.map((i) => ({ orderHash: i.orderHash, quantity: i.quantity }));
+  }
+  return (body.orderHashes ?? []).map((orderHash) => ({ orderHash, quantity: undefined }));
+}
 
 export const confirmSchema = z.object({
   txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid transaction hash"),

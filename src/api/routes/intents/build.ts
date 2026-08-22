@@ -43,6 +43,7 @@ import {
   launchCoinSchema,
   counterOfferSchema,
   checkoutBodySchema,
+  normalizeCheckoutItems,
   sponsorshipOfferSchema,
   sponsorshipOfferOpenSchema,
   sponsorshipBidSchema,
@@ -432,13 +433,14 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: "Invalid request body", details: parsed.error.flatten() }, 400);
     }
 
-    const { fulfiller, orderHashes } = parsed.data;
+    const { fulfiller } = parsed.data;
+    const items = normalizeCheckoutItems(parsed.data);
     const ttl = expiresAt();
     const normalizedFulfiller = normalizeAddress("STARKNET", fulfiller);
     const accountId = c.get("account").id;
 
     const indexed = await prisma.order.findMany({
-      where: { chain: "STARKNET", orderHash: { in: orderHashes } },
+      where: { chain: "STARKNET", orderHash: { in: items.map((i) => i.orderHash) } },
       select: { orderHash: true },
     });
     const indexedSet = new Set(indexed.map((o) => o.orderHash));
@@ -448,7 +450,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       | { ok: false; orderHash: string; error: string };
 
     const builds: Built[] = await Promise.all(
-      orderHashes.map(async (orderHash): Promise<Built> => {
+      items.map(async ({ orderHash, quantity }): Promise<Built> => {
         if (!indexedSet.has(orderHash)) {
           return {
             ok: false,
@@ -460,6 +462,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           const { calls } = await buildFulfillOrderIntent({
             fulfiller: normalizedFulfiller,
             orderHash,
+            quantity,
           });
           return { ok: true, orderHash, calls };
         } catch (err) {
