@@ -56,9 +56,7 @@ coins.post("/sync", async (c) => {
       })
     );
     const isCreatorCoin = verify.length > 0 && BigInt(verify[0] ?? "0x0") !== 0n;
-    if (!isCreatorCoin) {
-      return c.json({ error: "Address is not a Creator Coin (is_creator_coin = false)" }, 400);
-    }
+    const service = isCreatorCoin ? "creator-coin" : "external-erc20";
 
     const [nameRes, symbolRes, decRes] = await Promise.all([
       callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "name", calldata: [] })),
@@ -69,25 +67,32 @@ coins.post("/sync", async (c) => {
     const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
     const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
 
+    if (!name && !symbol) {
+      return c.json({ error: "Address does not expose ERC-20 name or symbol" }, 400);
+    }
+
     const totalSupply = await readTotalSupply(coinAddress).catch(() => null);
+    if (totalSupply == null) {
+      return c.json({ error: "Address does not expose an ERC-20 total supply" }, 400);
+    }
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
       contractAddress: coinAddress,
-      service: "creator-coin",
+      service,
       name,
       symbol,
       decimals,
       totalSupply,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
-      startBlock: BigInt(env.CREATOR_COIN_START_BLOCK),
+      startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
     const coin = await prisma.coin.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: coinAddress } },
     });
-    log.info({ coinAddress, name, symbol }, "Creator Coin synced on demand");
-    return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, service: "creator-coin", standard: "ERC20", name, symbol } }, 201);
+    log.info({ coinAddress, name, symbol, service }, "Coin synced on demand");
+    return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, service, standard: "ERC20", name, symbol } }, 201);
   } catch (err) {
     log.error({ err, coinAddress }, "coin sync failed");
     return c.json({ error: toErrorMessage(err) }, 500);
