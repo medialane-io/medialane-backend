@@ -24,6 +24,38 @@ function defaultClient(): PaymasterClient {
   }) as unknown as PaymasterClient;
 }
 
+
+export interface PaymasterErrorResult {
+  status: 422 | 502 | 503;
+  message: string;
+}
+
+export function classifyPaymasterError(err: unknown): PaymasterErrorResult {
+  const text =
+    err instanceof Error
+      ? `${err.message}`
+      : typeof err === "object" && err !== null
+        ? JSON.stringify(err)
+        : String(err ?? "");
+
+  if (text.includes("AVNU_PAYMASTER_API_KEY")) {
+    return { status: 503, message: "Gas sponsorship is not configured" };
+  }
+
+  if (text.includes("ENTRYPOINT_NOT_FOUND")) {
+    return {
+      status: 422,
+      message: "The account is not deployed yet, so it cannot sign a sponsored transaction",
+    };
+  }
+
+  if (text.includes("TRANSACTION_EXECUTION_ERROR") || text.includes("execution_error")) {
+    return { status: 422, message: "The transaction could not be executed as submitted" };
+  }
+
+  return { status: 502, message: "Gas sponsorship is temporarily unavailable" };
+}
+
 function txHashOf(result: unknown): string {
   return (result as { transaction_hash: string }).transaction_hash;
 }
@@ -47,8 +79,9 @@ export default function paymaster(
       )) as { typed_data: unknown };
       return c.json({ typedData: prepared.typed_data });
     } catch (err) {
-      log.warn({ err }, "sponsored invoke build failed");
-      return c.json({ error: "Failed to build sponsored invoke transaction" }, 502);
+      const failure = classifyPaymasterError(err);
+      log.warn({ err, status: failure.status }, "sponsored invoke build failed");
+      return c.json({ error: failure.message }, failure.status);
     }
   });
 
@@ -69,8 +102,9 @@ export default function paymaster(
       );
       return c.json({ transactionHash: txHashOf(result) });
     } catch (err) {
-      log.warn({ err }, "sponsored invoke execute failed");
-      return c.json({ error: "Failed to execute sponsored invoke transaction" }, 502);
+      const failure = classifyPaymasterError(err);
+      log.warn({ err, status: failure.status }, "sponsored invoke execute failed");
+      return c.json({ error: failure.message }, failure.status);
     }
   });
 
@@ -114,8 +148,9 @@ export default function paymaster(
       )) as { typed_data: unknown; deployment: unknown };
       return c.json({ typedData: prepared.typed_data, deployment: prepared.deployment });
     } catch (err) {
-      log.warn({ err }, "sponsored deploy build failed");
-      return c.json({ error: "Failed to build sponsored deploy transaction" }, 502);
+      const failure = classifyPaymasterError(err);
+      log.warn({ err, status: failure.status }, "sponsored deploy build failed");
+      return c.json({ error: failure.message }, failure.status);
     }
   });
 
@@ -141,8 +176,9 @@ export default function paymaster(
       );
       return c.json({ transactionHash: txHashOf(result) });
     } catch (err) {
-      log.warn({ err }, "sponsored deploy execute failed");
-      return c.json({ error: "Failed to execute sponsored deploy transaction" }, 502);
+      const failure = classifyPaymasterError(err);
+      log.warn({ err, status: failure.status }, "sponsored deploy execute failed");
+      return c.json({ error: failure.message }, failure.status);
     }
   });
 
