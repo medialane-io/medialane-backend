@@ -24,25 +24,30 @@ export interface CoinPriceInput {
   decimals: number;
 }
 
+export const QUOTE_NOTIONAL_USDC = 10;
+
 async function quoteOne(
   coin: CoinPriceInput,
   usdcAddress: string,
   usdcDecimals: number,
   deps: CoinPriceDeps,
 ): Promise<CoinPriceQuote | null> {
-  if (coin.contractAddress.toLowerCase() === usdcAddress.toLowerCase()) return { usdc: 1 };
+  if (BigInt(coin.contractAddress) === BigInt(usdcAddress)) return { usdc: 1 };
 
-  const sellAmount = 10n ** BigInt(coin.decimals);
+  const sellAmount = BigInt(QUOTE_NOTIONAL_USDC) * 10n ** BigInt(usdcDecimals);
   const quotes = await deps.getQuotes({
-    sellTokenAddress: coin.contractAddress,
-    buyTokenAddress: usdcAddress,
+    sellTokenAddress: usdcAddress,
+    buyTokenAddress: coin.contractAddress,
     sellAmount,
   });
 
   const best = quotes[0];
   if (!best?.buyAmount) return null;
 
-  const usdc = Number(BigInt(best.buyAmount)) / 10 ** usdcDecimals;
+  const coinsOut = Number(BigInt(best.buyAmount)) / 10 ** coin.decimals;
+  if (!(coinsOut > 0) || !isFinite(coinsOut)) return null;
+
+  const usdc = QUOTE_NOTIONAL_USDC / coinsOut;
   return usdc > 0 && isFinite(usdc) ? { usdc } : null;
 }
 
