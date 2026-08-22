@@ -13,6 +13,38 @@ const ZERO = "0x0000000000000000000000000000000000000000000000000000000000000000
 
 const BETA_END = new Date("2026-12-31T00:00:00Z");
 
+export function dropCollectionFilter() {
+  return { service: "drop-collection", deletedAt: null };
+}
+
+export function dropClaimTransferFilter(contracts: string[]) {
+  return { contractAddress: { in: contracts }, fromAddress: ZERO };
+}
+
+export function soldOutClaimFilter(contract: string) {
+  return { contractAddress: contract, fromAddress: ZERO };
+}
+
+export function dedupeLaunchContracts(
+  entries: { contract: string; createdAt: Date }[],
+): { contract: string; createdAt: Date }[] {
+  const byContract = new Map<string, { contract: string; createdAt: Date }>();
+  for (const entry of entries) {
+    const existing = byContract.get(entry.contract);
+    if (!existing || entry.createdAt < existing.createdAt) byContract.set(entry.contract, entry);
+  }
+  return [...byContract.values()];
+}
+
+async function dropContractAddresses(): Promise<string[]> {
+  const rows = await prisma.collection.findMany({
+    where: dropCollectionFilter(),
+    select: { contractAddress: true },
+  });
+  return rows.map((r) => r.contractAddress);
+}
+
+
 export interface ActionConfig {
   type: string;
   xp: number;
@@ -172,12 +204,12 @@ async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
     }),
   ]);
 
-  const allContracts = [
+  const allContracts = dedupeLaunchContracts([
     ...drops.map((d) => ({ contract: d.collectionAddress, createdAt: d.createdAt })),
     ...pops.map((p) => ({ contract: p.collectionAddress, createdAt: new Date() })),
-  ];
+  ]);
 
-  const contractSet = [...new Set(allContracts.map((c) => c.contract))];
+  const contractSet = allContracts.map((c) => c.contract);
   const collections = await prisma.collection.findMany({
     where: { contractAddress: { in: contractSet } },
     select: { contractAddress: true, owner: true, createdAt: true },
@@ -367,13 +399,10 @@ async function gatherClaimPop(xp: number): Promise<RawEvent[]> {
 
 async function gatherClaimDrop(xp: number): Promise<RawEvent[]> {
 
-  const dropContracts = await prisma.dropClaimConditions.findMany({
-    select: { collectionAddress: true },
-  });
-  const dropSet = new Set(dropContracts.map((d) => d.collectionAddress));
+  const dropContracts = await dropContractAddresses();
 
   const transfers = await prisma.transfer.findMany({
-    where: { contractAddress: { in: [...dropSet] }, fromAddress: { not: ZERO } },
+    where: dropClaimTransferFilter(dropContracts),
     select: { toAddress: true, txHash: true, createdAt: true },
   });
 
@@ -490,7 +519,7 @@ async function computeBadges(
   });
   for (const drop of drops) {
     const claimed = await prisma.transfer.count({
-      where: { contractAddress: drop.collectionAddress, fromAddress: { not: ZERO } },
+      where: soldOutClaimFilter(drop.collectionAddress),
     });
     if (BigInt(claimed) >= BigInt(drop.maxSupply)) {
       const col = await prisma.collection.findFirst({
@@ -592,10 +621,7 @@ async function computeBadges(
     if (types >= 3) award(address, "auteur");
   }
 
-  const dropContractRows = await prisma.dropClaimConditions.findMany({
-    select: { collectionAddress: true },
-  });
-  const fullSetContracts = [...new Set(dropContractRows.map((d) => d.collectionAddress))];
+  const fullSetContracts = await dropContractAddresses();
   for (const contract of fullSetContracts) {
     const totalTokens = await prisma.token.count({ where: { contractAddress: contract } });
     if (totalTokens === 0) continue;

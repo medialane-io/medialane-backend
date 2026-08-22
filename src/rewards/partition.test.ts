@@ -1,37 +1,37 @@
-import { describe, expect, test } from "bun:test";
-import { mintActionForService, creationActionForService } from "./partition.js";
+import { test, expect } from "bun:test";
+import { getServicesByCapability } from "@medialane/sdk";
+import {
+  isIssuanceService,
+  mintActionForService,
+  creationActionForService,
+  NON_ISSUANCE_MINT_SERVICES,
+} from "./partition.js";
 
-describe("mintActionForService", () => {
-  test("issuance services score mint_asset", () => {
-    expect(mintActionForService("mip-erc721")).toBe("mint_asset");
-    expect(mintActionForService("mip-erc1155")).toBe("mint_asset");
-    expect(mintActionForService("ip-erc721")).toBe("mint_asset");
-  });
-  test("non-issuance services score nothing", () => {
-    expect(mintActionForService("ip-tickets")).toBeNull();
-    expect(mintActionForService("ip-club")).toBeNull();
-  });
-  test("pop/drop/external/unknown mints score nothing here", () => {
-    expect(mintActionForService("pop-protocol")).toBeNull();
-    expect(mintActionForService("drop-collection")).toBeNull();
-    expect(mintActionForService("external-erc721")).toBeNull();
-    expect(mintActionForService(undefined)).toBeNull();
-  });
+test("the three issuance services earn mint and creation XP", () => {
+  for (const id of ["mip-erc721", "mip-erc1155", "ip-erc721"]) {
+    expect(isIssuanceService(id)).toBe(true);
+    expect(mintActionForService(id)).toBe("mint_asset");
+    expect(creationActionForService(id)).toBe("create_collection");
+  }
 });
 
-describe("creationActionForService", () => {
-  test("issuance collections score create_collection", () => {
-    expect(creationActionForService("mip-erc721")).toBe("create_collection");
-  });
-  test("drop/pop creations score nothing here (launch_launchpad owns them)", () => {
-    expect(creationActionForService("drop-collection")).toBeNull();
-    expect(creationActionForService("pop-protocol")).toBeNull();
-  });
-  test("non-issuance creations score nothing", () => {
-    expect(creationActionForService("ip-tickets")).toBeNull();
-    expect(creationActionForService("ip-club")).toBeNull();
-  });
-  test("external collections score nothing", () => {
-    expect(creationActionForService("external-erc721")).toBeNull();
-  });
+test("mint-capable services that are not issuance are excluded on purpose", () => {
+  for (const id of ["ip-tickets", "ip-club", "pop-protocol"]) {
+    expect(NON_ISSUANCE_MINT_SERVICES.has(id)).toBe(true);
+    expect(isIssuanceService(id)).toBe(false);
+    expect(mintActionForService(id)).toBe(null);
+  }
+});
+
+test("every mint-capable service in the registry is classified either way", () => {
+  const unclassified = getServicesByCapability("mint")
+    .map((s) => s.id)
+    .filter((id) => !isIssuanceService(id) && !NON_ISSUANCE_MINT_SERVICES.has(id));
+  expect(unclassified).toEqual([]);
+});
+
+test("a null or unknown service earns nothing", () => {
+  expect(mintActionForService(null)).toBe(null);
+  expect(mintActionForService("not-a-service")).toBe(null);
+  expect(creationActionForService(undefined)).toBe(null);
 });
