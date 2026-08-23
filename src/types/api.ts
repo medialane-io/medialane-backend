@@ -158,6 +158,8 @@ export interface LaunchCoinIntentBody {
 
   quoteToken: string;
 
+  price: number;
+
   initialHolders: string[];
   initialHoldersAmounts: string[];
 

@@ -106,6 +106,7 @@ export const launchCoinSchema = z.object({
   owner: starknetAddress,
   creatorCoin: starknetAddress,
   quoteToken: starknetAddress,
+  price: z.number().positive(),
   initialHolders: z.array(starknetAddress).default([]),
   initialHoldersAmounts: z.array(z.string().regex(/^\d+$/, "must be a non-negative integer string")).default([]),
   transferRestrictionDelay: z.number().int().nonnegative().optional(),
