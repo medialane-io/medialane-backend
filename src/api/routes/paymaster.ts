@@ -200,6 +200,14 @@ export default function paymaster(
     const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
     if (!classHash) return c.json({ error: "Media Wallet class hash is not configured" }, 500);
 
+    const calls = [
+      {
+        contractAddress: strk.address,
+        entrypoint: "transfer",
+        calldata: CallData.compile([body.ownerAddress, uint256.bnToUint256(0)]),
+      },
+    ];
+
     try {
       const prepared = (await clientFactory().buildTransaction(
         {
@@ -213,18 +221,14 @@ export default function paymaster(
           },
           invoke: {
             userAddress: body.ownerAddress,
-            calls: [
-              {
-                contractAddress: strk.address,
-                entrypoint: "transfer",
-                calldata: CallData.compile([body.ownerAddress, uint256.bnToUint256(0)]),
-              },
-            ],
+            calls,
           },
         },
         SPONSORED,
       )) as { typed_data: unknown; deployment: unknown };
-      return c.json({ typedData: prepared.typed_data, deployment: prepared.deployment });
+      // Echoed back so the client can resend them verbatim to /deploy/execute,
+      // which now requires proof the signed typedData matches these calls.
+      return c.json({ typedData: prepared.typed_data, deployment: prepared.deployment, calls });
     } catch (err) {
       const failure = classifyPaymasterError(err);
       log.warn({ err, status: failure.status }, "sponsored deploy build failed");

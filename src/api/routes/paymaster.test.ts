@@ -148,13 +148,21 @@ describe("POST /deploy/build", () => {
       body: JSON.stringify({ ownerPubkey: "0x02c1a3f0d5b7e9c8a4d6f2b1e3c5a7098d4f6b2e1c3a5079b8d6f4e2c1a30597", ownerAddress: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7" }),
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ typedData: { message: "td" }, deployment: { address: "0xdep" } });
+    const responseBody = (await res.json()) as { typedData: unknown; deployment: unknown; calls: unknown[] };
+    expect(responseBody.typedData).toEqual({ message: "td" });
+    expect(responseBody.deployment).toEqual({ address: "0xdep" });
+    expect(responseBody.calls.length).toBe(1);
 
-    const built = calls[0] as { req: { type: string; deployment: { class_hash: string; salt: string; address: string } } };
+    const built = calls[0] as {
+      req: { type: string; deployment: { class_hash: string; salt: string; address: string }; invoke: { calls: unknown[] } };
+    };
     expect(built.req.type).toBe("deploy_and_invoke");
     expect(built.req.deployment.address).toBe("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7");
     expect(built.req.deployment.class_hash.startsWith("0x")).toBe(true);
     expect(built.req.deployment.salt).toBe("0x0");
+    // The response's `calls` must be exactly what was sent to the paymaster —
+    // it's what the client will echo back verbatim to /deploy/execute.
+    expect(responseBody.calls).toEqual(built.req.invoke.calls);
   });
 
   test("honours an explicit salt", async () => {
