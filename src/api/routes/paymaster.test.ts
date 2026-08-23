@@ -1,7 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import { hash, num } from "starknet";
+import { getCoordinates } from "@medialane/sdk";
 import paymaster, { type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
+
+const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
+
+// Matches what assertCallsAreStrictlyEqual expects: one OutsideCallV2 per
+// submitted call, plus one extra (AVNU appends its own trailing call).
+function outsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
+  return {
+    message: {
+      Calls: [
+        ...calls.map((c) => ({
+          To: c.contractAddress,
+          Selector: num.toHex(hash.getSelectorFromName(c.entrypoint)),
+          Calldata: c.calldata,
+        })),
+        { To: "0x0", Selector: "0x0", Calldata: [] },
+      ],
+    },
+  };
+}
 
 function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
   const stub: PaymasterClient = {
@@ -26,7 +47,7 @@ describe("POST /invoke/build", () => {
     const res = await appWith({}, calls).request("/invoke/build", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [{ contractAddress: "0x1", entrypoint: "x", calldata: [] }] }),
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ typedData: { message: "td" } });
@@ -47,6 +68,20 @@ describe("POST /invoke/build", () => {
     }
     expect(calls.length).toBe(0);
   });
+
+  test("rejects an entrypoint outside the sponsorable set", async () => {
+    const calls: unknown[] = [];
+    const res = await appWith({}, calls).request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(calls.length).toBe(0);
+  });
 });
 
 describe("POST /invoke/execute", () => {
@@ -54,7 +89,12 @@ describe("POST /invoke/execute", () => {
     const res = await appWith({}).request("/invoke/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", typedData: { m: 1 }, signature: ["0x1", "0x2"] }),
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        signature: ["0x1", "0x2"],
+        calls: [SPONSORABLE_CALL],
+      }),
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ transactionHash: "0xtx" });
@@ -64,7 +104,36 @@ describe("POST /invoke/execute", () => {
     const res = await appWith({}).request("/invoke/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", typedData: { m: 1 } }),
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", typedData: { m: 1 }, calls: [SPONSORABLE_CALL] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects an entrypoint outside the sponsorable set", async () => {
+    const res = await appWith({}).request("/invoke/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        typedData: { m: 1 },
+        signature: ["0x1"],
+        calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects typedData whose calls don't match the submitted calls", async () => {
+    const res = await appWith({}).request("/invoke/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+
+        typedData: outsideExecutionTypedData([{ ...SPONSORABLE_CALL, contractAddress: "0x999" }]),
+        signature: ["0x1"],
+        calls: [SPONSORABLE_CALL],
+      }),
     });
     expect(res.status).toBe(400);
   });
@@ -112,15 +181,19 @@ describe("POST /deploy/build", () => {
 });
 
 describe("POST /deploy/execute", () => {
+  const OWNER_ADDRESS = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
+
   test("executes a deploy_and_invoke and returns the transaction hash", async () => {
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash!;
     const res = await appWith({}).request("/deploy/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ownerAddress: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        typedData: { m: 1 },
+        ownerAddress: OWNER_ADDRESS,
+        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
         signature: ["0x1"],
-        deployment: { address: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7" },
+        deployment: { address: OWNER_ADDRESS, class_hash: classHash },
+        calls: [SPONSORABLE_CALL],
       }),
     });
     expect(res.status).toBe(200);
@@ -131,7 +204,22 @@ describe("POST /deploy/execute", () => {
     const res = await appWith({}).request("/deploy/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ownerAddress: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7", typedData: { m: 1 }, signature: ["0x1"] }),
+      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: { m: 1 }, signature: ["0x1"], calls: [SPONSORABLE_CALL] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects a deployment for a class hash other than Media Wallet's", async () => {
+    const res = await appWith({}).request("/deploy/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ownerAddress: OWNER_ADDRESS,
+        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        signature: ["0x1"],
+        deployment: { address: OWNER_ADDRESS, class_hash: "0xnotmediawallet" },
+        calls: [SPONSORABLE_CALL],
+      }),
     });
     expect(res.status).toBe(400);
   });
@@ -147,7 +235,7 @@ describe("upstream failures", () => {
     const res = await app.request("/invoke/build", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [{}] }),
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
     });
     expect(res.status).toBe(502);
   });

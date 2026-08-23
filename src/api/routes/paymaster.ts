@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { CallData, PaymasterRpc, uint256 } from "starknet";
+import { CallData, PaymasterRpc, uint256, paymaster as paymasterHelpers } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
@@ -9,6 +9,70 @@ const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
+
+// Sponsored gas is Medialane's own budget, not a free relay. Only the exact
+// entrypoints orchestrator/intent/*.ts ever builds are eligible — anything
+// else is, by construction, not a call this backend asked to be sponsored.
+export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
+  "approve",
+  "transfer",
+  "set_approval_for_all",
+  "register_order",
+  "fulfill_order",
+  "cancel_order",
+  "mint",
+  "mint_edition",
+  "create_collection",
+  "deploy_collection",
+  "create_drop",
+  "create_ticket",
+  "create_membership",
+  "create_offer",
+  "set_offer_open",
+  "place_bid",
+  "retract_bid",
+  "accept_bid",
+  "propose_sponsorship",
+  "withdraw_proposal",
+  "accept_proposal",
+  "reject_proposal",
+  "create_creator_coin",
+  "launch_on_ekubo",
+]);
+
+interface SponsoredCall {
+  contractAddress: string;
+  entrypoint: string;
+  calldata: unknown;
+}
+
+function isSponsoredCall(value: unknown): value is SponsoredCall {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as SponsoredCall).contractAddress === "string" &&
+    typeof (value as SponsoredCall).entrypoint === "string"
+  );
+}
+
+export function disallowedEntrypoint(calls: unknown[]): string | null {
+  for (const call of calls) {
+    if (!isSponsoredCall(call)) return "invalid call";
+    if (!ALLOWED_PAYMASTER_ENTRYPOINTS.has(call.entrypoint)) return call.entrypoint;
+  }
+  return null;
+}
+
+// Proves the typed data the client wants us to sponsor actually encodes the
+// same calls it claims to (address + entrypoint + calldata, element-wise) —
+// otherwise the entrypoint allowlist above could be bypassed by building
+// typed data outside our /invoke/build and only touching /invoke/execute.
+export function assertTypedDataMatchesCalls(typedData: unknown, calls: SponsoredCall[]): void {
+  const message = (typedData as { message?: Record<string, unknown> } | null)?.message;
+  const unsafeCalls = message ? (("calls" in message ? message.calls : message.Calls) as unknown) : undefined;
+  if (!Array.isArray(unsafeCalls)) throw new Error("typedData has no calls");
+  paymasterHelpers.assertCallsAreStrictlyEqual(calls as never, unsafeCalls as never);
+}
 
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -72,6 +136,10 @@ export default function paymaster(
     if (!body?.userAddress || !body.calls?.length) {
       return c.json({ error: "userAddress and a non-empty calls array are required" }, 400);
     }
+    const disallowed = disallowedEntrypoint(body.calls);
+    if (disallowed) {
+      return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
+    }
     try {
       const prepared = (await clientFactory().buildTransaction(
         { type: "invoke", invoke: { userAddress: body.userAddress, calls: body.calls } },
@@ -87,10 +155,20 @@ export default function paymaster(
 
   app.post("/invoke/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; typedData?: unknown; signature?: string[] }
+      | { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] }
       | null;
-    if (!body?.userAddress || !body.typedData || !body.signature) {
-      return c.json({ error: "userAddress, typedData, and signature are required" }, 400);
+    if (!body?.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
+      return c.json({ error: "userAddress, typedData, signature, and calls are required" }, 400);
+    }
+    const disallowed = disallowedEntrypoint(body.calls);
+    if (disallowed) {
+      return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
+    }
+    try {
+      assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
+    } catch (err) {
+      log.warn({ err, userAddress: body.userAddress }, "sponsored invoke execute: typedData does not match submitted calls");
+      return c.json({ error: "typedData does not match the submitted calls" }, 400);
     }
     try {
       const result = await clientFactory().executeTransaction(
@@ -156,10 +234,27 @@ export default function paymaster(
 
   app.post("/deploy/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown }
+      | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown; calls?: unknown[] }
       | null;
-    if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment) {
-      return c.json({ error: "ownerAddress, typedData, signature, and deployment are required" }, 400);
+    if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
+      return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required" }, 400);
+    }
+
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
+    const deployment = body.deployment as { class_hash?: string; address?: string } | null;
+    if (!classHash || deployment?.class_hash !== classHash || deployment?.address !== body.ownerAddress) {
+      return c.json({ error: "deployment does not match a sponsorable Media Wallet deployment" }, 400);
+    }
+
+    const disallowed = disallowedEntrypoint(body.calls);
+    if (disallowed) {
+      return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
+    }
+    try {
+      assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
+    } catch (err) {
+      log.warn({ err, ownerAddress: body.ownerAddress }, "sponsored deploy execute: typedData does not match submitted calls");
+      return c.json({ error: "typedData does not match the submitted calls" }, 400);
     }
     try {
       const result = await clientFactory().executeTransaction(

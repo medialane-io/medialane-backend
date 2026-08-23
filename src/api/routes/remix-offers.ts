@@ -17,6 +17,7 @@ const remixOffers = new Hono<AppEnv>();
 
 import { createSlidingWindow } from "../../utils/slidingWindow.js";
 import { verifyTransactionSucceeded, fetchReceiptEvents } from "../../utils/txVerifier.js";
+import { findTransferTo } from "../../mirror/parser.js";
 
 const checkOfferRateLimit = createSlidingWindow(20, 60_000);
 
@@ -388,9 +389,8 @@ remixOffers.post(
       return c.json({ error: `Mint transaction not verified on-chain: ${verified.failReason ?? "not found"}` }, 400);
     }
     const receiptEvents = await fetchReceiptEvents(body.txHash);
-    const touchesRemixContract = receiptEvents.some((e) => e.from_address === remixContract);
-    if (!touchesRemixContract) {
-      return c.json({ error: "Transaction does not involve the claimed remix contract" }, 400);
+    if (!findTransferTo(receiptEvents, { contractAddress: remixContract, tokenId: body.remixTokenId, to: walletAddress })) {
+      return c.json({ error: "Transaction does not show this token minted to your wallet on the claimed remix contract" }, 400);
     }
 
     const offer = await prisma.remixOffer.create({

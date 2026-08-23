@@ -3,7 +3,12 @@
 import { z } from "zod";
 import { num } from "starknet";
 import { createLogger } from "../../../utils/logger.js";
-import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, getTokenByAddress } from "../../../config/constants.js";
+import {
+  ORDER_CREATED_SELECTOR,
+  ORDER_FULFILLED_SELECTOR,
+  ORDER_CANCELLED_SELECTOR,
+  getTokenByAddress,
+} from "../../../config/constants.js";
 import { FACTORY_FAMILY_SERVICE_IDS, TIER_SERVICE_IDS, COLLECTION_SERVICE_IDS } from "../../../orchestrator/intent/index.js";
 import type { parseEvents } from "../../../mirror/parser.js";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
@@ -242,6 +247,7 @@ export const ORDER_CREATING_INTENT_TYPES = new Set([
 ]);
 export const ORDER_CREATED_SELECTOR_HEX = num.toHex(ORDER_CREATED_SELECTOR);
 export const ORDER_FULFILLED_SELECTOR_HEX = num.toHex(ORDER_FULFILLED_SELECTOR);
+export const ORDER_CANCELLED_SELECTOR_HEX = num.toHex(ORDER_CANCELLED_SELECTOR);
 
 export function isNftTransferEvent(
   event: ReturnType<typeof parseEvents>[number]
