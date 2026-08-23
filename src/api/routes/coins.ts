@@ -14,7 +14,7 @@ import { getCollectionOwner } from "../../chainRead/index.js";
 import { getCoinPrices } from "../../utils/coinPrice.js";
 import { getTokenBySymbol } from "@medialane/sdk";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { buildCoinListWhere } from "./coins.filters.js";
+import { buildCoinListWhere, buildCoinListOrderBy } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
 
@@ -98,8 +98,9 @@ coins.get("/", publicCache(30), async (c) => {
   const service = c.req.query("service");
   const creator = c.req.query("creator") ?? undefined;
   const where = buildCoinListWhere({ chainFilter: parseChainFilter(c.req.query("chain")) ?? undefined, service: service ?? undefined, creator });
+  const orderBy = buildCoinListOrderBy(c.req.query("sort"));
   const [rows, total, grouped] = await Promise.all([
-    prisma.coin.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
+    prisma.coin.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit }),
     prisma.coin.count({ where }),
 
     prisma.coin.groupBy({ by: ["service"], where: { isHidden: false }, _count: { _all: true } }),
