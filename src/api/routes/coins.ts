@@ -98,11 +98,17 @@ coins.get("/", publicCache(30), async (c) => {
   const service = c.req.query("service");
   const creator = c.req.query("creator") ?? undefined;
   const where = buildCoinListWhere({ chainFilter: parseChainFilter(c.req.query("chain")) ?? undefined, service: service ?? undefined, creator });
-  const [rows, total] = await Promise.all([
+  const [rows, total, grouped] = await Promise.all([
     prisma.coin.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
     prisma.coin.count({ where }),
+
+    prisma.coin.groupBy({ by: ["service"], where: { isHidden: false }, _count: { _all: true } }),
   ]);
-  return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total } });
+
+  const counts: Record<string, number> = {};
+  for (const g of grouped) counts[g.service] = g._count._all;
+
+  return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total, counts } });
 });
 
 coins.post("/claim", identityAuth, async (c) => {
