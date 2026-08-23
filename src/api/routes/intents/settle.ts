@@ -14,6 +14,7 @@ import {
 import { getServiceByMarketplaceAddress } from "../../../utils/collection.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "../../../mirror/handlers/orderFulfilled.js";
+import { handleOrderCancelled } from "../../../mirror/handlers/orderCancelled.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { getTokenByAddress } from "../../../config/constants.js";
@@ -24,6 +25,7 @@ import {
   ORDER_CREATING_INTENT_TYPES,
   ORDER_CREATED_SELECTOR_HEX,
   ORDER_FULFILLED_SELECTOR_HEX,
+  ORDER_CANCELLED_SELECTOR_HEX,
   isNftTransferEvent,
 } from "./_shared.js";
 
@@ -37,10 +39,6 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
   const verifyResult = intent?.type && MARKETPLACE_INTENT_TYPES.has(intent.type)
     ? await verifyMarketplaceTx(txHash)
     : await verifyTransactionSucceeded(txHash);
-
-  const ORDER_SETTLE_STATUS = {
-    CANCEL_ORDER: "CANCELLED",
-  } as const;
 
   if (verifyResult.status === "CONFIRMED") {
     let hydratedOrderHash: string | undefined;
@@ -67,36 +65,35 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
       }
     }
 
-    const orderStatus = intent?.type ? ORDER_SETTLE_STATUS[intent.type as keyof typeof ORDER_SETTLE_STATUS] : undefined;
-    if (orderStatus && intent?.orderHash) {
-      await prisma.$transaction([
-        prisma.transactionIntent.update({
-          where: { id: intentId },
-          data: { status: "CONFIRMED" },
-        }),
-        prisma.order.update({
-          where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
-          data: { status: orderStatus },
-        }),
-      ]);
-    } else if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
+    if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
+      // The tx succeeded and touched *a* marketplace contract, but that proves
+      // nothing about *this* order — only a matching OrderCancelled event does.
+      // Chain wins; the indexer never marks an order cancelled on trust (see
+      // medialane-core/docs/architecture/02-protocol-app-split.md §III Order).
+      let cancelled = false;
+      try {
+        cancelled = await hydrateCancellationFromTx(txHash, intent.orderHash);
+      } catch (err) {
+        log.error({ err, intentId, txHash, orderHash: intent.orderHash }, "Failed to hydrate cancellation from confirmed tx");
+      }
 
-      await prisma.$transaction([
-        prisma.transactionIntent.update({
-          where: { id: intentId },
-          data: { status: "CONFIRMED" },
-        }),
-        prisma.order.update({
-          where: { chain_orderHash: { chain: "STARKNET", orderHash: intent.orderHash } },
-          data: { status: "CANCELLED" },
-        }),
-      ]);
-    } else {
       await prisma.transactionIntent.update({
         where: { id: intentId },
-        data: { status: "CONFIRMED", ...(hydratedOrderHash ? { orderHash: hydratedOrderHash } : {}) },
+        data: { status: cancelled ? "CONFIRMED" : "FAILED" },
       });
+
+      if (cancelled) {
+        log.info({ intentId, txHash, orderHash: intent.orderHash }, "Intent CONFIRMED");
+      } else {
+        log.warn({ intentId, txHash, orderHash: intent.orderHash }, "Tx succeeded but had no OrderCancelled event for this order — intent FAILED");
+      }
+      return;
     }
+
+    await prisma.transactionIntent.update({
+      where: { id: intentId },
+      data: { status: "CONFIRMED", ...(hydratedOrderHash ? { orderHash: hydratedOrderHash } : {}) },
+    });
     log.info({ intentId, txHash, type: intent?.type }, "Intent CONFIRMED");
   } else {
     await prisma.transactionIntent.update({
@@ -216,6 +213,35 @@ export async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
   const followup = await runTransferFollowups(transferEvents, "STARKNET");
 
   log.info({ txHash, followup }, "Hydrated fulfillment and transfer balances from confirmed tx");
+}
+
+export async function hydrateCancellationFromTx(txHash: string, expectedOrderHash: string): Promise<boolean> {
+  const events = await fetchMarketplaceReceiptEvents(txHash);
+  const cancelledEvents = events.filter((event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_CANCELLED_SELECTOR_HEX);
+
+  const normalizedExpected = normalizeHash(expectedOrderHash);
+  const matched = cancelledEvents.find(
+    (event) => normalizeHash(num.toHex(event.keys[1] ?? "0x0")) === normalizedExpected
+  );
+  if (!matched) return false;
+
+  await prisma.$transaction(async (tx) => {
+    await handleOrderCancelled(
+      {
+        type: "OrderCancelled",
+        orderHash: num.toHex(matched.keys[1]),
+        offerer: normalizeAddress("STARKNET", matched.keys[2]),
+        blockNumber: BigInt(matched.block_number),
+        txHash: matched.transaction_hash,
+        logIndex: 0,
+      },
+      tx,
+      "STARKNET"
+    );
+  });
+
+  log.info({ txHash, orderHash: expectedOrderHash }, "Hydrated order cancellation from confirmed tx");
+  return true;
 }
 
 export async function hydrateTransfersFromTx(txHash: string): Promise<void> {

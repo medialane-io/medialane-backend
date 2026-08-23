@@ -8,7 +8,7 @@ import {
   TRANSFER_SELECTOR,
   TRANSFER_SINGLE_SELECTOR,
 } from "../config/constants.js";
-import { parseEvent } from "./parser.js";
+import { parseEvent, findTransferTo } from "./parser.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 const MARKETPLACE = "0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6";
@@ -120,5 +120,41 @@ describe("parseEvent — ERC-1155 TransferSingle", () => {
 describe("parseEvent — unknown selector", () => {
   test("returns null for an unrecognized event", () => {
     expect(parseEvent(rawEvent({ keys: ["0xdeadbeef"] }), 0)).toBeNull();
+  });
+});
+
+describe("findTransferTo", () => {
+  function transferSingleEvent(overrides: Partial<RawStarknetEvent> = {}): RawStarknetEvent {
+    return rawEvent({
+      from_address: COLLECTION,
+      keys: [num.toHex(TRANSFER_SINGLE_SELECTOR), "0xaaa", OFFERER, FULFILLER],
+      data: ["0x2a", "0x0", "0x1", "0x0"],
+      ...overrides,
+    });
+  }
+
+  test("rejects a tx that merely touches the contract without moving the claimed token to the caller", () => {
+    const events = [transferSingleEvent({ keys: [num.toHex(TRANSFER_SINGLE_SELECTOR), "0xaaa", OFFERER, OFFERER] })];
+    expect(findTransferTo(events, { contractAddress: COLLECTION, tokenId: "42", to: FULFILLER })).toBe(false);
+  });
+
+  test("rejects a transfer of a different token id", () => {
+    const events = [transferSingleEvent({ data: ["0x99", "0x0", "0x1", "0x0"] })];
+    expect(findTransferTo(events, { contractAddress: COLLECTION, tokenId: "42", to: FULFILLER })).toBe(false);
+  });
+
+  test("rejects a transfer on an unrelated contract", () => {
+    const events = [transferSingleEvent({ from_address: MARKETPLACE })];
+    expect(findTransferTo(events, { contractAddress: COLLECTION, tokenId: "42", to: FULFILLER })).toBe(false);
+  });
+
+  test("accepts a real transfer of the claimed token to the caller's wallet", () => {
+    const events = [transferSingleEvent()];
+    expect(findTransferTo(events, { contractAddress: COLLECTION, tokenId: "42", to: FULFILLER })).toBe(true);
+  });
+
+  test("rejects an unparseable token id instead of matching a stray zero transfer", () => {
+    const events = [transferSingleEvent({ data: ["0x0", "0x0", "0x1", "0x0"] })];
+    expect(findTransferTo(events, { contractAddress: COLLECTION, tokenId: "not-a-number", to: FULFILLER })).toBe(false);
   });
 });

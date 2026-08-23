@@ -238,3 +238,36 @@ export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
   }
   return results;
 }
+
+function normalizeTokenId(raw: string): string | null {
+  try {
+    return BigInt(raw).toString();
+  } catch {
+    return null;
+  }
+}
+
+// General-purpose proof primitive: "did this specific token really move to
+// this wallet on this contract, per the chain's own events" — the check any
+// caller needs before trusting a client's claim about a mint/transfer tx
+// (00 §1 / 02 §III: only the event is truth, not what the caller says happened).
+export function findTransferTo(
+  rawEvents: RawStarknetEvent[],
+  args: { contractAddress: string; tokenId: string; to: string }
+): boolean {
+  const normalizedTokenId = normalizeTokenId(args.tokenId);
+  if (!normalizedTokenId) return false;
+  const to = normalizeAddress("STARKNET", args.to);
+  const contractAddress = normalizeAddress("STARKNET", args.contractAddress);
+
+  for (const event of parseEvents(rawEvents)) {
+    if (event.type !== "Transfer" && event.type !== "TransferSingle" && event.type !== "TransferBatch") continue;
+    if (event.contractAddress !== contractAddress || event.to !== to) continue;
+    if (event.type === "TransferBatch") {
+      if (event.transfers.some((t) => t.tokenId === normalizedTokenId)) return true;
+    } else if (event.tokenId === normalizedTokenId) {
+      return true;
+    }
+  }
+  return false;
+}
