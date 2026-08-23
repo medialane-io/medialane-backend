@@ -1,10 +1,33 @@
 import { type Chain, type Prisma, type PrismaClient } from "@prisma/client";
 import { getService } from "@medialane/sdk";
+import { shortString } from "starknet";
 import { callRpc as defaultCallRpc } from "./starknet.js";
+
+function decodeShortStr(felt: string): string | null {
+  try {
+    const s = shortString.decodeShortString(felt);
+    return s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
 const COIN_SERVICES = new Set(["creator-coin", "unruggable-erc20", "external-erc20"]);
+
+export interface ResolvedCoin {
+  service: string;
+  name: string | null;
+  symbol: string | null;
+  decimals: number;
+  totalSupply: string;
+  isLaunched: boolean | null;
+}
+
+export type CoinResolution =
+  | { ok: true; coin: ResolvedCoin }
+  | { ok: false; reason: "not_erc20" | "no_total_supply" };
 
 export interface UnruggableProbe {
   exposesInterface: boolean;
@@ -97,4 +120,45 @@ export async function upsertCoin(
       isLaunched: params.isLaunched ?? undefined,
     },
   });
+}
+
+export async function resolveCoin(
+  coinAddress: string,
+  isCreatorCoin: boolean,
+  deps: { callRpc: typeof defaultCallRpc } = { callRpc: defaultCallRpc },
+): Promise<CoinResolution> {
+  const call = (entrypoint: string) =>
+    deps.callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint, calldata: [] }));
+
+  const probe = await probeUnruggableInterface(coinAddress, deps);
+  const service = isCreatorCoin
+    ? "creator-coin"
+    : probe.exposesInterface
+      ? "unruggable-erc20"
+      : "external-erc20";
+
+  const [nameRes, symbolRes, decRes] = await Promise.all([
+    call("name").catch(() => null),
+    call("symbol").catch(() => null),
+    call("decimals").catch(() => null),
+  ]);
+
+  const name = nameRes ? decodeShortStr(nameRes[0] ?? "0x0") : null;
+  const symbol = symbolRes ? decodeShortStr(symbolRes[0] ?? "0x0") : null;
+  if (!name && !symbol) return { ok: false, reason: "not_erc20" };
+
+  const totalSupply = await readTotalSupply(coinAddress, deps).catch(() => null);
+  if (totalSupply == null) return { ok: false, reason: "no_total_supply" };
+
+  return {
+    ok: true,
+    coin: {
+      service,
+      name,
+      symbol,
+      decimals: decRes?.[0] != null ? Number(BigInt(decRes[0])) : 18,
+      totalSupply,
+      isLaunched: probe.isLaunched,
+    },
+  };
 }
