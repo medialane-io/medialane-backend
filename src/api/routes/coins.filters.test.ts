@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { buildCoinListWhere, buildAdminCoinWhere } from "./coins.filters.js";
+import { buildCoinListWhere, buildCoinListOrderBy, buildAdminCoinWhere } from "./coins.filters.js";
 import { normalizeAddress } from "@medialane/sdk";
 
 const ADDR = "0x123abc";
@@ -16,6 +16,18 @@ describe("buildCoinListWhere", () => {
   it("normalizes the creator address", () => {
     expect(buildCoinListWhere({ creator: ADDR }))
       .toEqual({ chain: "STARKNET", isHidden: false, creator: NORM });
+  });
+});
+
+describe("buildCoinListOrderBy", () => {
+  it("sorts by name", () => {
+    expect(buildCoinListOrderBy("name")).toEqual({ name: "asc" });
+  });
+  it("defaults to recent for undefined", () => {
+    expect(buildCoinListOrderBy(undefined)).toEqual({ createdAt: "desc" });
+  });
+  it("defaults to recent for an unknown value", () => {
+    expect(buildCoinListOrderBy("volume")).toEqual({ createdAt: "desc" });
   });
 });
 

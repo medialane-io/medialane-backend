@@ -14,6 +14,11 @@ export function buildCoinListWhere(opts: { service?: string; creator?: string; c
   };
 }
 
+export function buildCoinListOrderBy(sort?: string) {
+  if (sort === "name") return { name: "asc" as const };
+  return { createdAt: "desc" as const };
+}
+
 export function buildAdminCoinWhere(opts: { service?: string; search?: string }) {
   const where: Record<string, unknown> = { chain: "STARKNET" };
   if (opts.service) where.service = opts.service;
