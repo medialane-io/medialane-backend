@@ -9,7 +9,8 @@ import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { STARKNET_CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
 import { env } from "../../config/env.js";
-import { upsertCoin, readTotalSupply, probeUnruggableInterface } from "../../utils/coin.js";
+import { upsertCoin, resolveCoin } from "../../utils/coin.js";
+import { getCollectionOwner } from "../../chainRead/index.js";
 import { getCoinPrices } from "../../utils/coinPrice.js";
 import { getTokenBySymbol } from "@medialane/sdk";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -58,49 +59,33 @@ coins.post("/sync", async (c) => {
       })
     );
     const isCreatorCoin = verify.length > 0 && BigInt(verify[0] ?? "0x0") !== 0n;
-    const probe = await probeUnruggableInterface(coinAddress);
-    const service = isCreatorCoin
-      ? "creator-coin"
-      : probe.exposesInterface
-        ? "unruggable-erc20"
-        : "external-erc20";
 
-    const [nameRes, symbolRes, decRes] = await Promise.all([
-      callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "name", calldata: [] })),
-      callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "symbol", calldata: [] })),
-      callRpc((p) => p.callContract({ contractAddress: coinAddress, entrypoint: "decimals", calldata: [] })),
-    ]);
-    const name = decodeShortStr(nameRes[0] ?? "0x0");
-    const symbol = decodeShortStr(symbolRes[0] ?? "0x0");
-    const decimals = decRes[0] != null ? Number(BigInt(decRes[0])) : 18;
-
-    if (!name && !symbol) {
-      return c.json({ error: "Address does not expose ERC-20 name or symbol" }, 400);
-    }
-
-    const totalSupply = await readTotalSupply(coinAddress).catch(() => null);
-    if (totalSupply == null) {
-      return c.json({ error: "Address does not expose an ERC-20 total supply" }, 400);
+    const resolved = await resolveCoin(coinAddress, isCreatorCoin);
+    if (!resolved.ok) {
+      return c.json(
+        {
+          error:
+            resolved.reason === "not_erc20"
+              ? "Address does not expose ERC-20 name or symbol"
+              : "Address does not expose an ERC-20 total supply",
+        },
+        400,
+      );
     }
 
     await upsertCoin(prisma, {
       chain: "STARKNET",
       contractAddress: coinAddress,
-      service,
-      name,
-      symbol,
-      decimals,
-      totalSupply,
+      ...resolved.coin,
       creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
-      isLaunched: probe.isLaunched,
       startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
     const coin = await prisma.coin.findUnique({
       where: { chain_contractAddress: { chain: "STARKNET", contractAddress: coinAddress } },
     });
-    log.info({ coinAddress, name, symbol, service }, "Coin synced on demand");
-    return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, service, standard: "ERC20", name, symbol } }, 201);
+    log.info({ coinAddress, service: resolved.coin.service }, "Coin synced on demand");
+    return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, ...resolved.coin, standard: "ERC20" } }, 201);
   } catch (err) {
     log.error({ err, coinAddress }, "coin sync failed");
     return c.json({ error: toErrorMessage(err) }, 500);
@@ -118,6 +103,77 @@ coins.get("/", publicCache(30), async (c) => {
     prisma.coin.count({ where }),
   ]);
   return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total } });
+});
+
+coins.post("/claim", identityAuth, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = z
+    .object({ coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address") })
+    .safeParse(body);
+  if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
+
+  const coinAddress = normalizeAddress("STARKNET", parsed.data.coinAddress);
+  const wallet = c.get("walletAddress") as string;
+
+  let owner: string;
+  try {
+    owner = await getCollectionOwner("STARKNET", coinAddress);
+  } catch {
+    return c.json({ verified: false, reason: "owner_check_failed" });
+  }
+
+  if (owner === normalizeAddress("STARKNET", "0x0") || owner !== wallet) {
+    return c.json({ verified: false, reason: "owner_mismatch" });
+  }
+
+  let isCreatorCoin = false;
+  if (STARKNET_CREATOR_COIN_FACTORY_CONTRACT) {
+    const verify = await callRpc((provider) =>
+      provider.callContract({
+        contractAddress: STARKNET_CREATOR_COIN_FACTORY_CONTRACT,
+        entrypoint: "is_creator_coin",
+        calldata: [coinAddress],
+      }),
+    ).catch(() => [] as string[]);
+    isCreatorCoin = verify.length > 0 && BigInt(verify[0] ?? "0x0") !== 0n;
+  }
+
+  const resolved = await resolveCoin(coinAddress, isCreatorCoin);
+  if (!resolved.ok) return c.json({ verified: false, reason: resolved.reason });
+
+  await upsertCoin(prisma, {
+    chain: "STARKNET",
+    contractAddress: coinAddress,
+    ...resolved.coin,
+    creator: wallet,
+    startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
+  });
+
+  await prisma.collectionClaim.create({
+    data: {
+      contractAddress: coinAddress,
+      chain: "STARKNET",
+      claimantAddress: wallet,
+      status: "AUTO_APPROVED",
+      verificationMethod: "ONCHAIN",
+    },
+  });
+
+  const coin = await prisma.coin.findUnique({
+    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: coinAddress } },
+  });
+  log.info({ coinAddress, wallet, service: resolved.coin.service }, "Coin claimed on chain");
+  return c.json({ verified: true, coin: coin ? serializeCoin(coin) : null });
+});
+
+coins.get("/claims", async (c) => {
+  const status = c.req.query("status") ?? "PENDING";
+  const claims = await prisma.collectionClaim.findMany({
+    where: { status: status as never },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return c.json({ data: claims });
 });
 
 coins.get("/prices", publicCache(30), async (c) => {

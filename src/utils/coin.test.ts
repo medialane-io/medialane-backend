@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { readTotalSupply, upsertCoin, probeUnruggableInterface } from "./coin.js";
+import { readTotalSupply, upsertCoin, probeUnruggableInterface, resolveCoin } from "./coin.js";
 
 describe("readTotalSupply", () => {
   test("reads total_supply and returns it as a decimal string", async () => {
@@ -121,5 +121,66 @@ describe("upsertCoin unruggable service", () => {
       startBlock: 0n,
     });
     expect(calls[0].create.service).toBe("unruggable-erc20");
+  });
+});
+
+describe("resolveCoin", () => {
+  function provider(available: Record<string, string[]>) {
+    return mock(async (fn: (p: unknown) => Promise<string[]>) =>
+      fn({
+        callContract: async ({ entrypoint }: { entrypoint: string }) => {
+          const r = available[entrypoint];
+          if (!r) throw new Error("entrypoint not found");
+          return r;
+        },
+      } as any)
+    );
+  }
+
+  const erc20 = {
+    name: ["0x537461726b50657065"],
+    symbol: ["0x5350455045"],
+    decimals: ["0x12"],
+    total_supply: ["0x3e8", "0x0"],
+  };
+
+  test("classifies a plain ERC-20 as external-erc20", async () => {
+    const callRpc = provider(erc20);
+    const r = await resolveCoin("0xc", false, { callRpc: callRpc as any });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.coin.service).toBe("external-erc20");
+      expect(r.coin.symbol).toBe("SPEPE");
+      expect(r.coin.totalSupply).toBe("1000");
+      expect(r.coin.isLaunched).toBeNull();
+    }
+  });
+
+  test("classifies an unruggable contract and carries its launch state", async () => {
+    const callRpc = provider({ ...erc20, is_launched: ["0x1"], get_team_allocation: ["0x0", "0x0"] });
+    const r = await resolveCoin("0xc", false, { callRpc: callRpc as any });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.coin.service).toBe("unruggable-erc20");
+      expect(r.coin.isLaunched).toBe(true);
+    }
+  });
+
+  test("a factory-recognised coin is a creator-coin regardless of interface", async () => {
+    const callRpc = provider(erc20);
+    const r = await resolveCoin("0xc", true, { callRpc: callRpc as any });
+    if (r.ok) expect(r.coin.service).toBe("creator-coin");
+  });
+
+  test("rejects an address exposing neither name nor symbol", async () => {
+    const callRpc = provider({ total_supply: ["0x1", "0x0"] });
+    const r = await resolveCoin("0xc", false, { callRpc: callRpc as any });
+    expect(r).toEqual({ ok: false, reason: "not_erc20" });
+  });
+
+  test("rejects an address with no readable total supply", async () => {
+    const callRpc = provider({ name: erc20.name, symbol: erc20.symbol, decimals: erc20.decimals });
+    const r = await resolveCoin("0xc", false, { callRpc: callRpc as any });
+    expect(r).toEqual({ ok: false, reason: "no_total_supply" });
   });
 });
