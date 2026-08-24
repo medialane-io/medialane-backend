@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { CallData, PaymasterRpc, uint256, paymaster as paymasterHelpers } from "starknet";
+import { CallData, PaymasterRpc, hash, uint256 } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
@@ -67,11 +67,42 @@ export function disallowedEntrypoint(calls: unknown[]): string | null {
 // same calls it claims to (address + entrypoint + calldata, element-wise) —
 // otherwise the entrypoint allowlist above could be bypassed by building
 // typed data outside our /invoke/build and only touching /invoke/execute.
+//
+// Written by hand rather than reusing starknet.js's own
+// paymaster.assertCallsAreStrictlyEqual: that helper assumes the typed
+// data always has exactly one more call than what was submitted (a trailing
+// fee-payment call), which holds for AVNU's "default" fee mode but not for
+// "sponsored" mode — there's no fee call to pay when Medialane is covering
+// gas, so the counts are equal. Requiring "at least as many, matching
+// positionally" is correct for both and doesn't assume which mode is active.
 export function assertTypedDataMatchesCalls(typedData: unknown, calls: SponsoredCall[]): void {
   const message = (typedData as { message?: Record<string, unknown> } | null)?.message;
   const unsafeCalls = message ? (("calls" in message ? message.calls : message.Calls) as unknown) : undefined;
-  if (!Array.isArray(unsafeCalls)) throw new Error("typedData has no calls");
-  paymasterHelpers.assertCallsAreStrictlyEqual(calls as never, unsafeCalls as never);
+  if (!Array.isArray(unsafeCalls) || unsafeCalls.length < calls.length) {
+    throw new Error(`typedData has ${Array.isArray(unsafeCalls) ? unsafeCalls.length : 0} calls, expected at least ${calls.length}`);
+  }
+
+  calls.forEach((call, i) => {
+    const unsafe = unsafeCalls[i] as Record<string, unknown>;
+    const to = unsafe.To ?? unsafe.to;
+    const selector = unsafe.Selector ?? unsafe.selector;
+    const calldata = (unsafe.Calldata ?? unsafe.calldata) as unknown[];
+
+    if (to === undefined || BigInt(to as string) !== BigInt(call.contractAddress)) {
+      throw new Error(`typedData call ${i}: contract address mismatch`);
+    }
+    if (selector === undefined || BigInt(selector as string) !== BigInt(hash.getSelectorFromName(call.entrypoint))) {
+      throw new Error(`typedData call ${i}: entrypoint mismatch`);
+    }
+    const expectedCalldata = CallData.toCalldata(call.calldata as never);
+    const calldataMatches =
+      Array.isArray(calldata) &&
+      calldata.length === expectedCalldata.length &&
+      calldata.every((v, j) => BigInt(v as string) === BigInt(expectedCalldata[j]!));
+    if (!calldataMatches) {
+      throw new Error(`typedData call ${i}: calldata mismatch`);
+    }
+  });
 }
 
 export interface PaymasterClient {
