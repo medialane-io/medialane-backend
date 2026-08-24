@@ -7,21 +7,32 @@ import type { AppEnv } from "../../types/hono.js";
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
-// Matches what assertCallsAreStrictlyEqual expects: one OutsideCallV2 per
-// submitted call, plus one extra (AVNU appends its own trailing call).
+function outsideCall(c: typeof SPONSORABLE_CALL) {
+  return {
+    To: c.contractAddress,
+    Selector: num.toHex(hash.getSelectorFromName(c.entrypoint)),
+    Calldata: c.calldata,
+  };
+}
+
+// One OutsideCallV2 per submitted call plus a trailing extra — the shape
+// AVNU's "default" (non-sponsored) fee mode uses, with a fee-payment call
+// appended after the caller's own calls.
 function outsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
   return {
     message: {
-      Calls: [
-        ...calls.map((c) => ({
-          To: c.contractAddress,
-          Selector: num.toHex(hash.getSelectorFromName(c.entrypoint)),
-          Calldata: c.calldata,
-        })),
-        { To: "0x0", Selector: "0x0", Calldata: [] },
-      ],
+      Calls: [...calls.map(outsideCall), { To: "0x0", Selector: "0x0", Calldata: [] }],
     },
   };
+}
+
+// Exactly one OutsideCallV2 per submitted call, no trailing extra — the real
+// shape AVNU's "sponsored" fee mode uses (no fee call needed when Medialane
+// pays gas). Regression coverage for the 2026-08-24 incident: the old check
+// (borrowed from starknet.js's own assertCallsAreStrictlyEqual) assumed a
+// trailing call always exists and rejected every real sponsored listing.
+function sponsoredOutsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
+  return { message: { Calls: calls.map(outsideCall) } };
 }
 
 function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
@@ -136,6 +147,22 @@ describe("POST /invoke/execute", () => {
       }),
     });
     expect(res.status).toBe(400);
+  });
+
+  test("accepts sponsored-mode typedData with no trailing fee call (multi-call listing)", async () => {
+    const registerOrder = { contractAddress: "0x2", entrypoint: "register_order", calldata: ["0x4"] };
+    const calls = [SPONSORABLE_CALL, registerOrder];
+    const res = await appWith({}).request("/invoke/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        typedData: sponsoredOutsideExecutionTypedData(calls),
+        signature: ["0x1"],
+        calls,
+      }),
+    });
+    expect(res.status).toBe(200);
   });
 });
 
