@@ -25,6 +25,7 @@ function fixedContractsFor(entrypoint: string): (string | undefined)[] | null {
     case "add_comment":
       return [coords.nftComments];
     case "create_collection":
+    case "transfer_collection_ownership":
       return [coords.collection721];
     case "deploy_collection":
       return [coords.collection1155, coords.ipTicketsFactory, coords.ipClubFactory];
@@ -46,12 +47,28 @@ function fixedContractsFor(entrypoint: string): (string | undefined)[] | null {
 // Per-creator contracts the Medialane factories deployed — the indexer only
 // ever writes a row here after replaying a real deploy event on-chain, so an
 // attacker's own contract can never appear with a non-external service.
-const PLATFORM_COLLECTION_ENTRYPOINTS = new Set(["mint", "mint_edition", "create_ticket", "create_membership"]);
+const PLATFORM_COLLECTION_ENTRYPOINTS = new Set([
+  "mint",
+  "mint_edition",
+  "create_ticket",
+  "create_membership",
+  "claim",
+  "batch_add_to_allowlist",
+  "remove_from_allowlist",
+  "set_allowlist_enabled",
+  "withdraw_payments",
+]);
 
 // Targets a currency the platform recognizes, or any NFT collection the
 // indexer knows about (including externally-minted ones — users can list any
 // NFT they own on the marketplace, not just Medialane-minted ones).
-const TOKEN_OR_COLLECTION_ENTRYPOINTS = new Set(["approve", "set_approval_for_all", "transfer"]);
+const TOKEN_OR_COLLECTION_ENTRYPOINTS = new Set([
+  "approve",
+  "set_approval_for_all",
+  "transfer",
+  "transfer_from",
+  "safe_transfer_from",
+]);
 
 // Exposed so paymaster.allowlist.test.ts can assert every entrypoint added to
 // ALLOWED_PAYMASTER_ENTRYPOINTS also gets an address rule here — otherwise it

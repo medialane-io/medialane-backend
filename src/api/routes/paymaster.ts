@@ -42,6 +42,14 @@ export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
   "create_creator_coin",
   "launch_on_ekubo",
   "add_comment",
+  "claim",
+  "batch_add_to_allowlist",
+  "remove_from_allowlist",
+  "set_allowlist_enabled",
+  "withdraw_payments",
+  "transfer_collection_ownership",
+  "transfer_from",
+  "safe_transfer_from",
 ]);
 
 interface SponsoredCall {
