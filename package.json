@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "dev:worker": "bun run --watch src/worker.ts",
+    "start:worker": "bun run src/worker.ts",
     "typecheck": "tsc --noEmit",
     "postinstall": "bunx prisma generate",
     "db:migrate": "bunx prisma migrate dev",

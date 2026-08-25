@@ -1,8 +1,5 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./api/server.js";
-import { startMirror } from "./mirror/index.js";
-import { registerIngestors, type ChainIngestor } from "./mirror/ingestor.js";
-import { startOrchestrator } from "./orchestrator/index.js";
 import { worker } from "./orchestrator/worker.js";
 import { env } from "./config/env.js";
 import { createLogger } from "./utils/logger.js";
@@ -10,6 +7,11 @@ import prisma from "./db/client.js";
 
 const log = createLogger("main");
 
+// The block indexer (mirror) and the background orchestrator loops (reaper,
+// webhook delivery, rewards recompute, wallet-activity refresh) run in the
+// separate `worker` service (see src/worker.ts) — not here. Splitting them
+// out means a memory spike in continuous, platform-scale background work
+// can no longer take down live user-facing HTTP traffic, and vice versa.
 async function main() {
   log.info({ chain: "STARKNET", port: env.PORT }, "Starting Medialane Backend");
 
@@ -33,21 +35,6 @@ async function main() {
       log.info({ port: info.port }, `HTTP server listening`);
     }
   );
-
-  const starknetIngestor: ChainIngestor = {
-    chain: "STARKNET",
-    start: () =>
-      startMirror().catch((err) => {
-        log.fatal({ err }, "Mirror crashed");
-        process.exit(1);
-      }),
-  };
-  registerIngestors([starknetIngestor]);
-
-  startOrchestrator().catch((err) => {
-    log.fatal({ err }, "Orchestrator crashed");
-    process.exit(1);
-  });
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
