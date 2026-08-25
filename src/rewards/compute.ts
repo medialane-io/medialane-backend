@@ -2,12 +2,14 @@
 
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { normalizeAddress } from "../utils/starknet.js";
 import { createLogger } from "../utils/logger.js";
 import { mintActionForService, creationActionForService } from "./partition.js";
 
 const log = createLogger("rewards:compute");
+
+type Db = PrismaClient | Prisma.TransactionClient;
 
 const ZERO = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -479,6 +481,96 @@ function resolveMultiplier(
   return factor;
 }
 
+// Batched (one groupBy/findMany for all drops) instead of one count+findFirst
+// per drop — the previous loop's cost scaled with total drops ever created.
+export async function computeSoldOutBadges(db: Db): Promise<Set<string>> {
+  const drops = await db.dropClaimConditions.findMany({
+    select: { collectionAddress: true, maxSupply: true },
+  });
+  if (drops.length === 0) return new Set();
+
+  const claimedCounts = await db.transfer.groupBy({
+    by: ["contractAddress"],
+    where: dropClaimTransferFilter(drops.map((d) => d.collectionAddress)),
+    _count: { id: true },
+  });
+  const claimedByContract = new Map(claimedCounts.map((c) => [c.contractAddress, c._count.id]));
+
+  const soldOutContracts = drops
+    .filter((d) => BigInt(claimedByContract.get(d.collectionAddress) ?? 0) >= BigInt(d.maxSupply))
+    .map((d) => d.collectionAddress);
+  if (soldOutContracts.length === 0) return new Set();
+
+  const owners = await db.collection.findMany({
+    where: { contractAddress: { in: soldOutContracts } },
+    select: { owner: true },
+  });
+  return new Set(owners.filter((c) => c.owner).map((c) => normalizeAddress("STARKNET", c.owner!)));
+}
+
+// Batched (one groupBy for token totals, one for holder counts) instead of
+// one count+groupBy per contract — the previous loop's cost scaled with
+// total drop collections ever created.
+export async function computeFullSetBadges(db: Db, contracts: string[]): Promise<Set<string>> {
+  if (contracts.length === 0) return new Set();
+
+  const [totals, holderCounts] = await Promise.all([
+    db.token.groupBy({ by: ["contractAddress"], where: { contractAddress: { in: contracts } }, _count: { id: true } }),
+    db.tokenBalance.groupBy({
+      by: ["owner", "contractAddress"],
+      where: { contractAddress: { in: contracts }, amount: { not: "0" } },
+      _count: { tokenId: true },
+    }),
+  ]);
+  const totalByContract = new Map(totals.map((t) => [t.contractAddress, t._count.id]));
+
+  const result = new Set<string>();
+  for (const h of holderCounts) {
+    const total = totalByContract.get(h.contractAddress) ?? 0;
+    if (total > 0 && h._count.tokenId >= total) result.add(normalizeAddress("STARKNET", h.owner));
+  }
+  return result;
+}
+
+// Batched (one findMany covering every token touched by an old receipt,
+// grouped in memory) instead of one count per receipt — the previous loop's
+// cost scaled with every transfer ever made more than 6 months ago, a set
+// that only ever grows.
+export async function computeDiamondHandsBadges(db: Db, now: () => number = Date.now): Promise<Set<string>> {
+  const sixMonthsAgo = new Date(now() - 180 * 24 * 60 * 60 * 1000);
+  const oldReceipts = await db.transfer.findMany({
+    where: { createdAt: { lt: sixMonthsAgo } },
+    select: { toAddress: true, contractAddress: true, tokenId: true, createdAt: true },
+  });
+  if (oldReceipts.length === 0) return new Set();
+
+  const pairs = [...new Set(oldReceipts.map((r) => `${r.contractAddress}|${r.tokenId}`))].map((key) => {
+    const [contractAddress, tokenId] = key.split("|");
+    return { contractAddress, tokenId };
+  });
+  const allTransfersForTokens = await db.transfer.findMany({
+    where: { OR: pairs },
+    select: { contractAddress: true, tokenId: true, fromAddress: true, createdAt: true },
+  });
+  const transfersByToken = new Map<string, typeof allTransfersForTokens>();
+  for (const t of allTransfersForTokens) {
+    const key = `${t.contractAddress}|${t.tokenId}`;
+    const list = transfersByToken.get(key) ?? [];
+    list.push(t);
+    transfersByToken.set(key, list);
+  }
+
+  const result = new Set<string>();
+  for (const r of oldReceipts) {
+    const key = `${r.contractAddress}|${r.tokenId}`;
+    const sentOnByReceiver = (transfersByToken.get(key) ?? []).some(
+      (t) => t.fromAddress === r.toAddress && t.createdAt > r.createdAt,
+    );
+    if (!sentOnByReceiver) result.add(normalizeAddress("STARKNET", r.toAddress));
+  }
+  return result;
+}
+
 async function computeBadges(
   scoresByAddress: Map<string, { totalXp: number; breakdown: Record<string, number> }>,
   first100: Set<string>,
@@ -514,21 +606,7 @@ async function computeBadges(
     if (row._count.id >= 1) award(addr, "first_drop");
   }
 
-  const drops = await prisma.dropClaimConditions.findMany({
-    select: { collectionAddress: true, maxSupply: true },
-  });
-  for (const drop of drops) {
-    const claimed = await prisma.transfer.count({
-      where: soldOutClaimFilter(drop.collectionAddress),
-    });
-    if (BigInt(claimed) >= BigInt(drop.maxSupply)) {
-      const col = await prisma.collection.findFirst({
-        where: { contractAddress: drop.collectionAddress },
-        select: { owner: true },
-      });
-      if (col?.owner) award(normalizeAddress("STARKNET", col.owner), "sold_out");
-    }
-  }
+  for (const addr of await computeSoldOutBadges(prisma)) award(addr, "sold_out");
 
   const remixedCreators = await prisma.remixOffer.findMany({
     where: { status: { in: ["APPROVED", "COMPLETED", "SELF_MINTED"] } },
@@ -622,35 +700,9 @@ async function computeBadges(
   }
 
   const fullSetContracts = await dropContractAddresses();
-  for (const contract of fullSetContracts) {
-    const totalTokens = await prisma.token.count({ where: { contractAddress: contract } });
-    if (totalTokens === 0) continue;
-    const holders = await prisma.tokenBalance.groupBy({
-      by: ["owner"],
-      where: { contractAddress: contract, amount: { not: "0" } },
-      _count: { tokenId: true },
-    });
-    for (const h of holders) {
-      if (h._count.tokenId >= totalTokens) award(normalizeAddress("STARKNET", h.owner), "full_set");
-    }
-  }
+  for (const addr of await computeFullSetBadges(prisma, fullSetContracts)) award(addr, "full_set");
 
-  const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
-  const oldReceipts = await prisma.transfer.findMany({
-    where: { createdAt: { lt: sixMonthsAgo } },
-    select: { toAddress: true, contractAddress: true, tokenId: true, createdAt: true },
-  });
-  for (const r of oldReceipts) {
-    const sentAfter = await prisma.transfer.count({
-      where: {
-        contractAddress: r.contractAddress,
-        tokenId: r.tokenId,
-        fromAddress: r.toAddress,
-        createdAt: { gt: r.createdAt },
-      },
-    });
-    if (sentAfter === 0) award(normalizeAddress("STARKNET", r.toAddress), "diamond_hands");
-  }
+  for (const addr of await computeDiamondHandsBadges(prisma)) award(addr, "diamond_hands");
 
   const stableFills = await prisma.orderFill.findMany({
     where: {
