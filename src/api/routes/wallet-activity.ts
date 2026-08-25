@@ -25,9 +25,14 @@ export interface WalletActivityRow {
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
 
+// An account's lifetime activity is unbounded and grows with usage, not with
+// concurrent traffic — without a cap this endpoint loads and serializes an
+// ever-growing row set for any address, regardless of how few users are online.
+export const MAX_WALLET_ACTIVITY_ROWS = 200;
+
 export interface WalletActivityDeps {
   getCursor: (chain: Chain, accountAddress: string) => Promise<{ updatedAt: Date } | null>;
-  listActivity: (chain: Chain, accountAddress: string) => Promise<WalletActivityRow[]>;
+  listActivity: (chain: Chain, accountAddress: string, limit: number) => Promise<WalletActivityRow[]>;
   enqueueSync: (chain: Chain, accountAddress: string) => void;
 }
 
@@ -48,7 +53,7 @@ export function createWalletActivityRoutes(deps: WalletActivityDeps): Hono<AppEn
     const isStale = !cursor || Date.now() - cursor.updatedAt.getTime() > STALE_AFTER_MS;
     if (isStale) deps.enqueueSync(chain, address);
 
-    const rows = await deps.listActivity(chain, address);
+    const rows = await deps.listActivity(chain, address, MAX_WALLET_ACTIVITY_ROWS);
     return c.json({ data: rows.map(serializeWalletActivity) });
   });
 
@@ -61,8 +66,8 @@ const productionDeps: WalletActivityDeps = {
       where: { chain_accountAddress: { chain, accountAddress } },
       select: { updatedAt: true },
     }),
-  listActivity: (chain, accountAddress) =>
-    prisma.walletActivity.findMany({ where: { chain, accountAddress }, orderBy: { timestamp: "desc" } }),
+  listActivity: (chain, accountAddress, limit) =>
+    prisma.walletActivity.findMany({ where: { chain, accountAddress }, orderBy: { timestamp: "desc" }, take: limit }),
   enqueueSync: (chain, accountAddress) => worker.enqueue({ type: "WALLET_ACTIVITY_SYNC", chain, accountAddress }),
 };
 
