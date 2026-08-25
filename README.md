@@ -10,13 +10,16 @@ The backend service that powers [Medialane.io](https://medialane.io), a programm
 
 ## Architecture
 
-Three concurrent loops run on startup:
-
 ```
 Starknet RPC ──► Mirror (Indexer) ──► PostgreSQL ◄── Orchestrator (jobs)
                                            │
                                       Hono REST API ◄── dApps / @medialane/sdk
 ```
+
+Mirror + Orchestrator run together in the `src/worker.ts` process (Railway service
+`medialane-worker`); the REST API runs separately in `src/index.ts` (Railway service
+`medialane-backend`) — see **Deployment** below. Locally, run `bun dev` for the API and
+`bun run dev:worker` in a second terminal if you need indexing/background jobs too.
 
 ### Mirror (Indexer)
 Polls the ERC-721 and ERC-1155 marketplace contracts every 6 seconds in batches of 500 blocks. Each tick:
@@ -174,6 +177,11 @@ PATCH  /admin/comments/:id/show                     Set isHidden = false
 
 Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
 
+Backed by Redis (`REDIS_URL`) when set, so the limit is shared correctly across API
+replicas; falls back to in-process memory otherwise (fine for a single replica, but each
+replica then counts independently). Fails **open** on any store error — the rate limiter
+must never be the reason a request fails.
+
 ---
 
 ## Tech Stack
@@ -262,18 +270,27 @@ Optional env vars (all have sensible defaults):
 | `MARKETPLACE_1155_CONTRACT_MAINNET` | current audited address | ERC-1155 marketplace protocol override |
 | `COLLECTION_721_CONTRACT_MAINNET` | current audited address | ERC-721 mint / collection registry override |
 | `COLLECTION_1155_CONTRACT_MAINNET` | current audited address | ERC-1155 mint / collection factory override |
+| `REDIS_URL` | none — falls back to in-process memory | Shared store for API-key rate limiting. Required for correct limits once the API runs more than one replica (each replica's in-memory counter is otherwise independent); a Redis outage fails **open** (requests proceed, a warning is logged) rather than failing the request. |
 
 ### Commands
 
 ```bash
-bun dev                # Watch mode
-bun start              # Production
+bun dev                # Watch mode — REST API only
+bun start              # Production — REST API only
+bun run dev:worker     # Watch mode — mirror indexer + orchestrator loops
+bun run start:worker   # Production — mirror indexer + orchestrator loops
 bun run db:migrate     # Prisma migrate dev
 bun run db:generate    # Regenerate Prisma client
 bun run db:push        # Push schema (no migration file)
 bun run db:studio      # Prisma Studio at localhost:5555
 bun run reset-cursor   # Reset indexer cursor to start block (mirror replays the window)
 ```
+
+The REST API (`src/index.ts`) and the mirror indexer + background orchestrator loops
+(`src/worker.ts` — reaper, webhook delivery, metadata retry, rewards recompute,
+wallet-activity refresh) are two separate entrypoints from the same codebase. Locally you
+typically only need `bun dev`; the worker only matters if you're touching indexing or the
+background loops.
 
 ---
 
@@ -301,13 +318,27 @@ Prisma fields `startTime`, `endTime`, and `createdBlockNumber` are stored as `St
 
 ## Deployment
 
-**Production on Railway**. The `railway.json` start command:
-```
-bunx prisma migrate deploy; bun run src/index.ts
-```
-Migrations run automatically on every deploy. Health check: `GET /health` (60s timeout).
+**Production on Railway, as two services from this one repo:**
 
-After adding or changing environment variables in Railway, **manually trigger a redeploy** to pick them up.
+- **`medialane-backend`** — the REST API. Config-as-code: `railway.json`.
+  ```
+  bun run scripts/pre-migrate.ts; bunx prisma migrate deploy; bun run src/scripts/seed-rewards.ts; bun run src/scripts/seed-pricing.ts; bun run src/scripts/apply-pricing.ts; bun run src/index.ts
+  ```
+  Migrations run automatically on every deploy. Health check: `GET /health` (60s timeout).
+- **`medialane-worker`** — the mirror indexer + background orchestrator loops. Config-as-code:
+  `railway.worker.json`.
+  ```
+  bun run scripts/pre-migrate.ts; bunx prisma migrate deploy; bun run start:worker
+  ```
+  No HTTP server, so no health check path — Railway just monitors the process.
+
+They were split into separate services on 2026-08-25: continuous background work (block
+indexing, rewards recompute, etc.) scales with total platform history, not request volume,
+and sharing one process's memory with live API traffic meant a spike in either could (and
+did) OOM-kill both.
+
+After adding or changing environment variables in Railway, **manually trigger a redeploy** on
+whichever service(s) need them to pick them up.
 
 ---
 
