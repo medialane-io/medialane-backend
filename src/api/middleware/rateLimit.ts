@@ -1,8 +1,11 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { createRedisStore } from "./redisRateLimit.js";
+import { createLogger } from "../../utils/logger.js";
 
 import { env } from "../../config/env.js";
+
+const log = createLogger("middleware:rateLimit");
 
 const PER_MINUTE_LIMIT = 3000;
 const WINDOW_MS = 60_000;
@@ -55,7 +58,18 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
     }
 
     const key = `ratelimit:${apiKey.id}`;
-    const { count, resetAt } = await store.increment(key, WINDOW_MS);
+    let result: { count: number; resetAt: number };
+    try {
+      result = await store.increment(key, WINDOW_MS);
+    } catch (err) {
+      // The rate limiter protects availability — it must never become the
+      // reason a request fails. A Redis hiccup fails open (request proceeds
+      // unlimited for this one call) rather than 500ing all traffic.
+      log.warn({ err }, "Rate limit store unavailable, failing open");
+      await next();
+      return;
+    }
+    const { count, resetAt } = result;
     const remaining = Math.max(0, PER_MINUTE_LIMIT - count);
     const resetSec = Math.ceil(resetAt / 1000);
 
