@@ -1,7 +1,12 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
-import { createWalletActivityRoutes, type WalletActivityDeps, type WalletActivityRow } from "./wallet-activity.js";
+import {
+  createWalletActivityRoutes,
+  MAX_WALLET_ACTIVITY_ROWS,
+  type WalletActivityDeps,
+  type WalletActivityRow,
+} from "./wallet-activity.js";
 
 const ADDRESS = "0x0000000000000000000000000000000000000000000000000000000000000abc";
 const OTHER_ADDRESS = "0x0000000000000000000000000000000000000000000000000000000000000999";
@@ -104,4 +109,19 @@ test("fresh cursor (within 2 minutes) does not enqueue a redundant sync", async 
   const res = await app.request(`/v1/wallet-activity?address=${ADDRESS}`);
   expect(res.status).toBe(200);
   expect(enqueued).toBe(false);
+});
+
+test("caps how much history it asks for — an account's full lifetime activity is unbounded and would otherwise be loaded into memory in one response", async () => {
+  let seenLimit: number | undefined;
+  const deps: WalletActivityDeps = {
+    getCursor: async () => ({ updatedAt: new Date() }),
+    listActivity: async (_chain, _address, limit) => {
+      seenLimit = limit;
+      return [];
+    },
+    enqueueSync: () => {},
+  };
+  const app = makeApp(deps);
+  await app.request(`/v1/wallet-activity?address=${ADDRESS}`);
+  expect(seenLimit).toBe(MAX_WALLET_ACTIVITY_ROWS);
 });

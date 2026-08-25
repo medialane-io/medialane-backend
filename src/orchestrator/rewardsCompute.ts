@@ -3,7 +3,11 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:rewards-compute");
 
-const INTERVAL_MS = Number(process.env.REWARDS_COMPUTE_INTERVAL_MS ?? 86_400_000);
+// Rewards is a full-history recompute (see rewards/compute.ts), so its cost
+// scales with total platform data, not with how often it runs. Badges and XP
+// don't need per-day freshness, so it runs weekly rather than daily.
+export const REWARDS_COMPUTE_INTERVAL_MS = Number(process.env.REWARDS_COMPUTE_INTERVAL_MS ?? 7 * 24 * 60 * 60 * 1000);
+const INTERVAL_MS = REWARDS_COMPUTE_INTERVAL_MS;
 
 const BOOT_DELAY_MS = 120_000;
 
