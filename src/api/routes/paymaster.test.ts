@@ -3,7 +3,15 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import paymaster, { type PaymasterClient } from "./paymaster.js";
+import type { ContractAddressChecker } from "./paymaster-contract-address.js";
 import type { AppEnv } from "../../types/hono.js";
+
+// These tests exercise the paymaster route's own request handling (body
+// validation, entrypoint gating, typed-data matching) with placeholder
+// contract addresses like "0x1" — real address eligibility is covered
+// separately in paymaster-contract-address.test.ts, so the stub here always
+// allows, unless a test overrides it to prove the route is wired to it.
+const ALLOW_ALL_ADDRESSES: ContractAddressChecker = { isEligible: async () => true };
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -48,7 +56,7 @@ function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
     ...client,
   };
   const app = new Hono<AppEnv>();
-  app.route("/", paymaster(() => stub));
+  app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES));
   return app;
 }
 
@@ -90,6 +98,94 @@ describe("POST /invoke/build", () => {
         calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
       }),
     });
+    expect(res.status).toBe(400);
+    expect(calls.length).toBe(0);
+  });
+});
+
+describe("account attribution", () => {
+  test("/invoke/build rejects once the account rate limiter says no, without reaching the paymaster", async () => {
+    const calls: unknown[] = [];
+    const stub: PaymasterClient = {
+      buildTransaction: async (req, opts) => {
+        calls.push({ fn: "build", req, opts });
+        return { typed_data: { message: "td" } } as never;
+      },
+      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
+    };
+    const app = new Hono<AppEnv>();
+    app.route(
+      "/",
+      paymaster(() => stub, ALLOW_ALL_ADDRESSES, { check: () => false }),
+    );
+
+    const res = await app.request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-account-session": "whatever" },
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
+    });
+
+    expect(res.status).toBe(429);
+    expect(calls.length).toBe(0);
+  });
+
+  test("proceeds normally with no x-account-session header at all (wallet-first onboarding has no session yet)", async () => {
+    const res = await appWith({}).request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("contract address eligibility", () => {
+  test("/invoke/build rejects a call the address checker refuses, without reaching the paymaster", async () => {
+    const calls: unknown[] = [];
+    const stub: PaymasterClient = {
+      buildTransaction: async (req, opts) => {
+        calls.push({ fn: "build", req, opts });
+        return { typed_data: { message: "td" } } as never;
+      },
+      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
+    };
+    const app = new Hono<AppEnv>();
+    app.route("/", paymaster(() => stub, { isEligible: async () => false }));
+
+    const res = await app.request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(calls.length).toBe(0);
+  });
+
+  test("/invoke/execute rejects a call the address checker refuses, without reaching the paymaster", async () => {
+    const calls: unknown[] = [];
+    const stub: PaymasterClient = {
+      buildTransaction: async () => ({ typed_data: { message: "td" } }) as never,
+      executeTransaction: async (req, opts) => {
+        calls.push({ fn: "execute", req, opts });
+        return { transaction_hash: "0xtx" } as never;
+      },
+    };
+    const app = new Hono<AppEnv>();
+    app.route("/", paymaster(() => stub, { isEligible: async () => false }));
+
+    const res = await app.request("/invoke/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        signature: ["0x1"],
+        calls: [SPONSORABLE_CALL],
+      }),
+    });
+
     expect(res.status).toBe(400);
     expect(calls.length).toBe(0);
   });

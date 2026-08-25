@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { ALLOWED_PAYMASTER_ENTRYPOINTS } from "./paymaster.js";
+import { hasAddressRule } from "./paymaster-contract-address.js";
 
 const INTENT_DIR = join(import.meta.dir, "../../orchestrator/intent");
 
@@ -32,6 +33,13 @@ describe("paymaster entrypoint allowlist", () => {
     expect(used.size).toBeGreaterThan(0);
 
     const missing = [...used].filter((e) => !ALLOWED_PAYMASTER_ENTRYPOINTS.has(e));
+    expect(missing).toEqual([]);
+  });
+});
+
+describe("paymaster contract address allowlist", () => {
+  test("every sponsorable entrypoint has a target-address rule defined", () => {
+    const missing = [...ALLOWED_PAYMASTER_ENTRYPOINTS].filter((e) => !hasAddressRule(e));
     expect(missing).toEqual([]);
   });
 });

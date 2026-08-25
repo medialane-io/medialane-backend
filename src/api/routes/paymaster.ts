@@ -3,6 +3,9 @@ import { CallData, PaymasterRpc, hash, uint256 } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
+import { createContractAddressChecker, type ContractAddressChecker } from "./paymaster-contract-address.js";
+import { createAccountRateLimiter, type AccountRateLimiter } from "./paymaster-account-attribution.js";
+import prisma from "../../db/client.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:paymaster");
@@ -59,6 +62,25 @@ export function disallowedEntrypoint(calls: unknown[]): string | null {
   for (const call of calls) {
     if (!isSponsoredCall(call)) return "invalid call";
     if (!ALLOWED_PAYMASTER_ENTRYPOINTS.has(call.entrypoint)) return call.entrypoint;
+  }
+  return null;
+}
+
+// Entrypoint allowlisting alone only proves the call *shape* is sponsorable
+// (e.g. "approve") — it says nothing about *which* contract it targets. Since
+// Starknet selectors are just hash(name), anyone can deploy a contract with a
+// function named "approve" or "mint" and ask us to pay its gas. This closes
+// that gap by checking the target address against the registry (for the
+// fixed contracts) or the indexer (for per-creator collections a Medialane
+// factory actually deployed).
+export async function disallowedContractAddress(
+  checker: ContractAddressChecker,
+  calls: SponsoredCall[],
+): Promise<string | null> {
+  for (const call of calls) {
+    if (!(await checker.isEligible(call.entrypoint, call.contractAddress))) {
+      return call.contractAddress;
+    }
   }
   return null;
 }
@@ -157,6 +179,8 @@ function txHashOf(result: unknown): string {
 
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
+  addressChecker: ContractAddressChecker = createContractAddressChecker(prisma),
+  accountRateLimiter: AccountRateLimiter = createAccountRateLimiter(),
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -167,9 +191,16 @@ export default function paymaster(
     if (!body?.userAddress || !body.calls?.length) {
       return c.json({ error: "userAddress and a non-empty calls array are required" }, 400);
     }
+    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+      return c.json({ error: "Too many sponsored requests from this account" }, 429);
+    }
     const disallowed = disallowedEntrypoint(body.calls);
     if (disallowed) {
       return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
+    }
+    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
+    if (disallowedAddress) {
+      return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` }, 400);
     }
     try {
       const prepared = (await clientFactory().buildTransaction(
@@ -191,9 +222,16 @@ export default function paymaster(
     if (!body?.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
       return c.json({ error: "userAddress, typedData, signature, and calls are required" }, 400);
     }
+    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+      return c.json({ error: "Too many sponsored requests from this account" }, 429);
+    }
     const disallowed = disallowedEntrypoint(body.calls);
     if (disallowed) {
       return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
+    }
+    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
+    if (disallowedAddress) {
+      return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` }, 400);
     }
     try {
       assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
@@ -223,6 +261,9 @@ export default function paymaster(
       | null;
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
+    }
+    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+      return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
 
     const strk = getTokenBySymbol("STRK");
@@ -274,6 +315,9 @@ export default function paymaster(
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required" }, 400);
     }
+    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+      return c.json({ error: "Too many sponsored requests from this account" }, 429);
+    }
 
     const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
     const deployment = body.deployment as { class_hash?: string; address?: string } | null;
@@ -284,6 +328,10 @@ export default function paymaster(
     const disallowed = disallowedEntrypoint(body.calls);
     if (disallowed) {
       return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
+    }
+    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
+    if (disallowedAddress) {
+      return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` }, 400);
     }
     try {
       assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
