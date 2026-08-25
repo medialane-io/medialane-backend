@@ -5,9 +5,18 @@ import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
-import type { SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
+import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
 
 const sponsorship = new Hono<AppEnv>();
+
+type Db = PrismaClient | Prisma.TransactionClient;
+
+// An owner's lifetime token holdings are unbounded and grow with usage, not
+// concurrent traffic. Capped higher than similar per-account caps elsewhere
+// (e.g. wallet-activity's 200) because this list feeds an `in` filter for a
+// second query — too low a cap here silently drops real holdings from the
+// result instead of erroring.
+export const MAX_OWNED_TOKEN_LOOKUP = 500;
 
 function serializeOffer(o: SponsorshipOffer) {
   return o;
@@ -28,14 +37,27 @@ function parsePage(c: { req: { query: (k: string) => string | undefined } }) {
   return { page, limit };
 }
 
-async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined) {
+export async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined, db: Db = prisma) {
   if (!ownerRaw) return undefined;
   const owner = normalizeAddress(chain, ownerRaw);
-  const held = await prisma.tokenBalance.findMany({
+  const held = await db.tokenBalance.findMany({
     where: { chain, owner, amount: { not: "0" } },
+    orderBy: { updatedAt: "desc" },
+    take: MAX_OWNED_TOKEN_LOOKUP,
     select: { contractAddress: true, tokenId: true },
   });
   return held.map((t) => ({ contractAddress: t.contractAddress, tokenId: t.tokenId }));
+}
+
+export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db: Db = prisma) {
+  const holder = normalizeAddress(chain, holderRaw);
+  const held = await db.tokenBalance.findMany({
+    where: { chain, owner: holder, amount: { not: "0" } },
+    orderBy: { updatedAt: "desc" },
+    take: MAX_OWNED_TOKEN_LOOKUP,
+    select: { tokenId: true },
+  });
+  return held.map((t) => t.tokenId);
 }
 
 sponsorship.get("/offers", publicCache(15), async (c) => {
@@ -115,12 +137,7 @@ sponsorship.get("/licenses", publicCache(15), async (c) => {
   let tokenIdFilter: { in: string[] } | undefined;
   if (holderRaw) {
     const chain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-    const holder = normalizeAddress(chain, holderRaw);
-    const held = await prisma.tokenBalance.findMany({
-      where: { chain, owner: holder, amount: { not: "0" } },
-      select: { tokenId: true },
-    });
-    tokenIdFilter = { in: held.map((t) => t.tokenId) };
+    tokenIdFilter = { in: await resolveHolderTokenIds(chain, holderRaw) };
   }
 
   const where = {
