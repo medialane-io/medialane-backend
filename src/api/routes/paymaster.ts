@@ -41,6 +41,7 @@ export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
   "reject_proposal",
   "create_creator_coin",
   "launch_on_ekubo",
+  "add_comment",
 ]);
 
 interface SponsoredCall {

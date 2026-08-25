@@ -22,6 +22,8 @@ function fixedContractsFor(entrypoint: string): (string | undefined)[] | null {
       return [coords.creatorCoinFactory];
     case "create_drop":
       return [coords.dropFactory];
+    case "add_comment":
+      return [coords.nftComments];
     case "create_collection":
       return [coords.collection721];
     case "deploy_collection":
