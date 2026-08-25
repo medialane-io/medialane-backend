@@ -35,6 +35,39 @@ describe("isAllowedRpcBody", () => {
     expect(isAllowedRpcBody("not an object")).toBe(false);
     expect(isAllowedRpcBody(null)).toBe(false);
   });
+
+  test("accepts starknet_getEvents within the chunk_size cap", () => {
+    expect(
+      isAllowedRpcBody({
+        jsonrpc: "2.0",
+        method: "starknet_getEvents",
+        params: [{ chunk_size: 100 }],
+        id: 1,
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects starknet_getEvents over the chunk_size cap — an unbounded chunk_size lets one call pull an arbitrarily large payload upstream", () => {
+    expect(
+      isAllowedRpcBody({
+        jsonrpc: "2.0",
+        method: "starknet_getEvents",
+        params: [{ chunk_size: 100_000 }],
+        id: 1,
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects starknet_getEvents with no chunk_size", () => {
+    expect(
+      isAllowedRpcBody({
+        jsonrpc: "2.0",
+        method: "starknet_getEvents",
+        params: [{}],
+        id: 1,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("extractRpcMethod", () => {
