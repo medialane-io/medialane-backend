@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { Prisma, type Chain } from "@prisma/client";
+import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
 import { publicCache } from "../middleware/publicCache.js";
 import { parseSingleChain, chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
@@ -79,13 +79,43 @@ async function batchActivityTokenMeta(
   );
 }
 
-async function loadHiddenContentFilter(): Promise<{
+type Db = PrismaClient | Prisma.TransactionClient;
+
+export interface HiddenContentDeps {
+  db: Db;
+  now: () => number;
+  ttlMs: number;
+}
+
+type HiddenContentFilter = {
   hiddenTokenSet: Set<string>;
   hiddenContractFilter: { notIn: string[] } | undefined;
-}> {
+};
+
+// Moderation actions are rare and don't need per-request freshness — without
+// a cache, this scan runs on every hit to the public activity feed and its
+// cost scales with total hidden content across the platform's lifetime, not
+// with concurrent traffic.
+export const HIDDEN_CONTENT_TTL_MS = 30_000;
+
+let hiddenContentCache: { value: HiddenContentFilter; fetchedAt: number } | null = null;
+
+export function clearHiddenContentCache(): void {
+  hiddenContentCache = null;
+}
+
+export async function loadHiddenContentFilter(
+  deps: HiddenContentDeps = { db: prisma, now: Date.now, ttlMs: HIDDEN_CONTENT_TTL_MS },
+): Promise<HiddenContentFilter> {
+  const now = deps.now();
+  if (hiddenContentCache && now - hiddenContentCache.fetchedAt < deps.ttlMs) {
+    return hiddenContentCache.value;
+  }
+
+  const { db } = deps;
   const [anyHiddenCollection, anyHiddenToken] = await Promise.all([
-    prisma.collection.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
-    prisma.token.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
+    db.collection.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
+    db.token.findFirst({ where: { isHidden: true }, select: { contractAddress: true } }),
   ]);
 
   const hiddenContracts: string[] = [];
@@ -94,10 +124,10 @@ async function loadHiddenContentFilter(): Promise<{
   if (anyHiddenCollection || anyHiddenToken) {
     const [hiddenCols, hiddenToks] = await Promise.all([
       anyHiddenCollection
-        ? prisma.collection.findMany({ where: { isHidden: true }, select: { contractAddress: true } })
+        ? db.collection.findMany({ where: { isHidden: true }, select: { contractAddress: true } })
         : [],
       anyHiddenToken
-        ? prisma.token.findMany({
+        ? db.token.findMany({
             where: { isHidden: true },
             select: { contractAddress: true, tokenId: true },
           })
@@ -107,10 +137,12 @@ async function loadHiddenContentFilter(): Promise<{
     hiddenToks.forEach((t) => hiddenTokenSet.add(`${t.contractAddress}:${t.tokenId}`));
   }
 
-  return {
+  const value: HiddenContentFilter = {
     hiddenTokenSet,
     hiddenContractFilter: hiddenContracts.length > 0 ? { notIn: hiddenContracts } : undefined,
   };
+  hiddenContentCache = { value, fetchedAt: now };
+  return value;
 }
 
 export function buildActivityWhere(params: {
