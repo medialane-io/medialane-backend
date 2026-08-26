@@ -131,7 +131,6 @@ POST /v1/metadata/upload                  Upload JSON to IPFS → ipfs:// URI
 POST /v1/metadata/upload-file             Upload file to IPFS (multipart)
 POST /v1/metadata/upload-directory        Upload a directory of JSON files → ipfs:// base URI
 GET  /v1/metadata/resolve?uri=...         Resolve ipfs://, data:, https://
-GET  /v1/metadata/image/*cid              Stream an IPFS image through the dedicated gateway (authenticated)
 ```
 
 ### Portal (Tenant self-service)
@@ -252,8 +251,7 @@ bun dev
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ALCHEMY_RPC_URL` | Starknet mainnet RPC |
 | `PINATA_JWT` | Pinata JWT for metadata uploads |
-| `PINATA_GATEWAY` | Your account's dedicated gateway domain, from the Pinata dashboard's Gateways tab |
-| `PINATA_GATEWAY_TOKEN` | Gateway Keys access-control token (Pinata dashboard > Access Controls), opening the dedicated gateway to serve any CID |
+| `PINATA_GATEWAY` | Gateway domain used server-side to resolve token/collection metadata JSON during indexing (not for serving images — apps resolve those directly via Pinata's public gateway) |
 | `API_SECRET_KEY` | Min 16 chars, used for admin routes auth |
 | `CORS_ORIGINS` | Comma-separated allowed origins (e.g. `https://medialane.io,https://www.medialane.io`) |
 
