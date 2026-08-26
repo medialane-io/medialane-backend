@@ -6,89 +6,46 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 const EXTERNAL_SERVICES = new Set(["external-erc721", "external-erc1155"]);
 
-// Entrypoints whose target is always one of a small, known set of registry
-// contracts. Anything paymaster-eligible that isn't a per-creator collection
-// (see PLATFORM_COLLECTION_ENTRYPOINTS) or a token/NFT approval
-// (see TOKEN_OR_COLLECTION_ENTRYPOINTS) belongs here.
-function fixedContractsFor(entrypoint: string): (string | undefined)[] | null {
+// Every contract Medialane itself deployed and controls — the whole trust
+// boundary for sponsored gas, independent of which allowed entrypoint is
+// being called on it. Deliberately NOT every address in StarknetCoordinates:
+// that object also holds class hashes (not addresses) and ekuboCore, a
+// third-party contract Medialane doesn't own.
+const PLATFORM_CONTRACT_KEYS = [
+  "marketplace721", "marketplace1155",
+  "collection721", "collection1155",
+  "popFactory", "dropFactory",
+  "nftComments",
+  "creatorCoinFactory",
+  "ipTicketsFactory", "ipClubFactory",
+  "ipSponsorship",
+  "genesisMintLaunch", "genesisMintBR", "genesisMintGlobal",
+] as const;
+
+function platformContracts(): Set<string> {
   const coords = getCoordinates("STARKNET");
-  switch (entrypoint) {
-    case "register_order":
-    case "fulfill_order":
-    case "cancel_order":
-      return [coords.marketplace721, coords.marketplace1155];
-    case "create_creator_coin":
-    case "launch_on_ekubo":
-      return [coords.creatorCoinFactory];
-    case "create_drop":
-      return [coords.dropFactory];
-    case "add_comment":
-      return [coords.nftComments];
-    case "mint_item":
-      return [coords.genesisMintLaunch, coords.genesisMintBR, coords.genesisMintGlobal];
-    case "create_collection":
-    case "transfer_collection_ownership":
-      return [coords.collection721];
-    case "deploy_collection":
-      return [coords.collection1155, coords.ipTicketsFactory, coords.ipClubFactory];
-    case "create_offer":
-    case "set_offer_open":
-    case "place_bid":
-    case "retract_bid":
-    case "accept_bid":
-    case "propose_sponsorship":
-    case "withdraw_proposal":
-    case "accept_proposal":
-    case "reject_proposal":
-      return [coords.ipSponsorship];
-    default:
-      return null;
+  const set = new Set<string>();
+  for (const key of PLATFORM_CONTRACT_KEYS) {
+    const addr = coords[key];
+    if (addr) set.add(normalizeAddress("STARKNET", addr));
   }
+  return set;
 }
 
-// Per-creator contracts the Medialane factories deployed — the indexer only
-// ever writes a row here after replaying a real deploy event on-chain, so an
-// attacker's own contract can never appear with a non-external service.
-const PLATFORM_COLLECTION_ENTRYPOINTS = new Set([
-  "mint",
-  "mint_edition",
-  "create_ticket",
-  "create_membership",
-  "claim",
-  "batch_add_to_allowlist",
-  "remove_from_allowlist",
-  "set_allowlist_enabled",
-  "withdraw_payments",
+// Entrypoints that make sense against any NFT/token a user owns, including
+// ones Medialane didn't mint (e.g. listing someone else's NFT for sale).
+// Everything else is only sponsorable against a contract Medialane actually
+// controls.
+const TOKEN_MOVEMENT_ENTRYPOINTS = new Set([
+  "approve", "set_approval_for_all", "transfer", "transfer_from", "safe_transfer_from",
 ]);
-
-// Targets a currency the platform recognizes, or any NFT collection the
-// indexer knows about (including externally-minted ones — users can list any
-// NFT they own on the marketplace, not just Medialane-minted ones).
-const TOKEN_OR_COLLECTION_ENTRYPOINTS = new Set([
-  "approve",
-  "set_approval_for_all",
-  "transfer",
-  "transfer_from",
-  "safe_transfer_from",
-]);
-
-// Exposed so paymaster.allowlist.test.ts can assert every entrypoint added to
-// ALLOWED_PAYMASTER_ENTRYPOINTS also gets an address rule here — otherwise it
-// silently falls through to "fail closed" (sponsorship quietly breaks) rather
-// than a visible test failure telling whoever added it to classify it above.
-export function hasAddressRule(entrypoint: string): boolean {
-  return (
-    fixedContractsFor(entrypoint) != null ||
-    PLATFORM_COLLECTION_ENTRYPOINTS.has(entrypoint) ||
-    TOKEN_OR_COLLECTION_ENTRYPOINTS.has(entrypoint)
-  );
-}
 
 export interface ContractAddressChecker {
   isEligible(entrypoint: string, contractAddress: string): Promise<boolean>;
 }
 
 export function createContractAddressChecker(db: Db): ContractAddressChecker {
+  const trusted = platformContracts();
   return {
     async isEligible(entrypoint, contractAddress) {
       let normalized: string;
@@ -98,23 +55,13 @@ export function createContractAddressChecker(db: Db): ContractAddressChecker {
         return false;
       }
 
-      const fixed = fixedContractsFor(entrypoint);
-      if (fixed) {
-        return fixed.some((addr) => addr != null && normalizeAddress("STARKNET", addr) === normalized);
-      }
+      if (trusted.has(normalized)) return true;
+      if (getTokenByAddress(normalized)) return true;
 
-      if (PLATFORM_COLLECTION_ENTRYPOINTS.has(entrypoint)) {
-        const service = await resolveServiceForContract(db, "STARKNET", normalized);
-        return service != null && !EXTERNAL_SERVICES.has(service);
-      }
-
-      if (TOKEN_OR_COLLECTION_ENTRYPOINTS.has(entrypoint)) {
-        if (getTokenByAddress(normalized)) return true;
-        const service = await resolveServiceForContract(db, "STARKNET", normalized);
-        return service != null;
-      }
-
-      return false;
+      const service = await resolveServiceForContract(db, "STARKNET", normalized);
+      if (service == null) return false;
+      if (EXTERNAL_SERVICES.has(service)) return TOKEN_MOVEMENT_ENTRYPOINTS.has(entrypoint);
+      return true;
     },
   };
 }

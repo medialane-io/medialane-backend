@@ -18,51 +18,52 @@ function fakeDb(collections: Record<string, string>) {
   } as never;
 }
 
-describe("createContractAddressChecker: fixed-target entrypoints", () => {
-  test("accepts register_order on either marketplace address", async () => {
+describe("createContractAddressChecker: platform contracts (fixed trust)", () => {
+  test("accepts any allowed entrypoint on a Medialane-controlled contract", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
     expect(await checker.isEligible("register_order", coords.marketplace721!)).toBe(true);
     expect(await checker.isEligible("register_order", coords.marketplace1155!)).toBe(true);
+    expect(await checker.isEligible("create_creator_coin", coords.creatorCoinFactory!)).toBe(true);
+    expect(await checker.isEligible("create_collection", coords.collection721!)).toBe(true);
+    // The bug this test guards against: mint targets the same shared
+    // registry contract as create_collection, not a per-creator contract.
+    expect(await checker.isEligible("mint", coords.collection721!)).toBe(true);
   });
 
-  test("rejects register_order on an attacker-controlled contract", async () => {
+  test("rejects a call on an attacker-controlled contract", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
     expect(await checker.isEligible("register_order", "0x999")).toBe(false);
   });
 
-  test("accepts create_creator_coin only on the creator coin factory", async () => {
+  test("does not trust a third-party contract like ekuboCore just because it's in coordinates", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
-    expect(await checker.isEligible("create_creator_coin", coords.creatorCoinFactory!)).toBe(true);
-    expect(await checker.isEligible("create_creator_coin", "0x999")).toBe(false);
+    expect(await checker.isEligible("approve", coords.ekuboCore!)).toBe(false);
   });
 });
 
-describe("createContractAddressChecker: platform-collection entrypoints", () => {
-  test("accepts mint on a collection the indexer knows was deployed by a Medialane factory", async () => {
+describe("createContractAddressChecker: indexed Medialane collections", () => {
+  test("accepts any allowed entrypoint on a collection the indexer knows a Medialane factory deployed", async () => {
     const checker = createContractAddressChecker(fakeDb({ "0x42": "mip-erc721" }));
     expect(await checker.isEligible("mint", "0x42")).toBe(true);
+    expect(await checker.isEligible("claim", "0x42")).toBe(true);
   });
 
-  test("rejects mint on an attacker-deployed contract the indexer has never indexed", async () => {
+  test("rejects a call on a contract the indexer has never indexed", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
     expect(await checker.isEligible("mint", "0x42")).toBe(false);
   });
 
-  test("rejects mint on an external (non-Medialane-factory) collection", async () => {
+  test("restricts an external (non-Medialane-factory) collection to token-movement entrypoints only", async () => {
     const checker = createContractAddressChecker(fakeDb({ "0x42": "external-erc721" }));
+    expect(await checker.isEligible("approve", "0x42")).toBe(true);
     expect(await checker.isEligible("mint", "0x42")).toBe(false);
   });
 });
 
-describe("createContractAddressChecker: token-or-collection entrypoints", () => {
+describe("createContractAddressChecker: token contracts", () => {
   test("accepts approve on a supported currency token", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
     expect(await checker.isEligible("approve", SUPPORTED_TOKENS[0].address)).toBe(true);
-  });
-
-  test("accepts approve on any indexed collection, including external ones", async () => {
-    const checker = createContractAddressChecker(fakeDb({ "0x42": "external-erc721" }));
-    expect(await checker.isEligible("approve", "0x42")).toBe(true);
   });
 
   test("rejects approve on a contract that is neither a supported token nor an indexed collection", async () => {

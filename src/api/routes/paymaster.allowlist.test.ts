@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { ALLOWED_PAYMASTER_ENTRYPOINTS } from "./paymaster.js";
-import { hasAddressRule } from "./paymaster-contract-address.js";
 
 const INTENT_DIR = join(import.meta.dir, "../../orchestrator/intent");
 
@@ -37,9 +36,9 @@ describe("paymaster entrypoint allowlist", () => {
   });
 });
 
-describe("paymaster contract address allowlist", () => {
-  test("every sponsorable entrypoint has a target-address rule defined", () => {
-    const missing = [...ALLOWED_PAYMASTER_ENTRYPOINTS].filter((e) => !hasAddressRule(e));
-    expect(missing).toEqual([]);
-  });
-});
+// The contract-address checker (paymaster-contract-address.ts) now applies
+// the same uniform rule to every entrypoint — trust a fixed platform contract,
+// a recognized token, or an indexed non-external collection — so there's no
+// per-entrypoint address rule left to drift out of sync with the entrypoint
+// list above. See paymaster-contract-address.test.ts for coverage of that
+// rule itself.
