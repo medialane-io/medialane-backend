@@ -148,6 +148,7 @@ model Order {
   @@index([chain, status, nftContract])
   @@index([considerationToken])
   @@index([createdAt])
+  @@index([chain, updatedAt])
   @@index([marketplaceContract])
   @@index([marketplaceService])
 }
@@ -503,6 +504,7 @@ model Transfer {
   @@index([chain, contractAddress, tokenId])
   @@index([chain, toAddress])
   @@index([chain, fromAddress])
+  @@index([chain, blockNumber])
 }
 
 model TokenBalance {
