@@ -16,10 +16,6 @@ export class RedisRateLimitStore implements RateLimitStore {
   private readonly redis: Redis;
 
   constructor(url: string) {
-    // enableOfflineQueue: false means a command issued before the connection
-    // is ready throws immediately instead of silently queuing — connecting
-    // eagerly here (not lazyConnect) means that window is just server boot,
-    // not every request's first-ever call.
     this.redis = new Redis(url, { lazyConnect: false, enableOfflineQueue: false });
     this.redis.on("error", (err: Error) => {
       log.error({ err: err.message }, "Redis error");

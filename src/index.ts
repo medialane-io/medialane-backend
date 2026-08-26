@@ -7,11 +7,6 @@ import prisma from "./db/client.js";
 
 const log = createLogger("main");
 
-// The block indexer (mirror) and the background orchestrator loops (reaper,
-// webhook delivery, rewards recompute, wallet-activity refresh) run in the
-// separate `worker` service (see src/worker.ts) — not here. Splitting them
-// out means a memory spike in continuous, platform-scale background work
-// can no longer take down live user-facing HTTP traffic, and vice versa.
 async function main() {
   log.info({ chain: "STARKNET", port: env.PORT }, "Starting Medialane Backend");
 

@@ -26,8 +26,6 @@ export function createAccountRateLimiter(max: number = 20, store: RateLimitStore
         const { count } = await store.increment(`paymaster-account:${accountId}`, WINDOW_MS);
         return count <= max;
       } catch (err) {
-        // Same rule as apiKeyRateLimit: this throttles abuse, it must never
-        // be the reason a legitimate sponsored request fails.
         log.warn({ err }, "Account rate limit store unavailable, failing open");
         return true;
       }

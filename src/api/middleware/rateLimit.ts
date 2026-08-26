@@ -44,8 +44,6 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-// Exported so other rate limiters (e.g. paymaster-account-attribution) share
-// this one Redis connection instead of each opening their own.
 export const defaultStore: RateLimitStore = env.REDIS_URL
   ? createRedisStore(env.REDIS_URL)
   : new InMemoryRateLimitStore();
@@ -64,9 +62,6 @@ export function apiKeyRateLimit(store: RateLimitStore = defaultStore): Middlewar
     try {
       result = await store.increment(key, WINDOW_MS);
     } catch (err) {
-      // The rate limiter protects availability — it must never become the
-      // reason a request fails. A Redis hiccup fails open (request proceeds
-      // unlimited for this one call) rather than 500ing all traffic.
       log.warn({ err }, "Rate limit store unavailable, failing open");
       await next();
       return;

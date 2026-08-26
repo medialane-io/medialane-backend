@@ -94,8 +94,6 @@ async function phaseWrites() {
   });
   summarize("Write path: /intents/create-collection (build only, no on-chain execute)", results);
 
-  // Re-run through the actual calls once to also exercise paymaster/invoke/build
-  // (still stops short of /execute — no real transaction, no real gas spent).
   const paymasterResults = await runConcurrent(WRITE_COUNT, WRITE_CONCURRENCY, async (i) => {
     const build = await fetch(`${BASE_URL}/intents/create-collection`, {
       method: "POST",
