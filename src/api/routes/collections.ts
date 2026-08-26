@@ -190,8 +190,8 @@ collections.get("/:contract", publicCache(30), async (c) => {
 
 collections.get("/:contract/tokens", publicCache(30), async (c) => {
   const { contract } = c.req.param();
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const sortParam = c.req.query("sort");
   const sort: "recent" | "oldest" | "name" | "price" =
     sortParam === "oldest" || sortParam === "name" || sortParam === "price"

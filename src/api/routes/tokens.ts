@@ -133,8 +133,8 @@ tokens.get("/owned/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const owner = normalizeAddress(chain, address);
 
   const [balanceRows, total] = await Promise.all([
@@ -316,8 +316,8 @@ tokens.get("/:contract/:tokenId/history", async (c) => {
   const { contract, tokenId } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const contractLower = normalizeAddress(chain, contract);
 
   const [transfers, orders, fills] = await Promise.all([

@@ -182,8 +182,8 @@ export function buildActivityWhere(params: {
 }
 
 activities.get("/", publicCache(15), async (c) => {
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const type = c.req.query("type");
 
   const skip = (page - 1) * limit;
@@ -289,8 +289,8 @@ activities.get("/:address", publicCache(15), async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const skip = (page - 1) * limit;
   const addr = normalizeAddress(chain, address);
 

@@ -198,7 +198,7 @@ orders.get("/received/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Number(c.req.query("page") ?? 1);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
   const normalizedAddress = normalizeAddress(chain, address);
   const offset = (page - 1) * limit;
@@ -249,8 +249,8 @@ orders.get("/user/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Number(c.req.query("page") ?? 1);
-  const limit = Number(c.req.query("limit") ?? 20);
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const offererAddr = normalizeAddress(chain, address);
 
   const [data, total] = await Promise.all([
