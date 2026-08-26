@@ -24,6 +24,8 @@ function fixedContractsFor(entrypoint: string): (string | undefined)[] | null {
       return [coords.dropFactory];
     case "add_comment":
       return [coords.nftComments];
+    case "mint_item":
+      return [coords.genesisMintLaunch, coords.genesisMintBR, coords.genesisMintGlobal];
     case "create_collection":
     case "transfer_collection_ownership":
       return [coords.collection721];

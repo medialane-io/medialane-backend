@@ -50,6 +50,7 @@ export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
   "transfer_collection_ownership",
   "transfer_from",
   "safe_transfer_from",
+  "mint_item",
 ]);
 
 interface SponsoredCall {
