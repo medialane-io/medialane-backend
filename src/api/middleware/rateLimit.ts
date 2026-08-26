@@ -44,7 +44,9 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-const defaultStore: RateLimitStore = env.REDIS_URL
+// Exported so other rate limiters (e.g. paymaster-account-attribution) share
+// this one Redis connection instead of each opening their own.
+export const defaultStore: RateLimitStore = env.REDIS_URL
   ? createRedisStore(env.REDIS_URL)
   : new InMemoryRateLimitStore();
 

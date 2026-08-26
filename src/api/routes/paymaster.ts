@@ -200,7 +200,7 @@ export default function paymaster(
     if (!body?.userAddress || !body.calls?.length) {
       return c.json({ error: "userAddress and a non-empty calls array are required" }, 400);
     }
-    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
     const disallowed = disallowedEntrypoint(body.calls);
@@ -231,7 +231,7 @@ export default function paymaster(
     if (!body?.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
       return c.json({ error: "userAddress, typedData, signature, and calls are required" }, 400);
     }
-    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
     const disallowed = disallowedEntrypoint(body.calls);
@@ -271,7 +271,7 @@ export default function paymaster(
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
     }
-    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
 
@@ -324,7 +324,7 @@ export default function paymaster(
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required" }, 400);
     }
-    if (!accountRateLimiter.check(c.req.header("x-account-session"))) {
+    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
 

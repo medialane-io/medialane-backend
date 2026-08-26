@@ -116,7 +116,7 @@ describe("account attribution", () => {
     const app = new Hono<AppEnv>();
     app.route(
       "/",
-      paymaster(() => stub, ALLOW_ALL_ADDRESSES, { check: () => false }),
+      paymaster(() => stub, ALLOW_ALL_ADDRESSES, { check: async () => false }),
     );
 
     const res = await app.request("/invoke/build", {
