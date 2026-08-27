@@ -24,6 +24,7 @@ const KEY_SELECT = {
   id: true,
   prefix: true,
   status: true,
+  appSource: true,
   apiClient: {
     select: {
       id: true,
@@ -58,7 +59,7 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   touchLastUsed(apiKey.id);
 
-  c.set("apiKey", { id: apiKey.id, status: apiKey.status, apiClient: apiKey.apiClient });
+  c.set("apiKey", { id: apiKey.id, status: apiKey.status, appSource: apiKey.appSource, apiClient: apiKey.apiClient });
   c.set("account", apiKey.apiClient.account);
   c.set("apiClient", apiKey.apiClient);
 

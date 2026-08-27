@@ -14,6 +14,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}) {
     checkEmailExists: async () => false,
     createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
     checkAccountCreateRateLimit: async () => true,
+    checkEmailExistsRateLimit: async () => true,
     findAccountIdByEmail: async () => null,
     ...deps,
   };
@@ -265,4 +266,23 @@ test("POST /register-account still succeeds (idempotently) if the email was regi
   expect(res.status).toBe(200);
   const body = await res.json() as { accountToken: string };
   expect(body.accountToken.startsWith("account_session_")).toBe(true);
+});
+
+test("GET /exists returns 429 once the per-IP lookup rate limit is exceeded", async () => {
+  const app = appWith({
+    checkEmailExists: async () => true,
+    checkEmailExistsRateLimit: async () => false,
+  });
+  const res = await app.request("/exists?email=alice@example.com");
+  expect(res.status).toBe(429);
+});
+
+test("GET /exists does not reveal existence when rate limited", async () => {
+  const app = appWith({
+    checkEmailExists: async () => true,
+    checkEmailExistsRateLimit: async () => false,
+  });
+  const res = await app.request("/exists?email=alice@example.com");
+  const body = await res.json() as { exists?: boolean };
+  expect(body.exists).toBeUndefined();
 });

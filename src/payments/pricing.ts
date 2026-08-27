@@ -6,7 +6,7 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("payments:pricing");
 
-const UNMETERED_PREFIXES = ["/v1/portal", "/v1/auth"];
+export const UNMETERED_PREFIXES = ["/v1/portal", "/v1/auth"];
 
 const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string }> = [
   { method: "POST", prefix: "/v1/intents/mint", actionKey: "intent:mint" },

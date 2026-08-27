@@ -9,6 +9,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
 import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFilter.js";
+import { readTokenFromChain } from "./tokens.readThrough.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -262,8 +263,33 @@ tokens.get("/:contract/:tokenId", async (c) => {
     include: { collection: { select: { standard: true } } },
   });
 
+  // Absent from the projection is not absent from the chain. Ask the authority
+  // before declaring the token missing, and adopt it if it is really there.
   if (!token) {
-    return c.json({ error: "Token not found" }, 404);
+    const collection = await prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain, contractAddress } },
+      select: { standard: true },
+    });
+
+    const onChain = await readTokenFromChain(chain, contractAddress, tokenId, collection?.standard ?? null);
+    if (!onChain) {
+      return c.json({ error: "Token not found" }, 404);
+    }
+
+    // Same minimal row the indexer writes, so the metadata path below and the
+    // indexer converge on one record instead of racing to create two.
+    await prisma.token.upsert({
+      where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
+      create: { chain, contractAddress, tokenId, tokenUri: onChain.tokenUri, metadataStatus: "PENDING" },
+      update: {},
+    });
+    log.info({ contractAddress, tokenId }, "read-through: adopted a token the indexer had not reached yet");
+
+    token = await prisma.token.findUnique({
+      where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
+      include: { collection: { select: { standard: true } } },
+    });
+    if (!token) return c.json({ error: "Token not found" }, 404);
   }
 
   if (token.metadataStatus === "PENDING" || token.metadataStatus === "FAILED") {

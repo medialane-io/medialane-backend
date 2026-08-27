@@ -1,4 +1,4 @@
-import { callRpc, normalizeAddress } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import { x402Config } from "../../config/x402.js";
 import type { PaymentRequirement, PaymentScheme, VerifyResult, X402Payload } from "./types.js";
 
@@ -69,11 +69,22 @@ export class StarknetUsdcScheme implements PaymentScheme {
   async verify(payload: X402Payload): Promise<VerifyResult> {
     if (!x402Config.treasury) return { ok: false, reason: "treasury not configured" };
 
+    // proofNonce is derived from this hash and is the only thing stopping the
+    // same on-chain payment being credited twice. Felt hashes have many equal
+    // spellings (case, zero-padding), so the raw caller string must never be
+    // used: canonicalise first, and reject anything that isn't a valid felt.
+    let txHash: string;
+    try {
+      txHash = normalizeHash(payload.txHash);
+    } catch {
+      return { ok: false, reason: "invalid transaction hash" };
+    }
+
     let receipt: StarknetReceipt;
     try {
       receipt = await callRpc((provider) =>
         (provider as { getTransactionReceipt: (h: string) => Promise<StarknetReceipt> }).getTransactionReceipt(
-          payload.txHash,
+          txHash,
         ),
       );
     } catch {
@@ -83,7 +94,7 @@ export class StarknetUsdcScheme implements PaymentScheme {
     return parseUsdcTransfer(receipt, {
       usdc: x402Config.usdcContract,
       treasury: x402Config.treasury,
-      txHash: payload.txHash,
+      txHash,
       nonce: payload.nonce,
     });
   }

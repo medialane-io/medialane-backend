@@ -44,6 +44,7 @@ export interface AuthEmailDeps {
   checkEmailExists: (email: string) => Promise<boolean>;
   createAccountWithEmail: (email: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
   checkAccountCreateRateLimit: (ip: string) => Promise<boolean>;
+  checkEmailExistsRateLimit: (ip: string) => Promise<boolean>;
   findAccountIdByEmail: (email: string) => Promise<string | null>;
 }
 
@@ -100,7 +101,15 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     });
   });
 
+  // Answers "is this address registered?", so without a cap it is an
+  // enumeration oracle for the whole account table — and it is reachable from
+  // the public app proxies. The sign-up form asks once per address a user
+  // types, so a per-IP cap costs real users nothing.
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const allowed = await deps.checkEmailExistsRateLimit(ip);
+    if (!allowed) return c.json({ error: "Too many requests" }, 429);
+
     const { email } = c.req.valid("query");
     const exists = await deps.checkEmailExists(email);
     return c.json({ exists });
@@ -190,6 +199,14 @@ const productionDeps: AuthEmailDeps = {
     const result = await rateLimitStore.increment(`ratelimit:account-create-ip:${ip}`, 60 * 60 * 1000);
     if (result.count > 10) {
       log.warn({ ip }, "account-creation rate limit hit (per-IP)");
+      return false;
+    }
+    return true;
+  },
+  checkEmailExistsRateLimit: async (ip) => {
+    const result = await rateLimitStore.increment(`ratelimit:email-exists-ip:${ip}`, 60 * 60 * 1000);
+    if (result.count > 60) {
+      log.warn({ ip }, "email-existence lookup rate limit hit (per-IP)");
       return false;
     }
     return true;
