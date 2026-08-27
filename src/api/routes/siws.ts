@@ -144,7 +144,11 @@ siws.post("/keys", identityAuth, async (c) => {
 
   const { plaintext, prefix, keyHash } = generateApiKey();
   const key = await prisma.apiKey.create({
-    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session" },
+    // Must be stamped: appScope treats an unscoped key as legacy and lets it
+    // reach every route group, so a mintable unscoped key would be a way to
+    // opt out of scoping entirely. This route only ever issues portal session
+    // keys — the revoke-by-label above is what makes that true.
+    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session", appSource: "MEDIALANE_PORTAL" },
     select: { id: true, prefix: true, label: true },
   });
 
