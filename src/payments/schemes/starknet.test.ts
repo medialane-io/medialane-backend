@@ -7,7 +7,7 @@ const TRANSFER_KEY = "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e
 const USDC = "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb";
 const TREASURY = "0x123";
 const SENDER = "0xabc";
-const params = { usdc: USDC, treasury: TREASURY, txHash: "0xtx", nonce: "n1" };
+const params = { usdc: USDC, treasury: TREASURY, txHash: normalizeHash("0x7ab"), nonce: "n1" };
 
 describe("parseUsdcTransfer", () => {
   test("accepts a finalized USDC transfer to treasury ≥ required", () => {
@@ -22,7 +22,7 @@ describe("parseUsdcTransfer", () => {
     expect(res.ok).toBe(true);
     expect(res.amountAtomic).toBe(1_000_000n);
     expect(res.payer).toBe(normalizeAddress("STARKNET", SENDER));
-    expect(res.proofNonce).toBe("0xtx");
+    expect(String(res.proofNonce)).toBe(String(normalizeHash("0x7ab")));
   });
 
   test("rejects when no transfer to treasury is present", () => {

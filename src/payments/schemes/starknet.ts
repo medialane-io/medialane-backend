@@ -1,4 +1,5 @@
 import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
+import type { CanonicalHash } from "@medialane/sdk";
 import { x402Config } from "../../config/x402.js";
 import type { PaymentRequirement, PaymentScheme, VerifyResult, X402Payload } from "./types.js";
 
@@ -18,7 +19,9 @@ export interface StarknetReceipt {
 
 export function parseUsdcTransfer(
   receipt: StarknetReceipt,
-  params: { usdc: string; treasury: string; txHash: string; nonce: string },
+  // txHash is the proofNonce, so it can only be a canonical hash — the type
+  // makes passing a raw caller-supplied string impossible rather than a review item.
+  params: { usdc: string; treasury: string; txHash: CanonicalHash; nonce: string },
 ): VerifyResult {
   if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
     return { ok: false, reason: "transaction reverted" };
@@ -73,7 +76,7 @@ export class StarknetUsdcScheme implements PaymentScheme {
     // same on-chain payment being credited twice. Felt hashes have many equal
     // spellings (case, zero-padding), so the raw caller string must never be
     // used: canonicalise first, and reject anything that isn't a valid felt.
-    let txHash: string;
+    let txHash: CanonicalHash;
     try {
       txHash = normalizeHash(payload.txHash);
     } catch {

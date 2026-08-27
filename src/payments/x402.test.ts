@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { encodePaymentHeader, decodePaymentHeader, buildPaymentRequired, settlePayment } from "./x402.js";
 import type { CreditInput } from "./credits.js";
+import { normalizeHash } from "../utils/starknet.js";
 
 const scheme = {
   scheme: "starknet-transfer",
@@ -16,7 +17,7 @@ const scheme = {
     description: "x",
     mimeType: "application/json" as const,
   }),
-  verify: async () => ({ ok: true, amountAtomic: 1_000_000n, payer: "0xpayer", proofNonce: "0xtx:n1" }),
+  verify: async () => ({ ok: true, amountAtomic: 1_000_000n, payer: "0xpayer", proofNonce: normalizeHash("0xabc") }),
 };
 
 describe("X-PAYMENT header codec", () => {
@@ -81,7 +82,7 @@ describe("settlePayment", () => {
   });
 
   test("rejects when verify() reports no payer at all", async () => {
-    const noPayerScheme = { ...scheme, verify: async () => ({ ok: true, amountAtomic: 1_000_000n, proofNonce: "0xtx:n1" }) };
+    const noPayerScheme = { ...scheme, verify: async () => ({ ok: true, amountAtomic: 1_000_000n, proofNonce: normalizeHash("0xabc") }) };
     const deps = {
       creditAccount: async () => {},
       mdlnMultiplier: async () => 1.0,
