@@ -39,7 +39,9 @@ describe("normalizeAddress", () => {
 
 describe("normalizeHash", () => {
   test("pads and lowercases like normalizeAddress", () => {
-    expect(normalizeHash("0xABCD")).toBe(
+    // String(): CanonicalHash is branded, so the plain literal on the right is
+    // not assignable to it. The value under test is unchanged.
+    expect(String(normalizeHash("0xABCD"))).toBe(
       "0x000000000000000000000000000000000000000000000000000000000000abcd",
     );
   });

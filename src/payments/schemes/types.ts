@@ -1,3 +1,5 @@
+import type { CanonicalHash } from "@medialane/sdk";
+
 
 
 export interface PaymentRequirement {
@@ -23,7 +25,14 @@ export interface VerifyResult {
   ok: boolean;
   amountAtomic?: bigint;
   payer?: string;
-  proofNonce?: string;
+  /**
+   * Carries the unique constraint that stops one on-chain payment crediting an
+   * account twice, so it must be a canonical hash. Typed as CanonicalHash —
+   * which only normalizeHash can produce — because this field previously held
+   * the caller's raw txHash, and a felt has many equal spellings: one payment
+   * presented three ways yielded three nonces and three credits.
+   */
+  proofNonce?: CanonicalHash;
   reason?: string;
 }
 
