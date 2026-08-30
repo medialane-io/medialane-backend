@@ -38,6 +38,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "GET", prefix: "/v1/tickets", actionKey: "tickets:read-onchain" },
   { method: "GET", prefix: "/v1/club", actionKey: "club:read-onchain" },
   { method: "GET", prefix: "/v1/ipnft", actionKey: "ipnft:read-onchain" },
+  { method: "POST", prefix: "/v1/auth/email/request-code", actionKey: "auth:email-send" },
   { method: "POST", prefix: "/v1/rpc", actionKey: "rpc:call" },
   { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
@@ -93,19 +94,23 @@ const FALLBACK_COST: Record<string, number> = {
   "paymaster:deploy-build": 1,
   "paymaster:deploy-execute": 5,
 
+  "auth:email-send": 2,
   "swap:quote": 1,
   "swap:build": 2,
 };
 
 export function resolveActionKey(method: string, path: string): string | null {
-  if (UNMETERED_PREFIXES.some((p) => path === p || path.startsWith(p + "/"))) {
-    return null;
-  }
+  // An explicit price wins over the blanket exemption. The exemption exists so
+  // signing in still works at a zero balance, not to make a route free that
+  // spends money on our behalf — /v1/auth/email/request-code sends real mail.
   for (const rule of ROUTE_ACTIONS) {
     if (rule.method !== method.toUpperCase()) continue;
     if (path === rule.prefix || path.startsWith(rule.prefix + "/")) {
       return rule.actionKey;
     }
+  }
+  if (UNMETERED_PREFIXES.some((p) => path === p || path.startsWith(p + "/"))) {
+    return null;
   }
   return DEFAULT_ACTION_KEY;
 }
