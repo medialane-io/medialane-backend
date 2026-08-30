@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
-import rpc, { extractRpcMethod, isAllowedRpcBody } from "./rpc.js";
+import rpc, { extractRpcMethod, isAllowedRpcBody, MAX_RPC_BATCH_SIZE } from "./rpc.js";
 import type { AppEnv } from "../../types/hono.js";
 
 describe("isAllowedRpcBody", () => {
@@ -170,4 +170,18 @@ describe("POST /", () => {
 
     expect(JSON.stringify(await res.json())).not.toContain("secret-key");
   });
+});
+
+test("a batch larger than the cap is rejected", () => {
+  const oversized = Array.from({ length: MAX_RPC_BATCH_SIZE + 1 }, () => ({
+    jsonrpc: "2.0", method: "starknet_call", params: [], id: 1,
+  }));
+  expect(isAllowedRpcBody(oversized)).toBe(false);
+});
+
+test("a batch at exactly the cap is still allowed", () => {
+  const atCap = Array.from({ length: MAX_RPC_BATCH_SIZE }, () => ({
+    jsonrpc: "2.0", method: "starknet_call", params: [], id: 1,
+  }));
+  expect(isAllowedRpcBody(atCap)).toBe(true);
 });

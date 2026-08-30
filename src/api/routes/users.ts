@@ -10,6 +10,7 @@ import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { clientIp } from "../../utils/clientIp.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
@@ -150,7 +151,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           verifiedAt: null,
         },
       });
-      const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+      const ip = clientIp(c.req.raw);
       issueVerificationCode(parsed.data.email, ip).catch((err: unknown) => {
         log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
       });
@@ -285,7 +286,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     }),
   ]);
 
-  const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const ip = clientIp(c.req.raw);
   const result = await issueVerificationCode(email, ip);
   if (!result.ok) return c.json({ error: result.error }, 429);
 

@@ -12,6 +12,7 @@ import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateL
 import { createRedisStore } from "../middleware/redisRateLimit.js";
 import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { clientIp } from "../../utils/clientIp.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:auth-email");
@@ -62,7 +63,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
   app.post("/request-code", zValidator("json", requestCodeSchema), async (c) => {
     const { email } = c.req.valid("json");
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const ip = clientIp(c.req.raw);
 
     const result = await issueVerificationCodeWithDeps(deps, email, ip);
     if (!result.ok) return c.json({ error: result.error }, 429);
@@ -106,7 +107,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   // the public app proxies. The sign-up form asks once per address a user
   // types, so a per-IP cap costs real users nothing.
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const ip = clientIp(c.req.raw);
     const allowed = await deps.checkEmailExistsRateLimit(ip);
     if (!allowed) return c.json({ error: "Too many requests" }, 429);
 
@@ -117,12 +118,15 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
   app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
     const { email } = c.req.valid("json");
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const ip = clientIp(c.req.raw);
 
     const allowed = await deps.checkAccountCreateRateLimit(ip);
     if (!allowed) return c.json({ error: "Too many requests" }, 429);
 
-    const { accountId } = await deps.createAccountWithEmail(email);
+    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email);
+    if (alreadyExisted) {
+      return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
+    }
     return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
@@ -164,33 +168,35 @@ const productionDeps: AuthEmailDeps = {
   },
   createAccountWithEmail: async (email) => {
     for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const account = await prisma.account.create({
-          data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
-          select: { id: true },
-        });
-        await prisma.identity.create({
-          data: {
-            accountId: account.id,
-            scheme: IDENTITY_SCHEME.EMAIL,
-            value: email,
-            email,
-            appSource: "MEDIALANE_IO",
-            verifiedAt: null,
-          },
-        });
-        return { accountId: account.id, alreadyExisted: false };
-      } catch (err) {
+      const existing = await prisma.identity.findUnique({
+        where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+        select: { accountId: true },
+      });
+      if (existing) return { accountId: existing.accountId, alreadyExisted: true };
 
+      try {
+        const accountId = await prisma.$transaction(async (tx) => {
+          const account = await tx.account.create({
+            data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
+            select: { id: true },
+          });
+          await tx.identity.create({
+            data: {
+              accountId: account.id,
+              scheme: IDENTITY_SCHEME.EMAIL,
+              value: email,
+              email,
+              appSource: "MEDIALANE_IO",
+              verifiedAt: null,
+            },
+          });
+          return account.id;
+        });
+        return { accountId, alreadyExisted: false };
+      } catch (err) {
         const isUniqueViolation =
           typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
         if (!isUniqueViolation) throw err;
-        const existing = await prisma.identity.findUnique({
-          where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
-          select: { accountId: true },
-        });
-        if (existing) return { accountId: existing.accountId, alreadyExisted: true };
-
       }
     }
     throw new Error("Failed to create account after 3 attempts");
