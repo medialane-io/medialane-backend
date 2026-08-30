@@ -254,18 +254,32 @@ test("POST /register-account is rate-limited per IP", async () => {
   expect(res.status).toBe(429);
 });
 
-test("POST /register-account still succeeds (idempotently) if the email was registered a moment ago by a concurrent request", async () => {
+test("POST /register-account refuses to mint a session for an account that already exists", async () => {
   const app = appWith({
     createAccountWithEmail: async () => ({ accountId: "acc_EXISTING", alreadyExisted: true }),
   });
   const res = await app.request("/register-account", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "alice@example.com" }),
+    body: JSON.stringify({ email: "victim@example.com" }),
   });
-  expect(res.status).toBe(200);
-  const body = await res.json() as { accountToken: string };
-  expect(body.accountToken.startsWith("account_session_")).toBe(true);
+  expect(res.status).toBe(409);
+  const body = await res.json() as { error: string; accountToken?: string };
+  expect(body.error).toBe("ACCOUNT_EXISTS");
+  expect(body.accountToken).toBeUndefined();
+});
+
+test("POST /register-account does not leak whether the existing account was ever verified", async () => {
+  const app = appWith({
+    createAccountWithEmail: async () => ({ accountId: "acc_EXISTING", alreadyExisted: true }),
+  });
+  const res = await app.request("/register-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "victim@example.com" }),
+  });
+  const body = await res.json() as Record<string, unknown>;
+  expect(Object.keys(body).sort()).toEqual(["error", "message"]);
 });
 
 test("GET /exists returns 429 once the per-IP lookup rate limit is exceeded", async () => {

@@ -12,6 +12,7 @@ const REAPER_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const EMAIL_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function runReaper(): Promise<void> {
   const { count: deliveriesDeleted } = await prisma.webhookDelivery.deleteMany({
@@ -52,6 +53,16 @@ export async function runReaper(): Promise<void> {
     where: { expiresAt: { lt: new Date() } },
   });
   if (challengesDeleted > 0) log.info({ count: challengesDeleted }, "Reaper: purged expired claim challenges");
+
+  const { count: noncesDeleted } = await prisma.siwsNonce.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  });
+  if (noncesDeleted > 0) log.info({ count: noncesDeleted }, "Reaper: purged expired SIWS nonces");
+
+  const { count: codesDeleted } = await prisma.emailVerificationCode.deleteMany({
+    where: { createdAt: { lt: new Date(Date.now() - EMAIL_CODE_TTL_MS) } },
+  });
+  if (codesDeleted > 0) log.info({ count: codesDeleted }, "Reaper: purged spent email verification codes");
 }
 
 export async function startReaper(): Promise<void> {

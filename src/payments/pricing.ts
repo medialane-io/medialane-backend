@@ -47,6 +47,8 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/swap/build", actionKey: "swap:build" },
 ];
 
+const BATCH_MULTIPLIED_ACTIONS = new Set(["rpc:call"]);
+
 const SERVICE_AWARE_ACTIONS = new Set(["intent:mint", "intent:create-collection"]);
 const SERVICE_FROM_BODY_ACTIONS = new Set(["intent:create-tier"]);
 
@@ -193,7 +195,14 @@ export async function costForRequest(method: string, path: string, ctx: CostCont
   }
 
   const rules = await getRules();
-  return resolveCost(rules, actionKey, chain, service);
+  const unit = resolveCost(rules, actionKey, chain, service);
+
+  if (unit !== null && ctx.getBody && BATCH_MULTIPLIED_ACTIONS.has(actionKey)) {
+    const body = await ctx.getBody().catch(() => null);
+    if (Array.isArray(body)) return unit * Math.max(1, body.length);
+  }
+
+  return unit;
 }
 
 export async function pricingTable(): Promise<{

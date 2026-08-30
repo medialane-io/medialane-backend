@@ -6,6 +6,7 @@ import { createLogger } from "../../utils/logger.js";
 import { createContractAddressChecker, type ContractAddressChecker } from "./paymaster-contract-address.js";
 import { createAccountRateLimiter, type AccountRateLimiter } from "./paymaster-account-attribution.js";
 import prisma from "../../db/client.js";
+import { clientIp } from "../../utils/clientIp.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:paymaster");
@@ -137,6 +138,13 @@ export function assertTypedDataMatchesCalls(typedData: unknown, calls: Sponsored
   });
 }
 
+function rateLimitAddress(body: unknown): string | undefined {
+  const b = body as { userAddress?: unknown; deployment?: { address?: unknown } } | null;
+  if (typeof b?.userAddress === "string") return b.userAddress;
+  if (typeof b?.deployment?.address === "string") return b.deployment.address;
+  return undefined;
+}
+
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
   executeTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -201,7 +209,7 @@ export default function paymaster(
     if (!body?.userAddress || !body.calls?.length) {
       return c.json({ error: "userAddress and a non-empty calls array are required" }, 400);
     }
-    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
+    if (!(await accountRateLimiter.check({ sessionToken: c.req.header("x-account-session"), address: rateLimitAddress(body), ip: clientIp(c.req.raw) }))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
     const disallowed = disallowedEntrypoint(body.calls);
@@ -234,7 +242,7 @@ export default function paymaster(
     if (!body?.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
       return c.json({ error: "userAddress, typedData, signature, and calls are required" }, 400);
     }
-    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
+    if (!(await accountRateLimiter.check({ sessionToken: c.req.header("x-account-session"), address: rateLimitAddress(body), ip: clientIp(c.req.raw) }))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
     const disallowed = disallowedEntrypoint(body.calls);
@@ -276,7 +284,7 @@ export default function paymaster(
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
     }
-    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
+    if (!(await accountRateLimiter.check({ sessionToken: c.req.header("x-account-session"), address: rateLimitAddress(body), ip: clientIp(c.req.raw) }))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
 
@@ -329,7 +337,7 @@ export default function paymaster(
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required" }, 400);
     }
-    if (!(await accountRateLimiter.check(c.req.header("x-account-session")))) {
+    if (!(await accountRateLimiter.check({ sessionToken: c.req.header("x-account-session"), address: rateLimitAddress(body), ip: clientIp(c.req.raw) }))) {
       return c.json({ error: "Too many sponsored requests from this account" }, 429);
     }
 

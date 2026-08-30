@@ -39,6 +39,8 @@ const RPC_TIMEOUT_MS = 15_000;
 // (raw text, then the parsed object) before forwarding it on.
 const MAX_GET_EVENTS_CHUNK_SIZE = 100;
 
+export const MAX_RPC_BATCH_SIZE = 20;
+
 function isAllowedSingleCall(body: Record<string, unknown>): boolean {
   const method = body.method;
   if (typeof method !== "string" || !ALLOWED_METHODS.has(method)) return false;
@@ -52,7 +54,8 @@ function isAllowedSingleCall(body: Record<string, unknown>): boolean {
 
 export function isAllowedRpcBody(body: unknown): boolean {
   if (Array.isArray(body)) {
-    return body.length > 0 && body.every((item) => isAllowedRpcBody(item));
+    if (body.length === 0 || body.length > MAX_RPC_BATCH_SIZE) return false;
+    return body.every((item) => isAllowedRpcBody(item));
   }
   if (body && typeof body === "object") {
     return isAllowedSingleCall(body as Record<string, unknown>);

@@ -6,25 +6,46 @@ const log = createLogger("routes:paymaster-account-attribution");
 
 const WINDOW_MS = 60_000;
 
-export interface AccountRateLimiter {
-  // Returns false only when a *verified* account has exceeded its own cap.
-  // A missing or invalid session is never a reason to reject — attribution
-  // is additive on top of the existing per-apiClient/per-IP checks, not a
-  // second gate (io's wallet-first onboarding calls these routes before any
-  // account session cookie exists at all).
-  check(sessionToken: string | undefined): Promise<boolean>;
+export interface RateLimitSubject {
+  sessionToken?: string;
+  address?: string;
+  ip?: string;
 }
 
-export function createAccountRateLimiter(max: number = 20, store: RateLimitStore = defaultStore): AccountRateLimiter {
+export interface AccountRateLimiter {
+  // A verified session caps by account. Without one, the wallet whose gas is
+  // being sponsored is the next best key, then the caller's address — so
+  // omitting the session narrows the cap rather than removing it. io's
+  // wallet-first onboarding calls these routes before any session exists,
+  // which is why a missing session cannot be a rejection.
+  check(subject: RateLimitSubject): Promise<boolean>;
+}
+
+export function createAccountRateLimiter(
+  max: number = 20,
+  store: RateLimitStore = defaultStore,
+  unattributedMax: number = 20,
+): AccountRateLimiter {
   return {
-    async check(sessionToken) {
-      if (!sessionToken) return true;
-      const accountId = verifyAccountSessionToken(sessionToken);
-      if (!accountId) return true;
+    async check({ sessionToken, address, ip }) {
+      const accountId = sessionToken ? verifyAccountSessionToken(sessionToken) : null;
+
+      let bucket: string;
+      let limit: number;
+      if (accountId) {
+        bucket = `paymaster-account:${accountId}`;
+        limit = max;
+      } else if (address) {
+        bucket = `paymaster-wallet:${address.toLowerCase()}`;
+        limit = unattributedMax;
+      } else {
+        bucket = `paymaster-ip:${ip ?? "unknown"}`;
+        limit = unattributedMax;
+      }
 
       try {
-        const { count } = await store.increment(`paymaster-account:${accountId}`, WINDOW_MS);
-        return count <= max;
+        const { count } = await store.increment(bucket, WINDOW_MS);
+        return count <= limit;
       } catch (err) {
         log.warn({ err }, "Account rate limit store unavailable, failing open");
         return true;
