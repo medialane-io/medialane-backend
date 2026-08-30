@@ -21,7 +21,7 @@ test("InMemoryRateLimitStore allows requests under the limit", async () => {
   expect(res.headers.get("X-RateLimit-Remaining")).toBe("2999");
 });
 
-test("a store that throws (e.g. Redis unavailable) fails open instead of 500ing", async () => {
+test("a store failing past the fallback allows rather than 500ing, which is the last resort not the norm", async () => {
   const throwingStore: RateLimitStore = {
     async increment() {
       throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
