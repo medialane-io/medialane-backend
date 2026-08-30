@@ -6,6 +6,7 @@ import { debitCredits as defaultDebitCredits, refundCredits as defaultRefundCred
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { createLogger } from "../../utils/logger.js";
+import { severityFor, thresholdCrossed } from "../../payments/balance-warning.js";
 
 const log = createLogger("middleware:meter");
 const SCHEMES = [new StarknetUsdcScheme()];
@@ -63,8 +64,19 @@ export function meter(deps: MeterDeps = {
       );
     }
 
-    c.header("X-Credits-Remaining", String(Math.max(0, apiClient.creditBalance - cost)));
+    const remaining = Math.max(0, apiClient.creditBalance - cost);
+    c.header("X-Credits-Remaining", String(remaining));
     log.debug({ apiClient: apiClient.id, cost, path: c.req.path }, "metered");
+
+    const crossed = thresholdCrossed(apiClient.creditBalance, remaining);
+    if (crossed !== null) {
+      const line = { apiClient: apiClient.id, remaining, threshold: crossed, path: c.req.path };
+      if (severityFor(crossed) === "error") {
+        log.error(line, "Credit balance critical — requests will start returning 402");
+      } else {
+        log.warn(line, "Credit balance falling");
+      }
+    }
 
     try {
       await next();
