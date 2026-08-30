@@ -44,8 +44,23 @@ export class InMemoryRateLimitStore implements RateLimitStore {
   }
 }
 
+export class FallbackRateLimitStore implements RateLimitStore {
+  private readonly local = new InMemoryRateLimitStore();
+
+  constructor(private readonly primary: RateLimitStore) {}
+
+  async increment(key: string, windowMs: number): Promise<{ count: number; resetAt: number }> {
+    try {
+      return await this.primary.increment(key, windowMs);
+    } catch (err) {
+      log.warn({ err }, "Rate limit store unavailable, falling back to per-instance counting");
+      return this.local.increment(key, windowMs);
+    }
+  }
+}
+
 export const defaultStore: RateLimitStore = env.REDIS_URL
-  ? createRedisStore(env.REDIS_URL)
+  ? new FallbackRateLimitStore(createRedisStore(env.REDIS_URL))
   : new InMemoryRateLimitStore();
 
 export function apiKeyRateLimit(store: RateLimitStore = defaultStore): MiddlewareHandler<AppEnv> {
