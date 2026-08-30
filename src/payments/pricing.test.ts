@@ -65,3 +65,22 @@ describe("resolveActionKey", () => {
     expect(resolveActionKey("GET", "/v1/wallet-activity")).toBe("read");
   });
 });
+
+test("sending a verification code is metered, despite living under /v1/auth", () => {
+  expect(resolveActionKey("POST", "/v1/auth/email/request-code")).toBe("auth:email-send");
+});
+
+test("the rest of /v1/auth stays free so sign-in survives a zero balance", () => {
+  expect(resolveActionKey("POST", "/v1/auth/siws/nonce")).toBeNull();
+  expect(resolveActionKey("POST", "/v1/auth/siws/verify")).toBeNull();
+  expect(resolveActionKey("POST", "/v1/auth/email/verify-code")).toBeNull();
+  expect(resolveActionKey("GET", "/v1/auth/email/exists")).toBeNull();
+});
+
+test("the portal stays unmetered", () => {
+  expect(resolveActionKey("GET", "/v1/portal/anything")).toBeNull();
+});
+
+test("a GET to the code path is not accidentally priced as a send", () => {
+  expect(resolveActionKey("GET", "/v1/auth/email/request-code")).toBeNull();
+});

@@ -30,6 +30,12 @@ export const PRICING = [
   //    on a user's behalf gets billed here, same as every other API action.
   { action: "rpc:call", usd: 0.01, note: "Per RPC call an app forwards on a user's behalf" },
 
+  // ── Email (verification codes) ────────────────────────────────────────
+  // Sending mail costs money and, unlike gas or RPC, a burst also costs sender
+  // reputation, which no budget buys back. Priced so the credit balance is a
+  // real ceiling on it; the per-address and per-IP caps still apply on top.
+  { action: "auth:email-send", usd: 0.02, note: "Send one verification code by email" },
+
   // ── AVNU paymaster (gas-sponsored wallet actions, io only) ────────────
   // build only constructs typed data (no gas spent yet); execute is where
   // AVNU actually pays real gas, so it's priced at the write-intent tier.
