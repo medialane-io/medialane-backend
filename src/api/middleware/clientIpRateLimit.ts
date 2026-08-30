@@ -6,7 +6,14 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("middleware:clientIpRateLimit");
 
 const WINDOW_MS = 60_000;
-const PER_CLIENT_LIMIT = 600;
+
+// Deliberately loose, because an address is not a person. Carrier-grade NAT and
+// venue wifi put many real users behind one address, which is exactly the shape
+// of the Rock in Rio traffic this is being tuned for, so a tight cap here reads
+// as an outage to a crowd rather than as protection. Abuse is bounded below
+// this by the per-key limit and, finally, by credits; this only stops one
+// address monopolising the app's whole allowance.
+const PER_CLIENT_LIMIT = 1200;
 
 const TRUSTED_APP_HEADER = "x-medialane-client-ip";
 
