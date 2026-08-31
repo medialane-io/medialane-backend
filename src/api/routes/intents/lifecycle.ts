@@ -27,7 +27,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
     const callerAccountId = c.get("account").id;
-    if (intent.accountId && intent.accountId !== callerAccountId) {
+    if (!intent.accountId || intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -55,7 +55,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
     const callerAccountId = c.get("account").id;
-    if (intent.accountId && intent.accountId !== callerAccountId) {
+    if (!intent.accountId || intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -88,7 +88,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
     const callerAccountId = c.get("account").id;
-    if (intent.accountId && intent.accountId !== callerAccountId) {
+    if (!intent.accountId || intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -135,7 +135,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
     const callerAccountId = c.get("account").id;
-    if (intent.accountId && intent.accountId !== callerAccountId) {
+    if (!intent.accountId || intent.accountId !== callerAccountId) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
