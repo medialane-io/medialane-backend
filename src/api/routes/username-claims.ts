@@ -47,18 +47,20 @@ usernameClaims.post(
 
     const callerAccountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
 
-    if (callerAccountId && (await requiresEmailVerification(callerAccountId))) {
+    if (!callerAccountId) {
+      return c.json({ error: "Register an account before claiming a username." }, 403);
+    }
+
+    if (await requiresEmailVerification(callerAccountId)) {
       return c.json({ error: "Verify your email to claim a username." }, 403);
     }
 
-    if (callerAccountId) {
-      const profile = await prisma.accountProfile.findUnique({
-        where: { accountId: callerAccountId },
-        select: { username: true },
-      });
-      if (profile?.username) {
-        return c.json({ error: "You already have an approved username." }, 409);
-      }
+    const profile = await prisma.accountProfile.findUnique({
+      where: { accountId: callerAccountId },
+      select: { username: true },
+    });
+    if (profile?.username) {
+      return c.json({ error: "You already have an approved username." }, 409);
     }
 
     const pendingFromWallet = await prisma.usernameClaim.findFirst({
