@@ -100,9 +100,6 @@ const FALLBACK_COST: Record<string, number> = {
 };
 
 export function resolveActionKey(method: string, path: string): string | null {
-  // An explicit price wins over the blanket exemption. The exemption exists so
-  // signing in still works at a zero balance, not to make a route free that
-  // spends money on our behalf — /v1/auth/email/request-code sends real mail.
   for (const rule of ROUTE_ACTIONS) {
     if (rule.method !== method.toUpperCase()) continue;
     if (path === rule.prefix || path.startsWith(rule.prefix + "/")) {

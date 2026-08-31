@@ -159,7 +159,6 @@ function defaultClient(): PaymasterClient {
   }) as unknown as PaymasterClient;
 }
 
-
 export interface PaymasterErrorResult {
   status: 422 | 502 | 503;
   message: string;
