@@ -235,7 +235,7 @@ export function serializeOrder(
 export function serializeCreatorProfile(
   profile: {
     username: string | null;
-    displayName: string | null;
+    name: string | null;
     bio: string | null;
     avatarImage: string | null;
     websiteUrl: string | null;
@@ -250,7 +250,7 @@ export function serializeCreatorProfile(
   return {
     walletAddress,
     username: profile.username,
-    displayName: profile.displayName,
+    name: profile.name,
     bio: profile.bio,
     avatarImage: profile.avatarImage,
     websiteUrl: profile.websiteUrl,

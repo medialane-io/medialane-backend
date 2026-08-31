@@ -53,14 +53,14 @@ search.get("/", publicCache(60), async (c) => {
       ORDER BY rank DESC
       LIMIT ${limit}
     `,
-    prisma.$queryRaw<{ walletAddress: string; username: string | null; displayName: string | null; bio: string | null; avatarImage: string | null }[]>`
-      SELECT w.address AS "walletAddress", ap.username, ap."displayName", ap.bio, ap."avatarImage"
+    prisma.$queryRaw<{ walletAddress: string; username: string | null; name: string | null; bio: string | null; avatarImage: string | null }[]>`
+      SELECT w.address AS "walletAddress", ap.username, ap."name", ap.bio, ap."avatarImage"
       FROM "AccountProfile" ap
       JOIN "Identity" w ON w."accountId" = ap."accountId" AND w.scheme = 'wallet' AND w."isPrimary" = true
       WHERE ap.username IS NOT NULL
         AND (
           ap.username ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
-          OR ap."displayName" ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
+          OR ap."name" ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'
         )
       LIMIT ${limit}
     `,

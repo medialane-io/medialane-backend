@@ -54,7 +54,7 @@ describe("serializeCreatorProfile", () => {
     const result = serializeCreatorProfile(
       {
         username: "alice",
-        displayName: "Alice",
+        name: "Alice",
         bio: "hi",
         avatarImage: null,
         websiteUrl: null,
@@ -69,7 +69,7 @@ describe("serializeCreatorProfile", () => {
     expect(result).toEqual({
       walletAddress: "0xwallet",
       username: "alice",
-      displayName: "Alice",
+      name: "Alice",
       bio: "hi",
       avatarImage: null,
       websiteUrl: null,

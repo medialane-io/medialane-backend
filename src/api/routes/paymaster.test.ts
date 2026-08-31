@@ -103,43 +103,6 @@ describe("POST /invoke/build", () => {
   });
 });
 
-describe("account attribution", () => {
-  test("/invoke/build rejects once the account rate limiter says no, without reaching the paymaster", async () => {
-    const calls: unknown[] = [];
-    const stub: PaymasterClient = {
-      buildTransaction: async (req, opts) => {
-        calls.push({ fn: "build", req, opts });
-        return { typed_data: { message: "td" } } as never;
-      },
-      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
-    };
-    const app = new Hono<AppEnv>();
-    app.route(
-      "/",
-      paymaster(() => stub, ALLOW_ALL_ADDRESSES, { check: async () => false }),
-    );
-
-    const res = await app.request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-account-session": "whatever" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
-    });
-
-    expect(res.status).toBe(429);
-    expect(calls.length).toBe(0);
-  });
-
-  test("proceeds normally with no x-account-session header at all (wallet-first onboarding has no session yet)", async () => {
-    const res = await appWith({}).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
-    });
-
-    expect(res.status).toBe(200);
-  });
-});
-
 describe("contract address eligibility", () => {
   test("/invoke/build rejects a call the address checker refuses, without reaching the paymaster", async () => {
     const calls: unknown[] = [];

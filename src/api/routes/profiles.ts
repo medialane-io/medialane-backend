@@ -47,7 +47,7 @@ const collectionProfileSchema = z.object({
 });
 
 const creatorProfileSchema = z.object({
-  displayName: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
   bio: z.string().nullable().optional(),
   avatarImage: z.string().nullable().optional(),
   websiteUrl: urlField,
@@ -200,8 +200,8 @@ profiles.get("/creators", async (c) => {
     username: { not: null as null },
     ...(search ? {
       OR: [
-        { username:    { contains: search, mode: "insensitive" as const } },
-        { displayName: { contains: search, mode: "insensitive" as const } },
+        { username: { contains: search, mode: "insensitive" as const } },
+        { name:     { contains: search, mode: "insensitive" as const } },
       ],
     } : {}),
   };

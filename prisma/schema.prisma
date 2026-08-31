@@ -955,7 +955,7 @@ model AccountProfile {
   id          String   @id @default(cuid())
   accountId   String   @unique
   account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  displayName String?
+  name        String?
   bio         String?
   avatarImage String?
   websiteUrl  String?
