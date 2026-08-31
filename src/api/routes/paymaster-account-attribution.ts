@@ -13,11 +13,6 @@ export interface RateLimitSubject {
 }
 
 export interface AccountRateLimiter {
-  // A verified session caps by account. Without one, the wallet whose gas is
-  // being sponsored is the next best key, then the caller's address — so
-  // omitting the session narrows the cap rather than removing it. io's
-  // wallet-first onboarding calls these routes before any session exists,
-  // which is why a missing session cannot be a rejection.
   check(subject: RateLimitSubject): Promise<boolean>;
 }
 

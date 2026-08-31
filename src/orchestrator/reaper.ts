@@ -14,9 +14,6 @@ const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const EMAIL_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
-// An order past its endTime cannot be filled on chain, so leaving it ACTIVE
-// makes the projection disagree with the only authority there is. endTime 0
-// conventionally means "no expiry" and must never match.
 export function expiredOrderWhere(nowMs: number) {
   return {
     status: "ACTIVE" as const,

@@ -31,7 +31,6 @@ test("the boundary second is not yet expired", () => {
 });
 
 test("the comparison is in seconds, not milliseconds", () => {
-  // A millisecond comparison would treat every realistic endTime as expired.
   expect(expiredOrderWhere(NOW_MS).endTime.lt).toBe(NOW_S);
   expect(matches(expiredOrderWhere(NOW_MS), NOW_S + 1n, "ACTIVE")).toBe(false);
 });

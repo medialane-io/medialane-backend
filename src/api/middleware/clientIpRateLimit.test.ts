@@ -60,15 +60,12 @@ test("an unavailable store allows the request rather than failing the app closed
 });
 
 test("the default cap leaves room for many users behind one NAT address", async () => {
-  // A venue or carrier NAT presents a crowd as a single address. The cap has to
-  // sit above plausible legitimate burst from that crowd, not above one person.
   const { clientIpRateLimit: withDefault } = await import("./clientIpRateLimit.js");
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => { c.set("apiKey", { id: "key_1" } as never); return next(); });
   app.use("*", withDefault(new InMemoryRateLimitStore()));
   app.get("/", (c) => c.json({ ok: true }));
 
-  // 40 concurrent users behind one address, 20 requests each in the window.
   for (let i = 0; i < 800; i++) {
     expect((await app.request("/", withIp("203.0.113.1"))).status).toBe(200);
   }
