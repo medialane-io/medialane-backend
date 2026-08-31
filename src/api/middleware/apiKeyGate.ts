@@ -1,7 +1,6 @@
 import type { MiddlewareHandler, Context, Next } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { apiKeyAuth } from "./apiKeyAuth.js";
-import { appScope } from "./appScope.js";
 import { apiKeyRateLimit } from "./rateLimit.js";
 import { meter } from "./meter.js";
 
@@ -16,4 +15,4 @@ function composeMiddleware(handlers: readonly MiddlewareHandler<AppEnv>[]): Midd
   };
 }
 
-export const apiKeyGate: MiddlewareHandler<AppEnv> = composeMiddleware([apiKeyAuth, appScope, apiKeyRateLimit(), meter()]);
+export const apiKeyGate: MiddlewareHandler<AppEnv> = composeMiddleware([apiKeyAuth, apiKeyRateLimit(), meter()]);
