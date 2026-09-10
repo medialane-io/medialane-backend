@@ -8,7 +8,7 @@ const log = createLogger("payments:pricing");
 
 export const UNMETERED_PREFIXES = ["/v1/portal", "/v1/auth"];
 
-const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string }> = [
+const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string; exact?: boolean }> = [
   { method: "POST", prefix: "/v1/intents/mint", actionKey: "intent:mint" },
   { method: "POST", prefix: "/v1/intents/create-collection", actionKey: "intent:create-collection" },
   { method: "POST", prefix: "/v1/intents/create-tier", actionKey: "intent:create-tier" },
@@ -40,7 +40,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "GET", prefix: "/v1/ipnft", actionKey: "ipnft:read-onchain" },
   { method: "POST", prefix: "/v1/auth/email/request-code", actionKey: "auth:email-send" },
   { method: "POST", prefix: "/v1/rpc", actionKey: "rpc:call" },
-  { method: "POST", prefix: "/v1/business/provisioning", actionKey: "wallet:deploy" },
+  { method: "POST", prefix: "/v1/business/provisioning", actionKey: "wallet:deploy", exact: true },
   { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
   { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
@@ -104,7 +104,7 @@ export const FALLBACK_COST: Record<string, number> = {
 export function resolveActionKey(method: string, path: string): string | null {
   for (const rule of ROUTE_ACTIONS) {
     if (rule.method !== method.toUpperCase()) continue;
-    if (path === rule.prefix || path.startsWith(rule.prefix + "/")) {
+    if (rule.exact ? path === rule.prefix : path === rule.prefix || path.startsWith(rule.prefix + "/")) {
       return rule.actionKey;
     }
   }

@@ -89,8 +89,21 @@ test("provisioning a recipient is charged as a wallet deployment", () => {
   expect(resolveActionKey("POST", "/v1/business/provisioning")).toBe("wallet:deploy");
 });
 
-test("the handoff routes under provisioning are charged the same", () => {
-  expect(resolveActionKey("POST", "/v1/business/provisioning/handoff")).toBe("wallet:deploy");
+test("recording a handoff is not charged as a deployment", () => {
+  expect(resolveActionKey("POST", "/v1/business/provisioning/handoff")).toBe("read");
+});
+
+test("completing a handoff is not charged as a deployment", () => {
+  expect(resolveActionKey("POST", "/v1/business/provisioning/prov_1/complete")).toBe("read");
+});
+
+test("reading the handoff calls is not charged as a deployment", () => {
+  expect(resolveActionKey("GET", "/v1/business/provisioning/prov_1/handoff-calls")).toBe("read");
+});
+
+test("prefix rules elsewhere still match their sub-paths", () => {
+  expect(resolveActionKey("POST", "/v1/intents/mint")).toBe("intent:mint");
+  expect(resolveActionKey("POST", "/v1/intents/mint/anything")).toBe("intent:mint");
 });
 
 test("reading provisioning is not charged as a deployment", () => {
