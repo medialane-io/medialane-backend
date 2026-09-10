@@ -21,9 +21,12 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
     isAccountOwner: async () => true,
     deriveWalletAddress: () => "0x111",
     findAccountWallet: async () => null,
-    getProvisioningByWallet: async (_chain, walletAddress, apiClientId) =>
+    getProvisioningByRecipient: async ({ recipientScheme, recipientValue, apiClientId }) =>
       [...store.values()].find(
-        (r) => r.walletAddress === walletAddress && r.apiClientId === apiClientId,
+        (r) =>
+          r.recipientScheme === recipientScheme &&
+          r.recipientValue === recipientValue &&
+          r.apiClientId === apiClientId,
       ) ?? null,
     deployWallet: async () => "0xdeploytx",
     ensureRecipientAccount: async (_scheme, value) => `acct-for-${value}`,
@@ -262,7 +265,8 @@ describe("POST /v1/business/provisioning/handoff", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        walletAddress: "0x111",
+        recipientScheme: "email",
+        recipientValue: "student@example.com",
         newOwnerPubkey: "0xabc",
       }),
     });
@@ -281,7 +285,7 @@ describe("POST /v1/business/provisioning/handoff", () => {
     const res = await app.request("/v1/business/provisioning/handoff", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress: "0x111" }),
+      body: JSON.stringify({ recipientScheme: "email", recipientValue: "student@example.com" }),
     });
 
     expect(res.status).toBe(400);
@@ -307,7 +311,29 @@ describe("POST /v1/business/provisioning/handoff", () => {
     const res = await attacker.request("/v1/business/provisioning/handoff", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress: "0x111", newOwnerPubkey: "0xbad0" }),
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "victim@example.com",
+        newOwnerPubkey: "0xbad0",
+      }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  test("a mismatched recipient finds nothing rather than the wrong wallet", async () => {
+    const deps = fakeDeps();
+    const app = makeApp(deps);
+    await register(app);
+
+    const res = await app.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "someone-else@example.com",
+        newOwnerPubkey: "0xabc",
+      }),
     });
 
     expect(res.status).toBe(404);
@@ -319,7 +345,8 @@ describe("POST /v1/business/provisioning/handoff", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        walletAddress: "0x999",
+        recipientScheme: "email",
+        recipientValue: "never@example.com",
         newOwnerPubkey: "0xabc",
       }),
     });
@@ -348,7 +375,11 @@ describe("GET /v1/business/provisioning/:id/handoff-calls", () => {
     await app.request("/v1/business/provisioning/handoff", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress: "0x111", newOwnerPubkey: "0xabc" }),
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "someone@example.com",
+        newOwnerPubkey: "0xabc",
+      }),
     });
 
     const res = await app.request(`/v1/business/provisioning/${record.id}/handoff-calls`);

@@ -39,14 +39,20 @@ export interface BusinessProvisioningDeps {
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markTransferred: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
-  getProvisioningByWallet: (chain: Chain, walletAddress: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
+  getProvisioningByRecipient: (input: {
+    chain: Chain;
+    recipientScheme: string;
+    recipientValue: string;
+    apiClientId: string;
+  }) => Promise<ProvisioningRecord | null>;
 }
 
 const FELT = /^0x[0-9a-fA-F]{1,64}$/;
 
 const handoffSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
-  walletAddress: z.string(),
+  recipientScheme: z.string().min(1),
+  recipientValue: z.string().min(1),
   newOwnerPubkey: z.string().regex(FELT),
 });
 
@@ -124,11 +130,15 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   });
 
   app.post("/handoff", zValidator("json", handoffSchema), async (c) => {
-    const { chain, walletAddress, newOwnerPubkey } = c.req.valid("json");
+    const { chain, recipientScheme, recipientValue, newOwnerPubkey } = c.req.valid("json");
     const apiClient = c.get("apiClient");
-    const normWallet = normalizeAddress(chain, walletAddress);
 
-    const record = await deps.getProvisioningByWallet(chain, normWallet, apiClient.id);
+    const record = await deps.getProvisioningByRecipient({
+      chain,
+      recipientScheme,
+      recipientValue,
+      apiClientId: apiClient.id,
+    });
     if (!record) return c.json({ error: "not_found" }, 404);
     if (record.status === "TRANSFERRED") return c.json({ error: "already_transferred" }, 409);
 
@@ -223,9 +233,9 @@ const productionDeps: BusinessProvisioningDeps = {
         data: { newOwnerPubkey, status: "HANDOFF" },
       }),
     ),
-  getProvisioningByWallet: async (chain, walletAddress, apiClientId) => {
+  getProvisioningByRecipient: async ({ chain, recipientScheme, recipientValue, apiClientId }) => {
     const row = await prisma.businessProvisioning.findFirst({
-      where: { chain, walletAddress, apiClientId },
+      where: { chain, recipientScheme, recipientValue, apiClientId },
     });
     return row ? assertLinked(row) : null;
   },
