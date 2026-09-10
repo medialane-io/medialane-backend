@@ -1,8 +1,40 @@
-import { test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
+import type { AppEnv } from "../../types/hono.js";
 import type { MiddlewareHandler } from "hono";
-import { composeMiddleware } from "./apiKeyGate.js";
+import { apiKeyGate, composeMiddleware } from "./apiKeyGate.js";
 
+describe("apiKeyGate — no path is exempt", () => {
+  const previouslyExemptPaths: Array<{ method: "GET" | "POST"; path: string }> = [
+    { method: "GET", path: "/v1/business/provisioning/claim/tok_1" },
+    { method: "POST", path: "/v1/business/provisioning/claim/tok_1" },
+    { method: "GET", path: "/v1/users/me" },
+    { method: "POST", path: "/v1/users/me" },
+    { method: "GET", path: "/v1/auth/siws/nonce" },
+    { method: "GET", path: "/v1/username-claims/check/foo" },
+    { method: "GET", path: "/v1/collection-slug-claims/check/foo" },
+  ];
+
+  for (const { method, path } of previouslyExemptPaths) {
+    test(`${method} ${path} requires a key`, async () => {
+      const app = new Hono<AppEnv>();
+      app.use("/v1/*", apiKeyGate);
+      app[method === "GET" ? "get" : "post"](path, (c) => c.json({ ok: true }));
+      const res = await app.request(path, { method });
+      expect(res.status).toBe(401);
+    });
+  }
+
+  test("an arbitrary unmapped /v1/* path also requires a key", async () => {
+    const app = new Hono<AppEnv>();
+    app.use("/v1/*", apiKeyGate);
+    app.get("/v1/whatever-shows-up-next", (c) => c.json({ ok: true }));
+    const res = await app.request("/v1/whatever-shows-up-next");
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("apiKeyGate — a blocked request keeps its status", () => {
 const passthrough: MiddlewareHandler = async (_c, next) => { await next(); };
 const respondsWith = (status: 401 | 402 | 429): MiddlewareHandler =>
   async (c) => c.json({ error: "blocked" }, status);
@@ -55,4 +87,5 @@ test("middleware after the handler still observes the response", async () => {
 test("an empty gate still reaches the handler", async () => {
   const res = await app([]).request("/v1/thing");
   expect(res.status).toBe(200);
+});
 });
