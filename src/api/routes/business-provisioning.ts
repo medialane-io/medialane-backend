@@ -39,7 +39,7 @@ export interface BusinessProvisioningDeps {
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markTransferred: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
-  getProvisioningByWallet: (chain: Chain, walletAddress: string) => Promise<ProvisioningRecord | null>;
+  getProvisioningByWallet: (chain: Chain, walletAddress: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
 }
 
 const FELT = /^0x[0-9a-fA-F]{1,64}$/;
@@ -122,9 +122,10 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
   app.post("/handoff", zValidator("json", handoffSchema), async (c) => {
     const { chain, walletAddress, newOwnerPubkey } = c.req.valid("json");
+    const apiClient = c.get("apiClient");
     const normWallet = normalizeAddress(chain, walletAddress);
 
-    const record = await deps.getProvisioningByWallet(chain, normWallet);
+    const record = await deps.getProvisioningByWallet(chain, normWallet, apiClient.id);
     if (!record) return c.json({ error: "not_found" }, 404);
     if (record.status === "TRANSFERRED") return c.json({ error: "already_transferred" }, 409);
 
@@ -219,9 +220,9 @@ const productionDeps: BusinessProvisioningDeps = {
         data: { newOwnerPubkey, status: "HANDOFF" },
       }),
     ),
-  getProvisioningByWallet: async (chain, walletAddress) => {
-    const row = await prisma.businessProvisioning.findUnique({
-      where: { chain_walletAddress: { chain, walletAddress } },
+  getProvisioningByWallet: async (chain, walletAddress, apiClientId) => {
+    const row = await prisma.businessProvisioning.findFirst({
+      where: { chain, walletAddress, apiClientId },
     });
     return row ? assertLinked(row) : null;
   },

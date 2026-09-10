@@ -21,8 +21,10 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
     isAccountOwner: async () => true,
     deriveWalletAddress: () => "0x111",
     findAccountWallet: async () => null,
-    getProvisioningByWallet: async (_chain, walletAddress) =>
-      [...store.values()].find((r) => r.walletAddress === walletAddress) ?? null,
+    getProvisioningByWallet: async (_chain, walletAddress, apiClientId) =>
+      [...store.values()].find(
+        (r) => r.walletAddress === walletAddress && r.apiClientId === apiClientId,
+      ) ?? null,
     deployWallet: async () => "0xdeploytx",
     ensureRecipientAccount: async (_scheme, value) => `acct-for-${value}`,
     linkWalletToAccount: async () => {},
@@ -275,6 +277,31 @@ describe("POST /v1/business/provisioning/handoff", () => {
     });
 
     expect(res.status).toBe(400);
+  });
+
+  test("another business cannot hand off a wallet it did not provision", async () => {
+    const deps = fakeDeps();
+    const owner = makeApp(deps, "biz-1");
+    const attacker = makeApp(deps, "biz-2");
+
+    await owner.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "victim@example.com",
+        interimOwnerPubkey: "0x222",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+
+    const res = await attacker.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walletAddress: "0x111", newOwnerPubkey: "0xbad0" }),
+    });
+
+    expect(res.status).toBe(404);
   });
 
   test("404s for a wallet that was never provisioned", async () => {
