@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseUsdcTransfer, type StarknetReceipt } from "./starknet.js";
+import { parseTokenTransfer, type StarknetReceipt } from "./starknet.js";
 import { normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 
 const TRANSFER_KEY = "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9";
@@ -9,7 +9,7 @@ const TREASURY = "0x123";
 const SENDER = "0xabc";
 const params = { usdc: USDC, treasury: TREASURY, txHash: normalizeHash("0x7ab"), nonce: "n1" };
 
-describe("parseUsdcTransfer", () => {
+describe("parseTokenTransfer", () => {
   test("accepts a finalized USDC transfer to treasury ≥ required", () => {
     const receipt: StarknetReceipt = {
       execution_status: "SUCCEEDED",
@@ -18,7 +18,7 @@ describe("parseUsdcTransfer", () => {
         { from_address: USDC, keys: [TRANSFER_KEY, SENDER, TREASURY], data: ["0xf4240", "0x0"] },
       ],
     };
-    const res = parseUsdcTransfer(receipt, params);
+    const res = parseTokenTransfer(receipt, params);
     expect(res.ok).toBe(true);
     expect(res.amountAtomic).toBe(1_000_000n);
     expect(res.payer).toBe(normalizeAddress("STARKNET", SENDER));
@@ -27,12 +27,12 @@ describe("parseUsdcTransfer", () => {
 
   test("rejects when no transfer to treasury is present", () => {
     const receipt: StarknetReceipt = { execution_status: "SUCCEEDED", events: [] };
-    expect(parseUsdcTransfer(receipt, params).ok).toBe(false);
+    expect(parseTokenTransfer(receipt, params).ok).toBe(false);
   });
 
   test("rejects a reverted tx", () => {
     const receipt: StarknetReceipt = { execution_status: "REVERTED", events: [] };
-    expect(parseUsdcTransfer(receipt, params).ok).toBe(false);
+    expect(parseTokenTransfer(receipt, params).ok).toBe(false);
   });
 
   test("ignores a transfer to a different recipient", () => {
@@ -40,7 +40,7 @@ describe("parseUsdcTransfer", () => {
       execution_status: "SUCCEEDED",
       events: [{ from_address: USDC, keys: [TRANSFER_KEY, SENDER, "0x9999"], data: ["0xf4240", "0x0"] }],
     };
-    expect(parseUsdcTransfer(receipt, params).ok).toBe(false);
+    expect(parseTokenTransfer(receipt, params).ok).toBe(false);
   });
 });
 
@@ -62,7 +62,7 @@ describe("StarknetUsdcScheme.verify — replay safety", () => {
     ];
 
     const nonces = spellings.map(
-      (txHash) => parseUsdcTransfer(receipt, { ...params, txHash: normalizeHash(txHash) }).proofNonce,
+      (txHash) => parseTokenTransfer(receipt, { ...params, txHash: normalizeHash(txHash) }).proofNonce,
     );
 
     expect(new Set(nonces).size).toBe(1);

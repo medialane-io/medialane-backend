@@ -3,6 +3,8 @@ import { x402Config } from "../config/x402.js";
 import { creditAccount as defaultCreditAccount } from "./credits.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "./mdln.js";
 import { isWalletLinkedToAccount as defaultIsWalletLinkedToAccount } from "../utils/account.js";
+import { readUsdPrices as defaultReadUsdPrices } from "../utils/usdPrices.js";
+import { tokenByAddress, usdcEquivalentAtomic } from "./token-value.js";
 import type { CreditInput } from "./credits.js";
 import type { PaymentRequirement, PaymentScheme, X402Payload } from "./schemes/types.js";
 
@@ -10,6 +12,7 @@ export interface SettleDeps {
   creditAccount: (input: CreditInput) => Promise<void>;
   mdlnMultiplier: (address: string) => Promise<number>;
   isWalletLinkedToAccount: typeof defaultIsWalletLinkedToAccount;
+  readUsdPrices: typeof defaultReadUsdPrices;
 }
 
 export interface PaymentRequiredBody {
@@ -75,6 +78,7 @@ export async function settlePayment(
     creditAccount: defaultCreditAccount,
     mdlnMultiplier: defaultMdlnMultiplier,
     isWalletLinkedToAccount: defaultIsWalletLinkedToAccount,
+    readUsdPrices: defaultReadUsdPrices,
   },
 ): Promise<SettleResult> {
   const v = await scheme.verify(payload);
@@ -89,7 +93,12 @@ export async function settlePayment(
     };
   }
 
-  const baseCredits = Number(v.amountAtomic / x402Config.usdcAtomicPerCredit);
+  const valued = await usdcEquivalentOf(v.asset, v.amountAtomic, deps.readUsdPrices);
+  if (valued === null) {
+    return { ok: false, reason: "could not price that token right now — try again shortly" };
+  }
+
+  const baseCredits = Number(valued / x402Config.usdcAtomicPerCredit);
 
   const multiplier = v.payer ? await deps.mdlnMultiplier(v.payer) : 1.0;
   const creditedAmount = Math.floor(baseCredits * multiplier);
@@ -98,7 +107,7 @@ export async function settlePayment(
     await deps.creditAccount({
       apiClientId: apiClient.id,
       accountId: apiClient.accountId,
-      amountAtomic: v.amountAtomic,
+      amountAtomic: valued,
       creditedAmount,
       mdlnMultiplier: multiplier,
       scheme: scheme.scheme,
@@ -114,4 +123,20 @@ export async function settlePayment(
     throw err;
   }
   return { ok: true, creditedAmount };
+}
+
+async function usdcEquivalentOf(
+  asset: string | undefined,
+  amountAtomic: bigint,
+  readUsdPrices: typeof defaultReadUsdPrices,
+): Promise<bigint | null> {
+  if (!asset) return null;
+  const token = tokenByAddress(asset);
+  if (!token) return null;
+
+  const prices = await readUsdPrices();
+  const price = prices?.[token.symbol as keyof typeof prices];
+  if (price === undefined) return null;
+
+  return usdcEquivalentAtomic(amountAtomic, token.decimals, price);
 }

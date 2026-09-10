@@ -1,4 +1,5 @@
 import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
+import { tokenByAddress } from "../token-value.js";
 import type { CanonicalHash } from "@medialane/sdk";
 import { x402Config } from "../../config/x402.js";
 import type { PaymentRequirement, PaymentScheme, VerifyResult, X402Payload } from "./types.js";
@@ -17,10 +18,10 @@ export interface StarknetReceipt {
   events?: Array<{ from_address: string; keys: string[]; data: string[] }>;
 }
 
-export function parseUsdcTransfer(
+export function parseTokenTransfer(
   receipt: StarknetReceipt,
 
-  params: { usdc: string; treasury: string; txHash: CanonicalHash; nonce: string },
+  params: { treasury: string; txHash: CanonicalHash; nonce: string },
 ): VerifyResult {
   if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
     return { ok: false, reason: "transaction reverted" };
@@ -29,11 +30,11 @@ export function parseUsdcTransfer(
   if (receipt.finality_status && !FINALIZED_STATUSES.has(receipt.finality_status)) {
     return { ok: false, reason: "transaction not yet finalized" };
   }
-  const usdc = normalizeAddress("STARKNET", params.usdc);
   const treasury = normalizeAddress("STARKNET", params.treasury);
   for (const ev of receipt.events ?? []) {
-    if (normalizeAddress("STARKNET", ev.from_address) !== usdc) continue;
     if (ev.keys[0] !== TRANSFER_KEY) continue;
+    const token = tokenByAddress(ev.from_address);
+    if (!token) continue;
 
     const from = ev.keys[1];
     const to = ev.keys[2];
@@ -42,12 +43,13 @@ export function parseUsdcTransfer(
     return {
       ok: true,
       amountAtomic: amount,
+      asset: normalizeAddress("STARKNET", token.address),
       payer: from ? normalizeAddress("STARKNET", from) : undefined,
 
       proofNonce: params.txHash,
     };
   }
-  return { ok: false, reason: "no USDC transfer to treasury found" };
+  return { ok: false, reason: "no accepted token transfer to treasury found" };
 }
 
 export class StarknetUsdcScheme implements PaymentScheme {
@@ -89,8 +91,7 @@ export class StarknetUsdcScheme implements PaymentScheme {
       return { ok: false, reason: "could not fetch receipt" };
     }
 
-    return parseUsdcTransfer(receipt, {
-      usdc: x402Config.usdcContract,
+    return parseTokenTransfer(receipt, {
       treasury: x402Config.treasury,
       txHash,
       nonce: payload.nonce,

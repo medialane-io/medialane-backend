@@ -22,6 +22,7 @@ export interface X402Payload {
 export interface VerifyResult {
   ok: boolean;
   amountAtomic?: bigint;
+  asset?: string;
   payer?: string;
 
   proofNonce?: CanonicalHash;
