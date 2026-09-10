@@ -6,7 +6,6 @@ import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
-import { generateAccountPublicId } from "../../utils/account.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateLimit.js";
 import { createRedisStore } from "../middleware/redisRateLimit.js";
@@ -14,6 +13,7 @@ import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { clientIp } from "../../utils/clientIp.js";
 import type { AppEnv } from "../../types/hono.js";
+import { ensureAccountForIdentity } from "../../utils/account.js";
 
 const log = createLogger("routes:auth-email");
 
@@ -163,39 +163,12 @@ const productionDeps: AuthEmailDeps = {
     return identity !== null;
   },
   createAccountWithEmail: async (email) => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const existing = await prisma.identity.findUnique({
-        where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
-        select: { accountId: true },
-      });
-      if (existing) return { accountId: existing.accountId, alreadyExisted: true };
-
-      try {
-        const accountId = await prisma.$transaction(async (tx) => {
-          const account = await tx.account.create({
-            data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
-            select: { id: true },
-          });
-          await tx.identity.create({
-            data: {
-              accountId: account.id,
-              scheme: IDENTITY_SCHEME.EMAIL,
-              value: email,
-              email,
-              appSource: "MEDIALANE_IO",
-              verifiedAt: null,
-            },
-          });
-          return account.id;
-        });
-        return { accountId, alreadyExisted: false };
-      } catch (err) {
-        const isUniqueViolation =
-          typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
-        if (!isUniqueViolation) throw err;
-      }
-    }
-    throw new Error("Failed to create account after 3 attempts");
+    const { accountId, created } = await ensureAccountForIdentity(
+      IDENTITY_SCHEME.EMAIL,
+      email,
+      "MEDIALANE_IO",
+    );
+    return { accountId, alreadyExisted: !created };
   },
   checkAccountCreateRateLimit: async (ip) => {
     const result = await rateLimitStore.increment(`ratelimit:account-create-ip:${ip}`, 60 * 60 * 1000);

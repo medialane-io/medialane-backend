@@ -1,7 +1,7 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME } from "./identity.js";
-import type { Chain, AppSource } from "@prisma/client";
+import type { Chain, AppSource, AccountType, AccountRole } from "@prisma/client";
 
 export async function resolveAccountIdFromWallet(
   chain: Chain,
@@ -69,17 +69,32 @@ export function shouldBePrimaryWallet(accountHasPrimaryWallet: boolean): boolean
   return !accountHasPrimaryWallet;
 }
 
+export function defaultRolesForType(type: AccountType): AccountRole[] {
+  switch (type) {
+    case "AGENT":
+      return ["AGENT"];
+    case "ORGANIZATION":
+      return ["ORGANIZATION"];
+    case "PARTNER":
+      return ["PARTNER"];
+    default:
+      return [];
+  }
+}
+
 export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
   provider?: string;
   appSource: AppSource;
   email?: string;
+  accountType?: AccountType;
 
   linkToAccountId?: string;
 
   requireExistingAccountLink?: boolean;
 }): Promise<{ accountId: string; created: boolean }> {
+  const accountType: AccountType = params.accountType ?? "PERSON";
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
@@ -125,7 +140,11 @@ export async function ensureAccountForWallet(params: {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         account = await tx.account.create({
-          data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
+          data: {
+            publicId: generateAccountPublicId(),
+            type: accountType,
+            roles: defaultRolesForType(accountType),
+          },
           select: { id: true },
         });
         break;
@@ -159,6 +178,7 @@ export async function ensureAccountForIdentity(
   scheme: string,
   value: string,
   appSource: AppSource = "MEDIALANE_IO",
+  accountType: AccountType = "PERSON",
 ): Promise<{ accountId: string; created: boolean }> {
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -171,7 +191,11 @@ export async function ensureAccountForIdentity(
     try {
       const accountId = await prisma.$transaction(async (tx) => {
         const account = await tx.account.create({
-          data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
+          data: {
+            publicId: generateAccountPublicId(),
+            type: accountType,
+            roles: defaultRolesForType(accountType),
+          },
           select: { id: true },
         });
         await tx.identity.create({

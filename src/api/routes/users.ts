@@ -31,16 +31,20 @@ const VALID_APP_SOURCES = new Set<AppSource>([
   "MEDIALANE_STARKNET", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
 ]);
 
+const accountTypeEnum = z.enum(["PERSON", "AGENT", "ORGANIZATION", "PARTNER"]);
+
 const registerBodySchema = z.object({
   walletAddress: z.string().min(1, "walletAddress is required"),
   walletType: walletTypeSchema.optional(),
   appSource: appSourceEnum.optional(),
   chain: chainEnum.optional(),
+  accountType: accountTypeEnum.optional(),
 });
 
 const meBodySchema = z.object({
   walletType: walletTypeSchema.optional(),
   appSource: appSourceEnum.optional(),
+  accountType: accountTypeEnum.optional(),
 
   chain: chainEnum.optional(),
 
@@ -70,6 +74,7 @@ users.post(
       address: body.walletAddress,
       provider,
       appSource,
+      accountType: body.accountType,
     });
 
     const account = await prisma.account.findUniqueOrThrow({
@@ -122,6 +127,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
       address: walletAddress,
       provider,
       appSource,
+      accountType: parsed.data.accountType,
       linkToAccountId,
       requireExistingAccountLink: appSource === "MEDIALANE_IO",
     }));
