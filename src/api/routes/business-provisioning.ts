@@ -5,7 +5,6 @@ import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
-import { sendProvisioningClaimEmail as realSendClaimEmail } from "../../utils/mailer.js";
 import crypto from "crypto";
 import type { Chain, ProvisioningStatus } from "@prisma/client";
 
@@ -31,10 +30,6 @@ export interface BusinessProvisioningDeps {
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markTransferred: (id: string) => Promise<ProvisioningRecord>;
   recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
-  createClaimToken: (input: { provisioningId: string }) => Promise<{ token: string; expiresAt: Date }>;
-  findClaimToken: (token: string) => Promise<{ provisioningId: string; expiresAt: Date; consumedAt: Date | null } | null>;
-  consumeClaimToken: (token: string) => Promise<void>;
-  sendClaimEmail: (to: string, claimUrl: string) => Promise<void>;
 }
 
 const registerSchema = z.object({
@@ -61,12 +56,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
       apiClientId: apiClient.id, accountId: apiClient.accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
     });
 
-    const { token } = await deps.createClaimToken({ provisioningId: record.id });
-    const claimUrl = `https://medialane.io/claim/${token}`;
-
-    if (recipientScheme === "email") await deps.sendClaimEmail(recipientValue, claimUrl);
-
-    return c.json({ data: { ...record, claimUrl } }, 201);
+    return c.json({ data: record }, 201);
   });
 
   app.get("/", async (c) => {
@@ -74,28 +64,6 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     const status = c.req.query("status") as ProvisioningStatus | undefined;
     const rows = await deps.listProvisioning(apiClient.id, status);
     return c.json({ data: rows });
-  });
-
-  app.get("/claim/:token", async (c) => {
-    const token = c.req.param("token");
-    const claim = await deps.findClaimToken(token);
-    if (!claim) return c.json({ error: "not_found" }, 404);
-    if (claim.consumedAt || claim.expiresAt < new Date()) return c.json({ error: "expired" }, 410);
-    const record = await deps.getProvisioningByIdUnscoped(claim.provisioningId);
-    if (!record) return c.json({ error: "not_found" }, 404);
-    return c.json({ data: { chain: record.chain, walletAddress: record.walletAddress, recipientScheme: record.recipientScheme, recipientValue: record.recipientValue } });
-  });
-
-  app.post("/claim/:token", zValidator("json", z.object({ newOwnerPubkey: z.string() })), async (c) => {
-    const token = c.req.param("token");
-    const { newOwnerPubkey } = c.req.valid("json");
-    const claim = await deps.findClaimToken(token);
-    if (!claim) return c.json({ error: "not_found" }, 404);
-    if (claim.consumedAt || claim.expiresAt < new Date()) return c.json({ error: "expired" }, 410);
-
-    const record = await deps.recordNewOwnerPubkey(claim.provisioningId, normalizeAddress("STARKNET", newOwnerPubkey));
-    await deps.consumeClaimToken(token);
-    return c.json({ data: record });
   });
 
   app.post("/:id/complete", async (c) => {
@@ -142,17 +110,6 @@ const productionDeps: BusinessProvisioningDeps = {
   markTransferred: async (id) => assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } })),
   recordNewOwnerPubkey: async (id, newOwnerPubkey) =>
     assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } })),
-  createClaimToken: async ({ provisioningId }) => {
-    const token = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await prisma.provisioningClaimToken.create({ data: { provisioningId, token, expiresAt } });
-    return { token, expiresAt };
-  },
-  findClaimToken: (token) => prisma.provisioningClaimToken.findUnique({ where: { token } }),
-  consumeClaimToken: async (token) => {
-    await prisma.provisioningClaimToken.update({ where: { token }, data: { consumedAt: new Date() } });
-  },
-  sendClaimEmail: realSendClaimEmail,
 };
 
 export const businessProvisioningRoutes = createBusinessProvisioningRoutes(productionDeps);

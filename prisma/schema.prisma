@@ -402,23 +402,9 @@ model BusinessProvisioning {
   updatedAt          DateTime           @updatedAt
 
   apiClient   ApiClient                @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
-  claimTokens ProvisioningClaimToken[]
 
   @@unique([chain, walletAddress])
   @@index([apiClientId, status])
-}
-
-model ProvisioningClaimToken {
-  id             String    @id @default(cuid())
-  provisioningId String
-  token          String    @unique
-  expiresAt      DateTime
-  consumedAt     DateTime?
-  createdAt      DateTime  @default(now())
-
-  provisioning BusinessProvisioning @relation(fields: [provisioningId], references: [id])
-
-  @@index([provisioningId])
 }
 
 enum WalletActivityType {
