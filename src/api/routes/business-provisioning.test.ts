@@ -254,8 +254,6 @@ describe("POST /v1/business/provisioning/handoff", () => {
       body: JSON.stringify({
         walletAddress: "0x111",
         newOwnerPubkey: "0xabc",
-        ownerAliveSignature: ["0x11", "0x22"],
-        ownerAliveExpiration: 1788000000,
       }),
     });
 
@@ -265,7 +263,7 @@ describe("POST /v1/business/provisioning/handoff", () => {
     expect(BigInt(body.data.newOwnerPubkey!)).toBe(BigInt("0xabc"));
   });
 
-  test("refuses a handoff without the owner-alive proof", async () => {
+  test("refuses a handoff without a recipient key", async () => {
     const deps = fakeDeps();
     const app = makeApp(deps);
     await register(app);
@@ -273,7 +271,7 @@ describe("POST /v1/business/provisioning/handoff", () => {
     const res = await app.request("/v1/business/provisioning/handoff", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ walletAddress: "0x111", newOwnerPubkey: "0xabc" }),
+      body: JSON.stringify({ walletAddress: "0x111" }),
     });
 
     expect(res.status).toBe(400);
@@ -287,11 +285,63 @@ describe("POST /v1/business/provisioning/handoff", () => {
       body: JSON.stringify({
         walletAddress: "0x999",
         newOwnerPubkey: "0xabc",
-        ownerAliveSignature: ["0x11", "0x22"],
-        ownerAliveExpiration: 1788000000,
       }),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /v1/business/provisioning/:id/handoff-calls", () => {
+  test("returns one call adding the recipient and one removing the business", async () => {
+    const deps = fakeDeps();
+    const app = makeApp(deps);
+
+    const created = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "someone@example.com",
+        interimOwnerPubkey: "0x222",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+    const { data: record } = (await created.json()) as { data: ProvisioningRecord };
+
+    await app.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walletAddress: "0x111", newOwnerPubkey: "0xabc" }),
+    });
+
+    const res = await app.request(`/v1/business/provisioning/${record.id}/handoff-calls`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      data: { addRecipient: { entrypoint: string }; removeInterim: { entrypoint: string } };
+    };
+    expect(body.data.addRecipient.entrypoint).toBe("change_owners");
+    expect(body.data.removeInterim.entrypoint).toBe("change_owners");
+  });
+
+  test("409s before the recipient has supplied a key", async () => {
+    const deps = fakeDeps();
+    const app = makeApp(deps);
+
+    const created = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "someone@example.com",
+        interimOwnerPubkey: "0x222",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+    const { data: record } = (await created.json()) as { data: ProvisioningRecord };
+
+    const res = await app.request(`/v1/business/provisioning/${record.id}/handoff-calls`);
+    expect(res.status).toBe(409);
   });
 });
 

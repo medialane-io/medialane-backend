@@ -4,7 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
-import { computeAccountAddress } from "@medialane/sdk/starknet";
+import { computeAccountAddress, buildAddOwnerCall, buildRemoveOwnerCall } from "@medialane/sdk/starknet";
 import { executeSponsoredDeploy } from "./paymaster.js";
 import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -38,11 +38,7 @@ export interface BusinessProvisioningDeps {
   getProvisioningById: (id: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markTransferred: (id: string) => Promise<ProvisioningRecord>;
-  recordNewOwnerPubkey: (
-    id: string,
-    newOwnerPubkey: string,
-    ownerAlive: { r: string; s: string; expiration: number },
-  ) => Promise<ProvisioningRecord>;
+  recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
   getProvisioningByWallet: (chain: Chain, walletAddress: string) => Promise<ProvisioningRecord | null>;
 }
 
@@ -52,8 +48,6 @@ const handoffSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
   walletAddress: z.string(),
   newOwnerPubkey: z.string().regex(FELT),
-  ownerAliveSignature: z.tuple([z.string().regex(FELT), z.string().regex(FELT)]),
-  ownerAliveExpiration: z.number().int().positive(),
 });
 
 const registerSchema = z.object({
@@ -127,20 +121,30 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   });
 
   app.post("/handoff", zValidator("json", handoffSchema), async (c) => {
-    const { chain, walletAddress, newOwnerPubkey, ownerAliveSignature, ownerAliveExpiration } =
-      c.req.valid("json");
+    const { chain, walletAddress, newOwnerPubkey } = c.req.valid("json");
     const normWallet = normalizeAddress(chain, walletAddress);
 
     const record = await deps.getProvisioningByWallet(chain, normWallet);
     if (!record) return c.json({ error: "not_found" }, 404);
     if (record.status === "TRANSFERRED") return c.json({ error: "already_transferred" }, 409);
 
-    const updated = await deps.recordNewOwnerPubkey(
-      record.id,
-      normalizeAddress(chain, newOwnerPubkey),
-      { r: ownerAliveSignature[0], s: ownerAliveSignature[1], expiration: ownerAliveExpiration },
-    );
+    const updated = await deps.recordNewOwnerPubkey(record.id, normalizeAddress(chain, newOwnerPubkey));
     return c.json({ data: updated });
+  });
+
+  app.get("/:id/handoff-calls", async (c) => {
+    const id = c.req.param("id");
+    const apiClient = c.get("apiClient");
+    const record = await deps.getProvisioningById(id, apiClient.id);
+    if (!record) return c.json({ error: "not_found" }, 404);
+    if (!record.newOwnerPubkey) return c.json({ error: "no_recipient_key_yet" }, 409);
+
+    return c.json({
+      data: {
+        addRecipient: buildAddOwnerCall(record.walletAddress, record.newOwnerPubkey),
+        removeInterim: buildRemoveOwnerCall(record.walletAddress, record.interimOwnerPubkey),
+      },
+    });
   });
 
   app.post("/:id/complete", async (c) => {
@@ -208,17 +212,11 @@ const productionDeps: BusinessProvisioningDeps = {
     });
   },
   markTransferred: async (id) => assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } })),
-  recordNewOwnerPubkey: async (id, newOwnerPubkey, ownerAlive) =>
+  recordNewOwnerPubkey: async (id, newOwnerPubkey) =>
     assertLinked(
       await prisma.businessProvisioning.update({
         where: { id },
-        data: {
-          newOwnerPubkey,
-          ownerAliveR: ownerAlive.r,
-          ownerAliveS: ownerAlive.s,
-          ownerAliveExpiration: ownerAlive.expiration,
-          status: "HANDOFF",
-        },
+        data: { newOwnerPubkey, status: "HANDOFF" },
       }),
     ),
   getProvisioningByWallet: async (chain, walletAddress) => {
