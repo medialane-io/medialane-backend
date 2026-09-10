@@ -19,6 +19,7 @@ import search from "./routes/search.js";
 import portal from "./routes/portal.js";
 import claims from "./routes/claims.js";
 import { businessProvisioningRoutes } from "./routes/business-provisioning.js";
+import { issuanceRoutes } from "./routes/issuance.js";
 import { walletActivityRoutes } from "./routes/wallet-activity.js";
 import usernameClaims from "./routes/username-claims.js";
 import collectionSlugClaims from "./routes/collection-slug-claims.js";
@@ -60,6 +61,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);
   app.route("/v1/business/provisioning", businessProvisioningRoutes);
+  app.route("/v1/business/issuance", issuanceRoutes);
   app.route("/v1/username-claims", usernameClaims);
   app.route("/v1/collection-slug-claims", collectionSlugClaims);
   app.route("/v1/users", users);
