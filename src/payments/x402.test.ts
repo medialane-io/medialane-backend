@@ -178,3 +178,19 @@ test("an unrecognised token is refused", async () => {
   );
   expect(res.ok).toBe(false);
 });
+
+test("a payment records the token it was actually made in", async () => {
+  let recordedAsset = "";
+  await settlePayment(
+    schemeReturning(10n ** 17n, ETH_ADDRESS),
+    { id: "c1", accountId: "a1" },
+    { scheme: "starknet-transfer", network: "starknet", txHash: "0xabc", nonce: "n" },
+    {
+      creditAccount: async (input) => { recordedAsset = input.asset; },
+      mdlnMultiplier: async () => 1,
+      isWalletLinkedToAccount: async () => true,
+      readUsdPrices: async () => ({ ETH: 3000 }),
+    },
+  );
+  expect(BigInt(recordedAsset)).toBe(BigInt(ETH_ADDRESS));
+});

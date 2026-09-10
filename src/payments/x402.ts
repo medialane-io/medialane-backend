@@ -112,7 +112,7 @@ export async function settlePayment(
       mdlnMultiplier: multiplier,
       scheme: scheme.scheme,
       network: scheme.network,
-      asset: x402Config.usdcContract,
+      asset: v.asset ?? x402Config.usdcContract,
       txHash: payload.txHash,
       proofNonce: v.proofNonce,
     });
