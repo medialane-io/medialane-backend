@@ -67,6 +67,7 @@ describe("POST /v1/business/provisioning", () => {
         chain: "STARKNET",
         recipientScheme: "email", recipientValue: "worker@example.com",
         interimOwnerPubkey: "0x222",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -92,6 +93,7 @@ describe("POST /v1/business/provisioning", () => {
         recipientScheme: "email",
         recipientValue: "student@example.com",
         interimOwnerPubkey: "0x2",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -113,6 +115,7 @@ describe("POST /v1/business/provisioning", () => {
         recipientScheme: "student_id",
         recipientValue: "12345",
         interimOwnerPubkey: "0x2",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -137,6 +140,7 @@ describe("POST /v1/business/provisioning", () => {
         recipientScheme: "email",
         recipientValue: "student@example.com",
         interimOwnerPubkey: "0x2",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -160,6 +164,7 @@ describe("POST /v1/business/provisioning", () => {
         recipientScheme: "email",
         recipientValue: "already@example.com",
         interimOwnerPubkey: "0x2",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -186,6 +191,7 @@ describe("POST /v1/business/provisioning", () => {
         recipientScheme: "email",
         recipientValue: "nowallet@example.com",
         interimOwnerPubkey: "0x2",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -208,6 +214,7 @@ describe("POST /v1/business/provisioning", () => {
         chain: "STARKNET",
         recipientScheme: "email", recipientValue: "worker@example.com",
         interimOwnerPubkey: "0x222",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -222,8 +229,8 @@ describe("GET /v1/business/provisioning", () => {
   test("lists only the caller's own rows", async () => {
     const deps = fakeDeps();
     const app = makeApp(deps);
-    await deps.createProvisioning({ apiClientId: "biz-1", accountId: "acc-biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1" });
-    await deps.createProvisioning({ apiClientId: "biz-2", accountId: "acc-biz-2", chain: "STARKNET", walletAddress: "0xB", recipientScheme: "email", recipientValue: "b@example.com", interimOwnerPubkey: "0x2" });
+    await deps.createProvisioning({ apiClientId: "biz-1", accountId: "acc-biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", derivationSalt: "s1" });
+    await deps.createProvisioning({ apiClientId: "biz-2", accountId: "acc-biz-2", chain: "STARKNET", walletAddress: "0xB", recipientScheme: "email", recipientValue: "b@example.com", interimOwnerPubkey: "0x2", derivationSalt: "s2" });
     const res = await app.request("/v1/business/provisioning");
     const body = (await res.json()) as { data: ProvisioningRecord[] };
     expect(body.data).toHaveLength(1);
@@ -240,6 +247,7 @@ describe("POST /v1/business/provisioning/handoff", () => {
         recipientScheme: "email",
         recipientValue: "student@example.com",
         interimOwnerPubkey: "0x222",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -291,6 +299,7 @@ describe("POST /v1/business/provisioning/handoff", () => {
         recipientScheme: "email",
         recipientValue: "victim@example.com",
         interimOwnerPubkey: "0x222",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -330,6 +339,7 @@ describe("GET /v1/business/provisioning/:id/handoff-calls", () => {
         recipientScheme: "email",
         recipientValue: "someone@example.com",
         interimOwnerPubkey: "0x222",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
@@ -362,6 +372,7 @@ describe("GET /v1/business/provisioning/:id/handoff-calls", () => {
         recipientScheme: "email",
         recipientValue: "someone@example.com",
         interimOwnerPubkey: "0x222",
+        derivationSalt: "0123456789abcdef0123456789abcdef",
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });

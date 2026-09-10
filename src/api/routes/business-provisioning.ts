@@ -32,7 +32,7 @@ export interface BusinessProvisioningDeps {
   findAccountWallet: (chain: Chain, accountId: string) => Promise<string | null>;
   linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
   createProvisioning: (input: {
-    apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
+    apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string; derivationSalt: string;
   }) => Promise<ProvisioningRecord>;
   listProvisioning: (apiClientId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
@@ -55,6 +55,7 @@ const registerSchema = z.object({
   recipientScheme: z.string().min(1),
   recipientValue: z.string().min(1),
   interimOwnerPubkey: z.string(),
+  derivationSalt: z.string().min(16).max(128),
   deployment: z.object({
     typedData: z.unknown(),
     signature: z.array(z.string()).min(1),
@@ -66,7 +67,8 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   const app = new Hono<AppEnv>();
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
-    const { chain, recipientScheme, recipientValue, interimOwnerPubkey, deployment } = c.req.valid("json");
+    const { chain, recipientScheme, recipientValue, interimOwnerPubkey, derivationSalt, deployment } =
+      c.req.valid("json");
     const apiClient = c.get("apiClient");
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
     const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
@@ -86,6 +88,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
         recipientScheme,
         recipientValue,
         interimOwnerPubkey: normPubkey,
+        derivationSalt,
       });
       return c.json({ data: record, reusedExistingWallet: true }, 200);
     }
@@ -107,7 +110,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     }
 
     const record = await deps.createProvisioning({
-      apiClientId: apiClient.id, accountId: apiClient.accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
+      apiClientId: apiClient.id, accountId: apiClient.accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey, derivationSalt,
     });
 
     return c.json({ data: record }, 201);

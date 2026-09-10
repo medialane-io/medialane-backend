@@ -397,6 +397,7 @@ model BusinessProvisioning {
   recipientValue     String
   interimOwnerPubkey String
   newOwnerPubkey       String?
+  derivationSalt       String?
   status             ProvisioningStatus @default(DEPLOYED)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
