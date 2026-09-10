@@ -33,10 +33,6 @@ const ALLOWED_METHODS = new Set<string>(ALLOWED_RPC_METHODS);
 
 const RPC_TIMEOUT_MS = 15_000;
 
-// starknet_getEvents has no upper bound on chunk_size — without a cap, one
-// call can ask an upstream RPC to return an arbitrarily large page of events
-// in a single response, which this proxy then buffers into memory twice
-// (raw text, then the parsed object) before forwarding it on.
 const MAX_GET_EVENTS_CHUNK_SIZE = 100;
 
 export const MAX_RPC_BATCH_SIZE = 20;

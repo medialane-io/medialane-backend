@@ -1,5 +1,3 @@
-
-
 import { num } from "starknet";
 import type { Hono } from "hono";
 import prisma from "../../../db/client.js";
@@ -66,10 +64,7 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
     }
 
     if (intent?.type === "CANCEL_ORDER" && intent.orderHash) {
-      // The tx succeeded and touched *a* marketplace contract, but that proves
-      // nothing about *this* order — only a matching OrderCancelled event does.
-      // Chain wins; the indexer never marks an order cancelled on trust (see
-      // medialane-core/docs/architecture/02-protocol-app-split.md §III Order).
+
       let cancelled = false;
       try {
         cancelled = await hydrateCancellationFromTx(txHash, intent.orderHash);

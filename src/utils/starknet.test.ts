@@ -1,5 +1,3 @@
-
-
 import { describe, expect, test } from "bun:test";
 import { normalizeAddress, normalizeHash, callRpc } from "./starknet.js";
 
@@ -39,8 +37,7 @@ describe("normalizeAddress", () => {
 
 describe("normalizeHash", () => {
   test("pads and lowercases like normalizeAddress", () => {
-    // String(): CanonicalHash is branded, so the plain literal on the right is
-    // not assignable to it. The value under test is unchanged.
+
     expect(String(normalizeHash("0xABCD"))).toBe(
       "0x000000000000000000000000000000000000000000000000000000000000abcd",
     );

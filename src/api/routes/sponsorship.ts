@@ -11,11 +11,6 @@ const sponsorship = new Hono<AppEnv>();
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-// An owner's lifetime token holdings are unbounded and grow with usage, not
-// concurrent traffic. Capped higher than similar per-account caps elsewhere
-// (e.g. wallet-activity's 200) because this list feeds an `in` filter for a
-// second query — too low a cap here silently drops real holdings from the
-// result instead of erroring.
 export const MAX_OWNED_TOKEN_LOOKUP = 500;
 
 function serializeOffer(o: SponsorshipOffer) {

@@ -19,8 +19,7 @@ export interface StarknetReceipt {
 
 export function parseUsdcTransfer(
   receipt: StarknetReceipt,
-  // txHash is the proofNonce, so it can only be a canonical hash — the type
-  // makes passing a raw caller-supplied string impossible rather than a review item.
+
   params: { usdc: string; treasury: string; txHash: CanonicalHash; nonce: string },
 ): VerifyResult {
   if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") {
@@ -72,10 +71,6 @@ export class StarknetUsdcScheme implements PaymentScheme {
   async verify(payload: X402Payload): Promise<VerifyResult> {
     if (!x402Config.treasury) return { ok: false, reason: "treasury not configured" };
 
-    // proofNonce is derived from this hash and is the only thing stopping the
-    // same on-chain payment being credited twice. Felt hashes have many equal
-    // spellings (case, zero-padding), so the raw caller string must never be
-    // used: canonicalise first, and reject anything that isn't a valid felt.
     let txHash: CanonicalHash;
     try {
       txHash = normalizeHash(payload.txHash);

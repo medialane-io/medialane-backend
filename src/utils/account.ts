@@ -58,8 +58,6 @@ export class AccountRequiresEmailError extends Error {
   }
 }
 
-// Pure so it's unit-testable without a DB: the only inputs that decide
-// whether a brand-new, unlinked account is allowed are these two.
 export function shouldRejectNewAccountForWallet(params: {
   linkToAccountId?: string;
   requireExistingAccountLink?: boolean;

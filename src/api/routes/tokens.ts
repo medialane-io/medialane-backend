@@ -263,8 +263,6 @@ tokens.get("/:contract/:tokenId", async (c) => {
     include: { collection: { select: { standard: true } } },
   });
 
-  // Absent from the projection is not absent from the chain. Ask the authority
-  // before declaring the token missing, and adopt it if it is really there.
   if (!token) {
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress } },
@@ -276,8 +274,6 @@ tokens.get("/:contract/:tokenId", async (c) => {
       return c.json({ error: "Token not found" }, 404);
     }
 
-    // Same minimal row the indexer writes, so the metadata path below and the
-    // indexer converge on one record instead of racing to create two.
     await prisma.token.upsert({
       where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
       create: { chain, contractAddress, tokenId, tokenUri: onChain.tokenUri, metadataStatus: "PENDING" },

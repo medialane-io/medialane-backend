@@ -54,10 +54,6 @@ describe("StarknetUsdcScheme.verify — replay safety", () => {
     ],
   };
 
-  // proofNonce carries the @unique constraint that stops one on-chain payment
-  // crediting an account twice. A felt hash has many equal spellings, so every
-  // spelling of the same tx must collapse to one proofNonce — otherwise a
-  // single real payment can be settled once per spelling.
   test("equal spellings of one tx hash all produce the same proofNonce", () => {
     const spellings = [
       TX,

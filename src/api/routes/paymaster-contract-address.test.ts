@@ -25,8 +25,7 @@ describe("createContractAddressChecker: platform contracts (fixed trust)", () =>
     expect(await checker.isEligible("register_order", coords.marketplace1155!)).toBe(true);
     expect(await checker.isEligible("create_creator_coin", coords.creatorCoinFactory!)).toBe(true);
     expect(await checker.isEligible("create_collection", coords.collection721!)).toBe(true);
-    // The bug this test guards against: mint targets the same shared
-    // registry contract as create_collection, not a per-creator contract.
+
     expect(await checker.isEligible("mint", coords.collection721!)).toBe(true);
   });
 

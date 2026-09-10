@@ -16,8 +16,7 @@ test("a wallet with no account cannot claim, so the email gate cannot be skipped
 });
 
 test("an unlinked wallet is refused even when everything else looks fine", () => {
-  // Wallets are cheap to create and their deployment is sponsored, so an
-  // unlinked wallet must not be a way past verification.
+
   expect(claimRejection({ accountId: null, emailUnverified: false, hasUsername: false })).not.toBeNull();
 });
 

@@ -247,10 +247,6 @@ function normalizeTokenId(raw: string): string | null {
   }
 }
 
-// General-purpose proof primitive: "did this specific token really move to
-// this wallet on this contract, per the chain's own events" — the check any
-// caller needs before trusting a client's claim about a mint/transfer tx
-// (00 §1 / 02 §III: only the event is truth, not what the caller says happened).
 export function findTransferTo(
   rawEvents: RawStarknetEvent[],
   args: { contractAddress: string; tokenId: string; to: string }

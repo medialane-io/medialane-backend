@@ -3,6 +3,8 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
+import { computeAccountAddress } from "@medialane/sdk/starknet";
+import { executeSponsoredDeploy } from "./paymaster.js";
 import { ensureAccountForEmail, ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
@@ -23,6 +25,8 @@ export interface ProvisioningRecord {
 
 export interface BusinessProvisioningDeps {
   isAccountOwner: (chain: Chain, walletAddress: string, ownerPubkey: string) => Promise<boolean>;
+  deriveWalletAddress: (ownerPubkey: string) => string;
+  deployWallet: (input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown }) => Promise<string>;
   ensureRecipientAccount: (recipientScheme: string, recipientValue: string) => Promise<string | null>;
   linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
   createProvisioning: (input: {
@@ -37,23 +41,36 @@ export interface BusinessProvisioningDeps {
 
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
-  walletAddress: z.string(),
   recipientScheme: z.string().min(1),
   recipientValue: z.string().min(1),
   interimOwnerPubkey: z.string(),
+  deployment: z.object({
+    typedData: z.unknown(),
+    signature: z.array(z.string()).min(1),
+    deployment: z.unknown(),
+  }),
 });
 
 export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
-    const { chain, walletAddress, recipientScheme, recipientValue, interimOwnerPubkey } = c.req.valid("json");
+    const { chain, recipientScheme, recipientValue, interimOwnerPubkey, deployment } = c.req.valid("json");
     const apiClient = c.get("apiClient");
-    const normWallet = normalizeAddress(chain, walletAddress);
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
+    const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
 
-    const ok = await deps.isAccountOwner(chain, normWallet, normPubkey);
-    if (!ok) return c.json({ error: "interim_owner_mismatch" }, 400);
+    try {
+      await deps.deployWallet({
+        ownerAddress: normWallet,
+        typedData: deployment.typedData,
+        signature: deployment.signature,
+        deployment: deployment.deployment,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "deploy_failed";
+      return c.json({ error: "deploy_failed", message }, 502);
+    }
 
     const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
     if (recipientAccountId) {
@@ -103,6 +120,8 @@ function assertLinked<T extends { apiClientId: string | null }>(row: T): T & { a
 
 const productionDeps: BusinessProvisioningDeps = {
   isAccountOwner: realIsAccountOwner,
+  deriveWalletAddress: (ownerPubkey) => computeAccountAddress(ownerPubkey, 0),
+  deployWallet: (input) => executeSponsoredDeploy(input),
 
   createProvisioning: async (input) => assertLinked(await prisma.businessProvisioning.create({ data: input })),
   listProvisioning: async (apiClientId, status) =>

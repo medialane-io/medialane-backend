@@ -12,9 +12,6 @@ const log = createLogger("routes:paymaster");
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
 
-// Sponsored gas is Medialane's own budget, not a free relay. Only the exact
-// entrypoints orchestrator/intent/*.ts ever builds are eligible — anything
-// else is, by construction, not a call this backend asked to be sponsored.
 export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
   "approve",
   "transfer",
@@ -75,13 +72,6 @@ export function disallowedEntrypoint(calls: unknown[]): string | null {
   return null;
 }
 
-// Entrypoint allowlisting alone only proves the call *shape* is sponsorable
-// (e.g. "approve") — it says nothing about *which* contract it targets. Since
-// Starknet selectors are just hash(name), anyone can deploy a contract with a
-// function named "approve" or "mint" and ask us to pay its gas. This closes
-// that gap by checking the target address against the registry (for the
-// fixed contracts) or the indexer (for per-creator collections a Medialane
-// factory actually deployed).
 export async function disallowedContractAddress(
   checker: ContractAddressChecker,
   calls: SponsoredCall[],
@@ -94,18 +84,6 @@ export async function disallowedContractAddress(
   return null;
 }
 
-// Proves the typed data the client wants us to sponsor actually encodes the
-// same calls it claims to (address + entrypoint + calldata, element-wise) —
-// otherwise the entrypoint allowlist above could be bypassed by building
-// typed data outside our /invoke/build and only touching /invoke/execute.
-//
-// Written by hand rather than reusing starknet.js's own
-// paymaster.assertCallsAreStrictlyEqual: that helper assumes the typed
-// data always has exactly one more call than what was submitted (a trailing
-// fee-payment call), which holds for AVNU's "default" fee mode but not for
-// "sponsored" mode — there's no fee call to pay when Medialane is covering
-// gas, so the counts are equal. Requiring "at least as many, matching
-// positionally" is correct for both and doesn't assume which mode is active.
 export function assertTypedDataMatchesCalls(typedData: unknown, calls: SponsoredCall[]): void {
   const message = (typedData as { message?: Record<string, unknown> } | null)?.message;
   const unsafeCalls = message ? (("calls" in message ? message.calls : message.Calls) as unknown) : undefined;
@@ -135,7 +113,6 @@ export function assertTypedDataMatchesCalls(typedData: unknown, calls: Sponsored
     }
   });
 }
-
 
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -184,6 +161,30 @@ export function classifyPaymasterError(err: unknown): PaymasterErrorResult {
 
 function txHashOf(result: unknown): string {
   return (result as { transaction_hash: string }).transaction_hash;
+}
+
+export async function executeSponsoredDeploy(
+  input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown },
+  clientFactory: () => PaymasterClient = defaultClient,
+): Promise<string> {
+  const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
+  const deployment = input.deployment as { class_hash?: string; address?: string } | null;
+  if (!classHash || deployment?.class_hash !== classHash || deployment?.address !== input.ownerAddress) {
+    throw new Error("deployment does not match a sponsorable Media Wallet deployment");
+  }
+  const result = await clientFactory().executeTransaction(
+    {
+      type: "deploy_and_invoke",
+      deployment: input.deployment,
+      invoke: {
+        userAddress: input.ownerAddress,
+        typedData: input.typedData,
+        signature: input.signature,
+      },
+    },
+    SPONSORED,
+  );
+  return txHashOf(result);
 }
 
 export default function paymaster(
@@ -301,8 +302,7 @@ export default function paymaster(
         },
         SPONSORED,
       )) as { typed_data: unknown; deployment: unknown };
-      // Echoed back so the client can resend them verbatim to /deploy/execute,
-      // which now requires proof the signed typedData matches these calls.
+
       return c.json({ typedData: prepared.typed_data, deployment: prepared.deployment, calls });
     } catch (err) {
       const failure = classifyPaymasterError(err);

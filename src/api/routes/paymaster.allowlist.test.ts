@@ -5,9 +5,6 @@ import { ALLOWED_PAYMASTER_ENTRYPOINTS } from "./paymaster.js";
 
 const INTENT_DIR = join(import.meta.dir, "../../orchestrator/intent");
 
-// These read the chain for an ownership check before building a write call —
-// they never end up in the `calls` array a client can ask us to sponsor, so
-// they're not paymaster-eligible and are deliberately excluded here.
 const READ_ONLY_ENTRYPOINTS = new Set(["owner", "is_collection_owner"]);
 
 function entrypointsUsedByIntentBuilders(): Set<string> {
@@ -26,9 +23,6 @@ describe("paymaster entrypoint allowlist", () => {
   test("covers every write entrypoint orchestrator/intent/*.ts actually builds", () => {
     const used = entrypointsUsedByIntentBuilders();
 
-    // Sanity check on the scan itself: if this ever comes back empty, the
-    // regex stopped matching the source and the assertion below would pass
-    // vacuously instead of catching drift.
     expect(used.size).toBeGreaterThan(0);
 
     const missing = [...used].filter((e) => !ALLOWED_PAYMASTER_ENTRYPOINTS.has(e));
@@ -36,9 +30,3 @@ describe("paymaster entrypoint allowlist", () => {
   });
 });
 
-// The contract-address checker (paymaster-contract-address.ts) now applies
-// the same uniform rule to every entrypoint — trust a fixed platform contract,
-// a recognized token, or an indexed non-external collection — so there's no
-// per-entrypoint address rule left to drift out of sync with the entrypoint
-// list above. See paymaster-contract-address.test.ts for coverage of that
-// rule itself.

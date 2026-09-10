@@ -123,7 +123,7 @@ describe("computeDiamondHandsBadges", () => {
             return [oldReceipt, stillHeldReceipt];
           }
           record("transfer.findMany:allForTokens");
-          // OWNER_A sent CONTRACT_1/1 onward after receiving it — not diamond hands.
+
           return [{ contractAddress: CONTRACT_1, tokenId: "1", fromAddress: OWNER_A, createdAt: new Date("2026-02-01") }];
         },
       },

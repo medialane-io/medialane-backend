@@ -1,5 +1,3 @@
-
-
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { Prisma, type PrismaClient } from "@prisma/client";
@@ -45,7 +43,6 @@ async function dropContractAddresses(): Promise<string[]> {
   });
   return rows.map((r) => r.contractAddress);
 }
-
 
 export interface ActionConfig {
   type: string;
@@ -481,8 +478,6 @@ function resolveMultiplier(
   return factor;
 }
 
-// Batched (one groupBy/findMany for all drops) instead of one count+findFirst
-// per drop — the previous loop's cost scaled with total drops ever created.
 export async function computeSoldOutBadges(db: Db): Promise<Set<string>> {
   const drops = await db.dropClaimConditions.findMany({
     select: { collectionAddress: true, maxSupply: true },
@@ -508,9 +503,6 @@ export async function computeSoldOutBadges(db: Db): Promise<Set<string>> {
   return new Set(owners.filter((c) => c.owner).map((c) => normalizeAddress("STARKNET", c.owner!)));
 }
 
-// Batched (one groupBy for token totals, one for holder counts) instead of
-// one count+groupBy per contract — the previous loop's cost scaled with
-// total drop collections ever created.
 export async function computeFullSetBadges(db: Db, contracts: string[]): Promise<Set<string>> {
   if (contracts.length === 0) return new Set();
 
@@ -532,10 +524,6 @@ export async function computeFullSetBadges(db: Db, contracts: string[]): Promise
   return result;
 }
 
-// Batched (one findMany covering every token touched by an old receipt,
-// grouped in memory) instead of one count per receipt — the previous loop's
-// cost scaled with every transfer ever made more than 6 months ago, a set
-// that only ever grows.
 export async function computeDiamondHandsBadges(db: Db, now: () => number = Date.now): Promise<Set<string>> {
   const sixMonthsAgo = new Date(now() - 180 * 24 * 60 * 60 * 1000);
   const oldReceipts = await db.transfer.findMany({

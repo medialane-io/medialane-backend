@@ -19,6 +19,8 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
   let seq = 0;
   return {
     isAccountOwner: async () => true,
+    deriveWalletAddress: () => "0x111",
+    deployWallet: async () => "0xdeploytx",
     ensureRecipientAccount: async (scheme, value) => (scheme === "email" ? `acct-for-${value}` : null),
     linkWalletToAccount: async () => {},
     createProvisioning: async (input) => {
@@ -58,9 +60,9 @@ describe("POST /v1/business/provisioning", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         chain: "STARKNET",
-        walletAddress: "0x111",
         recipientScheme: "email", recipientValue: "worker@example.com",
         interimOwnerPubkey: "0x222",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
     expect(res.status).toBe(201);
@@ -82,10 +84,10 @@ describe("POST /v1/business/provisioning", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        walletAddress: "0x1",
         recipientScheme: "email",
         recipientValue: "student@example.com",
         interimOwnerPubkey: "0x2",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
 
@@ -103,10 +105,10 @@ describe("POST /v1/business/provisioning", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        walletAddress: "0x1",
         recipientScheme: "student_id",
         recipientValue: "12345",
         interimOwnerPubkey: "0x2",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
 
@@ -114,22 +116,27 @@ describe("POST /v1/business/provisioning", () => {
     expect(linkCalls).toBe(0);
   });
 
-  test("rejects when the interim key is not actually the on-chain owner", async () => {
-    const deps = fakeDeps({ isAccountOwner: async () => false });
+  test("records nothing when the wallet fails to deploy", async () => {
+    let created = 0;
+    const deps = fakeDeps({
+      deployWallet: async () => { throw new Error("paymaster rejected the deployment"); },
+      linkWalletToAccount: async () => { created += 1; },
+    });
     const app = makeApp(deps);
     const res = await app.request("/v1/business/provisioning", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         chain: "STARKNET",
-        walletAddress: "0x111",
         recipientScheme: "email", recipientValue: "worker@example.com",
         interimOwnerPubkey: "0x222",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("interim_owner_mismatch");
+    expect(body.error).toBe("deploy_failed");
+    expect(created).toBe(0);
   });
 });
 

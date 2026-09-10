@@ -116,8 +116,7 @@ portal.post("/keys", async (c) => {
           prefix: generated.prefix,
           keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
-          // Never null: an unscoped key is exempt from appScope. A key made
-          // here without an explicit app is a third-party integration key.
+
           appSource: parsed.data.appSource
             ? normalizeAppSource(parsed.data.appSource)
             : "MEDIALANE_SDK",

@@ -92,10 +92,6 @@ type HiddenContentFilter = {
   hiddenContractFilter: { notIn: string[] } | undefined;
 };
 
-// Moderation actions are rare and don't need per-request freshness — without
-// a cache, this scan runs on every hit to the public activity feed and its
-// cost scales with total hidden content across the platform's lifetime, not
-// with concurrent traffic.
 export const HIDDEN_CONTENT_TTL_MS = 30_000;
 
 let hiddenContentCache: { value: HiddenContentFilter; fetchedAt: number } | null = null;

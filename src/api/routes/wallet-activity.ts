@@ -25,9 +25,6 @@ export interface WalletActivityRow {
 
 export const STALE_AFTER_MS = 2 * 60 * 1000;
 
-// An account's lifetime activity is unbounded and grows with usage, not with
-// concurrent traffic — without a cap this endpoint loads and serializes an
-// ever-growing row set for any address, regardless of how few users are online.
 export const MAX_WALLET_ACTIVITY_ROWS = 200;
 
 export interface WalletActivityDeps {

@@ -13,9 +13,7 @@ test("another account may not", () => {
 });
 
 test("an ownerless intent belongs to nobody, so nobody may act on it", () => {
-  // Every creation path sets accountId from the authenticated key, so this
-  // cannot arise today. Treating absence as permission is how the same shape
-  // became a real hole in the username claim path.
+
   expect(callerMayTouch(null, "acc_1")).toBe(false);
   expect(callerMayTouch(null, "acc_2")).toBe(false);
 });

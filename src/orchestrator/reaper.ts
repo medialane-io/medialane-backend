@@ -2,12 +2,7 @@ import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator:reaper");
-// Maintenance-only cleanup of records with no read consumers anywhere
-// (terminal webhook deliveries, terminal transaction intents, expired claim
-// challenges) — not user-facing, so this runs on a slow cadence rather than
-// the platform's near-real-time loops. Transfer and Order history are real
-// platform data (read by activities.ts/tokens.ts/orders.ts/portal.ts) and
-// are never deleted here.
+
 const REAPER_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;

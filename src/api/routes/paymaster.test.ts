@@ -6,11 +6,6 @@ import paymaster, { type PaymasterClient } from "./paymaster.js";
 import type { ContractAddressChecker } from "./paymaster-contract-address.js";
 import type { AppEnv } from "../../types/hono.js";
 
-// These tests exercise the paymaster route's own request handling (body
-// validation, entrypoint gating, typed-data matching) with placeholder
-// contract addresses like "0x1" — real address eligibility is covered
-// separately in paymaster-contract-address.test.ts, so the stub here always
-// allows, unless a test overrides it to prove the route is wired to it.
 const ALLOW_ALL_ADDRESSES: ContractAddressChecker = { isEligible: async () => true };
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
@@ -23,9 +18,6 @@ function outsideCall(c: typeof SPONSORABLE_CALL) {
   };
 }
 
-// One OutsideCallV2 per submitted call plus a trailing extra — the shape
-// AVNU's "default" (non-sponsored) fee mode uses, with a fee-payment call
-// appended after the caller's own calls.
 function outsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
   return {
     message: {
@@ -34,11 +26,6 @@ function outsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
   };
 }
 
-// Exactly one OutsideCallV2 per submitted call, no trailing extra — the real
-// shape AVNU's "sponsored" fee mode uses (no fee call needed when Medialane
-// pays gas). Regression coverage for the 2026-08-24 incident: the old check
-// (borrowed from starknet.js's own assertCallsAreStrictlyEqual) assumed a
-// trailing call always exists and rejected every real sponsored listing.
 function sponsoredOutsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
   return { message: { Calls: calls.map(outsideCall) } };
 }
@@ -246,8 +233,7 @@ describe("POST /deploy/build", () => {
     expect(built.req.deployment.address).toBe("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7");
     expect(built.req.deployment.class_hash.startsWith("0x")).toBe(true);
     expect(built.req.deployment.salt).toBe("0x0");
-    // The response's `calls` must be exactly what was sent to the paymaster —
-    // it's what the client will echo back verbatim to /deploy/execute.
+
     expect(responseBody.calls).toEqual(built.req.invoke.calls);
   });
 

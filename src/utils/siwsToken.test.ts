@@ -1,4 +1,3 @@
-
 import { describe, expect, test } from "bun:test";
 
 process.env.SIWS_SECRET ??= "test-secret-do-not-use-in-prod-0123456789";
@@ -41,9 +40,6 @@ describe("siwsToken — rejections", () => {
   });
 });
 
-// The two token families share a secret. Before domain separation the
-// signature covered only the payload, so a token's *kind* was not signed —
-// safe only for as long as their payload shapes happened to differ.
 test("an account session token is not accepted as a SIWS identity token", async () => {
   const { issueAccountSessionToken } = await import("./accountSessionToken.js");
   const accountToken = issueAccountSessionToken("acc_TEST");

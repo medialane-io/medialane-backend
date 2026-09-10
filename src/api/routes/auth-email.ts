@@ -102,10 +102,6 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     });
   });
 
-  // Answers "is this address registered?", so without a cap it is an
-  // enumeration oracle for the whole account table — and it is reachable from
-  // the public app proxies. The sign-up form asks once per address a user
-  // types, so a per-IP cap costs real users nothing.
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
     const ip = clientIp(c.req.raw);
     const allowed = await deps.checkEmailExistsRateLimit(ip);
@@ -226,15 +222,6 @@ const productionDeps: AuthEmailDeps = {
   },
 };
 
-// Shared with users.ts — sends a fresh code the moment an email is added to
-// an account, not just when a user later happens to visit Settings and ask
-// for one. Same code path (storage, hashing, delivery, and — critically —
-// rate limiting) as /request-code; every code-send route goes through this
-// one function so there's exactly one place that can be under-protected.
-// Takes deps explicitly so /request-code (inside createAuthEmailRoutes) can
-// use whatever deps it was constructed with — real or test-mocked — while
-// external callers (users.ts) get the production-bound convenience wrapper
-// below instead of reaching into this module's internals directly.
 export async function issueVerificationCodeWithDeps(
   deps: AuthEmailDeps,
   email: string,
