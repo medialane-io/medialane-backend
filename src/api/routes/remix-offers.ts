@@ -6,6 +6,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -206,6 +207,9 @@ remixOffers.post(
   (c, next) => identityAuth(c, next),
   zValidator("json", createOfferSchema),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const body = c.req.valid("json");
     const requesterAddress = c.get("walletAddress") as string;
 
@@ -213,7 +217,7 @@ remixOffers.post(
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
-    const originalContract = normalizeAddress("STARKNET", body.originalContract);
+    const originalContract = normalizeAddress(chain, body.originalContract);
     const originalTokenId = body.originalTokenId;
 
     const tokenExists = await prisma.token.findFirst({
@@ -226,7 +230,7 @@ remixOffers.post(
       where: { contractAddress: originalContract, tokenId: originalTokenId, amount: { not: "0" } },
       select: { owner: true },
     });
-    const creatorAddress = holderBalance ? normalizeAddress("STARKNET", holderBalance.owner) : "";
+    const creatorAddress = holderBalance ? normalizeAddress(chain, holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
 
     if (requesterAddress === creatorAddress) {
@@ -256,7 +260,7 @@ remixOffers.post(
             requesterAddress,
             message: body.message,
             proposedPrice: body.proposedPrice,
-            proposedCurrency: body.proposedCurrency ? normalizeAddress("STARKNET", body.proposedCurrency) : "",
+            proposedCurrency: body.proposedCurrency ? normalizeAddress(chain, body.proposedCurrency) : "",
             licenseType: body.licenseType,
             commercial: body.commercial,
             derivatives: body.derivatives,
@@ -281,6 +285,9 @@ remixOffers.post(
   (c, next) => identityAuth(c, next),
   zValidator("json", autoOfferSchema),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const body = c.req.valid("json");
     const requesterAddress = c.get("walletAddress") as string;
 
@@ -288,7 +295,7 @@ remixOffers.post(
       return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
-    const originalContract = normalizeAddress("STARKNET", body.originalContract);
+    const originalContract = normalizeAddress(chain, body.originalContract);
     const originalTokenId = body.originalTokenId;
 
     const [token, holderBalance] = await Promise.all([
@@ -310,7 +317,7 @@ remixOffers.post(
     if (!licenseResult.ok) return c.json({ error: licenseResult.error }, licenseResult.status);
     const { terms } = licenseResult;
 
-    const creatorAddress = holderBalance ? normalizeAddress("STARKNET", holderBalance.owner) : "";
+    const creatorAddress = holderBalance ? normalizeAddress(chain, holderBalance.owner) : "";
     if (!creatorAddress) return c.json({ error: "Token owner unknown" }, 422);
     if (requesterAddress === creatorAddress) {
       return c.json({ error: "You own this token; use the self-remix endpoint" }, 400);
@@ -363,10 +370,13 @@ remixOffers.post(
   (c, next) => identityAuth(c, next),
   zValidator("json", selfConfirmSchema),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const body = c.req.valid("json");
     const walletAddress = c.get("walletAddress") as string;
 
-    const originalContract = normalizeAddress("STARKNET", body.originalContract);
+    const originalContract = normalizeAddress(chain, body.originalContract);
     const originalTokenId = body.originalTokenId;
 
     const holderBalance = await prisma.tokenBalance.findFirst({
@@ -383,7 +393,7 @@ remixOffers.post(
       return c.json({ error: "You do not own this token" }, 403);
     }
 
-    const remixContract = normalizeAddress("STARKNET", body.remixContract);
+    const remixContract = normalizeAddress(chain, body.remixContract);
     const verified = await verifyTransactionSucceeded(body.txHash);
     if (verified.status !== "CONFIRMED") {
       return c.json({ error: `Mint transaction not verified on-chain: ${verified.failReason ?? "not found"}` }, 400);
@@ -422,6 +432,9 @@ remixOffers.post(
   (c, next) => identityAuth(c, next),
   zValidator("json", confirmSchema),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { id } = c.req.param();
     const body = c.req.valid("json");
     const walletAddress = c.get("walletAddress") as string;
@@ -433,9 +446,9 @@ remixOffers.post(
       where: { id },
       data: {
         status: "APPROVED",
-        remixContract: normalizeAddress("STARKNET", body.remixContract),
+        remixContract: normalizeAddress(chain, body.remixContract),
         remixTokenId: body.remixTokenId,
-        approvedCollection: normalizeAddress("STARKNET", body.approvedCollection),
+        approvedCollection: normalizeAddress(chain, body.approvedCollection),
         orderHash: body.orderHash,
       },
     });
@@ -450,6 +463,9 @@ remixOffers.post(
 
   (c, next) => identityAuth(c, next),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
 
@@ -471,6 +487,9 @@ remixOffers.post(
 
   (c, next) => identityAuth(c, next),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
 
@@ -507,6 +526,9 @@ remixOffers.get(
   (c, next) => identityAuth(c, next),
   zValidator("query", listSchema),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { role, status, page, limit } = c.req.valid("query");
     const walletAddress = c.get("walletAddress") as string;
 
@@ -533,6 +555,9 @@ remixOffers.get(
 );
 
 remixOffers.get("/:id", async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const { id } = c.req.param();
 
   let callerWallet: string | undefined;

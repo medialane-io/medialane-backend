@@ -83,16 +83,19 @@ profiles.patch(
   identityAuth,
   zValidator("json", collectionProfileSchema),
   async (c) => {
-    const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
+    const contract = normalizeAddress(chain, c.req.param("contract"));
     const data = c.req.valid("json");
 
     const collection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+      where: { chain_contractAddress: { chain, contractAddress: contract } },
     });
     if (!collection) return c.json({ error: "Collection not found — register the collection first" }, 404);
 
     const jwtWallet = c.get("walletAddress") as string;
-    if (!collection.claimedBy || normalizeAddress("STARKNET", collection.claimedBy) !== jwtWallet) {
+    if (!collection.claimedBy || normalizeAddress(chain, collection.claimedBy) !== jwtWallet) {
       return c.json({ error: "Not authorized to edit this collection. Claim the collection first." }, 403);
     }
 
@@ -103,10 +106,10 @@ profiles.patch(
       : undefined;
 
     const profile = await prisma.collectionProfile.upsert({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+      where: { chain_contractAddress: { chain, contractAddress: contract } },
       create: {
         contractAddress: contract,
-        chain: "STARKNET",
+        chain,
         ...data,
         hasGatedContent: !!(data.gatedContentUrl),
         updatedBy,
@@ -132,11 +135,14 @@ profiles.get(
   "/collections/:contract/gated-content",
   async (c, next) => identityAuth(c, next),
   async (c) => {
-    const contract = normalizeAddress("STARKNET", c.req.param("contract"));
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
+    const contract = normalizeAddress(chain, c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;
 
     const collection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+      where: { chain_contractAddress: { chain, contractAddress: contract } },
       select: { standard: true },
     });
     if (!collection) {
@@ -149,7 +155,7 @@ profiles.get(
     let knownTokenIds: string[] | undefined;
     if (collection.standard === "ERC1155") {
       const tokens = await prisma.token.findMany({
-        where: { chain: "STARKNET", contractAddress: contract },
+        where: { chain, contractAddress: contract },
         select: { tokenId: true },
         take: 100,
       });
@@ -159,7 +165,7 @@ profiles.get(
     let isHolder: boolean;
     try {
 
-      isHolder = await holdsToken("STARKNET", contract, walletAddress, collection.standard, knownTokenIds);
+      isHolder = await holdsToken(chain, contract, walletAddress, collection.standard, knownTokenIds);
     } catch (err) {
       log.warn({ err, contract, walletAddress }, "Gated-content on-chain check failed");
       return c.json({ error: "Could not verify ownership on-chain, please retry" }, 503);
@@ -170,7 +176,7 @@ profiles.get(
     }
 
     const profile = await prisma.collectionProfile.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+      where: { chain_contractAddress: { chain, contractAddress: contract } },
       select: {
         hasGatedContent: true,
         gatedContentTitle: true,
@@ -192,6 +198,9 @@ profiles.get(
 );
 
 profiles.get("/creators", async (c) => {
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const search = c.req.query("search")?.trim().toLowerCase() ?? "";
@@ -252,6 +261,9 @@ profiles.get("/creators", async (c) => {
 });
 
 profiles.get("/creators/by-username/:username", async (c) => {
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const username = c.req.param("username").toLowerCase().trim();
   const profile = await prisma.accountProfile.findUnique({
     where: { username },
@@ -266,20 +278,26 @@ profiles.get("/creators/by-username/:username", async (c) => {
 });
 
 profiles.get("/creators/:wallet/hidden", async (c) => {
-  const normalizedAddress = normalizeAddress("STARKNET", c.req.param("wallet"));
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
+  const normalizedAddress = normalizeAddress(chain, c.req.param("wallet"));
   const row = await prisma.hiddenCreator.findUnique({
-    where: { chain_address: { chain: "STARKNET", address: normalizedAddress } },
+    where: { chain_address: { chain, address: normalizedAddress } },
   });
   return c.json({ isHidden: row !== null });
 });
 
 profiles.get("/creators/:wallet/profile", async (c) => {
-  const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
-  const accountId = await resolveAccountIdFromWallet("STARKNET", wallet);
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
+  const wallet = normalizeAddress(chain, c.req.param("wallet"));
+  const accountId = await resolveAccountIdFromWallet(chain, wallet);
   if (!accountId) return c.json(null);
   const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
   if (!profile) return c.json(null);
-  return c.json({ chain: "STARKNET", ...serializeCreatorProfile(profile, wallet) });
+  return c.json({ chain, ...serializeCreatorProfile(profile, wallet) });
 });
 
 profiles.patch(
@@ -287,7 +305,10 @@ profiles.patch(
   identityAuth,
   zValidator("json", creatorProfileSchema),
   async (c) => {
-    const wallet = normalizeAddress("STARKNET", c.req.param("wallet"));
+    const chain = parseSingleChain(c.req.query("chain"));
+    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
+    const wallet = normalizeAddress(chain, c.req.param("wallet"));
     const jwtWallet = c.get("walletAddress") as string;
     const data = c.req.valid("json");
 
@@ -296,7 +317,7 @@ profiles.patch(
     }
 
     const { accountId } = await ensureAccountForWallet({
-      chain: "STARKNET",
+      chain,
       address: wallet,
       appSource: "MEDIALANE_STARKNET",
     });
@@ -309,7 +330,7 @@ profiles.patch(
       update: { ...data },
     });
 
-    return c.json({ chain: "STARKNET", ...serializeCreatorProfile(profile, wallet) });
+    return c.json({ chain, ...serializeCreatorProfile(profile, wallet) });
   }
 );
 

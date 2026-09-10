@@ -12,6 +12,7 @@ import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 
 const log = createLogger("routes:siws");
 
@@ -48,8 +49,11 @@ siws.post(
   "/nonce",
   zValidator("json", z.object({ walletAddress: z.string().min(1) })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { walletAddress } = c.req.valid("json");
-    const wallet = normalizeAddress("STARKNET", walletAddress);
+    const wallet = normalizeAddress(chain, walletAddress);
     const nonce = randomBytes(15).toString("hex");
     const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
 
@@ -68,8 +72,11 @@ siws.post(
     appSource:     z.enum(APP_SOURCE_INPUT).optional(),
   })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { walletAddress, nonce, signature, appSource } = c.req.valid("json");
-    const wallet = normalizeAddress("STARKNET", walletAddress);
+    const wallet = normalizeAddress(chain, walletAddress);
 
     const record = await prisma.siwsNonce.findUnique({ where: { nonce } });
     if (!record || record.expiresAt < new Date()) {
@@ -84,7 +91,7 @@ siws.post(
 
     let result;
     try {
-      result = await verifyWalletSignature({ chain: "STARKNET", address: wallet, typedData, signature });
+      result = await verifyWalletSignature({ chain, address: wallet, typedData, signature });
     } catch (err) {
 
       log.error(
@@ -109,11 +116,11 @@ siws.post(
 
     await prisma.siwsNonce.delete({ where: { nonce } });
 
-    const token = issueToken("STARKNET", wallet);
+    const token = issueToken(chain, wallet);
     if (!appSource) return c.json({ token });
 
     const { accountId } = await ensureAccountForWallet({
-      chain: "STARKNET",
+      chain,
       address: wallet,
       appSource: normalizeAppSource(appSource),
     });
@@ -130,8 +137,11 @@ siws.post(
 
 /** Mint a fresh API key for the caller's own account, proven only by their own wallet signature — no shared secret involved. */
 siws.post("/keys", identityAuth, async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const wallet = c.get("walletAddress") as string;
-  const accountId = await resolveAccountIdFromWallet("STARKNET", wallet);
+  const accountId = await resolveAccountIdFromWallet(chain, wallet);
   if (!accountId) return c.json({ error: "Account not found — sign in first" }, 404);
 
   const apiClient = await prisma.apiClient.findUnique({ where: { accountId }, select: { id: true } });

@@ -8,6 +8,7 @@ import { resolveAccountIdFromWallet } from "../../utils/account.js";
 import { requiresEmailVerification } from "../../utils/emailVerification.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 
 const collectionSlugClaims = new Hono<AppEnv>();
 
@@ -16,6 +17,9 @@ function validateSlug(slug: string): string | null {
 }
 
 collectionSlugClaims.get("/check/:slug", async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const slug = c.req.param("slug").toLowerCase().trim();
 
   const validationError = validateSlug(slug);
@@ -42,26 +46,29 @@ collectionSlugClaims.post(
     notifyEmail: z.string().email().optional(),
   })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const jwtWallet = c.get("walletAddress") as string;
     const { contractAddress, slug: rawSlug, notifyEmail } = c.req.valid("json");
-    const normContract = normalizeAddress("STARKNET", contractAddress);
+    const normContract = normalizeAddress(chain, contractAddress);
     const slug = rawSlug.toLowerCase().trim();
 
     const validationError = validateSlug(slug);
     if (validationError) return c.json({ error: validationError }, 400);
 
     const collection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      where: { chain_contractAddress: { chain, contractAddress: normContract } },
       select: { owner: true, claimedBy: true, profile: { select: { slug: true } } },
     });
     if (!collection) return c.json({ error: "Collection not found." }, 404);
 
     const isOwner =
-      (collection.owner && normalizeAddress("STARKNET", collection.owner) === jwtWallet) ||
-      (collection.claimedBy && normalizeAddress("STARKNET", collection.claimedBy) === jwtWallet);
+      (collection.owner && normalizeAddress(chain, collection.owner) === jwtWallet) ||
+      (collection.claimedBy && normalizeAddress(chain, collection.claimedBy) === jwtWallet);
     if (!isOwner) return c.json({ error: "Only the collection owner can claim a slug." }, 403);
 
-    const callerAccountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
+    const callerAccountId = await resolveAccountIdFromWallet(chain, jwtWallet);
     if (callerAccountId && (await requiresEmailVerification(callerAccountId))) {
       return c.json({ error: "Verify your email to claim a collection." }, 403);
     }
@@ -94,7 +101,7 @@ collectionSlugClaims.post(
       data: {
         slug,
         contractAddress: normContract,
-        chain: "STARKNET",
+        chain,
         walletAddress: jwtWallet,
         status: "PENDING",
         notifyEmail: notifyEmail ?? null,
@@ -109,6 +116,9 @@ collectionSlugClaims.get(
   "/me",
   identityAuth,
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const jwtWallet = c.get("walletAddress") as string;
 
     const claims = await prisma.collectionSlugClaim.findMany({

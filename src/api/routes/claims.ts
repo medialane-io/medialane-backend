@@ -6,6 +6,7 @@ import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
+import { parseSingleChain } from "../utils/chainFilter.js";
 import crypto from "crypto";
 import { worker } from "../../orchestrator/worker.js";
 
@@ -23,10 +24,13 @@ claims.post(
     walletAddress: z.string(),
   })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { contractAddress, walletAddress } = c.req.valid("json");
     const jwtWallet = c.get("walletAddress") as string;
-    const normContract = normalizeAddress("STARKNET", contractAddress);
-    const normWallet = normalizeAddress("STARKNET", walletAddress);
+    const normContract = normalizeAddress(chain, contractAddress);
+    const normWallet = normalizeAddress(chain, walletAddress);
 
     if (jwtWallet !== normWallet) {
       return c.json({ error: "Wallet address does not match authenticated session" }, 403);
@@ -42,15 +46,15 @@ claims.post(
     });
     if (existing) {
       const collection = await prisma.collection.findUnique({
-        where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+        where: { chain_contractAddress: { chain, contractAddress: normContract } },
       });
       const sc = collection ? { ...collection, startBlock: collection.startBlock.toString() } : null;
       return c.json({ verified: true, collection: sc });
     }
 
     try {
-      const onChainOwner = await getCollectionOwner("STARKNET", normContract);
-      const ZERO = normalizeAddress("STARKNET", "0x0");
+      const onChainOwner = await getCollectionOwner(chain, normContract);
+      const ZERO = normalizeAddress(chain, "0x0");
       if (onChainOwner === ZERO || onChainOwner !== normWallet) {
         return c.json({ verified: false, reason: "owner_mismatch" });
       }
@@ -59,21 +63,21 @@ claims.post(
     }
 
     const existingCollection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      where: { chain_contractAddress: { chain, contractAddress: normContract } },
     });
     if (!existingCollection) {
       return c.json({ verified: false, reason: "collection_not_indexed" });
     }
     const collection = await prisma.collection.update({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      where: { chain_contractAddress: { chain, contractAddress: normContract } },
       data: { claimedBy: normWallet },
     });
 
     await prisma.collectionClaim.create({
-      data: { contractAddress: normContract, chain: "STARKNET", claimantAddress: normWallet, status: "AUTO_APPROVED", verificationMethod: "ONCHAIN" },
+      data: { contractAddress: normContract, chain, claimantAddress: normWallet, status: "AUTO_APPROVED", verificationMethod: "ONCHAIN" },
     });
 
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: normContract });
+    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain, contractAddress: normContract });
 
     const sc = { ...collection, startBlock: collection.startBlock.toString() };
     return c.json({ verified: true, collection: sc });
@@ -84,9 +88,12 @@ claims.post(
   "/challenge",
   zValidator("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { contractAddress, walletAddress } = c.req.valid("json");
-    const normContract = normalizeAddress("STARKNET", contractAddress);
-    const normWallet = normalizeAddress("STARKNET", walletAddress);
+    const normContract = normalizeAddress(chain, contractAddress);
+    const normWallet = normalizeAddress(chain, walletAddress);
 
     const count = await prisma.claimChallenge.count({ where: { walletAddress: normWallet } });
     if (count >= 20) {
@@ -114,9 +121,12 @@ claims.post(
     signature: z.object({ r: z.string(), s: z.string() }),
   })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { contractAddress, walletAddress, challenge, signature } = c.req.valid("json");
-    const normContract = normalizeAddress("STARKNET", contractAddress);
-    const normWallet = normalizeAddress("STARKNET", walletAddress);
+    const normContract = normalizeAddress(chain, contractAddress);
+    const normWallet = normalizeAddress(chain, walletAddress);
 
     const record = await prisma.claimChallenge.findUnique({ where: { challenge } });
     if (!record || record.expiresAt < new Date()) {
@@ -162,21 +172,21 @@ claims.post(
     await prisma.claimChallenge.delete({ where: { challenge } });
 
     const existingCollection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      where: { chain_contractAddress: { chain, contractAddress: normContract } },
     });
     if (!existingCollection) {
       return c.json({ verified: false, reason: "collection_not_indexed" });
     }
     const collection = await prisma.collection.update({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: normContract } },
+      where: { chain_contractAddress: { chain, contractAddress: normContract } },
       data: { claimedBy: normWallet },
     });
 
     await prisma.collectionClaim.create({
-      data: { contractAddress: normContract, chain: "STARKNET", claimantAddress: normWallet, status: "AUTO_APPROVED", verificationMethod: "SIGNATURE" },
+      data: { contractAddress: normContract, chain, claimantAddress: normWallet, status: "AUTO_APPROVED", verificationMethod: "SIGNATURE" },
     });
 
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: normContract });
+    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain, contractAddress: normContract });
 
     const sc = { ...collection, startBlock: collection.startBlock.toString() };
     return c.json({ verified: true, collection: sc });
@@ -192,9 +202,12 @@ claims.post(
     notes: z.string().optional(),
   })),
   async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
     const { contractAddress, walletAddress, email, notes } = c.req.valid("json");
-    const normContract = normalizeAddress("STARKNET", contractAddress);
-    const normWallet = walletAddress ? normalizeAddress("STARKNET", walletAddress) : null;
+    const normContract = normalizeAddress(chain, contractAddress);
+    const normWallet = walletAddress ? normalizeAddress(chain, walletAddress) : null;
 
     const accountId = c.get("account").id;
     if (!checkRateLimit(`request:${accountId}`)) {
@@ -214,7 +227,7 @@ claims.post(
     }
 
     const claim = await prisma.collectionClaim.create({
-      data: { contractAddress: normContract, chain: "STARKNET", claimantAddress: normWallet, claimantEmail: email, status: "PENDING", verificationMethod: "MANUAL", notes },
+      data: { contractAddress: normContract, chain, claimantAddress: normWallet, claimantEmail: email, status: "PENDING", verificationMethod: "MANUAL", notes },
     });
 
     return c.json({ claim }, 201);

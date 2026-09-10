@@ -35,6 +35,9 @@ function decodeShortStr(felt: string): string | null {
 }
 
 coins.post("/sync", async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
     .object({
@@ -47,7 +50,7 @@ coins.post("/sync", async (c) => {
   if (!STARKNET_CREATOR_COIN_FACTORY_CONTRACT) {
     return c.json({ error: "Creator Coin factory not configured" }, 503);
   }
-  const coinAddress = normalizeAddress("STARKNET", parsed.data.coinAddress);
+  const coinAddress = normalizeAddress(chain, parsed.data.coinAddress);
 
   try {
 
@@ -74,15 +77,15 @@ coins.post("/sync", async (c) => {
     }
 
     await upsertCoin(prisma, {
-      chain: "STARKNET",
+      chain,
       contractAddress: coinAddress,
       ...resolved.coin,
-      creator: parsed.data.owner ? normalizeAddress("STARKNET", parsed.data.owner) : null,
+      creator: parsed.data.owner ? normalizeAddress(chain, parsed.data.owner) : null,
       startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
     const coin = await prisma.coin.findUnique({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress: coinAddress } },
+      where: { chain_contractAddress: { chain, contractAddress: coinAddress } },
     });
     log.info({ coinAddress, service: resolved.coin.service }, "Coin synced on demand");
     return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, ...resolved.coin, standard: "ERC20" } }, 201);
@@ -93,6 +96,9 @@ coins.post("/sync", async (c) => {
 });
 
 coins.get("/", publicCache(30), async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const service = c.req.query("service");
@@ -113,23 +119,26 @@ coins.get("/", publicCache(30), async (c) => {
 });
 
 coins.post("/claim", identityAuth, async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
     .object({ coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address") })
     .safeParse(body);
   if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
 
-  const coinAddress = normalizeAddress("STARKNET", parsed.data.coinAddress);
+  const coinAddress = normalizeAddress(chain, parsed.data.coinAddress);
   const wallet = c.get("walletAddress") as string;
 
   let owner: string;
   try {
-    owner = await getCollectionOwner("STARKNET", coinAddress);
+    owner = await getCollectionOwner(chain, coinAddress);
   } catch {
     return c.json({ verified: false, reason: "owner_check_failed" });
   }
 
-  if (owner === normalizeAddress("STARKNET", "0x0") || owner !== wallet) {
+  if (owner === normalizeAddress(chain, "0x0") || owner !== wallet) {
     return c.json({ verified: false, reason: "owner_mismatch" });
   }
 
@@ -149,7 +158,7 @@ coins.post("/claim", identityAuth, async (c) => {
   if (!resolved.ok) return c.json({ verified: false, reason: resolved.reason });
 
   await upsertCoin(prisma, {
-    chain: "STARKNET",
+    chain,
     contractAddress: coinAddress,
     ...resolved.coin,
     creator: wallet,
@@ -159,7 +168,7 @@ coins.post("/claim", identityAuth, async (c) => {
   await prisma.collectionClaim.create({
     data: {
       contractAddress: coinAddress,
-      chain: "STARKNET",
+      chain,
       claimantAddress: wallet,
       status: "AUTO_APPROVED",
       verificationMethod: "ONCHAIN",
@@ -167,13 +176,16 @@ coins.post("/claim", identityAuth, async (c) => {
   });
 
   const coin = await prisma.coin.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: coinAddress } },
+    where: { chain_contractAddress: { chain, contractAddress: coinAddress } },
   });
   log.info({ coinAddress, wallet, service: resolved.coin.service }, "Coin claimed on chain");
   return c.json({ verified: true, coin: coin ? serializeCoin(coin) : null });
 });
 
 coins.get("/claims", async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const status = c.req.query("status") ?? "PENDING";
   const claims = await prisma.collectionClaim.findMany({
     where: { status: status as never },
@@ -184,6 +196,9 @@ coins.get("/claims", async (c) => {
 });
 
 coins.get("/prices", publicCache(30), async (c) => {
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
   const rows = await prisma.coin.findMany({
     where: { isHidden: false },
     select: { contractAddress: true, decimals: true },
@@ -192,7 +207,7 @@ coins.get("/prices", publicCache(30), async (c) => {
   const inputs = rows.map((r) => ({ contractAddress: r.contractAddress, decimals: r.decimals }));
 
   const strk = getTokenBySymbol("STRK");
-  if (strk) inputs.push({ contractAddress: normalizeAddress("STARKNET", strk.address), decimals: strk.decimals });
+  if (strk) inputs.push({ contractAddress: normalizeAddress(chain, strk.address), decimals: strk.decimals });
 
   const prices = await getCoinPrices(inputs);
   return c.json({ data: prices });
@@ -210,7 +225,10 @@ coins.get("/:contract", publicCache(30), async (c) => {
 });
 
 coins.patch("/:contract", identityAuth, async (c) => {
-  const contract = normalizeAddress("STARKNET", c.req.param("contract") ?? "");
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+
+  const contract = normalizeAddress(chain, c.req.param("contract") ?? "");
   const jwtWallet = c.get("walletAddress") as string;
   const parsed = z
     .object({
@@ -222,15 +240,15 @@ coins.patch("/:contract", identityAuth, async (c) => {
   if (!parsed.success) return c.json({ error: "Invalid body" }, 400);
 
   const coin = await prisma.coin.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    where: { chain_contractAddress: { chain, contractAddress: contract } },
   });
   if (!coin) return c.json({ error: "Coin not found" }, 404);
-  if (!coin.creator || normalizeAddress("STARKNET", coin.creator) !== jwtWallet) {
+  if (!coin.creator || normalizeAddress(chain, coin.creator) !== jwtWallet) {
     return c.json({ error: "Only the coin creator can edit this coin" }, 403);
   }
 
   const updated = await prisma.coin.update({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress: contract } },
+    where: { chain_contractAddress: { chain, contractAddress: contract } },
     data: {
       ...(parsed.data.image !== undefined ? { image: parsed.data.image } : {}),
       ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
