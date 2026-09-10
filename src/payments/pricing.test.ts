@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveActionKey } from "./pricing.js";
+import { resolveActionKey, FALLBACK_COST } from "./pricing.js";
 
 describe("resolveActionKey", () => {
   test("GET data routes resolve to the default read action", () => {
@@ -83,4 +83,20 @@ test("the portal stays unmetered", () => {
 
 test("a GET to the code path is not accidentally priced as a send", () => {
   expect(resolveActionKey("GET", "/v1/auth/email/request-code")).toBeNull();
+});
+
+test("provisioning a recipient is charged as a wallet deployment", () => {
+  expect(resolveActionKey("POST", "/v1/business/provisioning")).toBe("wallet:deploy");
+});
+
+test("the handoff routes under provisioning are charged the same", () => {
+  expect(resolveActionKey("POST", "/v1/business/provisioning/handoff")).toBe("wallet:deploy");
+});
+
+test("reading provisioning is not charged as a deployment", () => {
+  expect(resolveActionKey("GET", "/v1/business/provisioning")).toBe("read");
+});
+
+test("a wallet deployment falls back to ten credits when unpriced", () => {
+  expect(FALLBACK_COST["wallet:deploy"]).toBe(10);
 });

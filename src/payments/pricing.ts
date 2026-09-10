@@ -40,6 +40,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "GET", prefix: "/v1/ipnft", actionKey: "ipnft:read-onchain" },
   { method: "POST", prefix: "/v1/auth/email/request-code", actionKey: "auth:email-send" },
   { method: "POST", prefix: "/v1/rpc", actionKey: "rpc:call" },
+  { method: "POST", prefix: "/v1/business/provisioning", actionKey: "wallet:deploy" },
   { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
   { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
@@ -56,8 +57,9 @@ const SERVICE_FROM_BODY_ACTIONS = new Set(["intent:create-tier"]);
 const DEFAULT_ACTION_KEY = "read";
 const DEFAULT_CHAIN = "STARKNET";
 
-const FALLBACK_COST: Record<string, number> = {
+export const FALLBACK_COST: Record<string, number> = {
   read: 1,
+  "wallet:deploy": 10,
   "intent:mint": 5,
   "intent:create-collection": 5,
   "intent:create-tier": 5,
