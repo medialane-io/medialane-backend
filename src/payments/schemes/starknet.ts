@@ -88,7 +88,7 @@ export class StarknetUsdcScheme implements PaymentScheme {
         ),
       );
     } catch {
-      return { ok: false, reason: "could not fetch receipt" };
+      return { ok: false, reason: "the transfer is not in a block yet — try again in a moment" };
     }
 
     return parseTokenTransfer(receipt, {
