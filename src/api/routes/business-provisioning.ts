@@ -60,6 +60,8 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
     const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
 
+    const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+
     try {
       await deps.deployWallet({
         ownerAddress: normWallet,
@@ -72,7 +74,6 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
       return c.json({ error: "deploy_failed", message }, 502);
     }
 
-    const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
     if (recipientAccountId) {
       await deps.linkWalletToAccount({ chain, walletAddress: normWallet, accountId: recipientAccountId });
     }

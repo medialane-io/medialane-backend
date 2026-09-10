@@ -116,6 +116,30 @@ describe("POST /v1/business/provisioning", () => {
     expect(linkCalls).toBe(0);
   });
 
+  test("creates the account before deploying the wallet", async () => {
+    const order: string[] = [];
+    const deps = fakeDeps({
+      ensureRecipientAccount: async () => { order.push("account"); return "acct-1"; },
+      deployWallet: async () => { order.push("deploy"); return "0xtx"; },
+      linkWalletToAccount: async () => { order.push("link"); },
+    });
+    const app = makeApp(deps);
+
+    const res = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "student@example.com",
+        interimOwnerPubkey: "0x2",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(order).toEqual(["account", "deploy", "link"]);
+  });
+
   test("records nothing when the wallet fails to deploy", async () => {
     let created = 0;
     const deps = fakeDeps({
