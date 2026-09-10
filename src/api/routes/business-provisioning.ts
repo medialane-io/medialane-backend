@@ -38,8 +38,23 @@ export interface BusinessProvisioningDeps {
   getProvisioningById: (id: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
   getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
   markTransferred: (id: string) => Promise<ProvisioningRecord>;
-  recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
+  recordNewOwnerPubkey: (
+    id: string,
+    newOwnerPubkey: string,
+    ownerAlive: { r: string; s: string; expiration: number },
+  ) => Promise<ProvisioningRecord>;
+  getProvisioningByWallet: (chain: Chain, walletAddress: string) => Promise<ProvisioningRecord | null>;
 }
+
+const FELT = /^0x[0-9a-fA-F]{1,64}$/;
+
+const handoffSchema = z.object({
+  chain: z.enum(["STARKNET"]).default("STARKNET"),
+  walletAddress: z.string(),
+  newOwnerPubkey: z.string().regex(FELT),
+  ownerAliveSignature: z.tuple([z.string().regex(FELT), z.string().regex(FELT)]),
+  ownerAliveExpiration: z.number().int().positive(),
+});
 
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
@@ -111,6 +126,23 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     return c.json({ data: rows });
   });
 
+  app.post("/handoff", zValidator("json", handoffSchema), async (c) => {
+    const { chain, walletAddress, newOwnerPubkey, ownerAliveSignature, ownerAliveExpiration } =
+      c.req.valid("json");
+    const normWallet = normalizeAddress(chain, walletAddress);
+
+    const record = await deps.getProvisioningByWallet(chain, normWallet);
+    if (!record) return c.json({ error: "not_found" }, 404);
+    if (record.status === "TRANSFERRED") return c.json({ error: "already_transferred" }, 409);
+
+    const updated = await deps.recordNewOwnerPubkey(
+      record.id,
+      normalizeAddress(chain, newOwnerPubkey),
+      { r: ownerAliveSignature[0], s: ownerAliveSignature[1], expiration: ownerAliveExpiration },
+    );
+    return c.json({ data: updated });
+  });
+
   app.post("/:id/complete", async (c) => {
     const id = c.req.param("id");
     const apiClient = c.get("apiClient");
@@ -176,8 +208,25 @@ const productionDeps: BusinessProvisioningDeps = {
     });
   },
   markTransferred: async (id) => assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } })),
-  recordNewOwnerPubkey: async (id, newOwnerPubkey) =>
-    assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { newOwnerPubkey, status: "HANDOFF" } })),
+  recordNewOwnerPubkey: async (id, newOwnerPubkey, ownerAlive) =>
+    assertLinked(
+      await prisma.businessProvisioning.update({
+        where: { id },
+        data: {
+          newOwnerPubkey,
+          ownerAliveR: ownerAlive.r,
+          ownerAliveS: ownerAlive.s,
+          ownerAliveExpiration: ownerAlive.expiration,
+          status: "HANDOFF",
+        },
+      }),
+    ),
+  getProvisioningByWallet: async (chain, walletAddress) => {
+    const row = await prisma.businessProvisioning.findUnique({
+      where: { chain_walletAddress: { chain, walletAddress } },
+    });
+    return row ? assertLinked(row) : null;
+  },
 };
 
 export const businessProvisioningRoutes = createBusinessProvisioningRoutes(productionDeps);

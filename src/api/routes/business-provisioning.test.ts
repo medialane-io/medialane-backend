@@ -21,6 +21,8 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
     isAccountOwner: async () => true,
     deriveWalletAddress: () => "0x111",
     findAccountWallet: async () => null,
+    getProvisioningByWallet: async (_chain, walletAddress) =>
+      [...store.values()].find((r) => r.walletAddress === walletAddress) ?? null,
     deployWallet: async () => "0xdeploytx",
     ensureRecipientAccount: async (_scheme, value) => `acct-for-${value}`,
     linkWalletToAccount: async () => {},
@@ -224,6 +226,72 @@ describe("GET /v1/business/provisioning", () => {
     const body = (await res.json()) as { data: ProvisioningRecord[] };
     expect(body.data).toHaveLength(1);
     expect(body.data[0].walletAddress).toBe("0xA");
+  });
+});
+
+describe("POST /v1/business/provisioning/handoff", () => {
+  async function register(app: ReturnType<typeof makeApp>) {
+    return app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "student@example.com",
+        interimOwnerPubkey: "0x222",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+  }
+
+  test("records the recipient's key and the proof it can sign", async () => {
+    const deps = fakeDeps();
+    const app = makeApp(deps);
+    await register(app);
+
+    const res = await app.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: "0x111",
+        newOwnerPubkey: "0xabc",
+        ownerAliveSignature: ["0x11", "0x22"],
+        ownerAliveExpiration: 1788000000,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: ProvisioningRecord };
+    expect(body.data.status).toBe("HANDOFF");
+    expect(BigInt(body.data.newOwnerPubkey!)).toBe(BigInt("0xabc"));
+  });
+
+  test("refuses a handoff without the owner-alive proof", async () => {
+    const deps = fakeDeps();
+    const app = makeApp(deps);
+    await register(app);
+
+    const res = await app.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walletAddress: "0x111", newOwnerPubkey: "0xabc" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  test("404s for a wallet that was never provisioned", async () => {
+    const app = makeApp(fakeDeps());
+    const res = await app.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: "0x999",
+        newOwnerPubkey: "0xabc",
+        ownerAliveSignature: ["0x11", "0x22"],
+        ownerAliveExpiration: 1788000000,
+      }),
+    });
+    expect(res.status).toBe(404);
   });
 });
 
