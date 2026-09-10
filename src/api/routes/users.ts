@@ -223,6 +223,22 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   return c.json({ walletAddress: newAddress });
 });
 
+const accountWalletSchema = z.object({ accountToken: z.string().min(1) });
+
+users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
+  const { accountToken } = c.req.valid("json");
+  const accountId = verifyAccountSessionToken(accountToken);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+
+  const wallet = await prisma.identity.findFirst({
+    where: { accountId, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: { address: true },
+  });
+
+  return c.json({ walletAddress: wallet?.address ?? null });
+});
+
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const identity = await prisma.identity.findUnique({
