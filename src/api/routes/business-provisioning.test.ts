@@ -20,8 +20,9 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
   return {
     isAccountOwner: async () => true,
     deriveWalletAddress: () => "0x111",
+    findAccountWallet: async () => null,
     deployWallet: async () => "0xdeploytx",
-    ensureRecipientAccount: async (scheme, value) => (scheme === "email" ? `acct-for-${value}` : null),
+    ensureRecipientAccount: async (_scheme, value) => `acct-for-${value}`,
     linkWalletToAccount: async () => {},
     createProvisioning: async (input) => {
       seq += 1;
@@ -96,9 +97,9 @@ describe("POST /v1/business/provisioning", () => {
     expect(linked!.accountId).toBe("acct-for-student@example.com");
   });
 
-  test("registers without an account when the recipient is not identified by email", async () => {
-    let linkCalls = 0;
-    const deps = fakeDeps({ linkWalletToAccount: async () => { linkCalls += 1; } });
+  test("creates an account for a recipient identified by something other than email", async () => {
+    const linked: string[] = [];
+    const deps = fakeDeps({ linkWalletToAccount: async ({ accountId }) => { linked.push(accountId); } });
     const app = makeApp(deps);
 
     const res = await app.request("/v1/business/provisioning", {
@@ -113,7 +114,7 @@ describe("POST /v1/business/provisioning", () => {
     });
 
     expect(res.status).toBe(201);
-    expect(linkCalls).toBe(0);
+    expect(linked).toEqual(["acct-for-12345"]);
   });
 
   test("creates the account before deploying the wallet", async () => {
@@ -138,6 +139,55 @@ describe("POST /v1/business/provisioning", () => {
 
     expect(res.status).toBe(201);
     expect(order).toEqual(["account", "deploy", "link"]);
+  });
+
+  test("reuses the wallet an account already has instead of deploying another", async () => {
+    let deploys = 0;
+    const deps = fakeDeps({
+      findAccountWallet: async () => "0xexisting",
+      deployWallet: async () => { deploys += 1; return "0xtx"; },
+    });
+    const app = makeApp(deps);
+
+    const res = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "already@example.com",
+        interimOwnerPubkey: "0x2",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(deploys).toBe(0);
+    const body = (await res.json()) as { data: ProvisioningRecord; reusedExistingWallet: boolean };
+    expect(body.reusedExistingWallet).toBe(true);
+    expect(body.data.walletAddress).toBe("0xexisting");
+  });
+
+  test("deploys a wallet for an account that exists but has none", async () => {
+    let deploys = 0;
+    const deps = fakeDeps({
+      findAccountWallet: async () => null,
+      deployWallet: async () => { deploys += 1; return "0xtx"; },
+    });
+    const app = makeApp(deps);
+
+    const res = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        recipientScheme: "email",
+        recipientValue: "nowallet@example.com",
+        interimOwnerPubkey: "0x2",
+        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(deploys).toBe(1);
   });
 
   test("records nothing when the wallet fails to deploy", async () => {

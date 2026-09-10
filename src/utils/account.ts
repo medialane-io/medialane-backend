@@ -65,6 +65,10 @@ export function shouldRejectNewAccountForWallet(params: {
   return Boolean(params.requireExistingAccountLink) && !params.linkToAccountId;
 }
 
+export function shouldBePrimaryWallet(accountHasPrimaryWallet: boolean): boolean {
+  return !accountHasPrimaryWallet;
+}
+
 export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
@@ -92,6 +96,10 @@ export async function ensureAccountForWallet(params: {
   }
 
   if (params.linkToAccountId) {
+    const hasPrimary = await prisma.identity.findFirst({
+      where: { accountId: params.linkToAccountId, scheme: IDENTITY_SCHEME.WALLET, isPrimary: true },
+      select: { id: true },
+    });
     await prisma.identity.create({
       data: {
         accountId: params.linkToAccountId,
@@ -100,7 +108,7 @@ export async function ensureAccountForWallet(params: {
         chain: params.chain,
         address,
         appSource: params.appSource,
-        isPrimary: true,
+        isPrimary: shouldBePrimaryWallet(hasPrimary !== null),
         email: params.email ?? null,
       },
     });
@@ -147,13 +155,15 @@ export async function ensureAccountForWallet(params: {
   return { accountId, created: true };
 }
 
-export async function ensureAccountForEmail(
-  email: string,
+export async function ensureAccountForIdentity(
+  scheme: string,
+  value: string,
   appSource: AppSource = "MEDIALANE_IO",
 ): Promise<{ accountId: string; created: boolean }> {
+  const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
-      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      where: { scheme_value: { scheme, value } },
       select: { accountId: true },
     });
     if (existing) return { accountId: existing.accountId, created: false };
@@ -167,9 +177,9 @@ export async function ensureAccountForEmail(
         await tx.identity.create({
           data: {
             accountId: account.id,
-            scheme: IDENTITY_SCHEME.EMAIL,
-            value: email,
-            email,
+            scheme,
+            value,
+            email: isEmail ? value : null,
             appSource,
             verifiedAt: null,
           },

@@ -3,9 +3,10 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
+import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { computeAccountAddress } from "@medialane/sdk/starknet";
 import { executeSponsoredDeploy } from "./paymaster.js";
-import { ensureAccountForEmail, ensureAccountForWallet } from "../../utils/account.js";
+import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
 import crypto from "crypto";
@@ -28,6 +29,7 @@ export interface BusinessProvisioningDeps {
   deriveWalletAddress: (ownerPubkey: string) => string;
   deployWallet: (input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown }) => Promise<string>;
   ensureRecipientAccount: (recipientScheme: string, recipientValue: string) => Promise<string | null>;
+  findAccountWallet: (chain: Chain, accountId: string) => Promise<string | null>;
   linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
   createProvisioning: (input: {
     apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
@@ -61,6 +63,23 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
 
     const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+
+    const existingWallet = recipientAccountId
+      ? await deps.findAccountWallet(chain, recipientAccountId)
+      : null;
+
+    if (existingWallet) {
+      const record = await deps.createProvisioning({
+        apiClientId: apiClient.id,
+        accountId: apiClient.accountId,
+        chain,
+        walletAddress: existingWallet,
+        recipientScheme,
+        recipientValue,
+        interimOwnerPubkey: normPubkey,
+      });
+      return c.json({ data: record, reusedExistingWallet: true }, 200);
+    }
 
     try {
       await deps.deployWallet({
@@ -135,9 +154,16 @@ const productionDeps: BusinessProvisioningDeps = {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
     return row ? assertLinked(row) : null;
   },
+  findAccountWallet: async (chain, accountId) => {
+    const identity = await prisma.identity.findFirst({
+      where: { accountId, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      select: { address: true },
+    });
+    return identity?.address ?? null;
+  },
   ensureRecipientAccount: async (recipientScheme, recipientValue) => {
-    if (recipientScheme !== "email") return null;
-    const { accountId } = await ensureAccountForEmail(recipientValue, "MEDIALANE_SDK");
+    const { accountId } = await ensureAccountForIdentity(recipientScheme, recipientValue, "MEDIALANE_SDK");
     return accountId;
   },
   linkWalletToAccount: async ({ chain, walletAddress, accountId }) => {
