@@ -59,7 +59,7 @@ const DEFAULT_CHAIN = "STARKNET";
 
 export const FALLBACK_COST: Record<string, number> = {
   read: 1,
-  "wallet:deploy": 10,
+  "wallet:deploy": 5,
   "intent:mint": 5,
   "intent:create-collection": 5,
   "intent:create-tier": 5,

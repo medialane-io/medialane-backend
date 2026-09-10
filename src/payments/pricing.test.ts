@@ -110,6 +110,6 @@ test("reading provisioning is not charged as a deployment", () => {
   expect(resolveActionKey("GET", "/v1/business/provisioning")).toBe("read");
 });
 
-test("a wallet deployment falls back to ten credits when unpriced", () => {
-  expect(FALLBACK_COST["wallet:deploy"]).toBe(10);
+test("a wallet deployment falls back to five credits when unpriced", () => {
+  expect(FALLBACK_COST["wallet:deploy"]).toBe(5);
 });
