@@ -4,14 +4,17 @@ import { apiKeyAuth } from "./apiKeyAuth.js";
 import { apiKeyRateLimit } from "./rateLimit.js";
 import { meter } from "./meter.js";
 
-function composeMiddleware(handlers: readonly MiddlewareHandler<AppEnv>[]): MiddlewareHandler<AppEnv> {
-  return function chained(c: Context<AppEnv>, next: Next) {
-    const run = (i: number): Promise<Response | void> => {
-      if (i >= handlers.length) return Promise.resolve(next());
-
-      return Promise.resolve(handlers[i](c, (() => run(i + 1)) as Next));
+export function composeMiddleware(handlers: readonly MiddlewareHandler<AppEnv>[]): MiddlewareHandler<AppEnv> {
+  return async function chained(c: Context<AppEnv>, next: Next) {
+    const run = async (i: number): Promise<void> => {
+      if (i >= handlers.length) {
+        await next();
+        return;
+      }
+      const res = await handlers[i](c, (() => run(i + 1)) as Next);
+      if (res instanceof Response) c.res = res;
     };
-    return run(0);
+    await run(0);
   };
 }
 
