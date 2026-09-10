@@ -3,6 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
+import { ensureAccountForEmail, ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
 import crypto from "crypto";
@@ -22,6 +23,8 @@ export interface ProvisioningRecord {
 
 export interface BusinessProvisioningDeps {
   isAccountOwner: (chain: Chain, walletAddress: string, ownerPubkey: string) => Promise<boolean>;
+  ensureRecipientAccount: (recipientScheme: string, recipientValue: string) => Promise<string | null>;
+  linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
   createProvisioning: (input: {
     apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string;
   }) => Promise<ProvisioningRecord>;
@@ -51,6 +54,11 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
     const ok = await deps.isAccountOwner(chain, normWallet, normPubkey);
     if (!ok) return c.json({ error: "interim_owner_mismatch" }, 400);
+
+    const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+    if (recipientAccountId) {
+      await deps.linkWalletToAccount({ chain, walletAddress: normWallet, accountId: recipientAccountId });
+    }
 
     const record = await deps.createProvisioning({
       apiClientId: apiClient.id, accountId: apiClient.accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey,
@@ -106,6 +114,20 @@ const productionDeps: BusinessProvisioningDeps = {
   getProvisioningByIdUnscoped: async (id) => {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
     return row ? assertLinked(row) : null;
+  },
+  ensureRecipientAccount: async (recipientScheme, recipientValue) => {
+    if (recipientScheme !== "email") return null;
+    const { accountId } = await ensureAccountForEmail(recipientValue, "MEDIALANE_SDK");
+    return accountId;
+  },
+  linkWalletToAccount: async ({ chain, walletAddress, accountId }) => {
+    await ensureAccountForWallet({
+      chain,
+      address: walletAddress,
+      provider: "mediawallet",
+      appSource: "MEDIALANE_SDK",
+      linkToAccountId: accountId,
+    });
   },
   markTransferred: async (id) => assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } })),
   recordNewOwnerPubkey: async (id, newOwnerPubkey) =>

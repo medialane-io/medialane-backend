@@ -19,6 +19,8 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
   let seq = 0;
   return {
     isAccountOwner: async () => true,
+    ensureRecipientAccount: async (scheme, value) => (scheme === "email" ? `acct-for-${value}` : null),
+    linkWalletToAccount: async () => {},
     createProvisioning: async (input) => {
       seq += 1;
       const record: ProvisioningRecord = { id: `prov-${seq}`, status: "DEPLOYED", newOwnerPubkey: null, ...input };
@@ -65,6 +67,51 @@ describe("POST /v1/business/provisioning", () => {
     const body = (await res.json()) as { data: ProvisioningRecord };
     expect(body.data.status).toBe("DEPLOYED");
     expect(body.data.apiClientId).toBe("biz-1");
+  });
+
+  test("creates an account for the recipient and links the wallet to it", async () => {
+    let linked: { walletAddress: string; accountId: string } | null = null;
+    const deps = fakeDeps({
+      linkWalletToAccount: async ({ walletAddress, accountId }) => {
+        linked = { walletAddress, accountId };
+      },
+    });
+    const app = makeApp(deps);
+
+    const res = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: "0x1",
+        recipientScheme: "email",
+        recipientValue: "student@example.com",
+        interimOwnerPubkey: "0x2",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(linked).not.toBeNull();
+    expect(linked!.accountId).toBe("acct-for-student@example.com");
+  });
+
+  test("registers without an account when the recipient is not identified by email", async () => {
+    let linkCalls = 0;
+    const deps = fakeDeps({ linkWalletToAccount: async () => { linkCalls += 1; } });
+    const app = makeApp(deps);
+
+    const res = await app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: "0x1",
+        recipientScheme: "student_id",
+        recipientValue: "12345",
+        interimOwnerPubkey: "0x2",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(linkCalls).toBe(0);
   });
 
   test("rejects when the interim key is not actually the on-chain owner", async () => {

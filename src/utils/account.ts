@@ -148,3 +148,42 @@ export async function ensureAccountForWallet(params: {
 
   return { accountId, created: true };
 }
+
+export async function ensureAccountForEmail(
+  email: string,
+  appSource: AppSource = "MEDIALANE_IO",
+): Promise<{ accountId: string; created: boolean }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const existing = await prisma.identity.findUnique({
+      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      select: { accountId: true },
+    });
+    if (existing) return { accountId: existing.accountId, created: false };
+
+    try {
+      const accountId = await prisma.$transaction(async (tx) => {
+        const account = await tx.account.create({
+          data: { publicId: generateAccountPublicId(), type: "PERSON", roles: [] },
+          select: { id: true },
+        });
+        await tx.identity.create({
+          data: {
+            accountId: account.id,
+            scheme: IDENTITY_SCHEME.EMAIL,
+            value: email,
+            email,
+            appSource,
+            verifiedAt: null,
+          },
+        });
+        return account.id;
+      });
+      return { accountId, created: true };
+    } catch (err) {
+      const isUniqueViolation =
+        typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
+      if (!isUniqueViolation) throw err;
+    }
+  }
+  throw new Error("Failed to create account after 3 attempts");
+}
