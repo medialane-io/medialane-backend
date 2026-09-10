@@ -9,6 +9,7 @@ import {
   STARKNET_MARKETPLACE_721_CONTRACT,
   STARKNET_MARKETPLACE_1155_CONTRACT,
   STARKNET_COLLECTION_721_CONTRACT,
+  STARKNET_DATA_TOKENIZATION_721_CONTRACT,
   STARKNET_COLLECTION_1155_CONTRACT,
   STARKNET_POP_FACTORY_CONTRACT,
   STARKNET_DROP_FACTORY_CONTRACT,
@@ -92,6 +93,7 @@ const MARKETPLACE_SELECTORS = [
 export const CORE_MARKETPLACE_721 = "marketplace-721";
 export const CORE_MARKETPLACE_1155 = "marketplace-1155";
 export const CORE_FACTORY_MIP721 = "factory:mip-erc721";
+export const CORE_FACTORY_DATA_TOKENIZATION = "factory:data-tokenization-erc721";
 export const CORE_TRANSFERS = "transfers";
 
 async function applyComments(events: RawStarknetEvent[]): Promise<void> {
@@ -162,6 +164,7 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_MARKETPLACE_721, scope: { kind: "contract", address: STARKNET_MARKETPLACE_721_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
   { id: CORE_MARKETPLACE_1155, scope: { kind: "contract", address: STARKNET_MARKETPLACE_1155_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
   { id: CORE_FACTORY_MIP721, scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
+  { id: CORE_FACTORY_DATA_TOKENIZATION, scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
 
   { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: [hex(TRANSFER_SELECTOR), hex(TRANSFER_SINGLE_SELECTOR), hex(TRANSFER_BATCH_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], apply: applyComments },

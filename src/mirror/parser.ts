@@ -213,6 +213,7 @@ export function parseEvent(
         type: "CollectionCreated",
         collectionId: decoded.collectionId,
         owner: decoded.owner,
+        factoryAddress: contractAddress,
         blockNumber,
         txHash,
         logIndex,

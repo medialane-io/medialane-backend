@@ -192,3 +192,45 @@ describe("mint-calls", () => {
     expect(BigInt(seenOwner)).toBe(BigInt("0xb12"));
   });
 });
+
+describe("registry routing", () => {
+  test("Data Tokenization mints into its own registry", async () => {
+    let seen: string | undefined;
+    const deps = fakeDeps({
+      buildMintCalls: async (input) => {
+        seen = input.collectionContract;
+        return [{ contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient] }];
+      },
+    });
+    await post(makeApp(deps), { ...baseBody, service: "data-tokenization-erc721" });
+    expect(seen).toBe("0x07421b4442f7f2052c65408fb3561484154cf8175a0bbb41e3cd38d9087af6d2");
+  });
+
+  test("an explicit collection contract still wins", async () => {
+    let seen: string | undefined;
+    const deps = fakeDeps({
+      buildMintCalls: async (input) => {
+        seen = input.collectionContract;
+        return [{ contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient] }];
+      },
+    });
+    await post(makeApp(deps), {
+      ...baseBody,
+      service: "data-tokenization-erc721",
+      collectionContract: "0xabc",
+    });
+    expect(seen).toBe("0xabc");
+  });
+
+  test("a service with no registry of its own passes nothing", async () => {
+    let seen: string | undefined = "unset";
+    const deps = fakeDeps({
+      buildMintCalls: async (input) => {
+        seen = input.collectionContract;
+        return [{ contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient] }];
+      },
+    });
+    await post(makeApp(deps), { ...baseBody, service: "ip-erc721" });
+    expect(seen).toBeUndefined();
+  });
+});

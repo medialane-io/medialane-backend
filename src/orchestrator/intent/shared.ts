@@ -1,6 +1,7 @@
 
 
 import { cairo, hash, num } from "starknet";
+import { getService } from "@medialane/sdk";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT, STARKNET_COLLECTION_721_CONTRACT } from "../../config/constants.js";
 import { postRpc } from "../../utils/rpcFetch.js";
@@ -130,8 +131,10 @@ export function generateSalt(): string {
   return "0x" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function resolveCollectionContract(override?: string): string {
-  return override ? normalizeAddress("STARKNET", override) : STARKNET_COLLECTION_721_CONTRACT;
+export function resolveCollectionContract(override?: string, service?: string | null): string {
+  if (override) return normalizeAddress("STARKNET", override);
+  const registry = service ? getService(service)?.onchain?.STARKNET?.factoryAddress : undefined;
+  return registry ? normalizeAddress("STARKNET", registry) : STARKNET_COLLECTION_721_CONTRACT;
 }
 
 export function parseAmount(humanAmount: string, decimals: number): bigint {

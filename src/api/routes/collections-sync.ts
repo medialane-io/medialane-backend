@@ -4,7 +4,8 @@ import { type Collection } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
-import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { STARKNET_COLLECTION_721_CONTRACT,
+  STARKNET_DATA_TOKENIZATION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -107,12 +108,16 @@ collections.post("/sync-tx", async (c) => {
     const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
-    const registryAddress = normalizeAddress("STARKNET", STARKNET_COLLECTION_721_CONTRACT);
+    const factoryAddresses = new Set(
+      [STARKNET_COLLECTION_721_CONTRACT, STARKNET_DATA_TOKENIZATION_721_CONTRACT].map((a) =>
+        normalizeAddress("STARKNET", a),
+      ),
+    );
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>
         e.from_address &&
-        normalizeAddress("STARKNET", e.from_address) === registryAddress &&
+        factoryAddresses.has(normalizeAddress("STARKNET", e.from_address)) &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
     );
 
@@ -132,13 +137,14 @@ collections.post("/sync-tx", async (c) => {
         type: "CollectionCreated",
         collectionId,
         owner,
+        factoryAddress: normalizeAddress("STARKNET", event.from_address),
         blockNumber,
         txHash,
         logIndex: 0,
       });
 
       if (!resolved) {
-        resolved = resolveCollectionFromReceipt(event, events, registryAddress, owner, blockNumber);
+        resolved = resolveCollectionFromReceipt(event, events, normalizeAddress("STARKNET", event.from_address), owner, blockNumber);
       }
 
       if (!resolved) {

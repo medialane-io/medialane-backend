@@ -114,6 +114,7 @@ export interface ParsedCollectionCreated {
   type: "CollectionCreated";
   collectionId: string;
   owner: string;
+  factoryAddress: string;
   blockNumber: bigint;
   txHash: string;
   logIndex: number;

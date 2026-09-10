@@ -64,7 +64,7 @@ async function assertFactoryCollectionOwner(collectionAddress: string, expectedO
   }
 }
 
-const REGISTRY_COMPATIBLE_SERVICES = new Set(["mip-erc721", "ip-erc721"]);
+const REGISTRY_COMPATIBLE_SERVICES = new Set(["mip-erc721", "ip-erc721", "data-tokenization-erc721"]);
 
 export async function buildMintIntent(body: MintIntentBody) {
   const owner = normalizeAddress("STARKNET", body.owner);
@@ -185,7 +185,7 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     return { calls: [call] };
   }
 
-  const contract = resolveCollectionContract(body.collectionContract);
+  const contract = resolveCollectionContract(body.collectionContract, body.service);
   const calldata = [
     ...encodeByteArray(body.name),
     ...encodeByteArray(body.symbol),

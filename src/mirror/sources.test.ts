@@ -28,7 +28,7 @@ describe("EVENT_SOURCES", () => {
   });
   test("core sources have no apply; side sources do", () => {
     for (const s of EVENT_SOURCES) {
-      const isCore = ["marketplace-721", "marketplace-1155", "factory:mip-erc721", "transfers"].includes(s.id);
+      const isCore = ["marketplace-721", "marketplace-1155", "factory:mip-erc721", "factory:data-tokenization-erc721", "transfers"].includes(s.id);
       expect(!!s.apply).toBe(!isCore);
     }
   });

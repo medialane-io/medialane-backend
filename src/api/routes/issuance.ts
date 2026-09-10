@@ -58,6 +58,10 @@ export function serviceCanMint(serviceId: string): boolean {
   return getService(serviceId)?.capabilities.includes("mint") ?? false;
 }
 
+export function registryForService(serviceId: string): string | undefined {
+  return getService(serviceId)?.onchain?.STARKNET?.factoryAddress;
+}
+
 const mintCallsSchema = z
   .object({
     chain: z.enum(["STARKNET"]).default("STARKNET"),
@@ -101,7 +105,7 @@ export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
         owner,
         recipient: r.walletAddress!,
         collectionId: body.collectionId,
-        collectionContract: body.collectionContract,
+        collectionContract: body.collectionContract ?? registryForService(body.service),
         tokenUri: body.tokenUri,
       });
       calls.push(...built);

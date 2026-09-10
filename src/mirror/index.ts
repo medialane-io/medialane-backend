@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
-import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_TRANSFERS, type SourceFetch } from "./sources.js";
+import { serviceForFactory } from "../utils/factoryService.js";
+import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, CORE_TRANSFERS, type SourceFetch } from "./sources.js";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
@@ -76,7 +77,10 @@ async function tick(tickId: string): Promise<number> {
 
   const rawMarketplaceEvents = eventsOf(CORE_MARKETPLACE_721);
   const raw1155Events = eventsOf(CORE_MARKETPLACE_1155);
-  const rawCollectionCreatedEvents = eventsOf(CORE_FACTORY_MIP721);
+  const rawCollectionCreatedEvents = [
+    ...eventsOf(CORE_FACTORY_MIP721),
+    ...eventsOf(CORE_FACTORY_DATA_TOKENIZATION),
+  ];
   const rawTransferEvents = eventsOf(CORE_TRANSFERS);
 
   const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
@@ -202,7 +206,7 @@ async function tick(tickId: string): Promise<number> {
     await upsertCollectionFromFactory(prisma, {
       chain: CHAIN,
       contractAddress: resolved.contractAddress,
-      service: "mip-erc721",
+      service: serviceForFactory(event.factoryAddress),
       standard: "ERC721",
       collectionId: event.collectionId,
       name: resolved.name,
