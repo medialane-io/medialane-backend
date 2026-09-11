@@ -66,3 +66,34 @@ describe("creditAccount", () => {
     expect(calls.txOps).toBe(2);
   });
 });
+
+test("a credit writes only fields the Payment table has", async () => {
+  let written: Record<string, unknown> = {};
+  const db = {
+    apiClient: { updateMany: async () => ({ count: 1 }), update: async () => ({}) },
+    payment: { create: async (args: { data: Record<string, unknown> }) => { written = args.data; return {}; } },
+    $transaction: async (ops: unknown[]) => Promise.all(ops),
+  } as unknown as CreditsDb;
+
+  await creditAccount({
+    apiClientId: "c1",
+    accountId: "a1",
+    amountAtomic: 1_000_000n,
+    creditedAmount: 100,
+    mdlnMultiplier: 1,
+    scheme: "starknet-transfer",
+    network: "starknet",
+    asset: "0xusdc",
+    txHash: "0xabc",
+    proofNonce: "0xabc",
+  }, db);
+
+  const columns = new Set([
+    "apiClientId", "scheme", "network", "asset", "amountAtomic",
+    "creditedAmount", "mdlnMultiplier", "status", "txHash", "proofNonce",
+  ]);
+  for (const key of Object.keys(written)) {
+    expect(columns.has(key)).toBe(true);
+  }
+  expect(written.apiClientId).toBe("c1");
+});

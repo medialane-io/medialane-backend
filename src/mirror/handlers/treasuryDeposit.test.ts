@@ -90,12 +90,14 @@ describe("crediting a deposit", () => {
     expect(called).toBe(false);
   });
 
-  test("no price leaves the deposit for a later pass rather than crediting wrongly", async () => {
+  test("no price throws, so the batch retries instead of skipping the deposit", async () => {
     let called = false;
-    await creditDeposit(deposit, deps({
-      readUsdPrices: async () => ({}),
-      creditAccount: async () => { called = true; },
-    }));
+    await expect(
+      creditDeposit(deposit, deps({
+        readUsdPrices: async () => ({}),
+        creditAccount: async () => { called = true; },
+      })),
+    ).rejects.toThrow();
     expect(called).toBe(false);
   });
 

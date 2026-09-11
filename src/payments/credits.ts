@@ -1,11 +1,12 @@
 import prismaDefault from "../db/client.js";
+import type { Prisma } from "@prisma/client";
 
 export interface CreditsDb {
   apiClient: {
-    updateMany(args: unknown): Promise<{ count: number }>;
-    update(args: unknown): Promise<unknown>;
+    updateMany(args: Prisma.ApiClientUpdateManyArgs): Promise<{ count: number }>;
+    update(args: Prisma.ApiClientUpdateArgs): Promise<unknown>;
   };
-  payment: { create(args: unknown): Promise<unknown> };
+  payment: { create(args: Prisma.PaymentCreateArgs): Promise<unknown> };
   $transaction(ops: unknown[]): Promise<unknown>;
 }
 
@@ -53,7 +54,6 @@ export async function creditAccount(
   await db.$transaction([
     db.payment.create({
       data: {
-        accountId: input.accountId,
         apiClientId: input.apiClientId,
         scheme: input.scheme,
         network: input.network,

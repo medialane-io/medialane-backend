@@ -73,12 +73,15 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   const prices = await deps.readUsdPrices();
   const price = prices?.[token.symbol as keyof typeof prices];
   if (price === undefined) {
-    log.warn({ txHash: deposit.txHash, symbol: token.symbol }, "No price — deposit left for the next pass");
-    return;
+    throw new Error(
+      `No ${token.symbol} price while crediting ${deposit.txHash} — retrying rather than crediting wrongly`,
+    );
   }
 
   const valued = usdcEquivalentAtomic(deposit.amountAtomic, token.decimals, price);
-  if (valued === null) return;
+  if (valued === null) {
+    throw new Error(`Could not value ${deposit.txHash} — retrying`);
+  }
 
   const multiplier = await deps.mdlnMultiplier(deposit.payer);
   const creditedAmount = Math.floor(
