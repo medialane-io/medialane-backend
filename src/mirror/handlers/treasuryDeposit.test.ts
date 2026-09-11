@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { parseDepositEvents, creditDeposit, type DepositDeps, type DepositEvent } from "./treasuryDeposit.js";
+import { parseDepositEvents, creditDeposit, creditFromTransaction, type DepositDeps, type DepositEvent } from "./treasuryDeposit.js";
 import { acceptedTokens } from "../../payments/token-value.js";
 
 const TREASURY = "0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223";
@@ -121,4 +121,70 @@ describe("crediting a deposit", () => {
     await creditDeposit(deposit, deps({ creditAccount: async (i) => { nonce = i.proofNonce; } }));
     expect(nonce).toBe("0xabc");
   });
+});
+
+describe("crediting a specific transaction on request", () => {
+  const strkTransfer = {
+    from_address: STRK.address,
+    keys: ["0xtransfer", PAYER, TREASURY],
+    data: ["0x8ac7230489e80000", "0x0"],
+    transaction_hash: "0xabc",
+    block_number: 1,
+  } as never;
+
+  test("a transfer in the receipt is credited", async () => {
+    let credited = 0;
+    const res = await creditFromTransaction(
+      "0xabc",
+      deps({ creditAccount: async (i) => { credited = i.creditedAmount; } }),
+      async () => ({ events: [strkTransfer] }),
+    );
+    expect(res.credited).toBe(1);
+    expect(credited).toBe(28);
+  });
+
+  test("a transaction that sent nothing to the treasury credits nothing", async () => {
+    let called = false;
+    const res = await creditFromTransaction(
+      "0xabc",
+      deps({ creditAccount: async () => { called = true; } }),
+      async () => ({ events: [] }),
+    );
+    expect(res.credited).toBe(0);
+    expect(called).toBe(false);
+  });
+
+  test("a hash a caller made up credits nothing, because the chain is read", async () => {
+    let called = false;
+    const res = await creditFromTransaction(
+      "0xdeadbeef",
+      deps({ creditAccount: async () => { called = true; } }),
+      async () => ({ events: [{ ...strkTransfer, keys: ["0xtransfer", PAYER, "0x0dead"] } as never] }),
+    );
+    expect(res.credited).toBe(0);
+    expect(called).toBe(false);
+  });
+
+  test("asking twice credits once", async () => {
+    let calls = 0;
+    const shared = deps({
+      alreadyCredited: async () => calls > 0,
+      creditAccount: async () => { calls += 1; },
+    });
+    await creditFromTransaction("0xabc", shared, async () => ({ events: [strkTransfer] }));
+    await creditFromTransaction("0xabc", shared, async () => ({ events: [strkTransfer] }));
+    expect(calls).toBe(1);
+  });
+});
+
+test("one unreadable event does not stop the rest being credited", () => {
+  const good = {
+    from_address: STRK.address,
+    keys: ["0xtransfer", PAYER, TREASURY],
+    data: ["0x8ac7230489e80000", "0x0"],
+    transaction_hash: "0x600d",
+    block_number: 1,
+  } as never;
+  const broken = { from_address: STRK.address, keys: ["0xtransfer", PAYER, "zzz"], data: ["0x1"], transaction_hash: "0x0bad" } as never;
+  expect(parseDepositEvents([broken, good], TREASURY).length).toBe(1);
 });

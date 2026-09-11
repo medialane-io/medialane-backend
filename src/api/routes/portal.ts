@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
 import prisma from "../../db/client.js";
+import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { createLogger } from "../../utils/logger.js";
@@ -26,6 +27,19 @@ portal.get("/me", async (c) => {
       creditBalance: apiClient.creditBalance,
     },
   });
+});
+
+portal.post("/credits/check", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ txHash: z.string().min(3) }).safeParse(body);
+  if (!parsed.success) return c.json({ error: "txHash is required" }, 400);
+
+  try {
+    const { credited } = await creditFromTransaction(parsed.data.txHash);
+    return c.json({ data: { deposits: credited } });
+  } catch {
+    return c.json({ data: { deposits: 0 } });
+  }
 });
 
 portal.get("/credits/history", async (c) => {

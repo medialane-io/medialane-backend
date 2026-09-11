@@ -1,7 +1,7 @@
 import prisma from "../../db/client.js";
 import { Prisma } from "@prisma/client";
 import { createLogger } from "../../utils/logger.js";
-import { normalizeAddress, normalizeHash } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import { tokenByAddress, usdcEquivalentAtomic } from "../../payments/token-value.js";
 import { readUsdPrices as defaultReadUsdPrices } from "../../utils/usdPrices.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "../../payments/mdln.js";
@@ -27,22 +27,26 @@ export function parseDepositEvents(
   const out: DepositEvent[] = [];
 
   for (const ev of events) {
-    const token = tokenByAddress(ev.from_address);
-    if (!token) continue;
-    if (!ev.keys?.[2] || normalizeAddress("STARKNET", ev.keys[2]) !== to) continue;
-    if (!ev.keys[1] || !ev.data?.[0]) continue;
+    try {
+      const token = tokenByAddress(ev.from_address);
+      if (!token) continue;
+      if (!ev.keys?.[2] || normalizeAddress("STARKNET", ev.keys[2]) !== to) continue;
+      if (!ev.keys[1] || !ev.data?.[0]) continue;
 
-    const low = BigInt(ev.data[0]);
-    const high = ev.data[1] ? BigInt(ev.data[1]) : 0n;
-    const amountAtomic = low + (high << 128n);
-    if (amountAtomic === 0n) continue;
+      const low = BigInt(ev.data[0]);
+      const high = ev.data[1] ? BigInt(ev.data[1]) : 0n;
+      const amountAtomic = low + (high << 128n);
+      if (amountAtomic === 0n) continue;
 
-    out.push({
-      txHash: normalizeHash(ev.transaction_hash),
-      token: normalizeAddress("STARKNET", token.address),
-      amountAtomic,
-      payer: normalizeAddress("STARKNET", ev.keys[1]),
-    });
+      out.push({
+        txHash: normalizeHash(ev.transaction_hash),
+        token: normalizeAddress("STARKNET", token.address),
+        amountAtomic,
+        payer: normalizeAddress("STARKNET", ev.keys[1]),
+      });
+    } catch {
+      log.warn({ txHash: ev.transaction_hash }, "Skipped an unreadable event while scanning deposits");
+    }
   }
 
   return out;
@@ -137,4 +141,29 @@ export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise
   for (const deposit of parseDepositEvents(events, x402Config.treasury)) {
     await creditDeposit(deposit, productionDeps);
   }
+}
+
+export async function creditFromTransaction(
+  txHash: string,
+  deps: DepositDeps = productionDeps,
+  fetchReceipt: (hash: string) => Promise<{ events?: RawStarknetEvent[] }> = defaultFetchReceipt,
+): Promise<{ credited: number }> {
+  if (!x402Config.treasury) return { credited: 0 };
+
+  const receipt = await fetchReceipt(normalizeHash(txHash));
+  const deposits = parseDepositEvents(receipt.events ?? [], x402Config.treasury);
+
+  let credited = 0;
+  for (const deposit of deposits) {
+    await creditDeposit(deposit, deps);
+    credited += 1;
+  }
+  return { credited };
+}
+
+async function defaultFetchReceipt(hash: string): Promise<{ events?: RawStarknetEvent[] }> {
+  return callRpc((provider) =>
+    (provider as { getTransactionReceipt: (h: string) => Promise<{ events?: RawStarknetEvent[] }> })
+      .getTransactionReceipt(hash),
+  );
 }
