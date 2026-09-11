@@ -18,3 +18,19 @@ describe("x402 discovery", () => {
     expect(body.creditsPerUsdc).toBe(100);
   });
 });
+
+test("the manifest publishes the holding tiers a discount is read from", async () => {
+  const res = await x402Discovery.request("/v1/pricing");
+  const body = (await res.json()) as {
+    mdln: { contract: string | null; tiers: { minWholeTokens: number; multiplier: number }[] };
+  };
+
+  expect(body.mdln.tiers.map((t) => t.multiplier)).toEqual([1.2, 1.5, 2.0]);
+  expect(body.mdln.tiers[0].minWholeTokens).toBeLessThan(body.mdln.tiers[1].minWholeTokens);
+});
+
+test("a tier that grants nothing is not advertised", async () => {
+  const res = await x402Discovery.request("/v1/pricing");
+  const body = (await res.json()) as { mdln: { tiers: { multiplier: number }[] } };
+  expect(body.mdln.tiers.every((t) => t.multiplier > 1)).toBe(true);
+});

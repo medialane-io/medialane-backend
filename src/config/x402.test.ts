@@ -6,7 +6,7 @@ describe("x402 config", () => {
     expect(CREDITS_PER_USDC).toBe(100);
   });
   test("MDLN tiers descending by threshold, 2.0x highest → 1.0x base", () => {
-    expect(MDLN_TIERS[0]).toEqual({ minWholeTokens: 5000n, multiplier: 2.0 });
+    expect(MDLN_TIERS[0]).toEqual({ minWholeTokens: 500_000n, multiplier: 2.0 });
     expect(MDLN_TIERS.at(-1)).toEqual({ minWholeTokens: 0n, multiplier: 1.0 });
   });
   test("usdcContract defaults to Circle-native Starknet USDC", () => {

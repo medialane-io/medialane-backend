@@ -6,9 +6,9 @@ export const CREDITS_PER_USDC = 100;
 export const USDC_DECIMALS = 6;
 
 export const MDLN_TIERS: ReadonlyArray<{ minWholeTokens: bigint; multiplier: number }> = [
-  { minWholeTokens: 5000n, multiplier: 2.0 },
-  { minWholeTokens: 2000n, multiplier: 1.5 },
-  { minWholeTokens: 500n, multiplier: 1.2 },
+  { minWholeTokens: 500_000n, multiplier: 2.0 },
+  { minWholeTokens: 200_000n, multiplier: 1.5 },
+  { minWholeTokens: 100_000n, multiplier: 1.2 },
   { minWholeTokens: 0n, multiplier: 1.0 },
 ];
 
