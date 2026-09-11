@@ -1,7 +1,3 @@
-/**
- * pre-migrate.ts — runs before `prisma migrate deploy` on every Railway startup.
- * Directly applies any DB changes that are stuck in failed migrations.
- */
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -26,9 +22,6 @@ async function markApplied(name: string) {
 }
 
 async function main() {
-  // ── 1. FTS indexes — CREATE INDEX CONCURRENTLY cannot run inside a Prisma
-  //    migration transaction, so the migration always failed. Create them here
-  //    without CONCURRENTLY (safe, just briefly locks the table). ─────────────
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_token_fts ON "Token" USING GIN (
       to_tsvector('english',
@@ -44,17 +37,12 @@ async function main() {
   `;
   await markApplied("20260312000000_add_fts_indexes");
 
-  // ── 2. Add missing WebhookDelivery columns from migration 00001 ────────────
-  // Note: "Job" table was dropped in 20260314000000_lean_indexer — no longer referenced here.
   await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0`;
   await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "isTerminal" BOOLEAN NOT NULL DEFAULT false`;
   await markApplied("20260312000001_add_job_reaper_and_delivery_tracking");
 
-  // ── 3. Mark 00002 as applied (its UPDATE failed on unique constraint;
-  //    migration 00003 does the actual cleanup below) ────────────────────────
   await markApplied("20260312000002_normalize_collection_addresses");
 
-  // ── 4. Re-point Token rows referencing short-address collections ──────────
   await prisma.$executeRaw`
     UPDATE "Token"
     SET "contractAddress" = '0x' || lpad(substring("contractAddress" FROM 3), 64, '0')
@@ -66,7 +54,6 @@ async function main() {
       )
   `;
 
-  // ── 5. Delete duplicate short-address Collection rows ────────────────────
   await prisma.$executeRaw`
     DELETE FROM "Collection"
     WHERE length(substring("contractAddress" FROM 3)) < 64
@@ -77,7 +64,6 @@ async function main() {
       )
   `;
 
-  // ── 6. Normalize any remaining short-address collections / owners ─────────
   await prisma.$executeRaw`
     UPDATE "Collection"
     SET "contractAddress" = '0x' || lpad(substring("contractAddress" FROM 3), 64, '0')
@@ -89,9 +75,6 @@ async function main() {
     WHERE "owner" IS NOT NULL AND length(substring("owner" FROM 3)) < 64
   `;
 
-  // ── 7. Ensure SIWS nonce table exists before Prisma migration deploy ────────
-  // Production can otherwise start without this table if migrate deploy fails and
-  // the shell continues to the app start command. Keep this idempotent.
   await prisma.$executeRaw`
     CREATE TABLE IF NOT EXISTS "SiwsNonce" (
       "id" TEXT NOT NULL,
@@ -106,20 +89,13 @@ async function main() {
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "SiwsNonce_walletAddress_idx" ON "SiwsNonce"("walletAddress")`;
   await markApplied("20260505000000_add_siws_nonce");
 
-  // ── 8. (removed) Job table was dropped in 20260314000000_lean_indexer
-
-  // ── 9. identity_wallet_pk — migration failed at 2026-05-04; apply idempotently ──
-  // Drops Clerk-based User identity in favour of walletAddress PK.
-  // Uses IF EXISTS / IF NOT EXISTS guards so re-runs are safe.
   await prisma.$executeRaw`DROP INDEX IF EXISTS "Report_targetKey_reporterUserId_key"`;
   await prisma.$executeRaw`DROP INDEX IF EXISTS "User_clerkUserId_key"`;
   await prisma.$executeRaw`DROP INDEX IF EXISTS "User_clerkUserId_idx"`;
   await prisma.$executeRaw`ALTER TABLE "Report" DROP COLUMN IF EXISTS "reporterUserId"`;
-  // DEFAULT '' makes this safe for any pre-existing rows; Prisma always supplies the value.
   await prisma.$executeRaw`ALTER TABLE "Report" ADD COLUMN IF NOT EXISTS "reporterWallet" TEXT NOT NULL DEFAULT ''`;
   await prisma.$executeRaw`ALTER TABLE IF EXISTS "User" DROP COLUMN IF EXISTS "clerkUserId"`;
   await prisma.$executeRaw`ALTER TABLE IF EXISTS "User" DROP COLUMN IF EXISTS "id"`;
-  // Re-key User to walletAddress PK — idempotent: skip if walletAddress is already the PK.
   await prisma.$executeRaw`
     DO $$
     BEGIN

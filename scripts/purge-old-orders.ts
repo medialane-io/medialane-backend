@@ -1,21 +1,7 @@
-/**
- * One-shot cutover cleanup (marketplace protocol redesign, 2026-05-31):
- * delete ACTIVE orders/offers that are stranded on the OLD marketplace contracts
- * — they can never be fulfilled on the redesigned venues. Provenance is kept:
- *   - FULFILLED / CANCELLED / EXPIRED orders are untouched (history).
- *   - ACTIVE orders that already have a fill (partially-filled 1155 listings) are
- *     KEPT too — their OrderFill rows are real history.
- * So we only delete ACTIVE orders with zero fills (pure stale listings/offers).
- *
- * DRY_RUN by default. Run:
- *   bun run scripts/purge-old-orders.ts                  (preview)
- *   DRY_RUN=false bun run scripts/purge-old-orders.ts    (execute)
- */
 import prisma from "../src/db/client.js";
 
 const DRY_RUN = process.env.DRY_RUN !== "false";
 
-// Redesigned venues (deployed 2026-05-31). Orders on these must NEVER be purged.
 const NEW_VENUES = [
   "0x069cf5391077e3ebdd9cb6aebf90ed530d29f0d6aa34a43f5afae938c0fb565e",
   "0x040cd7b3e73bb3c892166e34bdc01d1797f97ecbc356c23f1cf38033cacf0077",
@@ -30,8 +16,6 @@ const activeTotal = await prisma.order.count({ where: { status: "ACTIVE" } });
 const activeWithFills = await prisma.order.count({
   where: { status: "ACTIVE", fills: { some: {} } },
 });
-// Safety guard: nothing ACTIVE should be on the new venues yet. If it is, abort —
-// the predicate would otherwise nuke live orders.
 const activeOnNew = await prisma.order.count({
   where: { status: "ACTIVE", marketplaceContract: { in: NEW_VENUES } },
 });

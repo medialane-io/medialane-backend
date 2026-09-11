@@ -1,8 +1,4 @@
 #!/usr/bin/env bun
-/**
- *  Dev utility to reset the indexer cursor.
- * Usage: bun run scripts/resetCursor.ts [--block <number>] [--chain <STARKNET|ETHEREUM|SOLANA|BITCOIN>]
- */
 
 import { resetCursor } from "../src/mirror/cursor.js";
 import prisma from "../src/db/client.js";

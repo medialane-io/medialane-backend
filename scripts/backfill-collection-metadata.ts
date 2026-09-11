@@ -1,9 +1,3 @@
-/**
- * One-time backfill: enqueue COLLECTION_METADATA_FETCH for all existing collections
- * that haven't had their on-chain metadata fetched yet.
- *
- * Run: ~/.bun/bin/bun scripts/backfill-collection-metadata.ts
- */
 import prisma from "../src/db/client.js";
 import { worker } from "../src/orchestrator/worker.js";
 
