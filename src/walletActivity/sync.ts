@@ -1,4 +1,5 @@
 import type { Chain } from "@prisma/client";
+import { getBlockTimestamp } from "../utils/blockTimestamp.js";
 import prisma from "../db/client.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { pollContractEvents } from "../mirror/poller.js";
@@ -99,26 +100,7 @@ const productionDeps: SyncDeps = {
     return callRpc((provider) => provider.getBlockLatestAccepted().then((b) => b.block_number));
   },
   pollEvents: pollContractEvents,
-  getBlockTimestamp: async (blockNumber) => {
-    const cached = await prisma.blockTimestamp.findUnique({
-      where: { chain_blockNumber: { chain: "STARKNET", blockNumber: BigInt(blockNumber) } },
-    });
-    if (cached) return cached.timestamp;
-
-    const { callRpc } = await import("../utils/starknet.js");
-    const block = await callRpc((provider) => provider.getBlockWithTxHashes(blockNumber));
-    const timestamp = new Date(block.timestamp * 1000);
-
-    await prisma.blockTimestamp
-      .upsert({
-        where: { chain_blockNumber: { chain: "STARKNET", blockNumber: BigInt(blockNumber) } },
-        create: { chain: "STARKNET", blockNumber: BigInt(blockNumber), timestamp },
-        update: {},
-      })
-      .catch(() => {});
-
-    return timestamp;
-  },
+  getBlockTimestamp,
   upsertActivities: async (rows) => {
     for (const row of rows) {
       await prisma.walletActivity.upsert({

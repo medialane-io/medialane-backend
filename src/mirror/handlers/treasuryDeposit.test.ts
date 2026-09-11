@@ -51,7 +51,8 @@ function deps(over: Partial<DepositDeps> = {}): DepositDeps {
   return {
     resolveApiClient: async () => ({ id: "client-1", accountId: "acct-1" }),
     alreadyCredited: async () => false,
-    readUsdPrices: async () => ({ STRK: 0.028 }),
+    priceAt: async () => 0.028,
+    blockTimestamp: async () => new Date("2026-09-10T22:08:00Z"),
     mdlnMultiplier: async () => 1,
     creditAccount: async () => {},
     ...over,
@@ -63,6 +64,7 @@ const deposit: DepositEvent = {
   token: STRK.address,
   amountAtomic: 10n * 10n ** 18n,
   payer: PAYER,
+  blockNumber: 14677219,
 };
 
 describe("crediting a deposit", () => {
@@ -90,11 +92,11 @@ describe("crediting a deposit", () => {
     expect(called).toBe(false);
   });
 
-  test("no price throws, so the batch retries instead of skipping the deposit", async () => {
+  test("no price at that block throws, so the batch retries instead of skipping the deposit", async () => {
     let called = false;
     await expect(
       creditDeposit(deposit, deps({
-        readUsdPrices: async () => ({}),
+        priceAt: async () => null,
         creditAccount: async () => { called = true; },
       })),
     ).rejects.toThrow();
@@ -159,7 +161,17 @@ describe("crediting a specific transaction on request", () => {
     const res = await creditFromTransaction(
       "0xdeadbeef",
       deps({ creditAccount: async () => { called = true; } }),
-      async () => ({ events: [{ ...strkTransfer, keys: ["0xtransfer", PAYER, "0x0dead"] } as never] }),
+      async () => ({
+        events: [
+          {
+            from_address: STRK.address,
+            keys: ["0xtransfer", PAYER, "0x0dead"],
+            data: ["0x8ac7230489e80000", "0x0"],
+            transaction_hash: "0xdeadbeef",
+            block_number: 1,
+          } as never,
+        ],
+      }),
     );
     expect(res.credited).toBe(0);
     expect(called).toBe(false);
@@ -187,4 +199,13 @@ test("one unreadable event does not stop the rest being credited", () => {
   } as never;
   const broken = { from_address: STRK.address, keys: ["0xtransfer", PAYER, "zzz"], data: ["0x1"], transaction_hash: "0x0bad" } as never;
   expect(parseDepositEvents([broken, good], TREASURY).length).toBe(1);
+});
+
+test("the deposit is valued at the moment it landed, not when it is read", async () => {
+  let askedFor: Date | null = null;
+  await creditDeposit(deposit, deps({
+    blockTimestamp: async () => new Date("2026-09-10T22:08:00Z"),
+    priceAt: async (_symbol, at) => { askedFor = at; return 0.028; },
+  }));
+  expect(askedFor!.toISOString()).toBe("2026-09-10T22:08:00.000Z");
 });

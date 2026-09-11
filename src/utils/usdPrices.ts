@@ -67,3 +67,55 @@ export const readUsdPrices = createUsdPriceReader({
   fetchImpl: fetch,
   now: () => Date.now(),
 });
+
+type AlchemyHistoricalResponse = {
+  data?: { value: string; timestamp: string }[];
+};
+
+export function nearestPrice(
+  points: { value: string; timestamp: string }[] | undefined,
+  at: Date,
+): number | null {
+  if (!points?.length) return null;
+  let best: { value: number; distance: number } | null = null;
+  for (const p of points) {
+    const value = parseFloat(p.value);
+    if (!Number.isFinite(value)) continue;
+    const distance = Math.abs(new Date(p.timestamp).getTime() - at.getTime());
+    if (!best || distance < best.distance) best = { value, distance };
+  }
+  return best ? best.value : null;
+}
+
+export function createHistoricalPriceReader(deps: UsdPricesDeps) {
+  return async function priceAt(symbol: string, at: Date): Promise<number | null> {
+    if (!deps.apiKey) return null;
+
+    const window = 30 * 60 * 1000;
+    const body = {
+      symbol,
+      startTime: new Date(at.getTime() - window).toISOString(),
+      endTime: new Date(at.getTime() + window).toISOString(),
+      interval: "5m",
+    };
+
+    try {
+      const res = await deps.fetchImpl(
+        `https://api.g.alchemy.com/prices/v1/${deps.apiKey}/tokens/historical`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      );
+      if (!res.ok) return null;
+      const json = (await res.json()) as AlchemyHistoricalResponse;
+      return nearestPrice(json.data, at);
+    } catch (err) {
+      log.error({ err, symbol }, "Historical price lookup failed");
+      return null;
+    }
+  };
+}
+
+export const priceAt = createHistoricalPriceReader({
+  apiKey: env.ALCHEMY_PRICES_KEY,
+  fetchImpl: fetch,
+  now: () => Date.now(),
+});

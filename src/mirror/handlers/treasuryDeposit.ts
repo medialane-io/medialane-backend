@@ -3,7 +3,8 @@ import { Prisma } from "@prisma/client";
 import { createLogger } from "../../utils/logger.js";
 import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import { tokenByAddress, usdcEquivalentAtomic } from "../../payments/token-value.js";
-import { readUsdPrices as defaultReadUsdPrices } from "../../utils/usdPrices.js";
+import { priceAt as defaultPriceAt } from "../../utils/usdPrices.js";
+import { getBlockTimestamp as defaultBlockTimestamp } from "../../utils/blockTimestamp.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "../../payments/mdln.js";
 import { creditAccount as defaultCreditAccount } from "../../payments/credits.js";
 import { x402Config } from "../../config/x402.js";
@@ -17,6 +18,7 @@ export interface DepositEvent {
   token: string;
   amountAtomic: bigint;
   payer: string;
+  blockNumber: number;
 }
 
 export function parseDepositEvents(
@@ -43,6 +45,7 @@ export function parseDepositEvents(
         token: normalizeAddress("STARKNET", token.address),
         amountAtomic,
         payer: normalizeAddress("STARKNET", ev.keys[1]),
+        blockNumber: Number(ev.block_number ?? 0),
       });
     } catch {
       log.warn({ txHash: ev.transaction_hash }, "Skipped an unreadable event while scanning deposits");
@@ -55,7 +58,8 @@ export function parseDepositEvents(
 export interface DepositDeps {
   resolveApiClient: (payer: string) => Promise<{ id: string; accountId: string } | null>;
   alreadyCredited: (txHash: string) => Promise<boolean>;
-  readUsdPrices: typeof defaultReadUsdPrices;
+  priceAt: typeof defaultPriceAt;
+  blockTimestamp: typeof defaultBlockTimestamp;
   mdlnMultiplier: typeof defaultMdlnMultiplier;
   creditAccount: typeof defaultCreditAccount;
 }
@@ -75,11 +79,11 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   const token = tokenByAddress(deposit.token);
   if (!token) return;
 
-  const prices = await deps.readUsdPrices();
-  const price = prices?.[token.symbol as keyof typeof prices];
-  if (price === undefined) {
+  const at = await deps.blockTimestamp(deposit.blockNumber);
+  const price = await deps.priceAt(token.symbol, at);
+  if (price === null) {
     throw new Error(
-      `No ${token.symbol} price while crediting ${deposit.txHash} — retrying rather than crediting wrongly`,
+      `No ${token.symbol} price at block ${deposit.blockNumber} while crediting ${deposit.txHash} — retrying rather than crediting wrongly`,
     );
   }
 
@@ -131,7 +135,8 @@ const productionDeps: DepositDeps = {
   },
   alreadyCredited: async (txHash) =>
     (await prisma.payment.findUnique({ where: { proofNonce: txHash }, select: { id: true } })) !== null,
-  readUsdPrices: defaultReadUsdPrices,
+  priceAt: defaultPriceAt,
+  blockTimestamp: defaultBlockTimestamp,
   mdlnMultiplier: defaultMdlnMultiplier,
   creditAccount: defaultCreditAccount,
 };
