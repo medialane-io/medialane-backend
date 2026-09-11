@@ -26,7 +26,9 @@ export interface IssuanceDeps {
     recipient: string;
     collectionId?: string;
     collectionContract?: string;
-    tokenUri: string;
+    tokenUri?: string;
+    tokenId?: string;
+    amount?: string;
   }) => Promise<Call[]>;
 }
 
@@ -69,13 +71,18 @@ const mintCallsSchema = z
     owner: z.string().min(1),
     recipientScheme: z.string().min(1).default(IDENTITY_SCHEME.EMAIL),
     recipients: z.array(z.string().min(1)).min(1).max(MAX_RECIPIENTS),
-    tokenUri: z.string().min(1),
+    tokenUri: z.string().optional(),
     collectionId: z.string().optional(),
     collectionContract: z.string().optional(),
+    tokenId: z.string().optional(),
+    amount: z.string().optional(),
     batchSize: z.number().int().min(1).max(100).default(DEFAULT_BATCH_SIZE),
   })
   .refine((v) => v.collectionId || v.collectionContract, {
     message: "collectionId or collectionContract is required",
+  })
+  .refine((v) => v.tokenUri || (v.tokenId && v.amount), {
+    message: "tokenUri, or tokenId and amount, is required",
   });
 
 export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
@@ -107,6 +114,8 @@ export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
         collectionId: body.collectionId,
         collectionContract: body.collectionContract ?? registryForService(body.service),
         tokenUri: body.tokenUri,
+        tokenId: body.tokenId,
+        amount: body.amount,
       });
       calls.push(...built);
     }
@@ -160,6 +169,8 @@ const productionDeps: IssuanceDeps = {
       collectionId: input.collectionId,
       collectionContract: input.collectionContract,
       tokenUri: input.tokenUri,
+      tokenId: input.tokenId,
+      amount: input.amount,
     } as never);
     return calls as Call[];
   },

@@ -27,7 +27,7 @@ function fakeDeps(overrides: Partial<IssuanceDeps> = {}): IssuanceDeps {
     resolveWallets: async (_chain, _scheme, values) =>
       values.map((value, i) => ({ recipientValue: value, walletAddress: `0x${i + 1}` })),
     buildMintCalls: async (input) => [
-      { contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient, input.tokenUri] },
+      { contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient, input.tokenUri ?? ""] },
     ],
     ...overrides,
   };
@@ -232,5 +232,41 @@ describe("registry routing", () => {
     });
     await post(makeApp(deps), { ...baseBody, service: "ip-erc721" });
     expect(seen).toBeUndefined();
+  });
+});
+
+describe("ticket issuance", () => {
+  const ticketBody = {
+    service: "ip-tickets",
+    owner: "0xb12",
+    collectionContract: "0xcol",
+    tokenId: "3",
+    amount: "1",
+    recipients: ["a@example.com", "b@example.com"],
+  };
+
+  test("a ticket type is issued to each recipient", async () => {
+    const seen: Array<{ tokenId?: string; amount?: string }> = [];
+    const deps = fakeDeps({
+      buildMintCalls: async (input) => {
+        seen.push({ tokenId: input.tokenId, amount: input.amount });
+        return [{ contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient] }];
+      },
+    });
+    const res = await post(makeApp(deps), ticketBody);
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{ tokenId: "3", amount: "1" }, { tokenId: "3", amount: "1" }]);
+  });
+
+  test("issuing needs either a token uri or a ticket to issue", async () => {
+    const { tokenId, amount, ...withoutEither } = ticketBody;
+    const res = await post(makeApp(fakeDeps()), withoutEither);
+    expect(res.status).toBe(400);
+  });
+
+  test("a ticket amount alone is not enough", async () => {
+    const { tokenId, ...withoutId } = ticketBody;
+    const res = await post(makeApp(fakeDeps()), withoutId);
+    expect(res.status).toBe(400);
   });
 });
