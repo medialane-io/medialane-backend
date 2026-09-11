@@ -65,3 +65,22 @@ describe("treasury deposits", () => {
     expect(typeof source?.apply).toBe("function");
   });
 });
+
+describe("where a source starts reading", () => {
+  test("a cursor always wins", () => {
+    expect(sourceFromBlock(500n, 1000, 100)).toBe(501);
+  });
+
+  test("without a cursor a configured start block is used", () => {
+    expect(sourceFromBlock(null, 1000, 100)).toBe(100);
+  });
+
+  test("without either it follows the main window", () => {
+    expect(sourceFromBlock(null, 1000)).toBe(1000);
+  });
+
+  test("deposit sources start early enough to see past deposits", () => {
+    const source = EVENT_SOURCES.find((s) => s.id === "deposit:strk");
+    expect(source?.startBlock).toBeLessThanOrEqual(14677219);
+  });
+});

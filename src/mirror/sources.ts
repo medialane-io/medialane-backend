@@ -71,6 +71,8 @@ export interface EventSource {
 
   keyFilters?: string[][];
 
+  startBlock?: number;
+
   cadenceMs?: number;
   maxPages?: number;
 
@@ -165,12 +167,15 @@ async function applyDropConditions(events: RawStarknetEvent[]): Promise<void> {
   for (const event of events) await handleDropClaimConditionsUpdated(event);
 }
 
+const TREASURY_DEPOSITS_START_BLOCK = 14677219;
+
 const TREASURY_DEPOSIT_SOURCES: EventSource[] = x402Config.treasury
   ? acceptedTokens().map((token) => ({
       id: `deposit:${token.symbol.toLowerCase()}`,
       scope: { kind: "contract" as const, address: token.address },
       selectors: [hex(TRANSFER_SELECTOR)],
       keyFilters: [[], [normalizeAddress("STARKNET", x402Config.treasury!)]],
+      startBlock: TREASURY_DEPOSITS_START_BLOCK,
       cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS,
       apply: applyTreasuryDeposits,
     }))
@@ -215,8 +220,13 @@ export function isDue(cadenceMs: number | undefined, lastPollTime: number | unde
   return now - lastPollTime >= cadenceMs;
 }
 
-export function sourceFromBlock(lastBlock: bigint | null, mainFromBlock: number): number {
-  return lastBlock != null ? Number(lastBlock) + 1 : mainFromBlock;
+export function sourceFromBlock(
+  lastBlock: bigint | null,
+  mainFromBlock: number,
+  startBlock?: number,
+): number {
+  if (lastBlock != null) return Number(lastBlock) + 1;
+  return startBlock ?? mainFromBlock;
 }
 
 const _lastPollTime = new Map<string, number>();
@@ -237,7 +247,7 @@ export async function fetchDueSources(params: {
     let from = fromBlock;
     let cursorTo: number | null = null;
     if (source.cadenceMs !== undefined) {
-      from = sourceFromBlock(await loadSourceCursor(chain, source.id), fromBlock);
+      from = sourceFromBlock(await loadSourceCursor(chain, source.id), fromBlock, source.startBlock);
       cursorTo = toBlock;
       _lastPollTime.set(source.id, now);
     }

@@ -7,6 +7,7 @@ import { readUsdPrices as defaultReadUsdPrices } from "../../utils/usdPrices.js"
 import { mdlnMultiplier as defaultMdlnMultiplier } from "../../payments/mdln.js";
 import { creditAccount as defaultCreditAccount } from "../../payments/credits.js";
 import { x402Config } from "../../config/x402.js";
+import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 
 const log = createLogger("mirror:treasury-deposit");
@@ -113,11 +114,11 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
 
 const productionDeps: DepositDeps = {
   resolveApiClient: async (payer) => {
-    const identity = await prisma.identity.findFirst({
-      where: { chain: "STARKNET", address: payer, scheme: "wallet" },
-      select: { accountId: true },
+    const identity = await prisma.identity.findUnique({
+      where: { chain_address: { chain: "STARKNET", address: payer } },
+      select: { accountId: true, scheme: true },
     });
-    if (!identity) return null;
+    if (!identity || identity.scheme !== IDENTITY_SCHEME.WALLET) return null;
     const apiClient = await prisma.apiClient.findUnique({
       where: { accountId: identity.accountId },
       select: { id: true, accountId: true },

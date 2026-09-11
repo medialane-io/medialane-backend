@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { debitCredits, creditAccount, type CreditsDb } from "./credits.js";
+import { assertWritable } from "../db/schema-fields.js";
 
 function stubDb(over: Partial<{ count: number }> = {}): {
   db: CreditsDb;
@@ -88,12 +89,6 @@ test("a credit writes only fields the Payment table has", async () => {
     proofNonce: "0xabc",
   }, db);
 
-  const columns = new Set([
-    "apiClientId", "scheme", "network", "asset", "amountAtomic",
-    "creditedAmount", "mdlnMultiplier", "status", "txHash", "proofNonce",
-  ]);
-  for (const key of Object.keys(written)) {
-    expect(columns.has(key)).toBe(true);
-  }
+  expect(() => assertWritable("Payment", written)).not.toThrow();
   expect(written.apiClientId).toBe("c1");
 });
