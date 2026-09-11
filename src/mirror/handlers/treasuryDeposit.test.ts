@@ -50,6 +50,7 @@ describe("reading deposits from events", () => {
 function deps(over: Partial<DepositDeps> = {}): DepositDeps {
   return {
     resolveApiClient: async () => ({ id: "client-1", accountId: "acct-1" }),
+    recordUnattributed: async () => {},
     alreadyCredited: async () => false,
     priceAt: async () => 0.028,
     blockTimestamp: async () => new Date("2026-09-10T22:08:00Z"),
@@ -208,4 +209,32 @@ test("the deposit is valued at the moment it landed, not when it is read", async
     priceAt: async (_symbol, at) => { askedFor = at; return 0.028; },
   }));
   expect(askedFor!.toISOString()).toBe("2026-09-10T22:08:00.000Z");
+});
+
+describe("a transfer we cannot attribute", () => {
+  test("is recorded rather than only logged", async () => {
+    let recorded: { payer?: string; txHash?: string } = {};
+    await creditDeposit(deposit, deps({
+      resolveApiClient: async () => null,
+      recordUnattributed: async (i) => { recorded = i; },
+    }));
+    expect(recorded.txHash).toBe("0xabc");
+    expect(BigInt(recorded.payer!)).toBe(BigInt(PAYER));
+  });
+
+  test("is not credited to anyone", async () => {
+    let credited = false;
+    await creditDeposit(deposit, deps({
+      resolveApiClient: async () => null,
+      recordUnattributed: async () => {},
+      creditAccount: async () => { credited = true; },
+    }));
+    expect(credited).toBe(false);
+  });
+
+  test("a credited deposit records who sent it", async () => {
+    let payer = "";
+    await creditDeposit(deposit, deps({ creditAccount: async (i) => { payer = i.payer ?? ""; } }));
+    expect(BigInt(payer)).toBe(BigInt(PAYER));
+  });
 });

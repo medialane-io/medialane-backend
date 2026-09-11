@@ -57,6 +57,12 @@ export function parseDepositEvents(
 
 export interface DepositDeps {
   resolveApiClient: (payer: string) => Promise<{ id: string; accountId: string } | null>;
+  recordUnattributed: (input: {
+    payer: string;
+    asset: string;
+    amountAtomic: bigint;
+    txHash: string;
+  }) => Promise<void>;
   alreadyCredited: (txHash: string) => Promise<boolean>;
   priceAt: typeof defaultPriceAt;
   blockTimestamp: typeof defaultBlockTimestamp;
@@ -67,17 +73,23 @@ export interface DepositDeps {
 export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<void> {
   if (await deps.alreadyCredited(deposit.txHash)) return;
 
+  const token = tokenByAddress(deposit.token);
+  if (!token) return;
+
   const apiClient = await deps.resolveApiClient(deposit.payer);
   if (!apiClient) {
+    await deps.recordUnattributed({
+      payer: deposit.payer,
+      asset: deposit.token,
+      amountAtomic: deposit.amountAtomic,
+      txHash: deposit.txHash,
+    });
     log.warn(
-      { txHash: deposit.txHash, payer: deposit.payer, amountAtomic: deposit.amountAtomic.toString() },
-      "Treasury deposit from a wallet with no API client — left uncredited",
+      { txHash: deposit.txHash, payer: deposit.payer, symbol: token.symbol },
+      "Treasury deposit from a wallet with no API client — recorded, not credited",
     );
     return;
   }
-
-  const token = tokenByAddress(deposit.token);
-  if (!token) return;
 
   const at = await deps.blockTimestamp(deposit.blockNumber);
   const price = await deps.priceAt(token.symbol, at);
@@ -99,6 +111,7 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
 
   try {
     await deps.creditAccount({
+      payer: deposit.payer,
       apiClientId: apiClient.id,
       accountId: apiClient.accountId,
       amountAtomic: valued,
@@ -132,6 +145,23 @@ const productionDeps: DepositDeps = {
       select: { id: true, accountId: true },
     });
     return apiClient ?? null;
+  },
+  recordUnattributed: async (input) => {
+    await prisma.payment
+      .create({
+        data: {
+          payer: input.payer,
+          scheme: "starknet-transfer",
+          network: "starknet",
+          asset: input.asset,
+          amountAtomic: input.amountAtomic.toString(),
+          creditedAmount: 0,
+          status: "UNATTRIBUTED",
+          txHash: input.txHash,
+          proofNonce: input.txHash,
+        },
+      })
+      .catch(() => {});
   },
   alreadyCredited: async (txHash) =>
     (await prisma.payment.findUnique({ where: { proofNonce: txHash }, select: { id: true } })) !== null,

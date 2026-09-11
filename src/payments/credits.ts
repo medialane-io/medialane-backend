@@ -34,6 +34,7 @@ export async function refundCredits(
 }
 
 export interface CreditInput {
+  payer?: string;
   apiClientId: string;
 
   accountId: string;
@@ -55,6 +56,7 @@ export async function creditAccount(
     db.payment.create({
       data: {
         apiClientId: input.apiClientId,
+        payer: input.payer,
         scheme: input.scheme,
         network: input.network,
         asset: input.asset,
