@@ -73,9 +73,6 @@ model IndexerCursor {
   updatedAt         DateTime @updatedAt
 }
 
-/// Durable per-source block cursor for slow-cadence mirror sources
-/// (transfers, allowlists, creator-coin factory). Replaces the former
-/// in-memory `_last*Block` module variables — restart-safe by construction.
 model SourceCursor {
   chain     Chain
   sourceId  String
@@ -97,31 +94,25 @@ model Order {
   chain                    Chain       @default(STARKNET)
   orderHash                String
   offerer                  String
-  // Offer item fields
   offerItemType            String
   offerToken               String
   offerIdentifier          String
   offerStartAmount         String
   offerEndAmount           String
-  // Consideration item fields
   considerationItemType    String
   considerationToken       String
   considerationIdentifier  String
   considerationStartAmount String
   considerationEndAmount   String
   considerationRecipient   String
-  // Time bounds
   startTime                BigInt
   endTime                  BigInt
-  // Status
   status                   OrderStatus @default(ACTIVE)
   fulfiller                String?
-  // On-chain provenance
   createdBlockNumber       BigInt
   createdTxHash            String
   fulfilledTxHash          String?
   cancelledTxHash          String?
-  // Denormalized (filled by orchestrator)
   nftContract              String?
   nftTokenId               String?
   priceRaw                 String?
@@ -130,10 +121,6 @@ model Order {
   parentOrderHash          String?
   counterOfferMessage      String?
   marketplaceContract      String?
-  /// Stable marketplace service ID (05-service-model §V). Resolves SNIP-12
-  /// domain / fulfillment / cancellation via the SDK registry. Open-ended
-  /// string. `marketplaceContract` is kept as an explorer-link helper only
-  /// (draft §10.1, locked) — never a behavior discriminator.
   marketplaceService       String?
   remainingAmount          String?
   fills                    OrderFill[]
@@ -186,8 +173,6 @@ enum MetadataStatus {
   FAILED
 }
 
-// GIN index for full-text search: idx_token_fts on to_tsvector('english', name||description||contractAddress||tokenId)
-// Created via raw migration: prisma/migrations/20260312000000_add_fts_indexes/migration.sql
 model Token {
   id              String         @id @default(cuid())
   chain           Chain          @default(STARKNET)
@@ -217,8 +202,6 @@ model Token {
   @@index([chain, isHidden])
 }
 
-// GIN index for full-text search: idx_collection_fts on to_tsvector('english', name||contractAddress)
-// Created via raw migration: prisma/migrations/20260312000000_add_fts_indexes/migration.sql
 model Collection {
   id              String             @id @default(cuid())
   chain           Chain              @default(STARKNET)
@@ -234,9 +217,6 @@ model Collection {
   startBlock      BigInt
   isFeatured      Boolean            @default(false)
   isHidden        Boolean            @default(false)
-  /// Derived stats cache (STATS_UPDATE). Numeric-only decimal strings — the
-  /// currency lives in its own column so `::numeric` sorts are valid SQL and
-  /// display formatting stays at the serializer edge.
   floorPrice      String?
   floorCurrency   String?
   totalVolume     String?
@@ -245,14 +225,11 @@ model Collection {
   totalSupply     Int                @default(0)
   tokens          Token[]
   standard        TokenStandard
-  /// Stable Medialane service ID. Open-ended string; values live in the
-  /// @medialane/sdk service registry. Always set — external collections
-  /// use 'external-erc721' / 'external-erc1155' instead of null.
   service         String
   claimedBy       String?
   profile         CollectionProfile?
   deletedAt       DateTime?
-  deletedBy       String? // admin identifier (IP of requester)
+  deletedBy       String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -262,24 +239,20 @@ model Collection {
   @@index([chain, service])
 }
 
-// Fungible coins (ERC-20 today; SPL/etc. later). Distinct from Collection:
-// a coin is a single fungible asset — no tokenIds, no per-token rows, no Orders.
-// Price/liquidity is read live from Ekubo, never stored. Storage is chosen by
-// fungibility (spec 2026-06-14-coin-collection-split-design).
 model Coin {
   id              String        @id @default(cuid())
   chain           Chain         @default(STARKNET)
   contractAddress String
   standard        TokenStandard @default(ERC20)
-  service         String // "creator-coin" | "external-erc20"
+  service         String
   name            String?
   symbol          String?
   decimals        Int           @default(18)
-  totalSupply     String? // fungible supply (decimal string) — NOT an item count
+  totalSupply     String?
   description     String?
   image           String?
-  creator         String? // launcher/creator wallet where known (trustless: from event)
-  isLaunched      Boolean? // unruggable-interface coins only: liquidity launched on chain
+  creator         String?
+  isLaunched      Boolean?
   startBlock      BigInt
   isHidden        Boolean       @default(false)
   createdAt       DateTime      @default(now())
@@ -307,7 +280,7 @@ model CollectionProfile {
   gatedContentUrl   String?
   gatedContentType  String?
   hasGatedContent   Boolean    @default(false)
-  slug              String?    @unique // approved vanity slug — set by admin on claim approval
+  slug              String?    @unique
   updatedBy         String?
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
@@ -449,10 +422,6 @@ model WalletActivityCursor {
   @@id([chain, accountAddress])
 }
 
-// Block timestamps are immutable once finalized — this is a permanent,
-// write-once cache so `getBlockTimestamp` (needed because Starknet's
-// getEvents doesn't return a timestamp, only a block number) stops
-// re-fetching the same block via RPC on every wallet's every sync.
 model BlockTimestamp {
   chain       Chain
   blockNumber BigInt
@@ -480,7 +449,7 @@ model Transfer {
   tokenId         String
   fromAddress     String
   toAddress       String
-  amount          String   @default("1") // always "1" for ERC-721; quantity for ERC-1155
+  amount          String   @default("1")
   blockNumber     BigInt
   txHash          String
   logIndex        Int
@@ -500,7 +469,7 @@ model TokenBalance {
   contractAddress String
   tokenId         String
   owner           String
-  amount          String // decimal string; "1" for ERC-721, "N" for ERC-1155; "0" = former holder
+  amount          String
   updatedAt       DateTime @updatedAt
 
   @@unique([chain, contractAddress, tokenId, owner])
@@ -508,16 +477,6 @@ model TokenBalance {
   @@index([chain, contractAddress])
   @@index([chain, contractAddress, tokenId])
 }
-
-// ── IP Sponsorship v3 ──────────────────────────────────────────────────────────
-// IPSponsorship is one contract, indexed as a Collection (service: "ip-sponsorship",
-// standard: ERC721) — the issued license is a real ERC-721 on that same address, so
-// current ownership/transfers ride the generic Token/TokenBalance/Transfer pipeline
-// like any other collection. These four tables cover only what does NOT fit that
-// generic shape: the pre-mint offer/bid/proposal negotiation lifecycle, and the
-// license-specific facts (expiresAt/transferable/assetContract/assetTokenId) that
-// exist ONLY in the LicenseMinted event — the contract itself does not store them
-// on-chain (soft-enforced licensing; see mediolano-contracts PR #156/#158).
 
 model SponsorshipOffer {
   id              String           @id @default(cuid())
@@ -533,7 +492,6 @@ model SponsorshipOffer {
   licenseTermsUri String
   transferable    Boolean
   royaltyBps      Int
-  /// Restricts acceptance to one invited sponsor; null = open bidding.
   specificSponsor String?
   open            Boolean          @default(true)
   bids            SponsorshipBid[]
@@ -571,14 +529,12 @@ model SponsorshipProposal {
   tokenId         String
   amount          String
   duration        Int
-  /// Acceptance deadline; null = no deadline.
   validUntil      DateTime?
   paymentToken    String
   licenseTermsUri String
   transferable    Boolean
   royaltyBps      Int
   open            Boolean   @default(true)
-  /// Set when closed — true if accepted, false if withdrawn/rejected. Null while open.
   accepted        Boolean?
   createdAtChain  DateTime
   closedAtChain   DateTime?
@@ -594,21 +550,15 @@ model SponsorshipLicense {
   id              String   @id @default(cuid())
   chain           Chain    @default(STARKNET)
   contractAddress String
-  /// The ERC-721 token id on this same contract — joins to Token.tokenId for
-  /// current-owner/transfer history via the generic pipeline.
   tokenId         String
   author          String
-  /// The initial recipient at mint. Current holder lives on Token/TokenBalance.
   recipient       String
   assetContract   String
   assetTokenId    String
-  /// Declarative only — carried here from the LicenseMinted event, never
-  /// contract-enforced against a transfer (soft-enforced licensing).
   expiresAt       DateTime
   transferable    Boolean
   royaltyBps      Int
   licenseTermsUri String
-  /// Provenance — exactly one is set, matching the accept path that minted this license.
   offerId         String?
   proposalId      String?
   mintedAtChain   DateTime
@@ -643,14 +593,7 @@ enum IntentType {
   MINT
   CREATE_COLLECTION
   COUNTER_OFFER
-  // Defines a reusable ticket type / membership tier inside an already-
-  // deployed per-creator collection (ip-tickets, ip-club) — a setup step
-  // MINT doesn't have for those services. mip-erc721/ip-erc721 have no
-  // equivalent (a mint IS the definition, there's no separate tier).
   CREATE_TIER
-  // ip-sponsorship — none of these need SNIP-12 signing (no order-signing
-  // scheme on this contract; msg.sender is the account executing the call).
-  // Added 2026-08-05 to close the backend-bypass gap found in the io audit.
   CREATE_SPONSORSHIP_OFFER
   SET_SPONSORSHIP_OFFER_OPEN
   PLACE_SPONSORSHIP_BID
@@ -660,11 +603,6 @@ enum IntentType {
   WITHDRAW_SPONSORSHIP_PROPOSAL
   ACCEPT_SPONSORSHIP_PROPOSAL
   REJECT_SPONSORSHIP_PROPOSAL
-  // creator-coin — deploy is metered like any other collection creation;
-  // launch is separate because the coin address is only known from the
-  // CREATE_COIN receipt (same two-step shape as CREATE_TIER → MINT). Added
-  // 2026-08-05 to close the pop-protocol/drop-collection/creator-coin
-  // backend-bypass gap found in the medialane-starknet/medialane-io audit.
   CREATE_COIN
   LAUNCH_COIN
 }
@@ -684,7 +622,7 @@ model TransactionIntent {
   type                IntentType
   status              IntentStatus @default(PENDING)
   requester           String
-  accountId           String? // set at creation; scopes reads/PATCH to the creating Account (null = pre-cutover row, expires within the 24h TTL)
+  accountId           String?
   typedData           Json
   calls               Json
   signature           String[]
@@ -708,10 +646,6 @@ model ApiKey {
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
-  /// Which app this key is provisioned for. Enables per-app traffic
-  /// attribution, blast-radius isolation on leak, and future capability
-  /// scoping (e.g., AGENT-only keys). Nullable for legacy keys created
-  /// before this column existed; new keys should always set it.
   appSource   AppSource?
   status      ApiKeyStatus @default(ACTIVE)
   lastUsedAt  DateTime?
@@ -760,12 +694,12 @@ model Report {
   id             String           @id @default(cuid())
   chain          Chain            @default(STARKNET)
   targetType     ReportTargetType
-  targetKey      String // canonical: "TOKEN:0x<contract>:<tokenId>", "COLLECTION:0x<contract>", "CREATOR:0x<address>"
+  targetKey      String
   targetContract String?
   targetTokenId  String?
   targetAddress  String?
-  reporterWallet String // wallet address — set server-side from identityAuth
-  reviewedBy     String? // Clerk admin user ID — honor-system
+  reporterWallet String
+  reviewedBy     String?
   categories     ReportCategory[]
   description    String?
   status         ReportStatus     @default(PENDING)
@@ -794,7 +728,7 @@ model PopAllowlist {
 
 model HiddenCreator {
   chain    Chain    @default(STARKNET)
-  address  String // normalized 64-char 0x-padded hex
+  address  String
   hiddenAt DateTime @default(now())
 
   @@id([chain, address])
@@ -804,9 +738,9 @@ model DropClaimConditions {
   id                Int      @id @default(autoincrement())
   chain             Chain    @default(STARKNET)
   collectionAddress String
-  maxSupply         String // u256 as decimal string
-  price             String   @default("0") // wei; "0" = free mint
-  paymentToken      String   @default("0x0") // ERC-20 address or 0x0 for free
+  maxSupply         String
+  price             String   @default("0")
+  paymentToken      String   @default("0x0")
   startTime         BigInt
   endTime           BigInt
   maxPerWallet      String   @default("1")
@@ -839,7 +773,6 @@ enum AccountRole {
   PARTNER
 }
 
-// Billing plan + status for an Account (07-identity §III).
 enum Plan {
   FREE
   PREMIUM
@@ -858,15 +791,11 @@ model Account {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  // Platform-identity status — a suspension here is a policy ban, checked
-  // independently of billing state (docs/superpowers/specs/2026-08-05-api-client-model-design.md).
   status AccountStatus @default(ACTIVE)
 
   identities Identity[]
   profile    AccountProfile?
 
-  // Billing/API-client facet, if this account is also an SDK/API consumer.
-  // Most accounts do not have one.
   apiClient ApiClient?
 
   @@index([type])
@@ -884,6 +813,7 @@ model ApiClient {
   apiKeys              ApiKey[]
   webhooks             WebhookEndpoint[]
   payments             Payment[]
+  usage                UsageEvent[]
   businessProvisioning BusinessProvisioning[]
 
   createdAt DateTime @default(now())
@@ -892,26 +822,19 @@ model ApiClient {
   @@index([accountId])
 }
 
-// An identity is one way an Account is known — a wallet, a social/email login, an
-// agent key. The platform never gates the format: the app supplies `scheme` (and
-// optional `provider` label) for whatever it is connecting. Identity is NOT the
-// account's identity — the AccountID is (07-identity §II); identities attach to it.
 model Identity {
   id        String  @id @default(cuid())
   accountId String
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
-  // What this identity is — free-form, app-supplied.
-  scheme   String // "wallet" | "clerk" | "privy" | "email" | "agent" | …
-  provider String? // issuer label: "braavos" | "ready" | "clerk" | …
+  scheme   String
+  provider String?
 
-  // On-chain identifier (wallet / agent key): (chain, address), normalized per chain (07 §I).
   chain   Chain?
   address String?
 
-  // Off-chain identifier (social / email login).
-  value String? // provider subject / external id
-  email String? // attribute only — NEVER unique, never a merge key (07 §II)
+  value String?
+  email String?
 
   appSource  AppSource @default(MEDIALANE_STARKNET)
   isPrimary  Boolean   @default(false)
@@ -929,7 +852,7 @@ model Identity {
 model EmailVerificationCode {
   id         String    @id @default(cuid())
   email      String
-  codeHash   String // HMAC-SHA256(code, SIWS_SECRET) — the raw code is never stored
+  codeHash   String
   attempts   Int       @default(0)
   expiresAt  DateTime
   consumedAt DateTime?
@@ -983,37 +906,21 @@ enum RemixOfferStatus {
   SELF_MINTED
 }
 
-// ── Rewards & Ranking ─────────────────────────────────────────────────────────
-
-// 50 levels — DAO-editable via admin API
 model RewardLevel {
-  level       Int      @id // 1–50
-  name        String // "Genesis", "Explorer", etc.
-  xpRequired  Int // cumulative XP to reach this level
+  level       Int      @id
+  name        String
+  xpRequired  Int
   badgeColor  String   @default("#6366f1")
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// x402 credit cost per action — a business decision, not derived from gas.
-// Admin-editable without a deploy, same shape as RewardAction below.
-//
-// Matched most-specific first: (actionKey, chain, service) > (actionKey,
-// chain, "ALL") > (actionKey, "ALL", service) > (actionKey, "ALL", "ALL").
-// "ALL" is a wildcard sentinel, never a real chain/service value — mirrors
-// the existing `?chain=all` read-filter convention (chainFilter.ts) so this
-// table stays consistent with how the rest of the API already expresses
-// "no specific chain." `chain`/`service` are plain strings, not the `Chain`
-// enum or the SDK's ServiceDefinition — this table is a pricing MATCH
-// PATTERN, not an assertion of on-chain identity, so a typo just means the
-// rule never matches and resolution falls through to a less specific row
-// (safe failure mode) rather than a schema-level constraint failure.
 model PricingRule {
   id        String   @id @default(cuid())
-  actionKey String // "read" | "intent:mint" | "intent:create-collection" | "intent:listing" | "intent:offer" | "intent:cancel" | "intent:fulfill" | "intent:counter-offer" | "intent:checkout"
-  chain     String   @default("ALL") // a Chain enum value (e.g. "STARKNET"), or "ALL"
-  service   String   @default("ALL") // a service id from the SDK registry (e.g. "mip-erc721"), or "ALL"
+  actionKey String
+  chain     String   @default("ALL")
+  service   String   @default("ALL")
   credits   Int
   label     String?
   updatedAt DateTime @updatedAt
@@ -1022,53 +929,49 @@ model PricingRule {
   @@index([actionKey])
 }
 
-// Per-action XP weights — DAO-editable
 model RewardAction {
-  type         String   @id // "mint_asset", "buy_asset", etc.
+  type         String   @id
   label        String
   xp           Int
-  dailyCap     Int? // null = unlimited
-  minValueUsdc Float? // null = no minimum
+  dailyCap     Int?
+  minValueUsdc Float?
   enabled      Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
-// Global multipliers — DAO-editable
 model RewardMultiplier {
   id          String   @id @default(cuid())
   name        String
   description String?
-  factor      Float // e.g. 1.5
-  condition   String // machine-readable key, e.g. "beta_tester"
+  factor      Float
+  condition   String
   enabled     Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// Badge catalogue — DAO-editable
 model BadgeDefinition {
   id          String      @id @default(cuid())
-  key         String      @unique // "og", "sold_out", "early_believer"
+  key         String      @unique
   name        String
   description String
-  icon        String // lucide icon name
+  icon        String
   color       String      @default("#6366f1")
-  category    String // "creator" | "collector" | "community"
+  category    String
   enabled     Boolean     @default(true)
   awards      UserBadge[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 }
 
-// Computed score per address — rebuilt by the recompute script
 model UserScore {
-  address      String   @id // normalised wallet address
-  accountId    String? // populated opportunistically when wallet resolves to an Account
+  address      String   @id
+  accountId    String?
   chain        Chain    @default(STARKNET)
   totalXp      Int      @default(0)
   currentLevel Int      @default(1)
-  breakdown    Json // { mint_asset: 200, buy_asset: 150, … }
+  breakdown    Json
   computedAt   DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1078,7 +981,6 @@ model UserScore {
   @@index([accountId])
 }
 
-// Awarded badges per address
 model UserBadge {
   id        String          @id @default(cuid())
   address   String
@@ -1093,7 +995,6 @@ model UserBadge {
   @@index([accountId])
 }
 
-// Audit log of every point event — written during recompute and future live tracking
 model PointEvent {
   id         String   @id @default(cuid())
   chain      Chain    @default(STARKNET)
@@ -1163,19 +1064,16 @@ model ServiceContract {
   @@index([chain, active])
 }
 
-/// x402 payment ledger — one row per settled agent payment. The unique
-/// proofNonce makes a replayed payment proof throw on insert, so credits are
-/// never double-granted.
 model Payment {
   id             String        @id @default(cuid())
   apiClientId    String?
   apiClient      ApiClient?    @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
   payer          String?
-  scheme         String // "starknet-transfer"
-  network        String // "starknet"
-  asset          String // USDC contract
-  amountAtomic   String // paid amount, USDC atomic units (6dp), bigint-safe string
-  creditedAmount Int // credits granted (after MDLN multiplier)
+  scheme         String
+  network        String
+  asset          String
+  amountAtomic   String
+  creditedAmount Int
   mdlnMultiplier Float         @default(1.0)
   status         PaymentStatus @default(SETTLED)
   txHash         String
@@ -1185,16 +1083,34 @@ model Payment {
   @@index([apiClientId])
 }
 
+model UsageEvent {
+  id          String    @id @default(cuid())
+  apiClientId String
+  apiClient   ApiClient @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+
+  actionKey   String
+  chain       String
+  service     String
+  unitCredits Int
+  units       Int
+  credits     Int
+
+  method String
+  path   String
+  status Int
+
+  createdAt DateTime @default(now())
+
+  @@index([apiClientId, createdAt])
+  @@index([actionKey])
+}
+
 enum PaymentStatus {
   SETTLED
   FAILED
   UNATTRIBUTED
 }
 
-// Single-use nonces for admin signed-request auth (adminSignatureAuth replay
-// guard). Short-lived (bounded by the request timestamp skew window); expired
-// rows are swept opportunistically. See
-// medialane-core/docs/specs/2026-06-22-portal-admin-signed-request-auth-design.md.
 model AdminAuthNonce {
   nonce     String   @id
   expiresAt DateTime

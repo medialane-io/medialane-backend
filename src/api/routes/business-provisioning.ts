@@ -11,6 +11,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
 import crypto from "crypto";
 import type { Chain, ProvisioningStatus } from "@prisma/client";
+import { bill } from "../../payments/usage.js";
 
 export interface ProvisioningRecord {
   id: string;
@@ -86,6 +87,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
       : null;
 
     if (existingWallet) {
+      bill(c, 0);
       const record = await deps.createProvisioning({
         apiClientId: apiClient.id,
         accountId: apiClient.accountId,

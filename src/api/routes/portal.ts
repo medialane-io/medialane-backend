@@ -10,6 +10,7 @@ import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
+import { drift } from "../../payments/usage.js";
 
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
@@ -60,6 +61,57 @@ portal.get("/credits/history", async (c) => {
     },
   });
   return c.json({ data: payments });
+});
+
+portal.get("/credits/spend", async (c) => {
+  const apiClient = c.get("apiClient");
+
+  const [recent, byAction, spentTotal, creditedTotal] = await Promise.all([
+    prisma.usageEvent.findMany({
+      where: { apiClientId: apiClient.id, credits: { gt: 0 } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        actionKey: true,
+        service: true,
+        units: true,
+        credits: true,
+        createdAt: true,
+      },
+    }),
+    prisma.usageEvent.groupBy({
+      by: ["actionKey"],
+      where: { apiClientId: apiClient.id, credits: { gt: 0 } },
+      _sum: { credits: true, units: true },
+      orderBy: { _sum: { credits: "desc" } },
+    }),
+    prisma.usageEvent.aggregate({
+      where: { apiClientId: apiClient.id },
+      _sum: { credits: true },
+    }),
+    prisma.payment.aggregate({
+      where: { apiClientId: apiClient.id, status: "SETTLED" },
+      _sum: { creditedAmount: true },
+    }),
+  ]);
+
+  const spent = spentTotal._sum.credits ?? 0;
+  const credited = creditedTotal._sum.creditedAmount ?? 0;
+
+  return c.json({
+    data: {
+      recent,
+      byAction: byAction.map((row) => ({
+        actionKey: row.actionKey,
+        credits: row._sum.credits ?? 0,
+        units: row._sum.units ?? 0,
+      })),
+      spent,
+      credited,
+      drift: drift(credited, spent, apiClient.creditBalance),
+    },
+  });
 });
 
 portal.get("/keys", async (c) => {

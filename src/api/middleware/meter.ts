@@ -1,8 +1,9 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
-import { costForRequest as defaultCostForRequest } from "../../payments/pricing.js";
+import { chargeForRequest as defaultChargeForRequest } from "../../payments/pricing.js";
 import { debitCredits as defaultDebitCredits, refundCredits as defaultRefundCredits } from "../../payments/credits.js";
+import { billedUnits, recordUsage as defaultRecordUsage } from "../../payments/usage.js";
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -12,25 +13,28 @@ const log = createLogger("middleware:meter");
 const SCHEMES = [new StarknetUsdcScheme()];
 
 export interface MeterDeps {
-  costForRequest: typeof defaultCostForRequest;
+  chargeForRequest: typeof defaultChargeForRequest;
   debitCredits: typeof defaultDebitCredits;
   refundCredits: typeof defaultRefundCredits;
   settlePayment: typeof defaultSettlePayment;
+  recordUsage: typeof defaultRecordUsage;
 }
 
 export function meter(deps: MeterDeps = {
-  costForRequest: defaultCostForRequest,
+  chargeForRequest: defaultChargeForRequest,
   debitCredits: defaultDebitCredits,
   refundCredits: defaultRefundCredits,
   settlePayment: defaultSettlePayment,
+  recordUsage: defaultRecordUsage,
 }): MiddlewareHandler<AppEnv> {
-  const { costForRequest, debitCredits, refundCredits, settlePayment } = deps;
+  const { chargeForRequest, debitCredits, refundCredits, settlePayment, recordUsage } = deps;
   return async (c, next) => {
 
-    const cost = await costForRequest(c.req.method, c.req.path, {
+    const charge = await chargeForRequest(c.req.method, c.req.path, {
       getBody: () => c.req.json().catch(() => null),
     });
-    if (cost === null) return next();
+    if (charge === null) return next();
+    const cost = charge.unitCredits * charge.units;
 
     const apiClient = c.get("apiClient");
     if (!apiClient) return c.json({ error: "Unauthorized" }, 401);
@@ -78,19 +82,40 @@ export function meter(deps: MeterDeps = {
       }
     }
 
+    const settle = async (units: number, status: number) => {
+      const kept = charge.unitCredits * units;
+      const owed = cost - kept;
+      if (owed > 0) {
+        await refundCredits(apiClient.id, owed).catch((refundErr) =>
+          log.error({ refundErr, apiClient: apiClient.id, owed, path: c.req.path }, "refund of unused hold failed"),
+        );
+      }
+      if (kept > 0) {
+        c.header("X-Credits-Remaining", String(Math.max(0, apiClient.creditBalance - kept)));
+      }
+      await recordUsage({
+        apiClientId: apiClient.id,
+        actionKey: charge.actionKey,
+        chain: charge.chain,
+        service: charge.service,
+        unitCredits: charge.unitCredits,
+        units,
+        credits: kept,
+        method: c.req.method,
+        path: c.req.path,
+        status,
+      }).catch((usageErr) =>
+        log.error({ usageErr, apiClient: apiClient.id, kept, path: c.req.path }, "usage record failed"),
+      );
+    };
+
     try {
       await next();
     } catch (err) {
-      await refundCredits(apiClient.id, cost).catch((refundErr) =>
-        log.error({ refundErr, apiClient: apiClient.id, cost, path: c.req.path }, "refund after thrown handler failed"),
-      );
+      await settle(0, 500);
       throw err;
     }
-    if (c.res.status >= 500) {
-      await refundCredits(apiClient.id, cost).catch((refundErr) =>
-        log.error({ refundErr, apiClient: apiClient.id, cost, path: c.req.path }, "refund after 5xx failed"),
-      );
-    }
+    await settle(c.res.status >= 500 ? 0 : billedUnits(c, charge.units), c.res.status);
   };
 }
 

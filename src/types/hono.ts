@@ -26,6 +26,8 @@ export type AppVariables = {
   apiClient: AuthedApiClient;
   apiKey: AuthedApiKey;
   walletAddress?: string;
+
+  billedUnits?: number;
 };
 
 export type AppEnv = { Variables: AppVariables };

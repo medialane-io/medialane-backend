@@ -185,7 +185,19 @@ export interface CostContext {
   getBody?: () => Promise<{ collectionContract?: string; service?: string } | null>;
 }
 
-export async function costForRequest(method: string, path: string, ctx: CostContext = {}): Promise<number | null> {
+export interface Charge {
+  actionKey: string;
+  chain: string;
+  service: string;
+  unitCredits: number;
+  units: number;
+}
+
+export async function chargeForRequest(
+  method: string,
+  path: string,
+  ctx: CostContext = {},
+): Promise<Charge | null> {
   const actionKey = resolveActionKey(method, path);
   if (actionKey === null) return null;
 
@@ -199,14 +211,15 @@ export async function costForRequest(method: string, path: string, ctx: CostCont
   }
 
   const rules = await getRules();
-  const unit = resolveCost(rules, actionKey, chain, service);
+  const unitCredits = resolveCost(rules, actionKey, chain, service);
 
-  if (unit !== null && ctx.getBody && BATCH_MULTIPLIED_ACTIONS.has(actionKey)) {
+  let units = 1;
+  if (ctx.getBody && BATCH_MULTIPLIED_ACTIONS.has(actionKey)) {
     const body = await ctx.getBody().catch(() => null);
-    if (Array.isArray(body)) return unit * Math.max(1, body.length);
+    if (Array.isArray(body)) units = Math.max(1, body.length);
   }
 
-  return unit;
+  return { actionKey, chain, service, unitCredits, units };
 }
 
 export async function pricingTable(): Promise<{

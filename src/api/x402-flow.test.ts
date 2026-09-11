@@ -8,7 +8,7 @@ describe("x402 end-to-end", () => {
   test("unfunded → 402; pay via X-PAYMENT → 200; balance spent down", async () => {
     let balance = 0;
     const deps: MeterDeps = {
-      costForRequest: async () => 1,
+      chargeForRequest: async () => ({ actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 1, units: 1 }),
       debitCredits: async (_t: string, cost: number) => {
         if (balance >= cost) {
           balance -= cost;
@@ -23,6 +23,7 @@ describe("x402 end-to-end", () => {
         balance += 100;
         return { ok: true, creditedAmount: 100 };
       },
+      recordUsage: async () => {},
     };
 
     const app = new Hono<AppEnv>();
