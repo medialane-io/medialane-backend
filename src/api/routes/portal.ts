@@ -50,6 +50,7 @@ portal.get("/credits/history", async (c) => {
     take: 20,
     select: {
       id: true,
+      asset: true,
       amountAtomic: true,
       creditedAmount: true,
       mdlnMultiplier: true,
