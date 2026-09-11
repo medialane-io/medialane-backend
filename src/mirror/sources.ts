@@ -51,6 +51,9 @@ import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
 import { handleIPTicketsCollectionDeployed } from "./handlers/ipTicketsFactory.js";
 import { handleIPClubDeployed } from "./handlers/ipClubFactory.js";
 import { applySponsorship } from "./handlers/sponsorship.js";
+import { applyTreasuryDeposits } from "./handlers/treasuryDeposit.js";
+import { acceptedTokens } from "../payments/token-value.js";
+import { x402Config } from "../config/x402.js";
 import type { Chain } from "@prisma/client";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
@@ -65,6 +68,8 @@ export interface EventSource {
     | { kind: "contract"; address: string | undefined }
     | { kind: "collections"; service?: string };
   selectors: string[];
+
+  keyFilters?: string[][];
 
   cadenceMs?: number;
   maxPages?: number;
@@ -160,6 +165,17 @@ async function applyDropConditions(events: RawStarknetEvent[]): Promise<void> {
   for (const event of events) await handleDropClaimConditionsUpdated(event);
 }
 
+const TREASURY_DEPOSIT_SOURCES: EventSource[] = x402Config.treasury
+  ? acceptedTokens().map((token) => ({
+      id: `deposit:${token.symbol.toLowerCase()}`,
+      scope: { kind: "contract" as const, address: token.address },
+      selectors: [hex(TRANSFER_SELECTOR)],
+      keyFilters: [[], [normalizeAddress("STARKNET", x402Config.treasury!)]],
+      cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS,
+      apply: applyTreasuryDeposits,
+    }))
+  : [];
+
 export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_MARKETPLACE_721, scope: { kind: "contract", address: STARKNET_MARKETPLACE_721_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
   { id: CORE_MARKETPLACE_1155, scope: { kind: "contract", address: STARKNET_MARKETPLACE_1155_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
@@ -168,6 +184,8 @@ export const EVENT_SOURCES: EventSource[] = [
 
   { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: [hex(TRANSFER_SELECTOR), hex(TRANSFER_SINGLE_SELECTOR), hex(TRANSFER_BATCH_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], apply: applyComments },
+
+  ...TREASURY_DEPOSIT_SOURCES,
 
   { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyPopFactory },
   { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropFactory },
@@ -231,7 +249,7 @@ export async function fetchDueSources(params: {
           address: source.scope.address!,
           fromBlock: from,
           toBlock,
-          keys: [source.selectors],
+          keys: [source.selectors, ...(source.keyFilters ?? [])],
           maxPages: source.maxPages,
         });
       } else {

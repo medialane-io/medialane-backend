@@ -8,7 +8,6 @@ import { generateApiKey } from "../../utils/apiKey.js";
 import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
-import { settlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 
 const log = createLogger("routes:portal");
@@ -27,22 +26,6 @@ portal.get("/me", async (c) => {
       creditBalance: apiClient.creditBalance,
     },
   });
-});
-
-portal.post("/credits/fund", async (c) => {
-  const apiClient = c.get("apiClient");
-  const body = await c.req.json().catch(() => null);
-  const parsed = z.object({ txHash: z.string().min(3) }).safeParse(body);
-  if (!parsed.success) return c.json({ error: "txHash is required" }, 400);
-
-  const result = await settlePayment(starknetScheme, apiClient, {
-    scheme: starknetScheme.scheme,
-    network: starknetScheme.network,
-    txHash: parsed.data.txHash,
-    nonce: "portal-fund",
-  });
-  if (!result.ok) return c.json({ error: result.reason ?? "Payment verification failed" }, 402);
-  return c.json({ data: { credited: result.creditedAmount ?? 0 } });
 });
 
 portal.get("/credits/history", async (c) => {

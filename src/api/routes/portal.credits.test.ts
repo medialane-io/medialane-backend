@@ -14,13 +14,18 @@ function app() {
   return a;
 }
 
-describe("POST /v1/portal/credits/fund", () => {
-  test("400 when txHash is missing (no settlement attempted)", async () => {
+describe("crediting is not something a caller can ask for", () => {
+  test("a caller cannot report that it paid", async () => {
     const res = await app().request("/credits/fund", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ txHash: "0xabc" }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(404);
+  });
+
+  test("the ledger is still readable", async () => {
+    const res = await app().request("/credits/history");
+    expect(res.status).not.toBe(404);
   });
 });

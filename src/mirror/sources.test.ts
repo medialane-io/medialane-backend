@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isDue, sourceFromBlock, EVENT_SOURCES } from "./sources.js";
+import { acceptedTokens } from "../payments/token-value.js";
 
 describe("isDue", () => {
   test("every-tick sources (no cadence) are always due", () => {
@@ -39,7 +40,28 @@ describe("EVENT_SOURCES", () => {
         "transfers", "allowlist:pop", "allowlist:drop", "conditions:drop", "factory:creator-coin",
         "factory:pop", "factory:drop", "factory:mip-erc1155",
         "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
+        ...acceptedTokens().map((t) => `deposit:${t.symbol.toLowerCase()}`),
       ]).toContain(s.id);
     }
+  });
+});
+
+describe("treasury deposits", () => {
+  test("every accepted token is watched for deposits", () => {
+    const ids = EVENT_SOURCES.map((s) => s.id);
+    for (const token of acceptedTokens()) {
+      expect(ids).toContain(`deposit:${token.symbol.toLowerCase()}`);
+    }
+  });
+
+  test("a deposit source only sees transfers landing on the treasury", () => {
+    const source = EVENT_SOURCES.find((s) => s.id === "deposit:strk");
+    expect(source?.keyFilters?.length).toBe(2);
+    expect(source?.keyFilters?.[1]?.length).toBe(1);
+  });
+
+  test("deposits are credited by a handler rather than inline", () => {
+    const source = EVENT_SOURCES.find((s) => s.id === "deposit:strk");
+    expect(typeof source?.apply).toBe("function");
   });
 });
