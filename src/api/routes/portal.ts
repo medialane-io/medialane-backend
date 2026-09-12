@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
+import { portalSubject } from "../middleware/portalSubject.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { generateApiKey } from "../../utils/apiKey.js";
@@ -15,6 +16,8 @@ import { drift } from "../../payments/usage.js";
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
 const starknetScheme = new StarknetUsdcScheme();
+
+portal.use("*", portalSubject);
 
 portal.get("/me", async (c) => {
   const account = c.get("account");
