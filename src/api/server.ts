@@ -11,6 +11,7 @@ import health from "./routes/health.js";
 import orders from "./routes/orders.js";
 import tokens from "./routes/tokens.js";
 import collections from "./routes/collections.js";
+import txSync from "./routes/tx-sync.js";
 import activities from "./routes/activities.js";
 import intents from "./routes/intents/index.js";
 import metadata from "./routes/metadata.js";
@@ -76,6 +77,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/tokens", tokens);
   app.route("/v1", profiles);
   app.route("/v1/collections", collections);
+  app.route("/v1/tx/sync", txSync);
   app.route("/v1/coins", coins);
   app.route("/v1/activities", activities);
   app.route("/v1/intents", intents);

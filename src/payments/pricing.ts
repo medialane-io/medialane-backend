@@ -39,6 +39,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "GET", prefix: "/v1/club", actionKey: "club:read-onchain" },
   { method: "GET", prefix: "/v1/ipnft", actionKey: "ipnft:read-onchain" },
   { method: "POST", prefix: "/v1/auth/email/request-code", actionKey: "auth:email-send" },
+  { method: "POST", prefix: "/v1/tx/sync", actionKey: "tx:sync" },
   { method: "POST", prefix: "/v1/rpc", actionKey: "rpc:call" },
   { method: "POST", prefix: "/v1/business/provisioning", actionKey: "wallet:deploy", exact: true },
   { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
@@ -89,6 +90,7 @@ export const FALLBACK_COST: Record<string, number> = {
   "tickets:read-onchain": 1,
   "club:read-onchain": 1,
   "ipnft:read-onchain": 1,
+  "tx:sync": 1,
   "rpc:call": 1,
 
   "paymaster:invoke-build": 1,
