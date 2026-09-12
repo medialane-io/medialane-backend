@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
 import { portalSubject } from "../middleware/portalSubject.js";
+import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { generateApiKey } from "../../utils/apiKey.js";
@@ -143,7 +144,7 @@ const createKeySchema = z.object({
   appSource: z.enum(APP_SOURCE_INPUT).optional(),
 });
 
-portal.post("/keys", async (c) => {
+portal.post("/keys", freshSignature, async (c) => {
   const apiClient = c.get("apiClient");
   const body = await c.req.json().catch(() => ({}));
   const parsed = createKeySchema.safeParse(body);
@@ -185,7 +186,7 @@ portal.post("/keys", async (c) => {
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, appSource: key.appSource, plaintext: plaintext! } }, 201);
 });
 
-portal.delete("/keys/:id", async (c) => {
+portal.delete("/keys/:id", freshSignature, async (c) => {
   const apiClient = c.get("apiClient");
   const { id } = c.req.param();
 

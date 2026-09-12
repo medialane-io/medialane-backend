@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { normalizeAddress } from "@medialane/sdk";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { verifyToken } from "../../utils/siwsToken.js";
+import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
 
 export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const header = c.req.header("Authorization");
@@ -34,6 +34,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (wallet.account.status !== "ACTIVE") return c.json({ error: "Account is not active" }, 403);
 
   c.set("walletAddress", normalizeAddress(identity.chain, identity.address));
+  c.set("subjectTokenIssuedAt", tokenIssuedAt(header.slice(7)) ?? undefined);
   c.set("account", { id: wallet.account.id, status: wallet.account.status });
   c.set("apiClient", apiClient);
   return next();

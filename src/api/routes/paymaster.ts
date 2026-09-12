@@ -64,6 +64,52 @@ function isSponsoredCall(value: unknown): value is SponsoredCall {
   );
 }
 
+function isZero(value: unknown): boolean {
+  try {
+    return BigInt(value as string) === 0n;
+  } catch {
+    return false;
+  }
+}
+
+let selectorsByName: Map<string, string> | null = null;
+
+function entrypointForSelector(selector: unknown): string | null {
+  if (!selectorsByName) {
+    selectorsByName = new Map();
+    for (const name of ALLOWED_PAYMASTER_ENTRYPOINTS) {
+      selectorsByName.set(BigInt(hash.getSelectorFromName(name)).toString(), name);
+    }
+  }
+  try {
+    return selectorsByName.get(BigInt(selector as string).toString()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function signedCalls(typedData: unknown): Array<{ contractAddress: string; entrypoint: string }> {
+  const message = (typedData as { message?: Record<string, unknown> } | null)?.message;
+  const raw = message ? (("calls" in message ? message.calls : message.Calls) as unknown) : undefined;
+  if (!Array.isArray(raw)) return [];
+
+  const calls: Array<{ contractAddress: string; entrypoint: string }> = [];
+  for (const entry of raw) {
+    const call = entry as Record<string, unknown>;
+    const to = call.To ?? call.to;
+    const selector = call.Selector ?? call.selector;
+
+    if (isZero(to) && isZero(selector)) continue;
+
+    const entrypoint = entrypointForSelector(selector);
+    calls.push({
+      contractAddress: typeof to === "string" ? to : "",
+      entrypoint: entrypoint ?? `unknown selector ${String(selector)}`,
+    });
+  }
+  return calls;
+}
+
 export function disallowedEntrypoint(calls: unknown[]): string | null {
   for (const call of calls) {
     if (!isSponsoredCall(call)) return "invalid call";
@@ -230,14 +276,19 @@ export default function paymaster(
     if (!body?.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
       return c.json({ error: "userAddress, typedData, signature, and calls are required" }, 400);
     }
-    const disallowed = disallowedEntrypoint(body.calls);
+    const signed = signedCalls(body.typedData);
+    if (signed.length === 0) {
+      return c.json({ error: "typedData has no calls" }, 400);
+    }
+
+    const disallowed = disallowedEntrypoint(signed);
     if (disallowed) {
-      log.warn({ userAddress: body.userAddress, calls: body.calls, disallowed }, "sponsored invoke execute: entrypoint not eligible");
+      log.warn({ userAddress: body.userAddress, signed, disallowed }, "sponsored invoke execute: entrypoint not eligible");
       return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
     }
-    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
+    const disallowedAddress = await disallowedContractAddress(addressChecker, signed as SponsoredCall[]);
     if (disallowedAddress) {
-      log.warn({ userAddress: body.userAddress, calls: body.calls, disallowedAddress }, "sponsored invoke execute: contract not eligible");
+      log.warn({ userAddress: body.userAddress, signed, disallowedAddress }, "sponsored invoke execute: contract not eligible");
       return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` }, 400);
     }
     try {
