@@ -7,6 +7,12 @@ import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleCounterIncremented } from "./handlers/counterIncremented.js";
 import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
+import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
+import { upsertCollectionFromFactory } from "../utils/collection.js";
+import { serviceForFactory } from "../utils/factoryService.js";
+import { worker } from "../orchestrator/worker.js";
+import prisma from "../db/client.js";
+import { createLogger } from "../utils/logger.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import {
   ORDER_CREATED_SELECTOR,
@@ -17,6 +23,8 @@ import {
 } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import type { ParsedTransfer, ParsedTransferSingle } from "../types/marketplace.js";
+
+const log = createLogger("mirror:apply");
 
 export type Chain = "STARKNET";
 
@@ -162,4 +170,45 @@ async function applyMarketplace1155(
       );
     }
   }
+}
+
+export async function applyCollectionsCreated(
+  parsed: ReturnType<typeof parseEvents>,
+  chain: Chain,
+): Promise<Set<string>> {
+  const created = new Set<string>();
+
+  for (const event of parsed) {
+    if (event.type !== "CollectionCreated") continue;
+
+    const resolved = await resolveCollectionCreated(event);
+    if (!resolved) continue;
+
+    await upsertCollectionFromFactory(prisma, {
+      chain,
+      contractAddress: resolved.contractAddress,
+      service: serviceForFactory(event.factoryAddress),
+      standard: "ERC721",
+      collectionId: event.collectionId,
+      name: resolved.name,
+      symbol: resolved.symbol,
+      baseUri: resolved.baseUri,
+      owner: resolved.owner,
+      startBlock: resolved.startBlock,
+    });
+
+    worker.enqueue({
+      type: "COLLECTION_METADATA_FETCH",
+      chain,
+      contractAddress: resolved.contractAddress,
+    });
+
+    created.add(resolved.contractAddress);
+    log.info(
+      { collectionId: event.collectionId, contractAddress: resolved.contractAddress },
+      "New collection indexed",
+    );
+  }
+
+  return created;
 }

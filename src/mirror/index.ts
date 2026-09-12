@@ -1,11 +1,8 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
-import { serviceForFactory } from "../utils/factoryService.js";
 import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, CORE_TRANSFERS, type SourceFetch } from "./sources.js";
-import { applyEvents, type ApplyOutcome } from "./apply.js";
-import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
-import { upsertCollectionFromFactory } from "../utils/collection.js";
+import { applyEvents, applyCollectionsCreated, type ApplyOutcome } from "./apply.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
@@ -104,32 +101,8 @@ async function tick(tickId: string): Promise<number> {
   const affectedContracts = outcome.affectedContracts;
   const orderNftContracts = outcome.orderNftContracts;
   const fulfilledOrCancelledHashes = outcome.fulfilledOrCancelledHashes;
-  const collectionCreatedEvents = deduplicatedEvents.filter(
-    (e: ApplyOutcome["parsed"][number]) => e.type === "CollectionCreated",
-  );
-
-  for (const event of collectionCreatedEvents) {
-    if (event.type !== "CollectionCreated") continue;
-    const resolved = await resolveCollectionCreated(event);
-    if (!resolved) continue;
-
-    await upsertCollectionFromFactory(prisma, {
-      chain: CHAIN,
-      contractAddress: resolved.contractAddress,
-      service: serviceForFactory(event.factoryAddress),
-      standard: "ERC721",
-      collectionId: event.collectionId,
-      name: resolved.name,
-      symbol: resolved.symbol,
-      baseUri: resolved.baseUri,
-      owner: resolved.owner,
-      startBlock: resolved.startBlock,
-    });
-
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: CHAIN, contractAddress: resolved.contractAddress });
-
-    affectedContracts.add(resolved.contractAddress);
-    tlog.info({ collectionId: event.collectionId, contractAddress: resolved.contractAddress }, "New collection indexed");
+  for (const contractAddress of await applyCollectionsCreated(deduplicatedEvents, CHAIN)) {
+    affectedContracts.add(contractAddress);
   }
 
   const ctx = { affectedContracts };

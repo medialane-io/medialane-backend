@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { callRpc } from "../../utils/starknet.js";
-import { applyEvents } from "../../mirror/apply.js";
+import { applyEvents, applyCollectionsCreated } from "../../mirror/apply.js";
 import { CHAIN } from "../../mirror/index.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
@@ -70,6 +70,10 @@ txSync.post("/", async (c) => {
     (tx) => applyEvents(events, tx, CHAIN),
     { timeout: 30000 },
   );
+
+  for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN)) {
+    outcome.affectedContracts.add(contractAddress);
+  }
 
   for (const contractAddress of outcome.affectedContracts) {
     worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress });
