@@ -814,6 +814,7 @@ model ApiClient {
   webhooks             WebhookEndpoint[]
   payments             Payment[]
   usage                UsageEvent[]
+  launchpadRuns        LaunchpadRun[]
   businessProvisioning BusinessProvisioning[]
 
   createdAt DateTime @default(now())
@@ -1079,6 +1080,21 @@ model Payment {
   txHash         String
   proofNonce     String        @unique
   createdAt      DateTime      @default(now())
+
+  @@index([apiClientId])
+}
+
+model LaunchpadRun {
+  id           String    @id @default(cuid())
+  apiClientId  String
+  apiClient    ApiClient @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  payer        String
+  service      String
+  recipients   Int
+  quotedAtomic String
+  paidAtomic   String
+  txHash       String    @unique
+  createdAt    DateTime  @default(now())
 
   @@index([apiClientId])
 }

@@ -33,6 +33,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!wallet || !apiClient) return c.json({ error: "No account for this wallet" }, 404);
   if (wallet.account.status !== "ACTIVE") return c.json({ error: "Account is not active" }, 403);
 
+  c.set("walletAddress", normalizeAddress(identity.chain, identity.address));
   c.set("account", { id: wallet.account.id, status: wallet.account.status });
   c.set("apiClient", apiClient);
   return next();

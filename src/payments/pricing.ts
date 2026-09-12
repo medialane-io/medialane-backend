@@ -108,6 +108,10 @@ function resolveCost(rules: RuleMap, actionKey: string, chain: string): number {
   return rules.get(ruleCacheKey(DEFAULT_ACTION_KEY, "ALL", "ALL")) ?? 1;
 }
 
+export async function creditsForAction(actionKey: string, chain: string = DEFAULT_CHAIN): Promise<number> {
+  return resolveCost(await getRules(), actionKey, chain);
+}
+
 export interface CostContext {
   chain?: string;
   getBody?: () => Promise<unknown>;
