@@ -1,7 +1,5 @@
 
 import prisma from "../db/client.js";
-import { resolveServiceForContract } from "../utils/collection.js";
-import { STARKNET_COLLECTION_721_CONTRACT } from "../config/constants.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("payments:pricing");
@@ -49,9 +47,6 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
 ];
 
 const BATCH_MULTIPLIED_ACTIONS = new Set(["rpc:call"]);
-
-const SERVICE_AWARE_ACTIONS = new Set(["intent:mint", "intent:create-collection"]);
-const SERVICE_FROM_BODY_ACTIONS = new Set(["intent:create-tier"]);
 
 const DEFAULT_ACTION_KEY = "read";
 const DEFAULT_CHAIN = "STARKNET";
@@ -105,36 +100,17 @@ export function invalidatePricingCache(): void {
   cache = null;
 }
 
-function resolveCost(rules: RuleMap, actionKey: string, chain: string, service: string): number {
-  const candidates = [
-    ruleCacheKey(actionKey, chain, service),
-    ruleCacheKey(actionKey, chain, "ALL"),
-    ruleCacheKey(actionKey, "ALL", service),
-    ruleCacheKey(actionKey, "ALL", "ALL"),
-  ];
-  for (const key of candidates) {
+function resolveCost(rules: RuleMap, actionKey: string, chain: string): number {
+  for (const key of [ruleCacheKey(actionKey, chain, "ALL"), ruleCacheKey(actionKey, "ALL", "ALL")]) {
     const hit = rules.get(key);
     if (hit !== undefined) return hit;
   }
   return rules.get(ruleCacheKey(DEFAULT_ACTION_KEY, "ALL", "ALL")) ?? 1;
 }
 
-async function resolveMintService(chain: string, collectionContractRaw?: string): Promise<string> {
-  try {
-
-    const contractAddress = collectionContractRaw ?? STARKNET_COLLECTION_721_CONTRACT;
-    const service = await resolveServiceForContract(prisma, chain as never, contractAddress);
-    return service ?? "ALL";
-  } catch (err) {
-    log.warn({ err }, "mint service resolution failed — pricing falls back to ALL");
-    return "ALL";
-  }
-}
-
 export interface CostContext {
   chain?: string;
-
-  getBody?: () => Promise<{ collectionContract?: string; service?: string } | null>;
+  getBody?: () => Promise<unknown>;
 }
 
 export interface Charge {
@@ -154,16 +130,8 @@ export async function chargeForRequest(
   if (actionKey === null) return null;
 
   const chain = ctx.chain ?? DEFAULT_CHAIN;
-  let service = "ALL";
-  if (ctx.getBody && (SERVICE_AWARE_ACTIONS.has(actionKey) || SERVICE_FROM_BODY_ACTIONS.has(actionKey))) {
-    const body = await ctx.getBody().catch(() => null);
-    service = SERVICE_FROM_BODY_ACTIONS.has(actionKey)
-      ? body?.service ?? "ALL"
-      : await resolveMintService(chain, body?.collectionContract);
-  }
-
   const rules = await getRules();
-  const unitCredits = resolveCost(rules, actionKey, chain, service);
+  const unitCredits = resolveCost(rules, actionKey, chain);
 
   let units = 1;
   if (ctx.getBody && BATCH_MULTIPLIED_ACTIONS.has(actionKey)) {
@@ -171,7 +139,7 @@ export async function chargeForRequest(
     if (Array.isArray(body)) units = Math.max(1, body.length);
   }
 
-  return { actionKey, chain, service, unitCredits, units };
+  return { actionKey, chain, service: "ALL", unitCredits, units };
 }
 
 export async function pricingTable(): Promise<{
@@ -188,7 +156,7 @@ export async function pricingTable(): Promise<{
     log.error({ err }, "failed to load PricingRule for discovery — advertising fallback only");
   }
   return {
-    default: resolveCost(await getRules(), DEFAULT_ACTION_KEY, DEFAULT_CHAIN, "ALL"),
+    default: resolveCost(await getRules(), DEFAULT_ACTION_KEY, DEFAULT_CHAIN),
     rules: rows,
   };
 }

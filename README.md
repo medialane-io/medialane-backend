@@ -320,7 +320,7 @@ Prisma fields `startTime`, `endTime`, and `createdBlockNumber` are stored as `St
 
 - **`medialane-backend`** — the REST API. Config-as-code: `railway.json`.
   ```
-  bun run scripts/pre-migrate.ts; bunx prisma migrate deploy; bun run src/scripts/seed-rewards.ts; bun run src/scripts/seed-pricing.ts; bun run src/scripts/apply-pricing.ts; bun run src/index.ts
+  bun run scripts/pre-migrate.ts; bunx prisma migrate deploy; bun run src/scripts/seed-rewards.ts; bun run src/scripts/apply-pricing.ts; bun run src/index.ts
   ```
   Migrations run automatically on every deploy. Health check: `GET /health` (60s timeout).
 - **`medialane-worker`** — the mirror indexer + background orchestrator loops. Config-as-code:

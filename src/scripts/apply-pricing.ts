@@ -27,6 +27,11 @@ async function main() {
     console.log(`  ${row.action.padEnd(26)} $${row.usd.toFixed(2).padStart(6)}  (${credits} credits)${scope}`);
   }
 
+  const removed = await prisma.pricingRule.deleteMany({
+    where: { NOT: PRICING.map((row) => ({ actionKey: row.action, chain: row.chain ?? "ALL", service: row.service ?? "ALL" })) },
+  });
+  if (removed.count > 0) console.log(`\n  removed ${removed.count} price(s) no longer in the file`);
+
   console.log(`\n✓ ${PRICING.length} price(s) applied — live within 60s on a running server.`);
 }
 

@@ -16,6 +16,8 @@ export const PRICING = [
   { action: "paymaster:deploy-build",   usd: 0.05, note: "Build a sponsored wallet deploy (no gas spent yet)" },
   { action: "paymaster:deploy-execute", usd: 0.05, note: "Execute a sponsored wallet deploy (Medialane pays the sponsorship)" },
 
+  { action: "wallet:deploy", usd: 0.05, note: "Provision a wallet for a recipient" },
+
   { action: "metadata:upload-json", usd: 0.02, note: "Upload metadata JSON to IPFS (max 512KB)" },
   { action: "metadata:upload-file", usd: 0.02, note: "Upload a media file to IPFS (max 10MB)" },
 
@@ -26,12 +28,9 @@ export const PRICING = [
   { action: "intent:counter-offer",usd: 0.01, note: "Counter an offer" },
   { action: "intent:checkout",     usd: 0.02, note: "Checkout" },
 
-  { action: "intent:mint",             usd: 0.05, note: "Mint an asset — default" },
-  { action: "intent:create-collection",usd: 0.05, note: "Deploy a collection — default" },
-  { action: "intent:create-tier",      usd: 0.10, note: "Create a ticket type / membership tier — default" },
+  { action: "intent:mint",             usd: 0.05, note: "Mint an asset" },
+  { action: "intent:create-collection",usd: 0.05, note: "Deploy a collection" },
+  { action: "intent:create-tier",      usd: 0.05, note: "Create a ticket type / membership tier" },
   { action: "intent:create-coin",      usd: 0.05, note: "Deploy a Creator Coin" },
   { action: "intent:launch-coin",      usd: 0.10, note: "Launch a Creator Coin on Ekubo" },
-
-  { action: "intent:create-tier", service: "ip-tickets", usd: 0.10, note: "Create a new ticket type" },
-  { action: "intent:create-tier", service: "ip-club",    usd: 0.10, note: "Create a new membership tier" },
 ];

@@ -17,7 +17,6 @@
     "db:studio": "bunx prisma studio",
     "reset-cursor": "bun run scripts/resetCursor.ts",
     "seed-rewards": "bun run src/scripts/seed-rewards.ts",
-    "seed-pricing": "bun run src/scripts/seed-pricing.ts",
     "pricing:apply": "bun run src/scripts/apply-pricing.ts",
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
