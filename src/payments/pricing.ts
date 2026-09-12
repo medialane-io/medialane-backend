@@ -6,8 +6,6 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("payments:pricing");
 
-export const UNMETERED_PREFIXES = ["/v1/portal", "/v1/auth"];
-
 const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string; exact?: boolean }> = [
   { method: "POST", prefix: "/v1/intents/mint", actionKey: "intent:mint" },
   { method: "POST", prefix: "/v1/intents/create-collection", actionKey: "intent:create-collection" },
@@ -58,60 +56,12 @@ const SERVICE_FROM_BODY_ACTIONS = new Set(["intent:create-tier"]);
 const DEFAULT_ACTION_KEY = "read";
 const DEFAULT_CHAIN = "STARKNET";
 
-export const FALLBACK_COST: Record<string, number> = {
-  read: 1,
-  "wallet:deploy": 5,
-  "intent:mint": 5,
-  "intent:create-collection": 5,
-  "intent:create-tier": 5,
-  "intent:create-coin": 5,
-  "intent:launch-coin": 5,
-  "intent:counter-offer": 5,
-  "intent:listing": 5,
-  "intent:offer": 5,
-  "intent:fulfill": 5,
-  "intent:cancel": 5,
-  "intent:checkout": 5,
-  "intent:sponsorship-offer": 5,
-  "intent:sponsorship-offer-open": 5,
-  "intent:sponsorship-bid": 5,
-  "intent:sponsorship-bid-retract": 5,
-  "intent:sponsorship-bid-accept": 5,
-  "intent:sponsorship-proposal": 5,
-  "intent:sponsorship-proposal-withdraw": 5,
-  "intent:sponsorship-proposal-accept": 5,
-  "intent:sponsorship-proposal-reject": 5,
-
-  "metadata:upload-json": 3,
-  "metadata:upload-file": 8,
-  "metadata:upload-directory": 8,
-  "metadata:signed-url": 8,
-  "price:read": 1,
-  "tickets:read-onchain": 1,
-  "club:read-onchain": 1,
-  "ipnft:read-onchain": 1,
-  "tx:sync": 1,
-  "rpc:call": 1,
-
-  "paymaster:invoke-build": 1,
-  "paymaster:invoke-execute": 5,
-  "paymaster:deploy-build": 1,
-  "paymaster:deploy-execute": 5,
-
-  "auth:email-send": 2,
-  "swap:quote": 1,
-  "swap:build": 2,
-};
-
 export function resolveActionKey(method: string, path: string): string | null {
   for (const rule of ROUTE_ACTIONS) {
     if (rule.method !== method.toUpperCase()) continue;
     if (rule.exact ? path === rule.prefix : path === rule.prefix || path.startsWith(rule.prefix + "/")) {
       return rule.actionKey;
     }
-  }
-  if (UNMETERED_PREFIXES.some((p) => path === p || path.startsWith(p + "/"))) {
-    return null;
   }
   return DEFAULT_ACTION_KEY;
 }
@@ -166,7 +116,7 @@ function resolveCost(rules: RuleMap, actionKey: string, chain: string, service: 
     const hit = rules.get(key);
     if (hit !== undefined) return hit;
   }
-  return FALLBACK_COST[actionKey] ?? 1;
+  return rules.get(ruleCacheKey(DEFAULT_ACTION_KEY, "ALL", "ALL")) ?? 1;
 }
 
 async function resolveMintService(chain: string, collectionContractRaw?: string): Promise<string> {
@@ -227,7 +177,6 @@ export async function chargeForRequest(
 export async function pricingTable(): Promise<{
   default: number;
   rules: Array<{ actionKey: string; chain: string; service: string; credits: number }>;
-  unmetered: string[];
 }> {
   let rows: Array<{ actionKey: string; chain: string; service: string; credits: number }> = [];
   try {
@@ -241,6 +190,5 @@ export async function pricingTable(): Promise<{
   return {
     default: resolveCost(await getRules(), DEFAULT_ACTION_KEY, DEFAULT_CHAIN, "ALL"),
     rules: rows,
-    unmetered: UNMETERED_PREFIXES,
   };
 }

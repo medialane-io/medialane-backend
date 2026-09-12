@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveActionKey, FALLBACK_COST } from "./pricing.js";
+import { resolveActionKey } from "./pricing.js";
 
 describe("resolveActionKey", () => {
   test("GET data routes resolve to the default read action", () => {
@@ -52,12 +52,6 @@ describe("resolveActionKey", () => {
     expect(resolveActionKey("POST", "/v1/swap/quote/meter")).toBe("swap:quote");
     expect(resolveActionKey("POST", "/v1/swap/build/meter")).toBe("swap:build");
   });
-  test("tenant self-service /v1/portal is NOT metered", () => {
-    expect(resolveActionKey("GET", "/v1/portal/me")).toBeNull();
-  });
-  test("/v1/auth is NOT metered", () => {
-    expect(resolveActionKey("POST", "/v1/auth/siws/verify")).toBeNull();
-  });
   test("unknown metered route falls back to read", () => {
     expect(resolveActionKey("GET", "/v1/something-new")).toBe("read");
   });
@@ -70,19 +64,19 @@ test("sending a verification code is metered, despite living under /v1/auth", ()
   expect(resolveActionKey("POST", "/v1/auth/email/request-code")).toBe("auth:email-send");
 });
 
-test("the rest of /v1/auth stays free so sign-in survives a zero balance", () => {
-  expect(resolveActionKey("POST", "/v1/auth/siws/nonce")).toBeNull();
-  expect(resolveActionKey("POST", "/v1/auth/siws/verify")).toBeNull();
-  expect(resolveActionKey("POST", "/v1/auth/email/verify-code")).toBeNull();
-  expect(resolveActionKey("GET", "/v1/auth/email/exists")).toBeNull();
+test("signing in is metered like everything else", () => {
+  expect(resolveActionKey("POST", "/v1/auth/siws/nonce")).toBe("read");
+  expect(resolveActionKey("POST", "/v1/auth/siws/verify")).toBe("read");
+  expect(resolveActionKey("POST", "/v1/auth/email/verify-code")).toBe("read");
+  expect(resolveActionKey("GET", "/v1/auth/email/exists")).toBe("read");
 });
 
-test("the portal stays unmetered", () => {
-  expect(resolveActionKey("GET", "/v1/portal/anything")).toBeNull();
+test("the portal is metered like every other caller", () => {
+  expect(resolveActionKey("GET", "/v1/portal/anything")).toBe("read");
 });
 
 test("a GET to the code path is not accidentally priced as a send", () => {
-  expect(resolveActionKey("GET", "/v1/auth/email/request-code")).toBeNull();
+  expect(resolveActionKey("GET", "/v1/auth/email/request-code")).toBe("read");
 });
 
 test("provisioning a recipient is charged as a wallet deployment", () => {
@@ -110,6 +104,9 @@ test("reading provisioning is not charged as a deployment", () => {
   expect(resolveActionKey("GET", "/v1/business/provisioning")).toBe("read");
 });
 
-test("a wallet deployment falls back to five credits when unpriced", () => {
-  expect(FALLBACK_COST["wallet:deploy"]).toBe(5);
+test("no path escapes the meter", () => {
+  for (const path of ["/v1/portal/me", "/v1/auth/siws/verify", "/v1/tx/sync", "/v1/anything"]) {
+    expect(resolveActionKey("POST", path)).not.toBeNull();
+    expect(resolveActionKey("GET", path)).not.toBeNull();
+  }
 });
