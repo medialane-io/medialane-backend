@@ -3,25 +3,15 @@ import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
 import { serviceForFactory } from "../utils/factoryService.js";
 import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, CORE_TRANSFERS, type SourceFetch } from "./sources.js";
-import { parseEvents } from "./parser.js";
-import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
-import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
-import { handleOrderCancelled } from "./handlers/orderCancelled.js";
-import { handleCounterIncremented } from "./handlers/counterIncremented.js";
-import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
-import { dispatchTransfer } from "./handlers/transfer.js";
+import { applyEvents, type ApplyOutcome } from "./apply.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { upsertCollectionFromFactory } from "../utils/collection.js";
 import { worker } from "../orchestrator/worker.js";
 import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { ORDER_CREATED_SELECTOR, ORDER_FULFILLED_SELECTOR, ORDER_CANCELLED_SELECTOR, COUNTER_INCREMENTED_SELECTOR } from "../config/constants.js";
-import { num } from "starknet";
-import { normalizeAddress } from "../utils/starknet.js";
 import { sleep } from "../utils/retry.js";
 import { createLogger } from "../utils/logger.js";
-import type { ParsedTransferSingle, ParsedTransfer } from "../types/marketplace.js";
 
 const log = createLogger("mirror");
 export const CHAIN = "STARKNET" as const;
@@ -83,110 +73,22 @@ async function tick(tickId: string): Promise<number> {
   ];
   const rawTransferEvents = eventsOf(CORE_TRANSFERS);
 
-  const rawEvents = [...rawMarketplaceEvents, ...rawTransferEvents, ...rawCollectionCreatedEvents];
+  const rawEvents = [
+    ...rawMarketplaceEvents,
+    ...raw1155Events,
+    ...rawTransferEvents,
+    ...rawCollectionCreatedEvents,
+  ];
   tlog.debug(
     Object.fromEntries(fetches.map((f) => [f.source.id, f.events.length])),
     "Fetched events"
   );
 
-  const parsedEvents = parseEvents(rawEvents);
-
-  const transferSingleFingerprints = new Set(
-    parsedEvents
-      .filter((e): e is ParsedTransferSingle => e.type === "TransferSingle")
-      .map((e) => `${e.txHash}:${e.contractAddress}:${e.tokenId}:${e.from}:${e.to}`)
-  );
-  const deduplicatedEvents = parsedEvents.filter((e) => {
-    if (e.type !== "Transfer") return true;
-    const t = e as ParsedTransfer;
-    return !transferSingleFingerprints.has(`${t.txHash}:${t.contractAddress}:${t.tokenId}:${t.from}:${t.to}`);
-  });
-
-  const affectedContracts = new Set<string>();
-
-  const orderNftContracts = new Set<string>();
-
-  const fulfilledOrCancelledHashes: string[] = [];
-
-  const collectionCreatedEvents = deduplicatedEvents.filter((e) => e.type === "CollectionCreated");
+  let outcome!: ApplyOutcome;
 
   await prisma.$transaction(
     async (tx) => {
-
-      for (const event of deduplicatedEvents) {
-        switch (event.type) {
-          case "OrderCreated": {
-            const nftContract = await handleOrderCreated(event, tx, CHAIN);
-            if (nftContract) orderNftContracts.add(nftContract);
-            break;
-          }
-          case "OrderFulfilled":
-            await handleOrderFulfilled(event, tx, CHAIN);
-            await cleanupGhostListings(event.orderHash, tx, CHAIN);
-            fulfilledOrCancelledHashes.push(event.orderHash);
-            break;
-          case "OrderCancelled":
-            await handleOrderCancelled(event, tx, CHAIN);
-            fulfilledOrCancelledHashes.push(event.orderHash);
-            break;
-          case "CounterIncremented":
-            await handleCounterIncremented(event, tx, CHAIN);
-            break;
-          case "Transfer":
-          case "TransferSingle":
-          case "TransferBatch":
-            await dispatchTransfer(event, tx, CHAIN);
-            affectedContracts.add(event.contractAddress);
-            break;
-
-        }
-      }
-
-      const SEL_CREATED   = num.toHex(ORDER_CREATED_SELECTOR);
-      const SEL_FULFILLED = num.toHex(ORDER_FULFILLED_SELECTOR);
-      const SEL_CANCELLED = num.toHex(ORDER_CANCELLED_SELECTOR);
-      const SEL_COUNTER   = num.toHex(COUNTER_INCREMENTED_SELECTOR);
-
-      const txCounters1155 = new Map<string, number>();
-      for (const rawEvent of raw1155Events) {
-        const selector = num.toHex(rawEvent.keys[0]);
-        const evTxHash = rawEvent.transaction_hash ?? "";
-        const logIndex = txCounters1155.get(evTxHash) ?? 0;
-        txCounters1155.set(evTxHash, logIndex + 1);
-        if (selector === SEL_CREATED) {
-          const nftContract = await handleOrderCreated1155(rawEvent, tx, CHAIN);
-          if (nftContract) orderNftContracts.add(nftContract);
-        } else if (selector === SEL_FULFILLED || selector === SEL_CANCELLED) {
-
-          const orderHash = num.toHex(rawEvent.keys[1]);
-          const offerer   = normalizeAddress("STARKNET", rawEvent.keys[2]);
-          const blockNumber = BigInt(rawEvent.block_number);
-          if (selector === SEL_FULFILLED) {
-            const parsed = parseRawOrderFulfilled1155(rawEvent, logIndex);
-            const { isFinalFill } = await handleOrderFulfilled(parsed, tx, CHAIN);
-            if (isFinalFill) await cleanupGhostListings(orderHash, tx, CHAIN);
-            fulfilledOrCancelledHashes.push(orderHash);
-          } else {
-            await handleOrderCancelled(
-              { type: "OrderCancelled", orderHash, offerer, blockNumber, txHash: evTxHash, logIndex },
-              tx, CHAIN
-            );
-            fulfilledOrCancelledHashes.push(orderHash);
-          }
-        } else if (selector === SEL_COUNTER) {
-          await handleCounterIncremented(
-            {
-              type: "CounterIncremented",
-              offerer: normalizeAddress("STARKNET", rawEvent.keys[1]),
-              newCounter: BigInt(rawEvent.data[0]).toString(),
-              blockNumber: BigInt(rawEvent.block_number),
-              txHash: evTxHash,
-              logIndex,
-            },
-            tx, CHAIN
-          );
-        }
-      }
+      outcome = await applyEvents(rawEvents, tx, CHAIN);
 
       await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
 
@@ -196,6 +98,14 @@ async function tick(tickId: string): Promise<number> {
       }
     },
     { timeout: 60000 }
+  );
+
+  const deduplicatedEvents = outcome.parsed;
+  const affectedContracts = outcome.affectedContracts;
+  const orderNftContracts = outcome.orderNftContracts;
+  const fulfilledOrCancelledHashes = outcome.fulfilledOrCancelledHashes;
+  const collectionCreatedEvents = deduplicatedEvents.filter(
+    (e: ApplyOutcome["parsed"][number]) => e.type === "CollectionCreated",
   );
 
   for (const event of collectionCreatedEvents) {
