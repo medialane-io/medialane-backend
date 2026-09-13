@@ -4,8 +4,8 @@ import {
 } from "@medialane/sdk";
 import { env } from "../config/env.js";
 
-export function issueAccountSessionToken(accountId: string): string {
-  return issueShared(env.SIWS_SECRET, accountId);
+export function issueAccountSessionToken(accountId: string, ttlSeconds?: number): string {
+  return issueShared(env.SIWS_SECRET, accountId, ttlSeconds);
 }
 
 export function verifyAccountSessionToken(raw: string): string | null {

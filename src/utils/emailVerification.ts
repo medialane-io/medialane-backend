@@ -6,7 +6,7 @@ export interface EmailIdentityInfo {
   createdAt: Date;
 }
 
-const DEFAULT_GRACE_DAYS = 7;
+export const DEFAULT_GRACE_DAYS = 7;
 
 export function isEmailVerificationRequired(
   identity: EmailIdentityInfo | null,

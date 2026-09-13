@@ -16,6 +16,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt
     checkAccountCreateRateLimit: async () => true,
     checkEmailExistsRateLimit: async () => true,
     findAccountIdByEmail: async () => null,
+    releaseAbandonedEmail: async () => false,
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -140,6 +141,7 @@ test("POST /verify-code omits accountToken when no account exists for the email 
       id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
     }),
     findAccountIdByEmail: async () => null,
+    releaseAbandonedEmail: async () => false,
   });
   const res = await app.request("/verify-code", {
     method: "POST",
