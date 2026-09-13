@@ -162,7 +162,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
         },
       });
       const ip = clientIp(c.req.raw);
-      issueVerificationCode(parsed.data.email, ip).catch((err: unknown) => {
+      issueVerificationCode(parsed.data.email, ip, tenant).catch((err: unknown) => {
         log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
       });
     }
@@ -327,7 +327,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
   ]);
 
   const ip = clientIp(c.req.raw);
-  const result = await issueVerificationCode(email, ip);
+  const result = await issueVerificationCode(email, ip, ioTenantId);
   if (!result.ok) return c.json({ error: result.error }, 429);
 
   return c.json({ email, emailVerified: false });

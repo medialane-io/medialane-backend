@@ -1,8 +1,11 @@
 import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
+import prisma from "../db/client.js";
 
 const log = createLogger("mailer");
+
+const DEFAULT_FROM_NAME = "Medialane.io";
 
 function createTransporter() {
   if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null;
@@ -14,7 +17,13 @@ function createTransporter() {
   });
 }
 
-const from = () => ({ name: "Medialane.io", address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
+const from = (name: string = DEFAULT_FROM_NAME) => ({ name, address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
+
+async function fromNameForTenant(tenant: string | null): Promise<string> {
+  if (!tenant) return DEFAULT_FROM_NAME;
+  const row = await prisma.tenant.findUnique({ where: { id: tenant }, select: { name: true } });
+  return row?.name ?? DEFAULT_FROM_NAME;
+}
 
 export async function sendUsernameClaimApproved(to: string, username: string): Promise<void> {
   const transporter = createTransporter();
@@ -101,20 +110,22 @@ export function buildVerificationCodeEmailHtml(code: string): string {
   `;
 }
 
-async function sendViaRelay(to: string, code: string): Promise<boolean> {
+async function sendViaRelay(to: string, code: string, fromName: string): Promise<boolean> {
   if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
   const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-verification-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
-    body: JSON.stringify({ to, code }),
+    body: JSON.stringify({ to, code, fromName }),
   });
   if (!res.ok) throw new Error(`relay responded ${res.status}: ${await res.text().catch(() => "")}`);
   return true;
 }
 
-export async function sendVerificationCode(to: string, code: string): Promise<void> {
+export async function sendVerificationCode(to: string, code: string, tenant: string | null = null): Promise<void> {
+  const fromName = await fromNameForTenant(tenant);
+
   try {
-    if (await sendViaRelay(to, code)) return;
+    if (await sendViaRelay(to, code, fromName)) return;
   } catch (err) {
     log.error({ err }, "Mail relay failed sending verification code — falling back to direct SMTP");
   }
@@ -123,7 +134,7 @@ export async function sendVerificationCode(to: string, code: string): Promise<vo
   if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
   try {
     await transporter.sendMail({
-      from: from(),
+      from: from(fromName),
       to,
       subject: "Your verification code",
       html: buildVerificationCodeEmailHtml(code),

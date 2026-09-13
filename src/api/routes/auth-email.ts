@@ -44,7 +44,7 @@ export interface AuthEmailDeps {
   createCode: (email: string, codeHash: string, expiresAt: Date) => Promise<void>;
   incrementAttempts: (id: string) => Promise<void>;
   consumeCode: (id: string) => Promise<void>;
-  sendCode: (to: string, code: string) => Promise<void>;
+  sendCode: (to: string, code: string, tenant: string | null) => Promise<void>;
   checkRateLimit: (email: string, ip: string) => Promise<boolean>;
   checkEmailExists: (email: string, tenant: string) => Promise<boolean>;
   createAccountWithEmail: (email: string, tenant: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
@@ -78,8 +78,9 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   app.post("/request-code", zValidator("json", requestCodeSchema), async (c) => {
     const { email } = c.req.valid("json");
     const ip = clientIp(c.req.raw);
+    const tenant = tenantOf(c);
 
-    const result = await issueVerificationCodeWithDeps(deps, email, ip);
+    const result = await issueVerificationCodeWithDeps(deps, email, ip, tenant);
     if (!result.ok) return c.json({ error: result.error }, 429);
 
     return c.json({ ok: true });
@@ -222,20 +223,21 @@ export async function issueVerificationCodeWithDeps(
   deps: AuthEmailDeps,
   email: string,
   ip: string,
+  tenant: string | null = null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const allowed = await deps.checkRateLimit(email, ip);
   if (!allowed) return { ok: false, error: "Too many requests" };
 
   const code = String(randomInt(100_000, 1_000_000));
   await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
-  deps.sendCode(email, code).catch((err: unknown) => {
+  deps.sendCode(email, code, tenant).catch((err: unknown) => {
     log.error({ err, email }, "Failed to send verification code");
   });
   return { ok: true };
 }
 
-export function issueVerificationCode(email: string, ip: string) {
-  return issueVerificationCodeWithDeps(productionDeps, email, ip);
+export function issueVerificationCode(email: string, ip: string, tenant: string | null = null) {
+  return issueVerificationCodeWithDeps(productionDeps, email, ip, tenant);
 }
 
 export const authEmail = createAuthEmailRoutes(productionDeps);
