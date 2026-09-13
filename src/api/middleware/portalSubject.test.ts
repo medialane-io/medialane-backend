@@ -26,5 +26,5 @@ test("a forged or expired token is refused rather than falling back to the key",
     headers: { Authorization: "Bearer not-a-real-token" },
   });
   expect(res.status).toBe(401);
-  expect(await res.json()).toEqual({ error: "Invalid or expired SIWS token" });
+  expect(await res.json()).toEqual({ error: "Invalid or expired token" });
 });
