@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { createHmac, timingSafeEqual, randomInt } from "crypto";
@@ -13,6 +13,7 @@ import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { clientIp } from "../../utils/clientIp.js";
 import type { AppEnv } from "../../types/hono.js";
+
 import { ensureAccountForIdentity } from "../../utils/account.js";
 
 const log = createLogger("routes:auth-email");
@@ -42,11 +43,11 @@ export interface AuthEmailDeps {
   consumeCode: (id: string) => Promise<void>;
   sendCode: (to: string, code: string) => Promise<void>;
   checkRateLimit: (email: string, ip: string) => Promise<boolean>;
-  checkEmailExists: (email: string) => Promise<boolean>;
-  createAccountWithEmail: (email: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
+  checkEmailExists: (email: string, tenant: string) => Promise<boolean>;
+  createAccountWithEmail: (email: string, tenant: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
   checkAccountCreateRateLimit: (ip: string) => Promise<boolean>;
   checkEmailExistsRateLimit: (ip: string) => Promise<boolean>;
-  findAccountIdByEmail: (email: string) => Promise<string | null>;
+  findAccountIdByEmail: (email: string, tenant: string) => Promise<string | null>;
 }
 
 function hashCode(code: string): string {
@@ -57,6 +58,15 @@ const requestCodeSchema = z.object({ email: z.string().email() });
 const verifyCodeSchema = z.object({ email: z.string().email(), code: z.string().length(6) });
 const existsQuerySchema = z.object({ email: z.string().email() });
 const registerAccountSchema = z.object({ email: z.string().email() });
+
+function tenantOf(c: Context<AppEnv>): string | null {
+  return c.get("apiKey")?.tenantId ?? null;
+}
+
+const NO_TENANT = {
+  error: "unknown_app",
+  message: "This API key is not attached to an app, so an account cannot be resolved for it.",
+} as const;
 
 export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -72,6 +82,9 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   });
 
   app.post("/verify-code", zValidator("json", verifyCodeSchema), async (c) => {
+    const tenant = tenantOf(c);
+    if (!tenant) return c.json(NO_TENANT, 400);
+
     const { email, code } = c.req.valid("json");
     const stored = await deps.findLatestCode(email);
 
@@ -95,7 +108,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     await deps.consumeCode(stored.id);
     const token = issueEmailVerifiedToken(email);
-    const accountId = await deps.findAccountIdByEmail(email);
+    const accountId = await deps.findAccountIdByEmail(email, tenant);
     return c.json({
       token,
       ...(accountId ? { accountToken: issueAccountSessionToken(accountId) } : {}),
@@ -107,8 +120,11 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const allowed = await deps.checkEmailExistsRateLimit(ip);
     if (!allowed) return c.json({ error: "Too many requests" }, 429);
 
+    const tenant = tenantOf(c);
+    if (!tenant) return c.json(NO_TENANT, 400);
+
     const { email } = c.req.valid("query");
-    const exists = await deps.checkEmailExists(email);
+    const exists = await deps.checkEmailExists(email, tenant);
     return c.json({ exists });
   });
 
@@ -119,7 +135,10 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const allowed = await deps.checkAccountCreateRateLimit(ip);
     if (!allowed) return c.json({ error: "Too many requests" }, 429);
 
-    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email);
+    const tenant = tenantOf(c);
+    if (!tenant) return c.json(NO_TENANT, 400);
+
+    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email, tenant);
     if (alreadyExisted) {
       return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
     }
@@ -155,19 +174,15 @@ const productionDeps: AuthEmailDeps = {
     }
     return true;
   },
-  checkEmailExists: async (email) => {
+  checkEmailExists: async (email, tenant) => {
     const identity = await prisma.identity.findUnique({
-      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } },
       select: { id: true },
     });
     return identity !== null;
   },
-  createAccountWithEmail: async (email) => {
-    const { accountId, created } = await ensureAccountForIdentity(
-      IDENTITY_SCHEME.EMAIL,
-      email,
-      "MEDIALANE_IO",
-    );
+  createAccountWithEmail: async (email, tenant) => {
+    const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, tenant);
     return { accountId, alreadyExisted: !created };
   },
   checkAccountCreateRateLimit: async (ip) => {
@@ -186,9 +201,9 @@ const productionDeps: AuthEmailDeps = {
     }
     return true;
   },
-  findAccountIdByEmail: async (email) => {
+  findAccountIdByEmail: async (email, tenant) => {
     const identity = await prisma.identity.findUnique({
-      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } },
       select: { accountId: true },
     });
     return identity?.accountId ?? null;

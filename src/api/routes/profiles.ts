@@ -7,6 +7,7 @@ import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth } from "../middleware/identityAuth.js";
+import { requireTenant } from "../../utils/tenant.js";
 import {
   ensureAccountForWallet,
   resolveAccountIdFromWallet,
@@ -319,7 +320,7 @@ profiles.patch(
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      appSource: "MEDIALANE_STARKNET",
+      tenantId: await requireTenant("MEDIALANE_STARKNET"),
     });
 
     await addAccountRole(accountId, "CREATOR");

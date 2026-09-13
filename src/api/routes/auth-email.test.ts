@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createAuthEmailRoutes, type AuthEmailDeps } from "./auth-email";
 import type { AppEnv } from "../../types/hono.js";
 
-function appWith(deps: Partial<AuthEmailDeps> = {}) {
+function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt_medialane_io") {
   const fullDeps: AuthEmailDeps = {
     findLatestCode: async () => null,
     createCode: async () => {},
@@ -19,6 +19,23 @@ function appWith(deps: Partial<AuthEmailDeps> = {}) {
     ...deps,
   };
   const app = new Hono<AppEnv>();
+  app.use("*", async (c, next) => {
+    if (tenant) {
+      c.set("apiKey", {
+        id: "key_TEST",
+        status: "ACTIVE",
+        tenantId: tenant,
+        apiClient: {
+          id: "client_TEST",
+          accountId: "acc_TEST",
+          plan: "FREE",
+          creditBalance: 0,
+          account: { id: "acc_TEST", status: "ACTIVE" },
+        },
+      });
+    }
+    return next();
+  });
   app.route("/", createAuthEmailRoutes(fullDeps));
   return app;
 }
@@ -299,4 +316,27 @@ test("GET /exists does not reveal existence when rate limited", async () => {
   const res = await app.request("/exists?email=alice@example.com");
   const body = await res.json() as { exists?: boolean };
   expect(body.exists).toBeUndefined();
+});
+
+test("an account belongs to the app that created it, so the same address in two apps is two accounts", async () => {
+  const asked: Array<{ email: string; tenant: string }> = [];
+  const app = appWith({
+    checkEmailExists: async (email, tenant) => {
+      asked.push({ email, tenant });
+      return false;
+    },
+  });
+
+  await app.request("/exists?email=person@example.com");
+
+  expect(asked).toEqual([{ email: "person@example.com", tenant: "tnt_medialane_io" }]);
+});
+
+test("a key with no app cannot resolve an account, rather than falling into somebody else's", async () => {
+  const app = appWith({}, null);
+
+  const res = await app.request("/exists?email=person@example.com");
+
+  expect(res.status).toBe(400);
+  expect(await res.json()).toMatchObject({ error: "unknown_app" });
 });
