@@ -25,3 +25,39 @@ test("a timestamp from the future is not accepted as fresh", () => {
 test("small clock skew is tolerated", () => {
   expect(isFresh(NOW + 30, NOW)).toBe(true);
 });
+
+test("a subject with no recorded sign-in time cannot mint a key", async () => {
+  const { Hono } = await import("hono");
+  type Env = import("../../types/hono.js").AppEnv;
+  const { freshSignature } = await import("./freshSignature.js");
+
+  const app = new Hono<Env>();
+  app.use("*", async (c, next) => {
+    c.set("account", { id: "acct-1", status: "ACTIVE" });
+    return next();
+  });
+  app.use("*", freshSignature);
+  app.post("/keys", (c) => c.json({ minted: true }));
+
+  const res = await app.request("/keys", { method: "POST" });
+  expect(res.status).toBe(401);
+  expect(await res.json()).toMatchObject({ error: "stale_signature" });
+});
+
+test("a recent sign-in is enough, whichever kind it was", async () => {
+  const { Hono } = await import("hono");
+  type Env = import("../../types/hono.js").AppEnv;
+  const { freshSignature } = await import("./freshSignature.js");
+
+  const app = new Hono<Env>();
+  app.use("*", async (c, next) => {
+    c.set("account", { id: "acct-1", status: "ACTIVE" });
+    c.set("subjectTokenIssuedAt", Math.floor(Date.now() / 1000) - 5);
+    return next();
+  });
+  app.use("*", freshSignature);
+  app.post("/keys", (c) => c.json({ minted: true }));
+
+  const res = await app.request("/keys", { method: "POST" });
+  expect(res.status).toBe(200);
+});

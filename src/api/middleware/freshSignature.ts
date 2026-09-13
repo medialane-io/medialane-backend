@@ -4,7 +4,7 @@ import type { AppEnv } from "../../types/hono.js";
 export const FRESH_SIGNATURE_SECONDS = 10 * 60;
 
 export const freshSignature: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!c.get("walletAddress")) return next();
+  if (!c.get("account")) return next();
 
   const issuedAt = c.get("subjectTokenIssuedAt");
   if (issuedAt === undefined || !isFresh(issuedAt)) {
