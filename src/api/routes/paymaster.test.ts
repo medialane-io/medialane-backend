@@ -289,6 +289,23 @@ describe("POST /deploy/execute", () => {
     expect(res.status).toBe(400);
   });
 
+  test("accepts a class hash that is numerically equal but differently zero-padded", async () => {
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash!;
+    const unpadded = "0x" + BigInt(classHash).toString(16);
+    const res = await appWith({}).request("/deploy/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ownerAddress: OWNER_ADDRESS,
+        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        signature: ["0x1"],
+        deployment: { address: OWNER_ADDRESS, class_hash: unpadded },
+        calls: [SPONSORABLE_CALL],
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
+
   test("rejects a deployment for a class hash other than Media Wallet's", async () => {
     const res = await appWith({}).request("/deploy/execute", {
       method: "POST",

@@ -72,6 +72,17 @@ function isZero(value: unknown): boolean {
   }
 }
 
+// Hex felts round-trip through a paymaster provider with inconsistent zero
+// padding (0x014b21... vs 0x14b21...) — the same value, different string.
+// Comparing them with !== rejects legitimate deployments, so compare numerically.
+function sameFelt(a: unknown, b: unknown): boolean {
+  try {
+    return BigInt(a as string) === BigInt(b as string);
+  } catch {
+    return false;
+  }
+}
+
 let selectorsByName: Map<string, string> | null = null;
 
 function entrypointForSelector(selector: unknown): string | null {
@@ -215,7 +226,7 @@ export async function executeSponsoredDeploy(
 ): Promise<string> {
   const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
   const deployment = input.deployment as { class_hash?: string; address?: string } | null;
-  if (!classHash || deployment?.class_hash !== classHash || deployment?.address !== input.ownerAddress) {
+  if (!classHash || !sameFelt(deployment?.class_hash, classHash) || !sameFelt(deployment?.address, input.ownerAddress)) {
     throw new Error("deployment does not match a sponsorable Media Wallet deployment");
   }
   const result = await clientFactory().executeTransaction(
@@ -372,7 +383,7 @@ export default function paymaster(
 
     const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
     const deployment = body.deployment as { class_hash?: string; address?: string } | null;
-    if (!classHash || deployment?.class_hash !== classHash || deployment?.address !== body.ownerAddress) {
+    if (!classHash || !sameFelt(deployment?.class_hash, classHash) || !sameFelt(deployment?.address, body.ownerAddress)) {
       return c.json({ error: "deployment does not match a sponsorable Media Wallet deployment" }, 400);
     }
 
