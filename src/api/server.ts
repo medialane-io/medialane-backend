@@ -4,7 +4,6 @@ import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyGate } from "./middleware/apiKeyGate.js";
-import businessLaunchpadRoutes from "./routes/business-launchpad.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
@@ -64,7 +63,6 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/wallet-activity", walletActivityRoutes);
   app.route("/v1/business/provisioning", businessProvisioningRoutes);
   app.route("/v1/business/issuance", issuanceRoutes);
-  app.route("/v1/business/launchpad", businessLaunchpadRoutes);
   app.route("/v1/username-claims", usernameClaims);
   app.route("/v1/collection-slug-claims", collectionSlugClaims);
   app.route("/v1/users", users);
