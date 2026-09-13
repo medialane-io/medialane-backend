@@ -3,6 +3,14 @@ import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME } from "./identity.js";
 import type { Chain, AccountType, AccountRole } from "@prisma/client";
 
+async function ensureApiClient(accountId: string): Promise<void> {
+  await prisma.apiClient.upsert({
+    where: { accountId },
+    create: { accountId },
+    update: {},
+  });
+}
+
 export async function resolveAccountIdFromWallet(
   chain: Chain,
   address: string,
@@ -107,6 +115,7 @@ export async function ensureAccountForWallet(params: {
     if ((existing.provider === null || existing.provider === "unknown") && provider !== "unknown") {
       await prisma.identity.update({ where: { id: existing.id }, data: { provider } });
     }
+    await ensureApiClient(existing.accountId);
     return { accountId: existing.accountId, created: false };
   }
 
@@ -127,6 +136,7 @@ export async function ensureAccountForWallet(params: {
         email: params.email ?? null,
       },
     });
+    await ensureApiClient(params.linkToAccountId);
     return { accountId: params.linkToAccountId, created: false };
   }
 
@@ -168,6 +178,7 @@ export async function ensureAccountForWallet(params: {
     });
 
     await tx.accountProfile.create({ data: { accountId: account.id } });
+    await tx.apiClient.create({ data: { accountId: account.id } });
     return account.id;
   });
 
