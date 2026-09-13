@@ -9,6 +9,7 @@ import { verifyWalletSignature } from "../../auth/verify.js";
 import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { TENANT_SLUG_INPUT, requireTenant } from "../../utils/tenant.js";
+import { reactivateOnWalletProof } from "../../utils/reactivate.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -124,6 +125,7 @@ siws.post(
       address: wallet,
       tenantId: await requireTenant(appSource),
     });
+    await reactivateOnWalletProof(accountId);
     const apiClient = await prisma.apiClient.upsert({
       where: { accountId },
       create: { accountId },

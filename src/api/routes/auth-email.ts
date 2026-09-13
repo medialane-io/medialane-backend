@@ -7,6 +7,8 @@ import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { DEFAULT_GRACE_DAYS } from "../../utils/emailVerification.js";
+import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateLimit.js";
 import { createRedisStore } from "../middleware/redisRateLimit.js";
 import { createLogger } from "../../utils/logger.js";
@@ -19,6 +21,7 @@ import { ensureAccountForIdentity } from "../../utils/account.js";
 const log = createLogger("routes:auth-email");
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+const UNVERIFIED_SESSION_TTL_SECONDS = DEFAULT_GRACE_DAYS * 24 * 60 * 60;
 const MAX_ATTEMPTS = 5;
 const EMAIL_REQUEST_LIMIT = 3;
 const IP_REQUEST_LIMIT = 10;
@@ -48,6 +51,7 @@ export interface AuthEmailDeps {
   checkAccountCreateRateLimit: (ip: string) => Promise<boolean>;
   checkEmailExistsRateLimit: (ip: string) => Promise<boolean>;
   findAccountIdByEmail: (email: string, tenant: string) => Promise<string | null>;
+  releaseAbandonedEmail: (email: string, tenant: string) => Promise<boolean>;
 }
 
 function hashCode(code: string): string {
@@ -108,6 +112,9 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     await deps.consumeCode(stored.id);
     const token = issueEmailVerifiedToken(email);
+
+    await deps.releaseAbandonedEmail(email, tenant);
+
     const accountId = await deps.findAccountIdByEmail(email, tenant);
     return c.json({
       token,
@@ -142,7 +149,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     if (alreadyExisted) {
       return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
     }
-    return c.json({ accountToken: issueAccountSessionToken(accountId) });
+    return c.json({ accountToken: issueAccountSessionToken(accountId, UNVERIFIED_SESSION_TTL_SECONDS) });
   });
 
   return app;
@@ -201,6 +208,7 @@ const productionDeps: AuthEmailDeps = {
     }
     return true;
   },
+  releaseAbandonedEmail,
   findAccountIdByEmail: async (email, tenant) => {
     const identity = await prisma.identity.findUnique({
       where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } },
