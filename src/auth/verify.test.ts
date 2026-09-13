@@ -30,6 +30,20 @@ test("verifyStarknetWithRetry retries on 'Contract not found' and succeeds once 
   expect(calls).toBe(3);
 });
 
+test("verifyStarknetWithRetry retries on starknet.js's malformed-response error for an undeployed contract", async () => {
+  let calls = 0;
+  const result = await verifyStarknetWithRetry(
+    async () => {
+      calls++;
+      if (calls < 3) throw new TypeError("undefined is not an object (evaluating 'resp[0]')");
+      return true;
+    },
+    { retries: 3, sleep: async () => {} },
+  );
+  expect(result).toEqual({ ok: true });
+  expect(calls).toBe(3);
+});
+
 test("verifyStarknetWithRetry gives up as not_deployed after exhausting retries", async () => {
   let calls = 0;
   const result = await verifyStarknetWithRetry(
