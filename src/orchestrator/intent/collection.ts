@@ -24,11 +24,16 @@ import { uploadJson } from "../metadataPin.js";
 import { resolveServiceForContract } from "../../utils/collection.js";
 import { log, encodeByteArray, resolveCollectionContract } from "./shared.js";
 
-export const FACTORY_FAMILY_SERVICE_IDS = ["mip-erc1155", "ip-tickets", "ip-club"] as const;
-export const TIER_SERVICE_IDS = ["ip-tickets", "ip-club"] as const;
+export const FACTORY_FAMILY_SERVICE_IDS = ["mip-erc1155", "ip-tickets", "ip-ticketing", "ip-club"] as const;
+export const TIER_SERVICE_IDS = ["ip-tickets", "ip-ticketing", "ip-club"] as const;
 type FactoryFamilyServiceId = typeof FACTORY_FAMILY_SERVICE_IDS[number];
 
-export const COLLECTION_SERVICE_IDS = [...FACTORY_FAMILY_SERVICE_IDS, "pop-protocol", "drop-collection"] as const;
+export const COLLECTION_SERVICE_IDS = [
+  ...FACTORY_FAMILY_SERVICE_IDS,
+  "pop-protocol",
+  "drop-collection",
+  "data-tokenization-erc721",
+] as const;
 
 const FACTORY_FAMILY_SERVICES: Record<FactoryFamilyServiceId, { factoryAddress: string; factoryAbi: unknown; collectionAbi: unknown }> = {
   "mip-erc1155": {
@@ -37,6 +42,11 @@ const FACTORY_FAMILY_SERVICES: Record<FactoryFamilyServiceId, { factoryAddress: 
     collectionAbi: IPCollection1155ABI,
   },
   "ip-tickets": {
+    factoryAddress: STARKNET_IP_TICKETS_FACTORY_CONTRACT,
+    factoryAbi: IPTicketCollectionFactoryABI,
+    collectionAbi: IPTicketCollectionABI,
+  },
+  "ip-ticketing": {
     factoryAddress: STARKNET_IP_TICKETS_FACTORY_CONTRACT,
     factoryAbi: IPTicketCollectionFactoryABI,
     collectionAbi: IPTicketCollectionABI,
@@ -195,8 +205,8 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
 }
 
 export async function buildCreateTierIntent(body: CreateTierIntentBody) {
-  if (body.service !== "ip-tickets" && body.service !== "ip-club") {
-    throw new Error(`CREATE_TIER is only supported for ip-tickets and ip-club, got "${body.service}"`);
+  if (!isFactoryFamilyService(body.service) || body.service === "mip-erc1155") {
+    throw new Error(`CREATE_TIER is only supported for ${TIER_SERVICE_IDS.join(", ")}, got "${body.service}"`);
   }
   const family = FACTORY_FAMILY_SERVICES[body.service];
 
@@ -213,7 +223,7 @@ export async function buildCreateTierIntent(body: CreateTierIntentBody) {
     ? new CairoOption(CairoOptionVariant.Some, body.endTime)
     : new CairoOption(CairoOptionVariant.None);
 
-  const entrypoint = body.service === "ip-tickets" ? "create_ticket" : "create_membership";
+  const entrypoint = body.service === "ip-club" ? "create_membership" : "create_ticket";
   const call = collection.populate(entrypoint, [
     cairo.uint256(body.maxSupply),
     startTime,
