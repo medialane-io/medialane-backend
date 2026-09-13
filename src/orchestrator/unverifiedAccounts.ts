@@ -9,20 +9,17 @@ const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export const RULE_STARTS_AT = new Date("2026-09-13T00:00:00.000Z");
 
-export function deadlineFor(
-  registeredAt: Date,
-  graceDays: number = DEFAULT_GRACE_DAYS,
-  ruleStartsAt: Date = RULE_STARTS_AT,
-): Date {
-  const from = registeredAt > ruleStartsAt ? registeredAt : ruleStartsAt;
-  return new Date(from.getTime() + graceDays * 24 * 60 * 60 * 1000);
+export function deadlineFor(registeredAt: Date, graceDays: number = DEFAULT_GRACE_DAYS): Date {
+  return new Date(registeredAt.getTime() + graceDays * 24 * 60 * 60 * 1000);
 }
 
 export function isPastDue(
   registeredAt: Date,
   now: Date = new Date(),
   graceDays: number = DEFAULT_GRACE_DAYS,
+  ruleStartsAt: Date = RULE_STARTS_AT,
 ): boolean {
+  if (registeredAt < ruleStartsAt) return false;
   return now > deadlineFor(registeredAt, graceDays);
 }
 
