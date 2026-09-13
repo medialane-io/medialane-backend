@@ -45,7 +45,8 @@ export async function verifyStarknetWithRetry(
       return isValid ? { ok: true } : { ok: false, reason: "invalid" };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes("Contract not found")) throw err;
+      const notYetIndexed = msg.includes("Contract not found") || msg.includes("resp[0]");
+      if (!notYetIndexed) throw err;
       if (i === retries) return { ok: false, reason: "not_deployed" };
       await sleep(delayMs);
     }
