@@ -7,6 +7,25 @@ const log = createLogger("orchestrator:unverified-accounts");
 
 const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+export const RULE_STARTS_AT = new Date("2026-09-13T00:00:00.000Z");
+
+export function deadlineFor(
+  registeredAt: Date,
+  graceDays: number = DEFAULT_GRACE_DAYS,
+  ruleStartsAt: Date = RULE_STARTS_AT,
+): Date {
+  const from = registeredAt > ruleStartsAt ? registeredAt : ruleStartsAt;
+  return new Date(from.getTime() + graceDays * 24 * 60 * 60 * 1000);
+}
+
+export function isPastDue(
+  registeredAt: Date,
+  now: Date = new Date(),
+  graceDays: number = DEFAULT_GRACE_DAYS,
+): boolean {
+  return now > deadlineFor(registeredAt, graceDays);
+}
+
 export function graceCutoff(now: Date = new Date(), graceDays: number = DEFAULT_GRACE_DAYS): Date {
   return new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
 }
@@ -14,15 +33,16 @@ export function graceCutoff(now: Date = new Date(), graceDays: number = DEFAULT_
 export async function suspendUnverifiedAccounts(now: Date = new Date()): Promise<number> {
   const cutoff = graceCutoff(now);
 
-  const stale = await prisma.identity.findMany({
+  const candidates = await prisma.identity.findMany({
     where: {
       scheme: IDENTITY_SCHEME.EMAIL,
       verifiedAt: null,
       createdAt: { lt: cutoff },
       account: { status: "ACTIVE" },
     },
-    select: { accountId: true },
+    select: { accountId: true, createdAt: true },
   });
+  const stale = candidates.filter((row) => isPastDue(row.createdAt, now));
   if (stale.length === 0) return 0;
 
   const verified = await prisma.identity.findMany({

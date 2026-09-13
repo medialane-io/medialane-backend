@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { graceCutoff } from "./unverifiedAccounts.js";
+import { graceCutoff, deadlineFor, isPastDue, RULE_STARTS_AT } from "./unverifiedAccounts.js";
 import { DEFAULT_GRACE_DAYS } from "../utils/emailVerification.js";
 
 const NOW = new Date("2026-09-13T12:00:00.000Z");
@@ -21,4 +21,28 @@ test("an address registered before the grace began is past due", () => {
   const registered = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
 
   expect(registered < graceCutoff(NOW)).toBe(true);
+});
+
+test("somebody who signed up before the rule gets the grace from the day it starts", () => {
+  const longBefore = new Date("2026-06-01T00:00:00.000Z");
+
+  expect(deadlineFor(longBefore)).toEqual(
+    new Date(RULE_STARTS_AT.getTime() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000),
+  );
+  expect(isPastDue(longBefore, NOW)).toBe(false);
+});
+
+test("somebody who signs up afterwards gets the grace from their own day", () => {
+  const after = new Date(RULE_STARTS_AT.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const eightDaysLater = new Date(after.getTime() + 8 * 24 * 60 * 60 * 1000);
+
+  expect(isPastDue(after, eightDaysLater)).toBe(true);
+  expect(isPastDue(after, new Date(after.getTime() + 3 * 24 * 60 * 60 * 1000))).toBe(false);
+});
+
+test("an account from before the rule is past due once that grace runs out", () => {
+  const longBefore = new Date("2026-06-01T00:00:00.000Z");
+  const afterTheWindow = new Date(RULE_STARTS_AT.getTime() + 8 * 24 * 60 * 60 * 1000);
+
+  expect(isPastDue(longBefore, afterTheWindow)).toBe(true);
 });
