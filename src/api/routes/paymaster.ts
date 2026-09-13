@@ -72,9 +72,6 @@ function isZero(value: unknown): boolean {
   }
 }
 
-// Hex felts round-trip through a paymaster provider with inconsistent zero
-// padding (0x014b21... vs 0x14b21...) — the same value, different string.
-// Comparing them with !== rejects legitimate deployments, so compare numerically.
 function sameFelt(a: unknown, b: unknown): boolean {
   try {
     return BigInt(a as string) === BigInt(b as string);
