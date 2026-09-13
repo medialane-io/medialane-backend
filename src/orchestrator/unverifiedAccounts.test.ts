@@ -23,13 +23,12 @@ test("an address registered before the grace began is past due", () => {
   expect(registered < graceCutoff(NOW)).toBe(true);
 });
 
-test("somebody who signed up before the rule gets the grace from the day it starts", () => {
+test("nobody is asked for something that was not asked of them when they signed up", () => {
   const longBefore = new Date("2026-06-01T00:00:00.000Z");
+  const yearsLater = new Date("2027-06-01T00:00:00.000Z");
 
-  expect(deadlineFor(longBefore)).toEqual(
-    new Date(RULE_STARTS_AT.getTime() + DEFAULT_GRACE_DAYS * 24 * 60 * 60 * 1000),
-  );
   expect(isPastDue(longBefore, NOW)).toBe(false);
+  expect(isPastDue(longBefore, yearsLater)).toBe(false);
 });
 
 test("somebody who signs up afterwards gets the grace from their own day", () => {
@@ -40,9 +39,9 @@ test("somebody who signs up afterwards gets the grace from their own day", () =>
   expect(isPastDue(after, new Date(after.getTime() + 3 * 24 * 60 * 60 * 1000))).toBe(false);
 });
 
-test("an account from before the rule is past due once that grace runs out", () => {
-  const longBefore = new Date("2026-06-01T00:00:00.000Z");
-  const afterTheWindow = new Date(RULE_STARTS_AT.getTime() + 8 * 24 * 60 * 60 * 1000);
+test("the day the rule starts is the line, and an account registered on it is held to it", () => {
+  const onTheDay = new Date(RULE_STARTS_AT.getTime() + 60 * 1000);
+  const eightDaysLater = new Date(onTheDay.getTime() + 8 * 24 * 60 * 60 * 1000);
 
-  expect(isPastDue(longBefore, afterTheWindow)).toBe(true);
+  expect(isPastDue(onTheDay, eightDaysLater)).toBe(true);
 });
