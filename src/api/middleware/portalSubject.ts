@@ -39,10 +39,12 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
     select: { account: { select: accountSelect } },
   });
 
-  if (!wallet) {
+  if (!wallet || !wallet.account.apiClient) {
     // The token already proves wallet ownership, so a first-time portal
-    // visitor is provisioned here rather than 404ing and relying on a
-    // client-side registration call that may never fire before this request.
+    // visitor (no wallet row yet) or an account still missing its
+    // ApiClient (credit wallet) is provisioned here rather than 404ing
+    // and relying on a client-side registration call that may never
+    // fire before this request.
     const tenantId = await requireTenant("MEDIALANE_PORTAL");
     await ensureAccountForWallet({ chain: identity.chain, address, tenantId });
     wallet = await prisma.identity.findUnique({
