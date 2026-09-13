@@ -17,6 +17,7 @@ export const PRICING = [
   { action: "paymaster:deploy-execute", usd: 0.05, note: "Execute a sponsored wallet deploy (Medialane pays the sponsorship)" },
 
   { action: "wallet:deploy", usd: 0.05, note: "Provision a wallet for a recipient" },
+  { action: "issuance:emission", usd: 0.05, note: "Mint one asset per recipient in a list (same rate as intent:mint, billed per recipient)" },
 
   { action: "metadata:upload-json", usd: 0.02, note: "Upload metadata JSON to IPFS (max 512KB)" },
   { action: "metadata:upload-file", usd: 0.02, note: "Upload a media file to IPFS (max 10MB)" },

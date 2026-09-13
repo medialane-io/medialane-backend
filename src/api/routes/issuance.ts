@@ -88,7 +88,7 @@ const mintCallsSchema = z
 export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.post("/mint-calls", zValidator("json", mintCallsSchema), async (c) => {
+  app.post("/emission", zValidator("json", mintCallsSchema), async (c) => {
     const body = c.req.valid("json");
 
     if (!serviceCanMint(body.service)) {

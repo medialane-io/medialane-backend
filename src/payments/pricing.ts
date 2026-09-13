@@ -38,6 +38,7 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/tx/sync", actionKey: "tx:sync" },
   { method: "POST", prefix: "/v1/rpc", actionKey: "rpc:call" },
   { method: "POST", prefix: "/v1/business/provisioning", actionKey: "wallet:deploy", exact: true },
+  { method: "POST", prefix: "/v1/business/issuance/emission", actionKey: "issuance:emission", exact: true },
   { method: "POST", prefix: "/v1/paymaster/invoke/build", actionKey: "paymaster:invoke-build" },
   { method: "POST", prefix: "/v1/paymaster/invoke/execute", actionKey: "paymaster:invoke-execute" },
   { method: "POST", prefix: "/v1/paymaster/deploy/build", actionKey: "paymaster:deploy-build" },
@@ -46,7 +47,13 @@ const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: 
   { method: "POST", prefix: "/v1/swap/build", actionKey: "swap:build" },
 ];
 
-const BATCH_MULTIPLIED_ACTIONS = new Set(["rpc:call"]);
+const BATCH_UNIT_EXTRACTORS: Record<string, (body: unknown) => number> = {
+  "rpc:call": (body) => (Array.isArray(body) ? body.length : 1),
+  "issuance:emission": (body) => {
+    const recipients = (body as { recipients?: unknown } | null)?.recipients;
+    return Array.isArray(recipients) ? recipients.length : 1;
+  },
+};
 
 const DEFAULT_ACTION_KEY = "read";
 const DEFAULT_CHAIN = "STARKNET";
@@ -138,9 +145,10 @@ export async function chargeForRequest(
   const unitCredits = resolveCost(rules, actionKey, chain);
 
   let units = 1;
-  if (ctx.getBody && BATCH_MULTIPLIED_ACTIONS.has(actionKey)) {
+  const extractor = BATCH_UNIT_EXTRACTORS[actionKey];
+  if (ctx.getBody && extractor) {
     const body = await ctx.getBody().catch(() => null);
-    if (Array.isArray(body)) units = Math.max(1, body.length);
+    units = Math.max(1, extractor(body));
   }
 
   return { actionKey, chain, service: "ALL", unitCredits, units };

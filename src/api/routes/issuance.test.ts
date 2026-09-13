@@ -34,7 +34,7 @@ function fakeDeps(overrides: Partial<IssuanceDeps> = {}): IssuanceDeps {
 }
 
 function post(app: Hono<AppEnv>, body: unknown) {
-  return app.request("/v1/business/issuance/mint-calls", {
+  return app.request("/v1/business/issuance/emission", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -113,7 +113,7 @@ describe("service gating", () => {
   });
 });
 
-describe("mint-calls", () => {
+describe("emission", () => {
   test("builds one call per recipient", async () => {
     const res = await post(makeApp(fakeDeps()), baseBody);
     expect(res.status).toBe(200);

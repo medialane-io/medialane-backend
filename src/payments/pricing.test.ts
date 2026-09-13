@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveActionKey } from "./pricing.js";
+import { chargeForRequest, resolveActionKey } from "./pricing.js";
 
 describe("resolveActionKey", () => {
   test("GET data routes resolve to the default read action", () => {
@@ -102,6 +102,28 @@ test("prefix rules elsewhere still match their sub-paths", () => {
 
 test("reading provisioning is not charged as a deployment", () => {
   expect(resolveActionKey("GET", "/v1/business/provisioning")).toBe("read");
+});
+
+test("distributing to a list of recipients is charged as its own action, not a generic read", () => {
+  expect(resolveActionKey("POST", "/v1/business/issuance/emission")).toBe("issuance:emission");
+});
+
+test("emission cost scales with how many recipients are in the list", async () => {
+  const charge1 = await chargeForRequest("POST", "/v1/business/issuance/emission", {
+    getBody: async () => ({ recipients: ["a@example.com"] }),
+  });
+  const charge20 = await chargeForRequest("POST", "/v1/business/issuance/emission", {
+    getBody: async () => ({ recipients: Array.from({ length: 20 }, (_, i) => `r${i}@example.com`) }),
+  });
+  expect(charge1?.units).toBe(1);
+  expect(charge20?.units).toBe(20);
+});
+
+test("emission with no recipients in the body still charges at least one unit", async () => {
+  const charge = await chargeForRequest("POST", "/v1/business/issuance/emission", {
+    getBody: async () => ({}),
+  });
+  expect(charge?.units).toBe(1);
 });
 
 test("no path escapes the meter", () => {
