@@ -8,7 +8,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
-import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
+import { TENANT_SLUG_INPUT, requireTenant, tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { clientIp } from "../../utils/clientIp.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
@@ -23,14 +23,10 @@ const log = createLogger("routes:users");
 const users = new Hono<AppEnv>();
 
 const walletTypeSchema = z.string().max(64);
-const appSourceEnum = z.enum(APP_SOURCE_INPUT);
+const appSourceEnum = z.enum(TENANT_SLUG_INPUT);
 const chainEnum = z.nativeEnum(Chain);
 
 const VALID_CHAINS = new Set<Chain>(Object.values(Chain));
-const VALID_APP_SOURCES = new Set<AppSource>([
-  "MEDIALANE_STARKNET", "MEDIALANE_IO", "MEDIALANE_PORTAL", "MEDIALANE_SDK",
-]);
-
 const accountTypeEnum = z.enum(["PERSON", "AGENT", "ORGANIZATION", "PARTNER"]);
 
 const registerBodySchema = z.object({
@@ -66,14 +62,14 @@ users.post(
   async (c) => {
     const body = c.req.valid("json");
     const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
-    const appSource = normalizeAppSource(body.appSource ?? "MEDIALANE_STARKNET");
+    const tenantId = await requireTenant(body.appSource ?? "MEDIALANE_STARKNET");
     const chain: Chain = body.chain ?? "STARKNET";
 
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: body.walletAddress,
       provider,
-      appSource,
+      tenantId,
       accountType: body.accountType,
     });
 
@@ -93,7 +89,7 @@ users.post(
       walletAddress: wallet.address,
       chain: wallet.chain,
       provider: wallet.provider,
-      appSource,
+      appSource: body.appSource ?? "MEDIALANE_STARKNET",
       createdAt: account.createdAt,
     });
   }
@@ -107,7 +103,9 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
   }
   const provider = (parsed.data.walletType ?? "UNKNOWN").toLowerCase();
-  const appSource = normalizeAppSource(parsed.data.appSource ?? "MEDIALANE_IO");
+  const tenant = c.get("apiKey")?.tenantId ?? null;
+  if (!tenant) return c.json(NO_TENANT, 400);
+  const tenantSlug = await tenantSlugForId(tenant);
   const chain: Chain = parsed.data.chain ?? "STARKNET";
 
   if (chain !== "STARKNET") {
@@ -126,10 +124,10 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
       chain,
       address: walletAddress,
       provider,
-      appSource,
+      tenantId: tenant,
       accountType: parsed.data.accountType,
       linkToAccountId,
-      requireExistingAccountLink: appSource === "MEDIALANE_IO",
+      requireExistingAccountLink: tenantSlug === "MEDIALANE_IO",
     }));
   } catch (err) {
     if (err instanceof AccountRequiresEmailError) {
@@ -143,7 +141,13 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
 
   if (parsed.data.email) {
     const existing = await prisma.identity.findUnique({
-      where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: parsed.data.email } },
+      where: {
+        scheme_value_tenantId: {
+          scheme: IDENTITY_SCHEME.EMAIL,
+          value: parsed.data.email,
+          tenantId: tenant,
+        },
+      },
       select: { id: true },
     });
     if (!existing) {
@@ -153,7 +157,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           scheme: IDENTITY_SCHEME.EMAIL,
           value: parsed.data.email,
           email: parsed.data.email,
-          appSource,
+          tenantId: tenant,
           verifiedAt: null,
         },
       });
@@ -169,13 +173,15 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     const email = verifyEmailVerifiedToken(parsed.data.emailVerificationToken);
     if (email) {
       await prisma.identity.upsert({
-        where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+        where: {
+          scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant },
+        },
         create: {
           accountId,
           scheme: IDENTITY_SCHEME.EMAIL,
           value: email,
           email,
-          appSource,
+          tenantId: tenant,
           verifiedAt: new Date(),
         },
         update: { verifiedAt: new Date() },
@@ -207,6 +213,7 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   if (!existing) return c.json({ error: "Account not found" }, 404);
 
   const newAddress = normalizeAddress(newWalletId.chain, newWalletId.address);
+  const ioTenantId = await requireTenant("MEDIALANE_IO");
 
   await prisma.$transaction([
     prisma.identity.updateMany({
@@ -220,7 +227,7 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
         provider: "unknown",
         chain: newWalletId.chain,
         address: newAddress,
-        appSource: "MEDIALANE_IO",
+        tenantId: ioTenantId,
         isPrimary: true,
       },
     }),
@@ -263,6 +270,11 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   });
 });
 
+const NO_TENANT = {
+  error: "unknown_app",
+  message: "This API key is not attached to an app, so an account cannot be resolved for it.",
+} as const;
+
 const changeEmailSchema = z.object({ email: z.string().email() });
 
 users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
@@ -273,6 +285,8 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
   }
   const email = parsed.data.email;
+  const tenant = c.get("apiKey")?.tenantId ?? null;
+  if (!tenant) return c.json(NO_TENANT, 400);
 
   const identity = await prisma.identity.findUnique({
     where: { chain_address: { chain: "STARKNET", address: walletAddress } },
@@ -282,7 +296,9 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
   const accountId = identity.accountId;
 
   const existingOwner = await prisma.identity.findUnique({
-    where: { scheme_value: { scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+    where: {
+      scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant },
+    },
     select: { accountId: true, verifiedAt: true },
   });
   const decision = canClaimEmail(accountId, existingOwner);
@@ -293,6 +309,8 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: message }, 409);
   }
 
+  const ioTenantId = await requireTenant("MEDIALANE_IO");
+
   await prisma.$transaction([
     prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL } }),
     prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: email } }),
@@ -302,7 +320,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
         scheme: IDENTITY_SCHEME.EMAIL,
         value: email,
         email,
-        appSource: "MEDIALANE_IO",
+        tenantId: ioTenantId,
         verifiedAt: null,
       },
     }),
@@ -323,8 +341,10 @@ users.get(
     const identityWhere: Record<string, unknown> = {};
     if (chain && VALID_CHAINS.has(chain as Chain)) identityWhere.chain = chain;
     if (walletType) identityWhere.provider = walletType.toLowerCase();
-    if (appSource && VALID_APP_SOURCES.has(normalizeAppSource(appSource)))
-      identityWhere.appSource = normalizeAppSource(appSource);
+    if (appSource) {
+      const filterTenantId = await tenantIdForSlug(appSource);
+      if (filterTenantId) identityWhere.tenantId = filterTenantId;
+    }
 
     const accountWhere: Record<string, unknown> = {};
     if (Object.keys(identityWhere).length > 0) accountWhere.identities = { some: identityWhere };

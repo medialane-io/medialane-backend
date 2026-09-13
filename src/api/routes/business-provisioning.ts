@@ -7,6 +7,7 @@ import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { computeAccountAddress, buildAddOwnerCall, buildRemoveOwnerCall } from "@medialane/sdk/starknet";
 import { executeSponsoredDeploy } from "./paymaster.js";
 import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
+import { requireTenant } from "../../utils/tenant.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
 import crypto from "crypto";
@@ -215,7 +216,8 @@ const productionDeps: BusinessProvisioningDeps = {
     return identity?.address ?? null;
   },
   ensureRecipientAccount: async (recipientScheme, recipientValue) => {
-    const { accountId } = await ensureAccountForIdentity(recipientScheme, recipientValue, "MEDIALANE_SDK");
+    const tenantId = await requireTenant("MEDIALANE_SDK");
+    const { accountId } = await ensureAccountForIdentity(recipientScheme, recipientValue, tenantId);
     return accountId;
   },
   linkWalletToAccount: async ({ chain, walletAddress, accountId }) => {
@@ -223,7 +225,7 @@ const productionDeps: BusinessProvisioningDeps = {
       chain,
       address: walletAddress,
       provider: "mediawallet",
-      appSource: "MEDIALANE_SDK",
+      tenantId: await requireTenant("MEDIALANE_SDK"),
       linkToAccountId: accountId,
     });
   },

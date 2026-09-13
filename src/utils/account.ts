@@ -1,7 +1,7 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME } from "./identity.js";
-import type { Chain, AppSource, AccountType, AccountRole } from "@prisma/client";
+import type { Chain, AccountType, AccountRole } from "@prisma/client";
 
 export async function resolveAccountIdFromWallet(
   chain: Chain,
@@ -86,7 +86,7 @@ export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
   provider?: string;
-  appSource: AppSource;
+  tenantId: string;
   email?: string;
   accountType?: AccountType;
 
@@ -122,7 +122,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        appSource: params.appSource,
+        tenantId: params.tenantId,
         isPrimary: shouldBePrimaryWallet(hasPrimary !== null),
         email: params.email ?? null,
       },
@@ -161,7 +161,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        appSource: params.appSource,
+        tenantId: params.tenantId,
         isPrimary: true,
         email: params.email ?? null,
       },
@@ -177,13 +177,13 @@ export async function ensureAccountForWallet(params: {
 export async function ensureAccountForIdentity(
   scheme: string,
   value: string,
-  appSource: AppSource = "MEDIALANE_IO",
+  tenantId: string,
   accountType: AccountType = "PERSON",
 ): Promise<{ accountId: string; created: boolean }> {
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
-      where: { scheme_value: { scheme, value } },
+      where: { scheme_value_tenantId: { scheme, value, tenantId } },
       select: { accountId: true },
     });
     if (existing) return { accountId: existing.accountId, created: false };
@@ -204,7 +204,7 @@ export async function ensureAccountForIdentity(
             scheme,
             value,
             email: isEmail ? value : null,
-            appSource,
+            tenantId,
             verifiedAt: null,
           },
         });

@@ -8,7 +8,7 @@ import { issueToken } from "../../utils/siwsToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
 import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { generateApiKey } from "../../utils/apiKey.js";
-import { APP_SOURCE_INPUT, normalizeAppSource } from "../../utils/appSource.js";
+import { TENANT_SLUG_INPUT, requireTenant } from "../../utils/tenant.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -69,7 +69,7 @@ siws.post(
     walletAddress: z.string().min(1),
     nonce:         z.string().min(1),
     signature:     z.array(z.string()).min(1),
-    appSource:     z.enum(APP_SOURCE_INPUT).optional(),
+    appSource:     z.enum(TENANT_SLUG_INPUT).optional(),
   })),
   async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
@@ -122,7 +122,7 @@ siws.post(
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      appSource: normalizeAppSource(appSource),
+      tenantId: await requireTenant(appSource),
     });
     const apiClient = await prisma.apiClient.upsert({
       where: { accountId },
@@ -154,7 +154,7 @@ siws.post("/keys", identityAuth, async (c) => {
   const { plaintext, prefix, keyHash } = generateApiKey();
   const key = await prisma.apiKey.create({
 
-    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session", appSource: "MEDIALANE_PORTAL" },
+    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session", tenantId: await requireTenant("MEDIALANE_PORTAL") },
     select: { id: true, prefix: true, label: true },
   });
 

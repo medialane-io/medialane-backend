@@ -646,7 +646,8 @@ model ApiKey {
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
-  appSource   AppSource?
+  tenantId    String?
+  tenant      Tenant?      @relation(fields: [tenantId], references: [id])
   status      ApiKeyStatus @default(ACTIVE)
   lastUsedAt  DateTime?
   createdAt   DateTime     @default(now())
@@ -654,7 +655,7 @@ model ApiKey {
 
   @@index([apiClientId])
   @@index([status])
-  @@index([appSource])
+  @@index([tenantId])
 }
 
 model WebhookEndpoint {
@@ -836,17 +837,30 @@ model Identity {
   value String?
   email String?
 
-  appSource  AppSource @default(MEDIALANE_STARKNET)
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
   isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@unique([chain, address])
-  @@unique([scheme, value])
+  @@unique([scheme, value, tenantId])
   @@index([accountId])
   @@index([address])
   @@index([email])
-  @@index([appSource])
+  @@index([tenantId])
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  identities Identity[]
+  apiKeys    ApiKey[]
+
+  @@index([slug])
 }
 
 model EmailVerificationCode {
