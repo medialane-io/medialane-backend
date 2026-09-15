@@ -816,6 +816,7 @@ model ApiClient {
   payments             Payment[]
   usage                UsageEvent[]
   businessProvisioning BusinessProvisioning[]
+  launchpadRuns        LaunchpadRun[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1130,4 +1131,31 @@ model AdminAuthNonce {
   expiresAt DateTime
 
   @@index([expiresAt])
+}
+
+enum LaunchpadRunStatus {
+  DRAFT
+  PAID
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model LaunchpadRun {
+  id           String             @id @default(cuid())
+  apiClientId  String
+  apiClient    ApiClient          @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  service      String
+  status       LaunchpadRunStatus @default(DRAFT)
+  spec         Json
+  quote        Json?
+  creditsHeld  Int                @default(0)
+  creditsSpent Int                @default(0)
+  paymentId    String?            @unique
+  progress     Json               @default("{}")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([apiClientId, status])
 }
