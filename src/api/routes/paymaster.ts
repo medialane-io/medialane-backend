@@ -241,6 +241,89 @@ export async function executeSponsoredDeploy(
   return txHashOf(result);
 }
 
+export interface SponsoredInvokeDeps {
+  clientFactory: () => PaymasterClient;
+  addressChecker: ContractAddressChecker;
+}
+
+export type SponsoredOutcome =
+  | { status: 200; body: Record<string, unknown> }
+  | { status: 400 | 422 | 502 | 503; body: { error: string } };
+
+export async function buildSponsoredInvoke(
+  deps: SponsoredInvokeDeps,
+  body: { userAddress?: string; calls?: unknown[] },
+): Promise<SponsoredOutcome> {
+  if (!body.userAddress || !body.calls?.length) {
+    return { status: 400, body: { error: "userAddress and a non-empty calls array are required" } };
+  }
+  const disallowed = disallowedEntrypoint(body.calls);
+  if (disallowed) {
+    log.warn({ userAddress: body.userAddress, calls: body.calls, disallowed }, "sponsored invoke build: entrypoint not eligible");
+    return { status: 400, body: { error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` } };
+  }
+  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, body.calls as SponsoredCall[]);
+  if (disallowedAddress) {
+    log.warn({ userAddress: body.userAddress, calls: body.calls, disallowedAddress }, "sponsored invoke build: contract not eligible");
+    return { status: 400, body: { error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` } };
+  }
+  try {
+    const prepared = (await deps.clientFactory().buildTransaction(
+      { type: "invoke", invoke: { userAddress: body.userAddress, calls: body.calls } },
+      SPONSORED,
+    )) as { typed_data: unknown };
+    return { status: 200, body: { typedData: prepared.typed_data } };
+  } catch (err) {
+    const failure = classifyPaymasterError(err);
+    log.warn({ err, status: failure.status }, "sponsored invoke build failed");
+    return { status: failure.status, body: { error: failure.message } };
+  }
+}
+
+export async function executeSponsoredInvoke(
+  deps: SponsoredInvokeDeps,
+  body: { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] },
+): Promise<SponsoredOutcome> {
+  if (!body.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
+    return { status: 400, body: { error: "userAddress, typedData, signature, and calls are required" } };
+  }
+  const signed = signedCalls(body.typedData);
+  if (signed.length === 0) {
+    return { status: 400, body: { error: "typedData has no calls" } };
+  }
+
+  const disallowed = disallowedEntrypoint(signed);
+  if (disallowed) {
+    log.warn({ userAddress: body.userAddress, signed, disallowed }, "sponsored invoke execute: entrypoint not eligible");
+    return { status: 400, body: { error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` } };
+  }
+  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, signed as SponsoredCall[]);
+  if (disallowedAddress) {
+    log.warn({ userAddress: body.userAddress, signed, disallowedAddress }, "sponsored invoke execute: contract not eligible");
+    return { status: 400, body: { error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` } };
+  }
+  try {
+    assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
+  } catch (err) {
+    log.warn({ err, userAddress: body.userAddress }, "sponsored invoke execute: typedData does not match submitted calls");
+    return { status: 400, body: { error: "typedData does not match the submitted calls" } };
+  }
+  try {
+    const result = await deps.clientFactory().executeTransaction(
+      {
+        type: "invoke",
+        invoke: { userAddress: body.userAddress, typedData: body.typedData, signature: body.signature },
+      },
+      SPONSORED,
+    );
+    return { status: 200, body: { transactionHash: txHashOf(result) } };
+  } catch (err) {
+    const failure = classifyPaymasterError(err);
+    log.warn({ err, status: failure.status }, "sponsored invoke execute failed");
+    return { status: failure.status, body: { error: failure.message } };
+  }
+}
+
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   addressChecker: ContractAddressChecker = createContractAddressChecker(prisma),
@@ -251,74 +334,16 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; calls?: unknown[] }
       | null;
-    if (!body?.userAddress || !body.calls?.length) {
-      return c.json({ error: "userAddress and a non-empty calls array are required" }, 400);
-    }
-    const disallowed = disallowedEntrypoint(body.calls);
-    if (disallowed) {
-      log.warn({ userAddress: body.userAddress, calls: body.calls, disallowed }, "sponsored invoke build: entrypoint not eligible");
-      return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
-    }
-    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
-    if (disallowedAddress) {
-      log.warn({ userAddress: body.userAddress, calls: body.calls, disallowedAddress }, "sponsored invoke build: contract not eligible");
-      return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` }, 400);
-    }
-    try {
-      const prepared = (await clientFactory().buildTransaction(
-        { type: "invoke", invoke: { userAddress: body.userAddress, calls: body.calls } },
-        SPONSORED,
-      )) as { typed_data: unknown };
-      return c.json({ typedData: prepared.typed_data });
-    } catch (err) {
-      const failure = classifyPaymasterError(err);
-      log.warn({ err, status: failure.status }, "sponsored invoke build failed");
-      return c.json({ error: failure.message }, failure.status);
-    }
+    const outcome = await buildSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
+    return c.json(outcome.body, outcome.status);
   });
 
   app.post("/invoke/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] }
       | null;
-    if (!body?.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
-      return c.json({ error: "userAddress, typedData, signature, and calls are required" }, 400);
-    }
-    const signed = signedCalls(body.typedData);
-    if (signed.length === 0) {
-      return c.json({ error: "typedData has no calls" }, 400);
-    }
-
-    const disallowed = disallowedEntrypoint(signed);
-    if (disallowed) {
-      log.warn({ userAddress: body.userAddress, signed, disallowed }, "sponsored invoke execute: entrypoint not eligible");
-      return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas` }, 400);
-    }
-    const disallowedAddress = await disallowedContractAddress(addressChecker, signed as SponsoredCall[]);
-    if (disallowedAddress) {
-      log.warn({ userAddress: body.userAddress, signed, disallowedAddress }, "sponsored invoke execute: contract not eligible");
-      return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas` }, 400);
-    }
-    try {
-      assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
-    } catch (err) {
-      log.warn({ err, userAddress: body.userAddress }, "sponsored invoke execute: typedData does not match submitted calls");
-      return c.json({ error: "typedData does not match the submitted calls" }, 400);
-    }
-    try {
-      const result = await clientFactory().executeTransaction(
-        {
-          type: "invoke",
-          invoke: { userAddress: body.userAddress, typedData: body.typedData, signature: body.signature },
-        },
-        SPONSORED,
-      );
-      return c.json({ transactionHash: txHashOf(result) });
-    } catch (err) {
-      const failure = classifyPaymasterError(err);
-      log.warn({ err, status: failure.status }, "sponsored invoke execute failed");
-      return c.json({ error: failure.message }, failure.status);
-    }
+    const outcome = await executeSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
+    return c.json(outcome.body, outcome.status);
   });
 
   app.post("/deploy/build", async (c) => {

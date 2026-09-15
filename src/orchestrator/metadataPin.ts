@@ -17,3 +17,8 @@ export async function uploadJson(data: Record<string, unknown>): Promise<string>
   const upload = await getPinata().upload.public.json(data);
   return `ipfs://${upload.cid}`;
 }
+
+export async function uploadFile(file: File): Promise<string> {
+  const upload = await getPinata().upload.public.file(file);
+  return `ipfs://${upload.cid}`;
+}
