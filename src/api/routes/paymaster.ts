@@ -132,7 +132,7 @@ export async function disallowedContractAddress(
   calls: SponsoredCall[],
 ): Promise<string | null> {
   for (const call of calls) {
-    if (!(await checker.isEligible(call.entrypoint, call.contractAddress))) {
+    if (!(await checker.isEligible(call.contractAddress))) {
       return call.contractAddress;
     }
   }
