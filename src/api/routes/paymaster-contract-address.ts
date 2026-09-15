@@ -8,7 +8,7 @@ const EXTERNAL_SERVICES = new Set(["external-erc721", "external-erc1155"]);
 
 const PLATFORM_CONTRACT_KEYS = [
   "marketplace721", "marketplace1155",
-  "collection721", "collection1155",
+  "collection721", "dataTokenization721", "collection1155",
   "popFactory", "dropFactory",
   "nftComments",
   "creatorCoinFactory",

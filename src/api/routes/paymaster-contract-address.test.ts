@@ -29,6 +29,13 @@ describe("createContractAddressChecker: platform contracts (fixed trust)", () =>
     expect(await checker.isEligible("mint", coords.collection721!)).toBe(true);
   });
 
+  test("sponsors mints and new collections on the Data Tokenization registry", async () => {
+    const checker = createContractAddressChecker(fakeDb({}));
+    expect(coords.dataTokenization721).toBeDefined();
+    expect(await checker.isEligible("mint", coords.dataTokenization721!)).toBe(true);
+    expect(await checker.isEligible("create_collection", coords.dataTokenization721!)).toBe(true);
+  });
+
   test("rejects a call on an attacker-controlled contract", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
     expect(await checker.isEligible("register_order", "0x999")).toBe(false);
