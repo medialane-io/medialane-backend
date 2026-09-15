@@ -4,6 +4,14 @@ import prisma from "../../db/client.js";
 import { callRpc } from "../../utils/starknet.js";
 import { applyEvents, applyCollectionsCreated } from "../../mirror/apply.js";
 import { CHAIN } from "../../mirror/index.js";
+import {
+  CORE_FACTORY_DATA_TOKENIZATION,
+  CORE_FACTORY_MIP721,
+  CORE_MARKETPLACE_1155,
+  CORE_MARKETPLACE_721,
+  EVENT_SOURCES,
+} from "../../mirror/sources.js";
+import { normalizeAddress } from "../../utils/starknet.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
@@ -34,6 +42,32 @@ export function eventsFromReceipt(
     })) as unknown as RawStarknetEvent[];
 }
 
+const POLLED_CONTRACT_SOURCES = new Set([
+  CORE_MARKETPLACE_721,
+  CORE_MARKETPLACE_1155,
+  CORE_FACTORY_MIP721,
+  CORE_FACTORY_DATA_TOKENIZATION,
+]);
+
+export function polledContracts(): Set<string> {
+  const contracts = new Set<string>();
+  for (const source of EVENT_SOURCES) {
+    if (!POLLED_CONTRACT_SOURCES.has(source.id)) continue;
+    if (source.scope.kind === "contract" && source.scope.address) {
+      contracts.add(normalizeAddress("STARKNET", source.scope.address));
+    }
+  }
+  return contracts;
+}
+
+export function emittingContracts(events: RawStarknetEvent[]): string[] {
+  return [...new Set(events.map((e) => normalizeAddress("STARKNET", e.from_address)))];
+}
+
+export function eventsFromTrackedContracts(events: RawStarknetEvent[], tracked: Set<string>): RawStarknetEvent[] {
+  return events.filter((e) => tracked.has(normalizeAddress("STARKNET", e.from_address)));
+}
+
 export function blockNumberOf(receipt: unknown): number | null {
   const n = (receipt as { block_number?: unknown } | null)?.block_number;
   return typeof n === "number" ? n : null;
@@ -61,7 +95,15 @@ txSync.post("/", async (c) => {
     return c.json({ data: { applied: 0, pending: true } });
   }
 
-  const events = eventsFromReceipt(receipt, txHash, blockNumber);
+  const receiptEvents = eventsFromReceipt(receipt, txHash, blockNumber);
+  const knownCollections = await prisma.collection.findMany({
+    where: { chain: CHAIN, contractAddress: { in: emittingContracts(receiptEvents) } },
+    select: { contractAddress: true },
+  });
+  const tracked = polledContracts();
+  for (const collection of knownCollections) tracked.add(collection.contractAddress);
+
+  const events = eventsFromTrackedContracts(receiptEvents, tracked);
   if (events.length === 0) {
     return c.json({ data: { applied: 0, pending: false } });
   }
