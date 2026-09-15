@@ -63,7 +63,7 @@ export function meter(deps: MeterDeps = {
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
-        buildPaymentRequired(SCHEMES, { costCredits: cost, resource: c.req.path, nonce: newNonce() }),
+        { ...buildPaymentRequired(SCHEMES, { costCredits: cost, resource: c.req.path, nonce: newNonce() }), code: "credits_exhausted" },
         402,
       );
     }

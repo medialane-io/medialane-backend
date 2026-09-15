@@ -357,7 +357,7 @@ describe("sponsored invokes need an account that owns the wallet", () => {
     const authorizer: SponsorAuthorizer = {
       authorize: async (request) => {
         seen.push(request);
-        return { status: 403, error: "This wallet does not belong to the signed-in account" };
+        return { status: 403, error: "This wallet does not belong to the signed-in account", code: "not_authorized" };
       },
     };
     const app = new Hono<AppEnv>();
@@ -384,8 +384,47 @@ describe("sponsored invokes need an account that owns the wallet", () => {
         }),
       });
       expect(res.status).toBe(403);
+      expect(((await res.json()) as { code?: string }).code).toBe("not_authorized");
       expect(calls).toHaveLength(0);
       expect(seen).toEqual([{ sessionToken: "account_session_token", apiKeyAccountId: "acct-app", userAddress: USER }]);
     });
   }
+});
+
+describe("every sponsorship failure says why it failed", () => {
+  test("a call outside the sponsorable set is not_eligible", async () => {
+    const res = await appWith({}).request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code?: string }).code).toBe("not_eligible");
+  });
+
+  test("a missing field is invalid_request", async () => {
+    const res = await appWith({}).request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(((await res.json()) as { code?: string }).code).toBe("invalid_request");
+  });
+
+  test("a sponsor that cannot build is sponsor_unavailable", async () => {
+    const res = await appWith({
+      buildTransaction: async () => {
+        throw new Error("fetch failed");
+      },
+    }).request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
+    });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { code?: string }).code).toBe("sponsor_unavailable");
+  });
 });

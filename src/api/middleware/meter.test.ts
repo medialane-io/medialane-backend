@@ -50,8 +50,9 @@ describe("meter", () => {
   test("returns 402 with x402 body when insufficient and no X-PAYMENT", async () => {
     const res = await app(deps({ debitCredits: async () => false })).request("/v1/tokens");
     expect(res.status).toBe(402);
-    const body = (await res.json()) as { x402Version: number; accepts: unknown[] };
+    const body = (await res.json()) as { x402Version: number; accepts: unknown[]; code?: string };
     expect(body.x402Version).toBe(1);
+    expect(body.code).toBe("credits_exhausted");
     expect(body.accepts.length).toBeGreaterThan(0);
     expect(res.headers.get("x-credits-remaining")).toBe("0");
   });
