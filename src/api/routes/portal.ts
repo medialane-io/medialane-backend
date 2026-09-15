@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
 import { portalSubject } from "../middleware/portalSubject.js";
+import { launchpadRuns } from "./launchpad-runs.js";
 import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
@@ -19,6 +20,8 @@ const portal = new Hono<{ Variables: AppVariables }>();
 const starknetScheme = new StarknetUsdcScheme();
 
 portal.use("*", portalSubject);
+
+portal.route("/runs", launchpadRuns);
 
 portal.get("/me", async (c) => {
   const account = c.get("account");
