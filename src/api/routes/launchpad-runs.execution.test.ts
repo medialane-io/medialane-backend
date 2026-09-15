@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
-import { createRunRoutes, type ExecutionDeps, type ReceiptStatus } from "./launchpad-runs.js";
+import { createRunRoutes, type ExecutionDeps, type ReceiptEvent, type ReceiptStatus } from "./launchpad-runs.js";
+import { COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import type { RunStore, StoredRun } from "../../launchpad/run-store.js";
 
 type Path = string[];
@@ -99,6 +100,7 @@ function world() {
   };
 
   let receipt: ReceiptStatus = "PENDING";
+  let events: ReceiptEvent[] = [];
   const pinned: string[] = [];
   const executed: unknown[] = [];
 
@@ -107,7 +109,7 @@ function world() {
     pinJson: async (data) => (pinned.push(String(data.name)), `ipfs://meta-${String(data.name)}`),
     mintCalls: { isCollectionOwner: async () => true },
     registry: () => REGISTRY,
-    receiptStatus: async () => receipt,
+    receipt: async () => ({ status: receipt, events }),
     sponsored: {
       addressChecker: { isEligible: async () => true },
       clientFactory: () => ({
@@ -140,7 +142,10 @@ function world() {
 
   return {
     app, runs, balances, refunds, pinned, executed,
-    setReceipt: (status: ReceiptStatus) => (receipt = status),
+    setReceipt: (status: ReceiptStatus, next: ReceiptEvent[] = []) => {
+      receipt = status;
+      events = next;
+    },
   };
 }
 
@@ -276,5 +281,67 @@ describe("executing a paid run", () => {
     expect(cancelled.status).toBe(200);
     expect(fresh.runs[0]!.status).toBe("CANCELLED");
     expect(fresh.balances.get("ac1")).toBe(balanceBefore + HELD - 2);
+  });
+});
+
+describe("a run that creates its own collection", () => {
+  const newCollection = { ...spec, collection: { kind: "new", name: "Archive", symbol: "ARC" } };
+
+  async function paidNewCollectionRun() {
+    const w = world();
+    w.balances.set("ac1", 100);
+    await json(w.app, "POST", "/", { service: "data-tokenization-erc721", spec: newCollection });
+    expect((await json(w.app, "POST", "/run1/checkout", { method: "credits" })).status).toBe(200);
+    return w;
+  }
+
+  test("the collection comes first, then the id from the registry's event unlocks the batches", async () => {
+    const w = await paidNewCollectionRun();
+    const first = (await (await w.app.request("/run1")).json()) as { data: { next: { kind: string } } };
+    expect(first.data.next.kind).toBe("collection");
+
+    await upload(w.app, "r.pdf", 5, "application/pdf");
+    await upload(w.app, "c.png", 3, "image/png");
+    await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER });
+    expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER })).status).toBe(409);
+
+    const built = await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER });
+    expect(built.status).toBe(200);
+    const { typedData } = (await built.json()) as { typedData: unknown };
+    const executed = await json(w.app, "POST", "/run1/collection/execute", { userAddress: OWNER, typedData, signature: ["0x1", "0x2"] });
+    expect(executed.status).toBe(200);
+
+    w.setReceipt("SUCCEEDED", [
+      { from_address: REGISTRY, keys: [COLLECTION_CREATED_SELECTOR, "0x2a", "0x0"], data: [OWNER] },
+    ]);
+    const confirmed = await json(w.app, "POST", "/run1/collection/confirm");
+    expect(((await confirmed.json()) as { data: { collectionId: string } }).data.collectionId).toBe("42");
+
+    w.setReceipt("PENDING");
+    const batch = await submitBatch(w);
+    expect(batch.status).toBe(200);
+    const calls = (w.executed[1] as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } }).invoke
+      .typedData.message.Calls;
+    expect(calls[0]!.Calldata[0]).toBe("42");
+  });
+
+  test("the collection metadata is pinned once, however many times it is built", async () => {
+    const w = await paidNewCollectionRun();
+    await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER });
+    await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER });
+    expect(w.pinned.filter((name) => name === "Archive")).toHaveLength(1);
+  });
+
+  test("a reverted collection hands back its credits and can be created again", async () => {
+    const w = await paidNewCollectionRun();
+    const built = await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER });
+    const { typedData } = (await built.json()) as { typedData: unknown };
+    await json(w.app, "POST", "/run1/collection/execute", { userAddress: OWNER, typedData, signature: ["0x1"] });
+    const spent = w.runs[0]!.creditsSpent;
+
+    w.setReceipt("REVERTED");
+    await json(w.app, "POST", "/run1/collection/confirm");
+    expect(w.runs[0]!.creditsSpent).toBe(spent - 6);
+    expect((await json(w.app, "POST", "/run1/collection/execute", { userAddress: OWNER, typedData, signature: ["0x1"] })).status).toBe(200);
   });
 });

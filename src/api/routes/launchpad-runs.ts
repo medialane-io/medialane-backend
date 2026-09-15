@@ -12,14 +12,21 @@ import { prismaRunStore, type RunStore, type StoredRun } from "../../launchpad/r
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import {
   PENDING,
+  canSubmit,
+  collectionIdOf,
   emptyProgress,
   isExpectedFile,
+  isInFlight,
   itemMetadata,
   itemsInBatch,
   nextStep,
   readProgress,
   type DataTokenizationProgress,
+  type TxState,
 } from "../../launchpad/execution.js";
+import { encodeByteArray } from "../../orchestrator/intent/shared.js";
+import { COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import {
   dataTokenizationRegistry,
   productionMintCallDeps,
@@ -34,12 +41,23 @@ const log = createLogger("routes:launchpad-runs");
 
 export type ReceiptStatus = "SUCCEEDED" | "REVERTED" | "PENDING";
 
+export interface ReceiptEvent {
+  from_address?: string;
+  keys?: string[];
+  data?: string[];
+}
+
+export interface RunReceipt {
+  status: ReceiptStatus;
+  events: ReceiptEvent[];
+}
+
 export interface ExecutionDeps {
   pinFile(file: File): Promise<string>;
   pinJson(data: Record<string, unknown>): Promise<string>;
   mintCalls: MintCallDeps;
   sponsored: SponsoredInvokeDeps;
-  receiptStatus(txHash: string): Promise<ReceiptStatus>;
+  receipt(txHash: string): Promise<RunReceipt>;
   registry(): string;
 }
 
@@ -72,17 +90,36 @@ function specError(err: unknown) {
 
 class NotReady extends Error {}
 
-async function productionReceiptStatus(txHash: string): Promise<ReceiptStatus> {
+async function productionReceipt(txHash: string): Promise<RunReceipt> {
   try {
     const receipt = (await callRpc((provider) => provider.getTransactionReceipt(txHash))) as {
       execution_status?: string;
+      events?: ReceiptEvent[];
     };
-    if (receipt.execution_status === "SUCCEEDED") return "SUCCEEDED";
-    if (receipt.execution_status === "REVERTED") return "REVERTED";
-    return "PENDING";
+    const status: ReceiptStatus =
+      receipt.execution_status === "SUCCEEDED" ? "SUCCEEDED" : receipt.execution_status === "REVERTED" ? "REVERTED" : "PENDING";
+    return { status, events: receipt.events ?? [] };
   } catch {
-    return "PENDING";
+    return { status: "PENDING", events: [] };
   }
+}
+
+const sameFelt = (a: string | undefined, b: string | undefined) => {
+  if (!a || !b) return false;
+  try {
+    return BigInt(a) === BigInt(b);
+  } catch {
+    return false;
+  }
+};
+
+export function createdCollectionId(events: ReceiptEvent[], registry: string): string | null {
+  for (const event of events) {
+    if (!sameFelt(event.from_address, registry) || !sameFelt(event.keys?.[0], COLLECTION_CREATED_SELECTOR)) continue;
+    const decoded = decodeCollectionCreatedEvent({ keys: event.keys, data: event.data });
+    if (decoded) return decoded.collectionId;
+  }
+  return null;
 }
 
 function productionExecution(): ExecutionDeps {
@@ -91,7 +128,7 @@ function productionExecution(): ExecutionDeps {
     pinJson: uploadJson,
     mintCalls: productionMintCallDeps,
     sponsored: { clientFactory: defaultClient, addressChecker: createContractAddressChecker(prisma) },
-    receiptStatus: productionReceiptStatus,
+    receipt: productionReceipt,
     registry: dataTokenizationRegistry,
   };
 }
@@ -102,13 +139,9 @@ interface ActiveRun {
   progress: DataTokenizationProgress;
 }
 
-const batchState = (progress: DataTokenizationProgress, index: number) =>
-  progress.batches[String(index)] as unknown as { txHash: string; status: string } | string | undefined;
+const batchState = (progress: DataTokenizationProgress, index: number) => progress.batches[String(index)];
 
-const canSubmitBatch = (progress: DataTokenizationProgress, index: number) => {
-  const state = batchState(progress, index);
-  return state === undefined || (typeof state === "object" && state.status === "REVERTED");
-};
+const canSubmitBatch = (progress: DataTokenizationProgress, index: number) => canSubmit(batchState(progress, index));
 
 export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -155,14 +188,15 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
   const ownWallet = async (c: Context<AppEnv>, address: string) => deps.store.ownsWallet(c.get("account").id, address);
 
   const batchCalls = async (active: ActiveRun, index: number, owner: string): Promise<RegistryCall[]> => {
-    if (active.spec.collection.kind !== "existing") throw new NotReady("Create the collection first");
+    const collectionId = collectionIdOf(active.spec, active.progress);
+    if (!collectionId) throw new NotReady("Create the collection first");
     const items = itemsInBatch(active.spec, index);
     if (items.length === 0) throw new NotReady("There is no such batch in this run");
     const tokenUris = items.map((i) => active.progress.tokenUris[String(i)]);
     if (tokenUris.some((uri) => !uri || uri === PENDING)) throw new NotReady("This batch is waiting for its metadata");
     return registryMintCalls(ex().mintCalls, {
       registry: ex().registry(),
-      collectionId: active.spec.collection.collectionId,
+      collectionId,
       owner,
       tokenUris: tokenUris as string[],
       royaltyPercent: active.spec.terms.royalty,
@@ -173,6 +207,25 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
     (await priceOf("paymaster:invoke-build")) +
     (await priceOf("paymaster:invoke-execute")) +
     (await priceOf("intent:mint")) * itemsInBatch(active.spec, index).length;
+
+  const collectionCall = (active: ActiveRun) => {
+    const spec = active.spec.collection;
+    const baseUri = active.progress.collection?.baseUri;
+    if (spec.kind !== "new") throw new NotReady("This run uses an existing collection");
+    if (!baseUri) throw new NotReady("Prepare the collection first");
+    return [
+      {
+        contractAddress: ex().registry(),
+        entrypoint: "create_collection",
+        calldata: [...encodeByteArray(spec.name), ...encodeByteArray(spec.symbol), ...encodeByteArray(baseUri)],
+      },
+    ];
+  };
+
+  const collectionCredits = async () =>
+    (await priceOf("intent:create-collection")) +
+    (await priceOf("paymaster:invoke-build")) +
+    (await priceOf("paymaster:invoke-execute"));
 
   const batchIndex = (c: Context<AppEnv>) => {
     const index = Number(c.req.param("index"));
@@ -239,9 +292,9 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
     if (existing.status !== "PAID" && existing.status !== "RUNNING") {
       return c.json({ error: "This run is already closed" }, 409);
     }
-    const inFlight = Object.values(readProgress(existing.progress).batches).some(
-      (b) => typeof b === "string" || b.status === "SUBMITTED",
-    );
+    const existingProgress = readProgress(existing.progress);
+    const inFlight =
+      Object.values(existingProgress.batches).some(isInFlight) || isInFlight(existingProgress.collection?.tx);
     if (inFlight) return c.json({ error: "A batch is still being confirmed. Try again once it lands." }, 409);
 
     const closed = await deps.store.complete({ id: existing.id, apiClientId, status: "CANCELLED", path: c.req.path });
@@ -296,6 +349,107 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
 
     const run = await deps.store.get(existing.id, apiClientId);
     return c.json({ data: run ? await present(run) : null });
+  });
+
+  app.post("/:id/collection/build", async (c) => {
+    const active = await loadActive(c);
+    if (active instanceof Response) return active;
+    const apiClientId = c.get("apiClient").id;
+    if (active.spec.collection.kind !== "new") return c.json({ error: "This run uses an existing collection" }, 409);
+
+    const body = walletBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "userAddress is required" }, 400);
+    if (!(await ownWallet(c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+    if (active.progress.collection?.collectionId || !canSubmit(active.progress.collection?.tx)) {
+      return c.json({ error: "The collection is already on its way" }, 409);
+    }
+
+    if (!active.progress.collection?.baseUri) {
+      try {
+        const baseUri = await ex().pinJson({ name: active.spec.collection.name, external_link: "https://medialane.io" });
+        await deps.store.record(active.run.id, apiClientId, ["collection"], { ...active.progress.collection, baseUri });
+        active.progress.collection = { ...active.progress.collection, baseUri };
+      } catch (err) {
+        log.warn({ err, run: active.run.id }, "run collection metadata pin failed");
+        return c.json({ error: "Could not prepare the collection. Try again." }, 502);
+      }
+    }
+
+    const outcome = await buildSponsoredInvoke(ex().sponsored, {
+      userAddress: body.data.userAddress,
+      calls: collectionCall(active),
+    });
+    return c.json(outcome.body, outcome.status);
+  });
+
+  app.post("/:id/collection/execute", async (c) => {
+    const active = await loadActive(c);
+    if (active instanceof Response) return active;
+    const apiClientId = c.get("apiClient").id;
+
+    const body = executeBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "userAddress, typedData and signature are required" }, 400);
+    if (!(await ownWallet(c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+    if (active.progress.collection?.collectionId || !canSubmit(active.progress.collection?.tx)) {
+      return c.json({ error: "The collection is already on its way" }, 409);
+    }
+
+    let calls;
+    try {
+      calls = collectionCall(active);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "The collection is not ready" }, 409);
+    }
+
+    const credits = await collectionCredits();
+    const path = ["collection", "tx"];
+    if (!(await deps.store.reserve({ id: active.run.id, apiClientId, credits, path, retryReverted: true }))) {
+      return c.json({ error: "The collection is already on its way" }, 409);
+    }
+
+    const outcome = await executeSponsoredInvoke(ex().sponsored, {
+      userAddress: body.data.userAddress,
+      typedData: body.data.typedData,
+      signature: body.data.signature,
+      calls,
+    });
+    if (outcome.status !== 200) {
+      await deps.store.release({ id: active.run.id, apiClientId, credits, path });
+      return c.json(outcome.body, outcome.status);
+    }
+    const txHash = String(outcome.body.transactionHash);
+    await deps.store.record(active.run.id, apiClientId, path, { txHash, status: "SUBMITTED" });
+    return c.json({ transactionHash: txHash });
+  });
+
+  app.post("/:id/collection/confirm", async (c) => {
+    const active = await loadActive(c);
+    if (active instanceof Response) return active;
+    const apiClientId = c.get("apiClient").id;
+
+    const tx = active.progress.collection?.tx;
+    if (typeof tx !== "object" || tx.status !== "SUBMITTED") {
+      return c.json({ error: "The collection has nothing waiting to confirm" }, 409);
+    }
+
+    const receipt = await ex().receipt(tx.txHash);
+    if (receipt.status === "PENDING") return c.json({ data: { status: receipt.status } }, 202);
+
+    const path = ["collection", "tx"];
+    if (receipt.status === "REVERTED") {
+      await deps.store.release({ id: active.run.id, apiClientId, credits: await collectionCredits(), path });
+      await deps.store.record(active.run.id, apiClientId, path, { txHash: tx.txHash, status: "REVERTED" });
+      return c.json({ data: { status: receipt.status } });
+    }
+
+    const collectionId = createdCollectionId(receipt.events, ex().registry());
+    if (!collectionId) {
+      log.error({ run: active.run.id, txHash: tx.txHash }, "collection created but its id was not in the receipt");
+      return c.json({ error: "The collection was created but its id could not be read yet. Try again shortly." }, 502);
+    }
+    await deps.store.record(active.run.id, apiClientId, path, { txHash: tx.txHash, status: "SUCCEEDED" });
+    await deps.store.record(active.run.id, apiClientId, ["collection", "collectionId"], collectionId);
+    return c.json({ data: { status: receipt.status, collectionId } });
   });
 
   app.post("/:id/files", async (c) => {
@@ -448,7 +602,7 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
       return c.json({ error: "This batch has nothing waiting to confirm" }, 409);
     }
 
-    const status = await ex().receiptStatus(state.txHash);
+    const { status } = await ex().receipt(state.txHash);
     if (status === "PENDING") return c.json({ data: { index, status } }, 202);
 
     const path = ["batches", String(index)];
@@ -460,7 +614,8 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
     }
 
     await deps.store.record(active.run.id, apiClientId, path, { txHash: state.txHash, status });
-    const progress = { ...active.progress, batches: { ...active.progress.batches, [String(index)]: { txHash: state.txHash, status } } };
+    const confirmed: TxState = { txHash: state.txHash, status };
+    const progress = { ...active.progress, batches: { ...active.progress.batches, [String(index)]: confirmed } };
     if (nextStep(active.spec, progress).kind === "done") {
       const closed = await deps.store.complete({ id: active.run.id, apiClientId, status: "COMPLETED", path: c.req.path });
       return c.json({ data: { index, status, completed: true, refunded: closed?.refunded ?? 0 } });

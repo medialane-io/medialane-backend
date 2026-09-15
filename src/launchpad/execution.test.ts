@@ -121,3 +121,28 @@ describe("batches and resume", () => {
     expect(nextStep(spec, progress)).toEqual({ kind: "done" });
   });
 });
+
+describe("runs that create their own collection", () => {
+  test("the collection is the first step and waits while its transaction lands", () => {
+    const run = parseRunSpec("data-tokenization-erc721", {
+      collection: { kind: "new", name: "Archive", symbol: "ARC" },
+      terms: {
+        licenseType: "CC BY-SA", commercialUse: "Yes", derivatives: "Share-Alike",
+        attribution: "Required", territory: "Worldwide", aiPolicy: "Allowed", royalty: 0,
+      },
+      items: [photo],
+    });
+    if (run.service !== "data-tokenization-erc721") throw new Error("unexpected service");
+    const progress = emptyProgress();
+    expect(nextStep(run.spec, progress)).toEqual({ kind: "collection" });
+
+    progress.collection = { baseUri: "ipfs://c", tx: { txHash: "0x1", status: "SUBMITTED" } };
+    expect(nextStep(run.spec, progress)).toEqual({ kind: "wait-collection" });
+
+    progress.collection = { baseUri: "ipfs://c", tx: { txHash: "0x1", status: "REVERTED" } };
+    expect(nextStep(run.spec, progress)).toEqual({ kind: "collection" });
+
+    progress.collection = { baseUri: "ipfs://c", tx: { txHash: "0x2", status: "SUCCEEDED" }, collectionId: "9" };
+    expect(nextStep(run.spec, progress).kind).toBe("upload");
+  });
+});

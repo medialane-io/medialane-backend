@@ -7,13 +7,27 @@ export const DOCUMENT_TRAIT = "Document File";
 
 export type BatchStatus = "SUBMITTED" | "SUCCEEDED" | "REVERTED";
 
+export interface TxState {
+  txHash: string;
+  status: BatchStatus;
+}
+
+export interface CollectionProgress {
+  baseUri?: string;
+  tx?: TxState | typeof PENDING;
+  collectionId?: string;
+}
+
 export interface DataTokenizationProgress {
   files: Record<string, string>;
   tokenUris: Record<string, string>;
-  batches: Record<string, { txHash: string; status: BatchStatus }>;
+  batches: Record<string, TxState | typeof PENDING>;
+  collection?: CollectionProgress;
 }
 
 export type NextStep =
+  | { kind: "collection" }
+  | { kind: "wait-collection" }
   | { kind: "upload"; files: string[] }
   | { kind: "metadata"; items: number[] }
   | { kind: "batch"; index: number }
@@ -26,7 +40,20 @@ export function emptyProgress(): DataTokenizationProgress {
 
 export function readProgress(raw: unknown): DataTokenizationProgress {
   const p = (raw ?? {}) as Partial<DataTokenizationProgress>;
-  return { files: p.files ?? {}, tokenUris: p.tokenUris ?? {}, batches: p.batches ?? {} };
+  return { files: p.files ?? {}, tokenUris: p.tokenUris ?? {}, batches: p.batches ?? {}, collection: p.collection };
+}
+
+export function isInFlight(state: TxState | typeof PENDING | undefined): boolean {
+  return state === PENDING || (typeof state === "object" && state.status === "SUBMITTED");
+}
+
+export function canSubmit(state: TxState | typeof PENDING | undefined): boolean {
+  return state === undefined || (typeof state === "object" && state.status === "REVERTED");
+}
+
+export function collectionIdOf(spec: DataTokenizationSpec, progress: DataTokenizationProgress): string | null {
+  if (spec.collection.kind === "existing") return spec.collection.collectionId;
+  return progress.collection?.collectionId ?? null;
 }
 
 export function expectedFiles(spec: DataTokenizationSpec): Map<string, number> {
@@ -97,16 +124,23 @@ export function itemMetadata(
 }
 
 export function nextStep(spec: DataTokenizationSpec, progress: DataTokenizationProgress): NextStep {
+  if (spec.collection.kind === "new" && !progress.collection?.collectionId) {
+    return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };
+  }
+
   const missing = [...expectedFiles(spec).keys()].filter((name) => !uploaded(progress, name));
   if (missing.length > 0) return { kind: "upload", files: missing };
 
-  const unpinned = spec.items.map((_, i) => i).filter((i) => !progress.tokenUris[String(i)]);
+  const unpinned = spec.items.map((_, i) => i).filter((i) => {
+    const uri = progress.tokenUris[String(i)];
+    return !uri || uri === PENDING;
+  });
   if (unpinned.length > 0) return { kind: "metadata", items: unpinned };
 
   for (let index = 0; index < batchCount(spec); index++) {
     const batch = progress.batches[String(index)];
-    if (!batch || batch.status === "REVERTED") return { kind: "batch", index };
-    if (batch.status === "SUBMITTED") return { kind: "wait", index };
+    if (canSubmit(batch)) return { kind: "batch", index };
+    if (isInFlight(batch)) return { kind: "wait", index };
   }
   return { kind: "done" };
 }
