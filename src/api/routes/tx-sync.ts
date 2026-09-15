@@ -10,6 +10,7 @@ import {
   CORE_MARKETPLACE_1155,
   CORE_MARKETPLACE_721,
   EVENT_SOURCES,
+  type EventSource,
 } from "../../mirror/sources.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { worker } from "../../orchestrator/worker.js";
@@ -68,6 +69,45 @@ export function eventsFromTrackedContracts(events: RawStarknetEvent[], tracked: 
   return events.filter((e) => tracked.has(normalizeAddress("STARKNET", e.from_address)));
 }
 
+const RECEIPT_APPLIED_FACTORY_SOURCES = new Set([
+  "factory:pop",
+  "factory:drop",
+  "factory:mip-erc1155",
+  "factory:ip-tickets",
+  "factory:ip-club",
+  "factory:creator-coin",
+]);
+
+export interface FactoryBatch {
+  source: EventSource;
+  events: RawStarknetEvent[];
+}
+
+function sameFelt(a: string | undefined, b: string): boolean {
+  if (a === undefined) return false;
+  try {
+    return BigInt(a) === BigInt(b);
+  } catch {
+    return false;
+  }
+}
+
+export function factoryBatches(events: RawStarknetEvent[]): FactoryBatch[] {
+  const batches: FactoryBatch[] = [];
+  for (const source of EVENT_SOURCES) {
+    if (!RECEIPT_APPLIED_FACTORY_SOURCES.has(source.id) || !source.apply) continue;
+    if (source.scope.kind !== "contract" || !source.scope.address) continue;
+    const factory = normalizeAddress("STARKNET", source.scope.address);
+    const matched = events.filter(
+      (e) =>
+        normalizeAddress("STARKNET", e.from_address) === factory &&
+        source.selectors.some((selector) => sameFelt(e.keys[0], selector)),
+    );
+    if (matched.length > 0) batches.push({ source, events: matched });
+  }
+  return batches;
+}
+
 export function blockNumberOf(receipt: unknown): number | null {
   const n = (receipt as { block_number?: unknown } | null)?.block_number;
   return typeof n === "number" ? n : null;
@@ -96,6 +136,13 @@ txSync.post("/", async (c) => {
   }
 
   const receiptEvents = eventsFromReceipt(receipt, txHash, blockNumber);
+  const affectedContracts = new Set<string>();
+
+  const deployed = factoryBatches(receiptEvents);
+  for (const batch of deployed) {
+    await batch.source.apply!(batch.events, { affectedContracts });
+  }
+
   const knownCollections = await prisma.collection.findMany({
     where: { chain: CHAIN, contractAddress: { in: emittingContracts(receiptEvents) } },
     select: { contractAddress: true },
@@ -104,27 +151,31 @@ txSync.post("/", async (c) => {
   for (const collection of knownCollections) tracked.add(collection.contractAddress);
 
   const events = eventsFromTrackedContracts(receiptEvents, tracked);
-  if (events.length === 0) {
+  if (events.length === 0 && deployed.length === 0) {
     return c.json({ data: { applied: 0, pending: false } });
   }
 
-  const outcome = await prisma.$transaction(
-    (tx) => applyEvents(events, tx, CHAIN),
-    { timeout: 30000 },
-  );
-
-  for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN)) {
-    outcome.affectedContracts.add(contractAddress);
+  let applied = deployed.reduce((n, batch) => n + batch.events.length, 0);
+  if (events.length > 0) {
+    const outcome = await prisma.$transaction(
+      (tx) => applyEvents(events, tx, CHAIN),
+      { timeout: 30000 },
+    );
+    for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN)) {
+      outcome.affectedContracts.add(contractAddress);
+    }
+    for (const contractAddress of outcome.affectedContracts) affectedContracts.add(contractAddress);
+    applied += outcome.parsed.length;
   }
 
-  for (const contractAddress of outcome.affectedContracts) {
+  for (const contractAddress of affectedContracts) {
     worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress });
   }
 
   const pendingTokens = await prisma.token.findMany({
     where: {
       chain: CHAIN,
-      contractAddress: { in: [...outcome.affectedContracts] },
+      contractAddress: { in: [...affectedContracts] },
       metadataStatus: "PENDING",
       tokenUri: null,
     },
@@ -140,12 +191,12 @@ txSync.post("/", async (c) => {
     });
   }
 
-  log.info({ txHash, applied: outcome.parsed.length }, "transaction applied ahead of the poll");
+  log.info({ txHash, applied }, "transaction applied ahead of the poll");
 
   return c.json({
     data: {
-      applied: outcome.parsed.length,
-      contracts: [...outcome.affectedContracts],
+      applied,
+      contracts: [...affectedContracts],
       pending: false,
     },
   });

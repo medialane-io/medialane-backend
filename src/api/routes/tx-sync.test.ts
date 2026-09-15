@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { getCoordinates, getTokenBySymbol, normalizeAddress } from "@medialane/sdk";
-import { blockNumberOf, emittingContracts, eventsFromReceipt, eventsFromTrackedContracts, polledContracts } from "./tx-sync.js";
+import { hash } from "starknet";
+import { blockNumberOf, emittingContracts, eventsFromReceipt, eventsFromTrackedContracts, factoryBatches, polledContracts } from "./tx-sync.js";
 
 describe("a receipt becomes the same input the poller applies", () => {
   test("each event carries the block and transaction it came from", () => {
@@ -88,5 +89,60 @@ describe("only contracts the indexer applies are synced", () => {
       normalizeAddress("STARKNET", "0x36a8f48641d42dba28375c31651aa14a4413582da2db7655a362a9e4ffc20d2"),
       normalizeAddress("STARKNET", STRK),
     ]);
+  });
+});
+
+describe("a factory deploy in the receipt is applied by that factory's own handler", () => {
+  const coords = getCoordinates("STARKNET");
+  const selector = (name: string) => hash.getSelectorFromName(name);
+  const STRK = getTokenBySymbol("STRK")!.address;
+
+  test("an NFT Editions deploy reaches the NFT Editions factory source", () => {
+    const events = eventsFromReceipt(
+      {
+        events: [
+          { from_address: STRK, keys: [selector("Transfer"), "0x1", "0x2"], data: ["0x10", "0x0"] },
+          { from_address: coords.collection1155, keys: [selector("CollectionDeployed"), "0x5a1", "0x0abc"], data: [] },
+        ],
+      },
+      "0xtx",
+      7,
+    );
+    const batches = factoryBatches(events);
+    expect(batches.map((b) => b.source.id)).toEqual(["factory:mip-erc1155"]);
+    expect(batches[0]!.events).toHaveLength(1);
+  });
+
+  test("a deploy event emitted by any other contract is ignored", () => {
+    const events = eventsFromReceipt(
+      { events: [{ from_address: "0x999", keys: [selector("CollectionDeployed"), "0x5a1", "0x0abc"], data: [] }] },
+      "0xtx",
+      7,
+    );
+    expect(factoryBatches(events)).toEqual([]);
+  });
+
+  test("clubs, tickets and drops each reach their own factory", () => {
+    const events = eventsFromReceipt(
+      {
+        events: [
+          { from_address: coords.ipClubFactory, keys: [selector("ClubDeployed"), "0xc1ab", "0x0abc"], data: [] },
+          { from_address: coords.ipTicketsFactory, keys: [selector("CollectionDeployed"), "0x71c", "0x0abc"], data: [] },
+          { from_address: coords.dropFactory, keys: [selector("DropCreated"), "0x1", "0x0", "0x0abc"], data: ["0xd409"] },
+        ],
+      },
+      "0xtx",
+      7,
+    );
+    expect(factoryBatches(events).map((b) => b.source.id).sort()).toEqual(["factory:drop", "factory:ip-club", "factory:ip-tickets"]);
+  });
+
+  test("a factory event with a selector the source does not follow is ignored", () => {
+    const events = eventsFromReceipt(
+      { events: [{ from_address: coords.collection1155, keys: [selector("OwnershipTransferred"), "0x1", "0x2"], data: [] }] },
+      "0xtx",
+      7,
+    );
+    expect(factoryBatches(events)).toEqual([]);
   });
 });
