@@ -1,109 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
-import type { AppEnv } from "../../types/hono.js";
-import {
-  MAX_UPLOAD_URLS_PER_FILE,
-  createRunRoutes,
-  type ExecutionDeps,
-  type ReceiptEvent,
-  type ReceiptStatus,
-} from "./launchpad-runs.js";
-import { COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
-import type { RunStore, StoredRun } from "../../launchpad/run-store.js";
-
-type Path = string[];
-
-const getPath = (obj: unknown, path: Path): unknown =>
-  path.reduce<unknown>((node, key) => (node && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined), obj);
-
-const setPath = (obj: Record<string, unknown>, path: Path, value: unknown) => {
-  let node = obj;
-  for (const key of path.slice(0, -1)) node = (node[key] ??= {}) as Record<string, unknown>;
-  node[path[path.length - 1]!] = value;
-};
-
-const deletePath = (obj: Record<string, unknown>, path: Path) => {
-  const parent = getPath(obj, path.slice(0, -1)) as Record<string, unknown> | undefined;
-  if (parent) delete parent[path[path.length - 1]!];
-};
+import type { AppEnv } from "../../../types/hono.js";
+import { createRunRoutes } from "./index.js";
+import { MAX_UPLOAD_URLS_PER_FILE } from "./data-tokenization.js";
+import type { ExecutionDeps, ReceiptEvent, ReceiptStatus } from "./context.js";
+import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
+import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
 
 const OWNER = "0x0123";
 const REGISTRY = "0x0789";
 
 function world() {
-  const runs: StoredRun[] = [];
-  const balances = new Map<string, number>([["ac1", 100]]);
-  const refunds: number[] = [];
-  const wallets = new Set([`acct-ac1:${OWNER}`]);
-  let n = 0;
-
-  const active = (id: string, apiClientId: string) =>
-    runs.find((r) => r.id === id && r.apiClientId === apiClientId && (r.status === "PAID" || r.status === "RUNNING"));
-
-  const store: RunStore = {
-    async create({ apiClientId, service, spec }) {
-      const now = new Date();
-      const run: StoredRun = {
-        id: `run${++n}`, apiClientId, service, status: "DRAFT", spec, quote: null,
-        creditsHeld: 0, creditsSpent: 0, progress: {}, createdAt: now, updatedAt: now,
-      };
-      runs.push(run);
-      return run;
-    },
-    async updateDraft() { return null; },
-    async get(id, apiClientId) { return runs.find((r) => r.id === id && r.apiClientId === apiClientId) ?? null; },
-    async list(apiClientId) { return runs.filter((r) => r.apiClientId === apiClientId); },
-    async cancelDraft(id, apiClientId) {
-      const run = runs.find((r) => r.id === id && r.apiClientId === apiClientId && r.status === "DRAFT");
-      if (!run) return null;
-      run.status = "CANCELLED";
-      return run;
-    },
-    async countProvisioned() { return 0; },
-    async checkout({ id, apiClientId, quote, progress }) {
-      const run = runs.find((r) => r.id === id && r.apiClientId === apiClientId && r.status === "DRAFT");
-      if (!run) return "not-draft";
-      const balance = balances.get(apiClientId) ?? 0;
-      if (balance < quote.total) return "insufficient";
-      balances.set(apiClientId, balance - quote.total);
-      Object.assign(run, { status: "PAID", quote, creditsHeld: quote.total, progress: structuredClone(progress) });
-      return "paid";
-    },
-    async findPayment() { return null; },
-    async balance(apiClientId) { return balances.get(apiClientId) ?? 0; },
-    async reserve({ id, apiClientId, credits, path, retryReverted }) {
-      const run = active(id, apiClientId);
-      if (!run || run.creditsSpent + credits > run.creditsHeld) return false;
-      const current = getPath(run.progress, path);
-      const reverted = retryReverted && (current as { status?: string } | undefined)?.status === "REVERTED";
-      if (current !== undefined && !reverted) return false;
-      run.creditsSpent += credits;
-      run.status = "RUNNING";
-      setPath(run.progress as Record<string, unknown>, path, "pending");
-      return true;
-    },
-    async record(id, apiClientId, path, value) {
-      const run = runs.find((r) => r.id === id && r.apiClientId === apiClientId);
-      if (run) setPath(run.progress as Record<string, unknown>, path, value);
-    },
-    async release({ id, apiClientId, credits, path }) {
-      const run = runs.find((r) => r.id === id && r.apiClientId === apiClientId);
-      if (!run) return;
-      run.creditsSpent = Math.max(0, run.creditsSpent - credits);
-      deletePath(run.progress as Record<string, unknown>, path);
-    },
-    async ownsWallet(accountId, address) { return wallets.has(`${accountId}:${address}`); },
-    async complete({ id, apiClientId, status }) {
-      const run = active(id, apiClientId);
-      if (!run) return null;
-      run.status = status;
-      const refunded = Math.max(0, run.creditsHeld - run.creditsSpent);
-      balances.set(apiClientId, (balances.get(apiClientId) ?? 0) + refunded);
-      refunds.push(refunded);
-      return { refunded };
-    },
-  };
+  const store = createMemoryRunStore({ balances: { ac1: 100 }, wallets: [`acct-ac1:${OWNER}`] });
+  const { runs, balances, refunds } = store;
 
   let receipt: ReceiptStatus = "PENDING";
   let events: ReceiptEvent[] = [];

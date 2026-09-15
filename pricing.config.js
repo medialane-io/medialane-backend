@@ -21,6 +21,7 @@ export const PRICING = [
 
   { action: "metadata:upload-json", usd: 0.02, note: "Upload metadata JSON to IPFS (max 512KB)" },
   { action: "metadata:upload-file", usd: 0.02, note: "Upload a media file to IPFS (max 10MB)" },
+  { action: "metadata:signed-url", usd: 0.05, note: "Signed URL for a direct IPFS upload (max 100MB)" },
 
   { action: "intent:listing",      usd: 0.01, note: "List an asset for sale" },
   { action: "intent:offer",        usd: 0.01, note: "Make an offer" },

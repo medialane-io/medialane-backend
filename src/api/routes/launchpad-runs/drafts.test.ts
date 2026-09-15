@@ -1,102 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
-import type { AppEnv } from "../../types/hono.js";
-import { createRunRoutes } from "./launchpad-runs.js";
-import type { RunStore, StoredRun } from "../../launchpad/run-store.js";
+import type { AppEnv } from "../../../types/hono.js";
+import { createRunRoutes } from "./index.js";
+import type { SettleWalletPayment } from "./context.js";
+import { createMemoryRunStore, type MemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
 
-type MemoryStore = RunStore & {
-  runs: StoredRun[];
-  balances: Map<string, number>;
-  payments: Array<{ id: string; txHash: string; apiClientId: string }>;
-  usage: Array<{ apiClientId: string; actionKey: string; credits: number }>;
-};
-
-function memoryStore(): MemoryStore {
-  const runs: StoredRun[] = [];
-  const balances = new Map<string, number>();
-  const payments: MemoryStore["payments"] = [];
-  const usage: MemoryStore["usage"] = [];
-  let n = 0;
-  const draft = (id: string, apiClientId: string) =>
-    runs.find((r) => r.id === id && r.apiClientId === apiClientId && r.status === "DRAFT");
-
-  return {
-    runs,
-    balances,
-    payments,
-    usage,
-    async create({ apiClientId, service, spec }) {
-      const now = new Date();
-      const run: StoredRun = {
-        id: `run${++n}`,
-        apiClientId,
-        service,
-        status: "DRAFT",
-        spec,
-        quote: null,
-        creditsHeld: 0,
-        creditsSpent: 0,
-        progress: {},
-        createdAt: now,
-        updatedAt: now,
-      };
-      runs.push(run);
-      return run;
-    },
-    async updateDraft(id, apiClientId, spec) {
-      const run = draft(id, apiClientId);
-      if (!run) return null;
-      run.spec = spec;
-      return run;
-    },
-    async get(id, apiClientId) {
-      return runs.find((r) => r.id === id && r.apiClientId === apiClientId) ?? null;
-    },
-    async list(apiClientId) {
-      return runs.filter((r) => r.apiClientId === apiClientId);
-    },
-    async cancelDraft(id, apiClientId) {
-      const run = draft(id, apiClientId);
-      if (!run) return null;
-      run.status = "CANCELLED";
-      return run;
-    },
-    async countProvisioned() {
-      return 0;
-    },
-    async checkout({ id, apiClientId, quote }) {
-      const run = draft(id, apiClientId);
-      if (!run) return "not-draft";
-      const balance = balances.get(apiClientId) ?? 0;
-      if (balance < quote.total) return "insufficient";
-      balances.set(apiClientId, balance - quote.total);
-      run.status = "PAID";
-      run.quote = quote;
-      run.creditsHeld = quote.total;
-      for (const line of quote.lines) usage.push({ apiClientId, actionKey: line.action, credits: line.credits });
-      return "paid";
-    },
-    async findPayment(txHash, apiClientId) {
-      return payments.find((p) => p.txHash === txHash && p.apiClientId === apiClientId)?.id ?? null;
-    },
-    async balance(apiClientId) {
-      return balances.get(apiClientId) ?? 0;
-    },
-    async reserve() {
-      return false;
-    },
-    async record() {},
-    async release() {},
-    async ownsWallet() {
-      return false;
-    },
-    async complete() {
-      return null;
-    },
-  };
-}
-
-function appFor(store: MemoryStore, apiClientId = "ac1", settleWalletPayment?: (txHash: string) => Promise<unknown>) {
+function appFor(store: MemoryRunStore, apiClientId = "ac1", settleWalletPayment?: SettleWalletPayment) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: `acct-${apiClientId}`, status: "ACTIVE" });
@@ -139,7 +48,7 @@ const patch = (app: Hono<AppEnv>, path: string, body: unknown) =>
 
 describe("launchpad run drafts", () => {
   test("saving a draft stores it and returns its quote", async () => {
-    const store = memoryStore();
+    const store = createMemoryRunStore();
     const res = await post(appFor(store), "/", { service: "data-tokenization-erc721", spec });
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: { status: string; quote: { total: number } } };
@@ -149,14 +58,14 @@ describe("launchpad run drafts", () => {
   });
 
   test("an incomplete draft is refused with what is missing", async () => {
-    const res = await post(appFor(memoryStore()), "/", { service: "data-tokenization-erc721", spec: { items: [] } });
+    const res = await post(appFor(createMemoryRunStore()), "/", { service: "data-tokenization-erc721", spec: { items: [] } });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { issues: unknown[] };
     expect(body.issues.length).toBeGreaterThan(0);
   });
 
   test("a run is invisible to every other account", async () => {
-    const store = memoryStore();
+    const store = createMemoryRunStore();
     await post(appFor(store, "ac1"), "/", { service: "data-tokenization-erc721", spec });
     const other = appFor(store, "ac2");
     expect((await other.request("/run1")).status).toBe(404);
@@ -166,7 +75,7 @@ describe("launchpad run drafts", () => {
   });
 
   test("a draft can be edited and a paid run cannot", async () => {
-    const store = memoryStore();
+    const store = createMemoryRunStore();
     const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
     const renamed = { ...spec, items: [{ ...spec.items[0], name: "Renamed" }] };
@@ -176,21 +85,19 @@ describe("launchpad run drafts", () => {
     expect((await patch(app, "/run1", { spec })).status).toBe(409);
   });
 
-  test("a draft can be cancelled, a paid run is not cancelled from here", async () => {
-    const store = memoryStore();
+  test("a draft is cancelled outright", async () => {
+    const store = createMemoryRunStore();
     const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
-    await post(app, "/", { service: "data-tokenization-erc721", spec });
     expect((await post(app, "/run1/cancel", {})).status).toBe(200);
-    store.runs[1]!.status = "PAID";
-    expect((await post(app, "/run2/cancel", {})).status).toBe(409);
+    expect(store.runs[0]!.status).toBe("CANCELLED");
+    expect((await post(app, "/run1/cancel", {})).status).toBe(409);
   });
 });
 
 describe("checkout", () => {
   test("paying with credits takes the quote once, holds it on the run and records each line", async () => {
-    const store = memoryStore();
-    store.balances.set("ac1", 50);
+    const store = createMemoryRunStore({ balances: { ac1: 50 } });
     const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
@@ -206,8 +113,7 @@ describe("checkout", () => {
   });
 
   test("too few credits changes nothing and says how many are missing", async () => {
-    const store = memoryStore();
-    store.balances.set("ac1", 3);
+    const store = createMemoryRunStore({ balances: { ac1: 3 } });
     const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
@@ -220,10 +126,10 @@ describe("checkout", () => {
   });
 
   test("paying from the wallet credits the transfer, then pays the run from it", async () => {
-    const store = memoryStore();
-    const app = appFor(store, "ac1", async (txHash) => {
-      store.payments.push({ id: "pay1", txHash, apiClientId: "ac1" });
+    const store = createMemoryRunStore();
+    const app = appFor(store, "ac1", async () => {
       store.balances.set("ac1", (store.balances.get("ac1") ?? 0) + 20);
+      return { payments: [{ paymentId: "pay1", apiClientId: "ac1" }] };
     });
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
@@ -234,9 +140,8 @@ describe("checkout", () => {
   });
 
   test("a wallet payment that belongs to another account pays nothing", async () => {
-    const store = memoryStore();
-    store.payments.push({ id: "pay9", txHash: "0xdef", apiClientId: "ac2" });
-    const app = appFor(store, "ac1", async () => {});
+    const store = createMemoryRunStore();
+    const app = appFor(store, "ac1", async () => ({ payments: [{ paymentId: "pay9", apiClientId: "ac2" }] }));
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
     const res = await post(app, "/run1/checkout", { method: "wallet", txHash: "0xdef" });
@@ -245,7 +150,7 @@ describe("checkout", () => {
   });
 
   test("a checkout without a method is refused", async () => {
-    const store = memoryStore();
+    const store = createMemoryRunStore();
     const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
     expect((await post(app, "/run1/checkout", { method: "card" })).status).toBe(400);

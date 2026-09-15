@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { parseRunSpec, type DataTokenizationSpec } from "./run-spec.js";
-import { RUN_BATCH_SIZE } from "./quote.js";
+import { parseRunSpec } from "../index.js";
+import type { DataTokenizationSpec } from "./definition.js";
+import { RUN_BATCH_SIZE } from "../../steps.js";
 import {
   DOCUMENT_TRAIT,
-  PENDING,
   batchCount,
   emptyProgress,
   expectedFile,
   itemMetadata,
   itemsInBatch,
   nextStep,
-} from "./execution.js";
+} from "./progress.js";
 
 const CREATOR = "0x0123";
 
@@ -78,7 +78,7 @@ describe("item metadata follows the interoperability baseline", () => {
   });
 
   test("metadata waits until the item's files are uploaded", () => {
-    const partial = { ...emptyProgress(), files: { "r.pdf": "ipfs://doc", "c.png": PENDING } };
+    const partial = { ...emptyProgress(), files: { "r.pdf": "ipfs://doc", "c.png": { status: "PENDING" as const } } };
     expect(() => itemMetadata(catalog([doc]), 0, partial, CREATOR)).toThrow();
   });
 });

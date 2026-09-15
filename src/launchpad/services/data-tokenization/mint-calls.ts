@@ -1,7 +1,7 @@
 import { cairo } from "starknet";
 import { getService } from "@medialane/sdk";
-import { callRpc, normalizeAddress } from "../utils/starknet.js";
-import { encodeByteArray } from "../orchestrator/intent/shared.js";
+import { callRpc, normalizeAddress } from "../../../utils/starknet.js";
+import { encodeByteArray } from "../../../orchestrator/intent/shared.js";
 
 export interface RegistryCall {
   contractAddress: string;

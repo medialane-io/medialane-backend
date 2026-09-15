@@ -132,3 +132,8 @@ test("no path escapes the meter", () => {
     expect(resolveActionKey("GET", path)).not.toBeNull();
   }
 });
+
+test("a signed upload grant has its own price in the price file, so it is never charged as a read", async () => {
+  const { PRICING } = await import("../../pricing.config.js");
+  expect((PRICING as { action: string }[]).some((row) => row.action === "metadata:signed-url")).toBe(true);
+});

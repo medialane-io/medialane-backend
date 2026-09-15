@@ -51,7 +51,7 @@ function deps(over: Partial<DepositDeps> = {}): DepositDeps {
   return {
     resolveApiClient: async () => ({ id: "client-1", accountId: "acct-1" }),
     recordUnattributed: async () => {},
-    alreadyCredited: async () => false,
+    existingPayment: async () => null,
     priceAt: async () => 0.028,
     blockTimestamp: async () => new Date("2026-09-10T22:08:00Z"),
     mdlnMultiplier: async () => 1,
@@ -78,7 +78,7 @@ describe("crediting a deposit", () => {
   test("a deposit already in the ledger is not credited twice", async () => {
     let called = false;
     await creditDeposit(deposit, deps({
-      alreadyCredited: async () => true,
+      existingPayment: async () => ({ paymentId: "pay-0", apiClientId: "client-1" }),
       creditAccount: async () => { called = true; },
     }));
     expect(called).toBe(false);
@@ -178,10 +178,32 @@ describe("crediting a specific transaction on request", () => {
     expect(called).toBe(false);
   });
 
+  test("the payment a transaction credited comes back with the account it went to", async () => {
+    let calls = 0;
+    const res = await creditFromTransaction(
+      "0xabc",
+      deps({
+        existingPayment: async () => (calls > 0 ? { paymentId: "pay-7", apiClientId: "client-1" } : null),
+        creditAccount: async () => { calls += 1; },
+      }),
+      async () => ({ events: [strkTransfer] }),
+    );
+    expect(res.payments).toEqual([{ paymentId: "pay-7", apiClientId: "client-1" }]);
+  });
+
+  test("a deposit recorded without an account returns no payment to spend", async () => {
+    const res = await creditFromTransaction(
+      "0xabc",
+      deps({ existingPayment: async () => ({ paymentId: "pay-8", apiClientId: null }) }),
+      async () => ({ events: [strkTransfer] }),
+    );
+    expect(res.payments).toEqual([]);
+  });
+
   test("asking twice credits once", async () => {
     let calls = 0;
     const shared = deps({
-      alreadyCredited: async () => calls > 0,
+      existingPayment: async () => (calls > 0 ? { paymentId: "pay-1", apiClientId: "client-1" } : null),
       creditAccount: async () => { calls += 1; },
     });
     await creditFromTransaction("0xabc", shared, async () => ({ events: [strkTransfer] }));

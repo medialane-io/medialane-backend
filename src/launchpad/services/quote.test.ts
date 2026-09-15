@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseRunSpec } from "./run-spec.js";
-import { quoteRun, RUN_BATCH_SIZE } from "./quote.js";
+import { RUN_BATCH_SIZE } from "../steps.js";
+import { parseRunSpec, quoteRun } from "./index.js";
 
 const PRICES: Record<string, number> = {
   "intent:create-collection": 5,

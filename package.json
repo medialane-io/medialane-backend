@@ -23,13 +23,14 @@
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
     "pricing:apply:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run pricing:apply'",
-    "test": "bun test src"
+    "test": "bun test src",
+    "test:sql": "bash scripts/test-run-store-sql.sh"
   },
   "dependencies": {
     "@avnu/avnu-sdk": "^4.2.0",
     "@hono/node-server": "^2.1.1",
     "@hono/zod-validator": "^0.7.6",
-    "@medialane/sdk": "0.111.0",
+    "@medialane/sdk": "0.118.2",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "@prisma/client": "^6.19.3",

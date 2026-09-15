@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { getService } from "@medialane/sdk";
-import { normalizeAddress } from "../utils/starknet.js";
-import { encodeByteArray } from "../orchestrator/intent/shared.js";
+import { normalizeAddress } from "../../../utils/starknet.js";
+import { encodeByteArray } from "../../../orchestrator/intent/shared.js";
 import { dataTokenizationRegistry, registryMintCalls, royaltyBps } from "./mint-calls.js";
 
 const OWNER = "0x0456";
