@@ -15,6 +15,7 @@ test("an undeployed account is a client error, not an upstream failure", () => {
   );
   expect(out.status).toBe(422);
   expect(out.message).toContain("not deployed");
+  expect(out.code).toBe("account_not_deployed");
 });
 
 test("the classifier does not leak the raw RPC dump to the caller", () => {
@@ -27,21 +28,34 @@ test("any other execution error is still the caller's transaction failing", () =
   const out = classifyPaymasterError(rpcError("Message(\\\"insufficient balance\\\")"));
   expect(out.status).toBe(422);
   expect(out.message).toContain("could not be executed");
+  expect(out.code).toBe("not_executable");
 });
 
 test("a missing paymaster key is a configuration fault, reported as unavailable", () => {
   const out = classifyPaymasterError(new Error("AVNU_PAYMASTER_API_KEY is not set"));
   expect(out.status).toBe(503);
   expect(out.message).toContain("not configured");
+  expect(out.code).toBe("sponsor_unavailable");
 });
 
 test("a network failure remains an upstream error", () => {
   expect(classifyPaymasterError(new Error("fetch failed")).status).toBe(502);
   expect(classifyPaymasterError(new Error("socket hang up")).status).toBe(502);
+  expect(classifyPaymasterError(new Error("fetch failed")).code).toBe("sponsor_unavailable");
 });
 
 test("an unrecognised value does not throw and defaults to upstream", () => {
   expect(classifyPaymasterError(null).status).toBe(502);
   expect(classifyPaymasterError("weird").status).toBe(502);
   expect(classifyPaymasterError(undefined).status).toBe(502);
+});
+
+test("an unclassified failure after submitting says it may have broadcast", () => {
+  const out = classifyPaymasterError(new Error("socket hang up"), "execute");
+  expect(out.status).toBe(502);
+  expect(out.code).toBe("may_have_broadcast");
+});
+
+test("a configuration fault at execute is still unavailable, since nothing was submitted", () => {
+  expect(classifyPaymasterError(new Error("AVNU_PAYMASTER_API_KEY is not set"), "execute").code).toBe("sponsor_unavailable");
 });

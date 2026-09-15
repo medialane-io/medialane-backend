@@ -16,15 +16,16 @@ export interface SponsorRequest {
 export interface SponsorDenial {
   status: 401 | 403 | 429;
   error: string;
+  code: "not_authorized" | "rate_limited";
 }
 
 export interface SponsorAuthorizer {
   authorize(request: SponsorRequest): Promise<SponsorDenial | null>;
 }
 
-const NOT_SIGNED_IN: SponsorDenial = { status: 401, error: "Sign in to use sponsored transactions" };
-const NOT_YOUR_WALLET: SponsorDenial = { status: 403, error: "This wallet does not belong to the signed-in account" };
-const TOO_MANY: SponsorDenial = { status: 429, error: "Too many sponsored transactions. Try again in a minute." };
+const NOT_SIGNED_IN: SponsorDenial = { status: 401, error: "Sign in to use sponsored transactions", code: "not_authorized" };
+const NOT_YOUR_WALLET: SponsorDenial = { status: 403, error: "This wallet does not belong to the signed-in account", code: "not_authorized" };
+const TOO_MANY: SponsorDenial = { status: 429, error: "Too many sponsored transactions. Try again in a minute.", code: "rate_limited" };
 
 export function createSponsorAuthorizer(
   db: Db,
