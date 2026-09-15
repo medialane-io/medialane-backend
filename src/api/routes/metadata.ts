@@ -90,19 +90,27 @@ metadata.post("/upload", async (c) => {
 });
 
 const ALLOWED_MIME_TYPES = new Set([
-
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
-
   "video/mp4", "video/webm", "video/ogg",
-
   "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
-
   "application/pdf",
-
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.oasis.opendocument.text",
+  "application/rtf",
+  "text/plain",
+  "text/markdown",
+  "model/gltf-binary",
+  "model/gltf+json",
   "application/octet-stream",
 ]);
 
-const ALLOWED_EXTENSIONS = /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogv|ogg|mp3|wav|flac|pdf|glb|gltf)$/i;
+const ALLOWED_EXTENSIONS = /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogv|ogg|mp3|wav|flac|pdf|doc|docx|odt|rtf|txt|md|glb|gltf)$/i;
+
+export function isAllowedUpload(fileName: string, mimeType: string): boolean {
+  const mimeBase = mimeType.split(";")[0]!.trim().toLowerCase();
+  return ALLOWED_EXTENSIONS.test(fileName) && (mimeBase === "" || ALLOWED_MIME_TYPES.has(mimeBase));
+}
 
 metadata.post("/upload-file", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? 0);
@@ -119,9 +127,7 @@ metadata.post("/upload-file", async (c) => {
       return c.json({ error: "File too large (max 10 MB)" }, 413);
     }
 
-    const mimeBase = file.type.split(";")[0].trim().toLowerCase();
-    const nameOk = ALLOWED_EXTENSIONS.test(file.name);
-    if (!ALLOWED_MIME_TYPES.has(mimeBase) && !nameOk) {
+    if (!isAllowedUpload(file.name, file.type)) {
       return c.json({ error: "File type not allowed" }, 415);
     }
 
