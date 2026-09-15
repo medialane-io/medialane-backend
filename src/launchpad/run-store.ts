@@ -1,6 +1,7 @@
 import type { Chain, LaunchpadRunStatus, Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
+import { normalizeAddress } from "../utils/starknet.js";
 import { debitCredits, type CreditsDb } from "../payments/credits.js";
 import type { RunQuote } from "./quote.js";
 
@@ -33,10 +34,21 @@ export interface RunStore {
     service: string;
     quote: RunQuote;
     paymentId?: string;
+    progress: unknown;
     path: string;
   }): Promise<CheckoutOutcome>;
   findPayment(txHash: string, apiClientId: string): Promise<string | null>;
   balance(apiClientId: string): Promise<number>;
+  reserve(input: {
+    id: string;
+    apiClientId: string;
+    credits: number;
+    path: string[];
+    retryReverted?: boolean;
+  }): Promise<boolean>;
+  record(id: string, apiClientId: string, path: string[], value: unknown): Promise<void>;
+  release(input: { id: string; apiClientId: string; credits: number; path: string[] }): Promise<void>;
+  ownsWallet(accountId: string, address: string): Promise<boolean>;
 }
 
 const runSelect = {
@@ -116,7 +128,7 @@ export const prismaRunStore: RunStore = {
     return identities.filter((i) => walletAccounts.has(i.accountId)).length;
   },
 
-  async checkout({ id, apiClientId, service, quote, paymentId, path }) {
+  async checkout({ id, apiClientId, service, quote, paymentId, progress, path }) {
     try {
       await prisma.$transaction(async (tx) => {
         const moved = await tx.launchpadRun.updateMany({
@@ -126,6 +138,7 @@ export const prismaRunStore: RunStore = {
             quote: quote as unknown as Prisma.InputJsonValue,
             creditsHeld: quote.total,
             paymentId: paymentId ?? null,
+            progress: progress as Prisma.InputJsonValue,
           },
         });
         if (moved.count === 0) throw new CheckoutAbort("not-draft");
@@ -168,5 +181,55 @@ export const prismaRunStore: RunStore = {
   async balance(apiClientId) {
     const client = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { creditBalance: true } });
     return client?.creditBalance ?? 0;
+  },
+
+  async reserve({ id, apiClientId, credits, path, retryReverted }) {
+    const statusPath = [...path, "status"];
+    const count = await prisma.$executeRaw`
+      UPDATE "LaunchpadRun"
+      SET "creditsSpent" = "creditsSpent" + ${credits},
+          "status" = 'RUNNING',
+          "progress" = jsonb_set("progress", ${path}::text[], '"pending"'::jsonb, true),
+          "updatedAt" = now()
+      WHERE "id" = ${id}
+        AND "apiClientId" = ${apiClientId}
+        AND "status" IN ('PAID', 'RUNNING')
+        AND "creditsSpent" + ${credits} <= "creditsHeld"
+        AND (
+          "progress" #> ${path}::text[] IS NULL
+          OR (${retryReverted ?? false} AND "progress" #>> ${statusPath}::text[] = 'REVERTED')
+        )`;
+    return count > 0;
+  },
+
+  async record(id, apiClientId, path, value) {
+    await prisma.$executeRaw`
+      UPDATE "LaunchpadRun"
+      SET "progress" = jsonb_set("progress", ${path}::text[], ${JSON.stringify(value)}::jsonb, true),
+          "updatedAt" = now()
+      WHERE "id" = ${id} AND "apiClientId" = ${apiClientId}`;
+  },
+
+  async release({ id, apiClientId, credits, path }) {
+    await prisma.$executeRaw`
+      UPDATE "LaunchpadRun"
+      SET "creditsSpent" = GREATEST("creditsSpent" - ${credits}, 0),
+          "progress" = "progress" #- ${path}::text[],
+          "updatedAt" = now()
+      WHERE "id" = ${id} AND "apiClientId" = ${apiClientId}`;
+  },
+
+  async ownsWallet(accountId, address) {
+    let normalized: string;
+    try {
+      normalized = normalizeAddress("STARKNET", address);
+    } catch {
+      return false;
+    }
+    const wallet = await prisma.identity.findFirst({
+      where: { accountId, chain: "STARKNET", scheme: IDENTITY_SCHEME.WALLET, address: normalized },
+      select: { id: true },
+    });
+    return wallet !== null;
   },
 };

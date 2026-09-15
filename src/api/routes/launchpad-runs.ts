@@ -5,6 +5,7 @@ import { parseRunSpec, RUN_SERVICES } from "../../launchpad/run-spec.js";
 import { quoteRun, type QuoteDeps } from "../../launchpad/quote.js";
 import { prismaRunStore, type RunStore, type StoredRun } from "../../launchpad/run-store.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
+import { emptyProgress } from "../../launchpad/execution.js";
 
 export interface RunRouteDeps {
   store: RunStore;
@@ -132,6 +133,7 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
       service: existing.service,
       quote,
       paymentId,
+      progress: existing.service === "data-tokenization-erc721" ? emptyProgress() : {},
       path: c.req.path,
     });
 

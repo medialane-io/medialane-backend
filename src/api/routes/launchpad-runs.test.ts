@@ -82,6 +82,14 @@ function memoryStore(): MemoryStore {
     async balance(apiClientId) {
       return balances.get(apiClientId) ?? 0;
     },
+    async reserve() {
+      return false;
+    },
+    async record() {},
+    async release() {},
+    async ownsWallet() {
+      return false;
+    },
   };
 }
 
