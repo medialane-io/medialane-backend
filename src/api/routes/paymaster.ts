@@ -4,6 +4,7 @@ import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
 import { createContractAddressChecker, type ContractAddressChecker } from "./paymaster-contract-address.js";
+import { createSponsorAuthorizer, type SponsorAuthorizer } from "./sponsor-authorizer.js";
 import prisma from "../../db/client.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -327,6 +328,7 @@ export async function executeSponsoredInvoke(
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   addressChecker: ContractAddressChecker = createContractAddressChecker(prisma),
+  authorizer: SponsorAuthorizer = createSponsorAuthorizer(prisma),
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -334,6 +336,12 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; calls?: unknown[] }
       | null;
+    const denied = await authorizer.authorize({
+      sessionToken: c.req.header("x-account-session"),
+      apiKeyAccountId: c.get("account")?.id,
+      userAddress: body?.userAddress,
+    });
+    if (denied) return c.json({ error: denied.error }, denied.status);
     const outcome = await buildSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
@@ -342,6 +350,12 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] }
       | null;
+    const denied = await authorizer.authorize({
+      sessionToken: c.req.header("x-account-session"),
+      apiKeyAccountId: c.get("account")?.id,
+      userAddress: body?.userAddress,
+    });
+    if (denied) return c.json({ error: denied.error }, denied.status);
     const outcome = await executeSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });

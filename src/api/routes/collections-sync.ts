@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { type Collection } from "@prisma/client";
+import { type Collection, type PrismaClient } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
@@ -14,8 +14,6 @@ import { serializeCollection } from "../utils/serialize.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:collections");
-
-const VALID_COLLECTION_STANDARDS = new Set(["ERC721", "ERC1155"]);
 
 type ResolvedCollectionForSync = {
   contractAddress: string;
@@ -94,6 +92,16 @@ function resolveCollectionFromReceipt(
     baseUri: baseUri || null,
     startBlock: blockNumber,
   };
+}
+
+export async function refreshIndexedCollection(
+  db: Pick<PrismaClient, "collection">,
+  contractAddress: string,
+): Promise<Collection | null> {
+  const where = { chain_contractAddress: { chain: "STARKNET" as const, contractAddress } };
+  const existing = await db.collection.findUnique({ where });
+  if (!existing) return null;
+  return db.collection.update({ where, data: { metadataStatus: "PENDING" } });
 }
 
 export function registerCollectionSyncRoutes(collections: Hono) {
@@ -204,56 +212,22 @@ collections.post("/sync-tx", async (c) => {
 
 collections.post("/register", async (c) => {
   const body = await c.req.json().catch(() => null);
-  if (!body?.contractAddress) {
+  if (typeof body?.contractAddress !== "string") {
     return c.json({ error: "contractAddress is required" }, 400);
   }
-
-  const contractAddress = normalizeAddress("STARKNET", body.contractAddress);
-  const startBlock = typeof body.startBlock === "number" ? BigInt(body.startBlock) : BigInt(0);
-  const standard =
-    typeof body.standard === "string" && VALID_COLLECTION_STANDARDS.has(body.standard)
-      ? body.standard
-      : undefined;
-  const service =
-    typeof body.service === "string" && body.service.length > 0
-      ? body.service
-      : undefined;
-
-  const existing = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
-  });
-  if (existing) {
-    const collection = await prisma.collection.update({
-      where: { chain_contractAddress: { chain: "STARKNET", contractAddress } },
-      data: {
-        standard,
-        ...(service ? { service } : {}),
-        metadataStatus: "PENDING",
-      },
-    });
-    worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
-    return c.json({ data: serializeCollection(collection) });
+  let contractAddress: string;
+  try {
+    contractAddress = normalizeAddress("STARKNET", body.contractAddress);
+  } catch {
+    return c.json({ error: "Invalid contractAddress" }, 400);
   }
 
-  if (!standard) {
-    return c.json({ error: "standard is required (ERC721 or ERC1155)" }, 400);
+  const collection = await refreshIndexedCollection(prisma, contractAddress);
+  if (!collection) {
+    return c.json({ error: "This collection is not indexed yet" }, 404);
   }
-  const resolvedService =
-    service ?? (standard === "ERC1155" ? "external-erc1155" : "external-erc721");
-  const collection = await prisma.collection.create({
-    data: {
-      chain: "STARKNET",
-      contractAddress,
-      startBlock,
-      metadataStatus: "PENDING",
-      standard: standard as "ERC721" | "ERC1155",
-      service: resolvedService,
-    },
-  });
-
   worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
-
-  return c.json({ data: serializeCollection(collection) }, 201);
+  return c.json({ data: serializeCollection(collection) });
 });
 
 }
