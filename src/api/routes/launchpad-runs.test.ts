@@ -107,10 +107,18 @@ const spec = {
     aiPolicy: "Allowed",
     royalty: 0,
   },
-  items: [{ name: "One", ipType: "Documents", file: { name: "one.pdf", size: 10, type: "application/pdf" } }],
+  items: [
+    {
+      name: "One",
+      ipType: "Documents",
+      placement: "document",
+      file: { name: "one.pdf", size: 10, type: "application/pdf" },
+      image: { name: "cover.png", size: 10, type: "image/png" },
+    },
+  ],
 };
 
-const QUOTE_TOTAL = 2 * 5;
+const QUOTE_TOTAL = 2 * 6;
 
 const post = (app: Hono<AppEnv>, path: string, body: unknown) =>
   app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });

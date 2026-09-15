@@ -38,7 +38,7 @@ const byAction = (lines: { action: string; units: number }[]) =>
 describe("data tokenization quote", () => {
   const items = Array.from({ length: RUN_BATCH_SIZE + 1 }, (_, i) => ({
     name: `Item ${i}`,
-    ipType: "Documents",
+    ipType: "Documents", placement: "document",
     file: { name: `item-${i}.pdf`, size: 10, type: "application/pdf" },
     image: { name: "cover.png", size: 10, type: "image/png" },
   }));

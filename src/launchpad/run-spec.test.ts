@@ -14,6 +14,7 @@ const terms = {
 const item = (n: number) => ({
   name: `Item ${n}`,
   ipType: "Documents",
+  placement: "document",
   file: { name: `item-${n}.pdf`, size: 1024, type: "application/pdf" },
   image: { name: "cover.png", size: 2048, type: "image/png" },
 });
@@ -50,6 +51,19 @@ describe("data tokenization runs", () => {
   test("a catalog larger than one run is refused", () => {
     const items = Array.from({ length: MAX_RUN_ITEMS + 1 }, (_, i) => item(i));
     expect(() => parseRunSpec("data-tokenization-erc721", catalog(items))).toThrow();
+  });
+
+  test("a document or media item without a cover is refused", () => {
+    const { image, ...withoutCover } = item(1);
+    expect(image).toBeDefined();
+    expect(() => parseRunSpec("data-tokenization-erc721", catalog([withoutCover]))).toThrow();
+  });
+
+  test("an image item needs no cover but its file has to be an image", () => {
+    const picture = { name: "Photo", ipType: "Photography", placement: "image", file: { name: "p.jpg", size: 10, type: "image/jpeg" } };
+    expect(() => parseRunSpec("data-tokenization-erc721", catalog([picture]))).not.toThrow();
+    const notPicture = { ...picture, file: { name: "p.pdf", size: 10, type: "application/pdf" } };
+    expect(() => parseRunSpec("data-tokenization-erc721", catalog([notPicture]))).toThrow();
   });
 
   test("licensing values outside the shared lists are refused", () => {

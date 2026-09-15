@@ -37,6 +37,7 @@ const dataTokenizationSpec = z
           name: z.string().min(1).max(120),
           description: z.string().max(2000).default(""),
           ipType: z.string().min(1).max(40),
+          placement: z.enum(["image", "animation", "document"]),
           file: fileRef,
           image: fileRef.optional(),
           traits: z
@@ -51,6 +52,12 @@ const dataTokenizationSpec = z
   .superRefine((spec, ctx) => {
     const seen = new Set<string>();
     spec.items.forEach((item, index) => {
+      if (item.placement !== "image" && !item.image) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "image"], message: "This item needs a cover image" });
+      }
+      if (item.placement === "image" && !item.file.type.startsWith("image/")) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "file"], message: "This item's file needs to be an image" });
+      }
       if (seen.has(item.file.name)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "file", "name"], message: "Each item needs its own file" });
       }
