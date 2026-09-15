@@ -2,7 +2,7 @@ import type { Chain, LaunchpadRunStatus, Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { normalizeAddress } from "../utils/starknet.js";
-import { debitCredits, type CreditsDb } from "../payments/credits.js";
+import { debitCredits, refundCredits, type CreditsDb } from "../payments/credits.js";
 import type { RunQuote } from "./quote.js";
 
 export interface StoredRun {
@@ -49,6 +49,12 @@ export interface RunStore {
   record(id: string, apiClientId: string, path: string[], value: unknown): Promise<void>;
   release(input: { id: string; apiClientId: string; credits: number; path: string[] }): Promise<void>;
   ownsWallet(accountId: string, address: string): Promise<boolean>;
+  complete(input: {
+    id: string;
+    apiClientId: string;
+    status: "COMPLETED" | "CANCELLED";
+    path: string;
+  }): Promise<{ refunded: number } | null>;
 }
 
 const runSelect = {
@@ -217,6 +223,42 @@ export const prismaRunStore: RunStore = {
           "progress" = "progress" #- ${path}::text[],
           "updatedAt" = now()
       WHERE "id" = ${id} AND "apiClientId" = ${apiClientId}`;
+  },
+
+  async complete({ id, apiClientId, status, path }) {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.launchpadRun.findFirst({
+        where: { id, apiClientId, status: { in: ["PAID", "RUNNING"] } },
+        select: { service: true, creditsHeld: true, creditsSpent: true },
+      });
+      if (!run) return null;
+
+      const moved = await tx.launchpadRun.updateMany({
+        where: { id, apiClientId, status: { in: ["PAID", "RUNNING"] } },
+        data: { status },
+      });
+      if (moved.count === 0) return null;
+
+      const refunded = Math.max(0, run.creditsHeld - run.creditsSpent);
+      if (refunded > 0) {
+        await refundCredits(apiClientId, refunded, tx as unknown as CreditsDb);
+        await tx.usageEvent.create({
+          data: {
+            apiClientId,
+            actionKey: "launchpad:refund",
+            chain: "STARKNET",
+            service: run.service,
+            unitCredits: -refunded,
+            units: 1,
+            credits: -refunded,
+            method: "POST",
+            path,
+            status: 200,
+          },
+        });
+      }
+      return { refunded };
+    });
   },
 
   async ownsWallet(accountId, address) {

@@ -90,6 +90,9 @@ function memoryStore(): MemoryStore {
     async ownsWallet() {
       return false;
     },
+    async complete() {
+      return null;
+    },
   };
 }
 

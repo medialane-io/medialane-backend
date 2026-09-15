@@ -173,7 +173,7 @@ export interface PaymasterClient {
   executeTransaction(req: unknown, opts: unknown): Promise<unknown>;
 }
 
-function defaultClient(): PaymasterClient {
+export function defaultClient(): PaymasterClient {
   const apiKey = process.env.AVNU_PAYMASTER_API_KEY;
   if (!apiKey) throw new Error("AVNU_PAYMASTER_API_KEY is not set");
   return new PaymasterRpc({
