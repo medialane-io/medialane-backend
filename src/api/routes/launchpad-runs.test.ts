@@ -4,11 +4,27 @@ import type { AppEnv } from "../../types/hono.js";
 import { createRunRoutes } from "./launchpad-runs.js";
 import type { RunStore, StoredRun } from "../../launchpad/run-store.js";
 
-function memoryStore(): RunStore & { runs: StoredRun[] } {
+type MemoryStore = RunStore & {
+  runs: StoredRun[];
+  balances: Map<string, number>;
+  payments: Array<{ id: string; txHash: string; apiClientId: string }>;
+  usage: Array<{ apiClientId: string; actionKey: string; credits: number }>;
+};
+
+function memoryStore(): MemoryStore {
   const runs: StoredRun[] = [];
+  const balances = new Map<string, number>();
+  const payments: MemoryStore["payments"] = [];
+  const usage: MemoryStore["usage"] = [];
   let n = 0;
+  const draft = (id: string, apiClientId: string) =>
+    runs.find((r) => r.id === id && r.apiClientId === apiClientId && r.status === "DRAFT");
+
   return {
     runs,
+    balances,
+    payments,
+    usage,
     async create({ apiClientId, service, spec }) {
       const now = new Date();
       const run: StoredRun = {
@@ -28,7 +44,7 @@ function memoryStore(): RunStore & { runs: StoredRun[] } {
       return run;
     },
     async updateDraft(id, apiClientId, spec) {
-      const run = runs.find((r) => r.id === id && r.apiClientId === apiClientId && r.status === "DRAFT");
+      const run = draft(id, apiClientId);
       if (!run) return null;
       run.spec = spec;
       return run;
@@ -40,7 +56,7 @@ function memoryStore(): RunStore & { runs: StoredRun[] } {
       return runs.filter((r) => r.apiClientId === apiClientId);
     },
     async cancelDraft(id, apiClientId) {
-      const run = runs.find((r) => r.id === id && r.apiClientId === apiClientId && r.status === "DRAFT");
+      const run = draft(id, apiClientId);
       if (!run) return null;
       run.status = "CANCELLED";
       return run;
@@ -48,17 +64,35 @@ function memoryStore(): RunStore & { runs: StoredRun[] } {
     async countProvisioned() {
       return 0;
     },
+    async checkout({ id, apiClientId, quote }) {
+      const run = draft(id, apiClientId);
+      if (!run) return "not-draft";
+      const balance = balances.get(apiClientId) ?? 0;
+      if (balance < quote.total) return "insufficient";
+      balances.set(apiClientId, balance - quote.total);
+      run.status = "PAID";
+      run.quote = quote;
+      run.creditsHeld = quote.total;
+      for (const line of quote.lines) usage.push({ apiClientId, actionKey: line.action, credits: line.credits });
+      return "paid";
+    },
+    async findPayment(txHash, apiClientId) {
+      return payments.find((p) => p.txHash === txHash && p.apiClientId === apiClientId)?.id ?? null;
+    },
+    async balance(apiClientId) {
+      return balances.get(apiClientId) ?? 0;
+    },
   };
 }
 
-function appFor(store: RunStore, apiClientId = "ac1") {
+function appFor(store: MemoryStore, apiClientId = "ac1", settleWalletPayment?: (txHash: string) => Promise<unknown>) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: `acct-${apiClientId}`, status: "ACTIVE" });
     c.set("apiClient", { id: apiClientId, accountId: `acct-${apiClientId}`, plan: "FREE", creditBalance: 0 });
     await next();
   });
-  app.route("/", createRunRoutes({ store, priceOf: async () => 2 }));
+  app.route("/", createRunRoutes({ store, priceOf: async () => 2, settleWalletPayment }));
   return app;
 }
 
@@ -76,6 +110,8 @@ const spec = {
   items: [{ name: "One", ipType: "Documents", file: { name: "one.pdf", size: 10, type: "application/pdf" } }],
 };
 
+const QUOTE_TOTAL = 2 * 5;
+
 const post = (app: Hono<AppEnv>, path: string, body: unknown) =>
   app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
@@ -89,7 +125,7 @@ describe("launchpad run drafts", () => {
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: { status: string; quote: { total: number } } };
     expect(data.status).toBe("DRAFT");
-    expect(data.quote.total).toBeGreaterThan(0);
+    expect(data.quote.total).toBe(QUOTE_TOTAL);
     expect(store.runs).toHaveLength(1);
   });
 
@@ -107,6 +143,7 @@ describe("launchpad run drafts", () => {
     expect((await other.request("/run1")).status).toBe(404);
     expect(((await (await other.request("/")).json()) as { data: unknown[] }).data).toHaveLength(0);
     expect((await patch(other, "/run1", { spec })).status).toBe(404);
+    expect((await post(other, "/run1/checkout", { method: "credits" })).status).toBe(404);
   });
 
   test("a draft can be edited and a paid run cannot", async () => {
@@ -128,5 +165,70 @@ describe("launchpad run drafts", () => {
     expect((await post(app, "/run1/cancel", {})).status).toBe(200);
     store.runs[1]!.status = "PAID";
     expect((await post(app, "/run2/cancel", {})).status).toBe(409);
+  });
+});
+
+describe("checkout", () => {
+  test("paying with credits takes the quote once, holds it on the run and records each line", async () => {
+    const store = memoryStore();
+    store.balances.set("ac1", 50);
+    const app = appFor(store);
+    await post(app, "/", { service: "data-tokenization-erc721", spec });
+
+    const res = await post(app, "/run1/checkout", { method: "credits" });
+    expect(res.status).toBe(200);
+    expect(store.balances.get("ac1")).toBe(50 - QUOTE_TOTAL);
+    expect(store.runs[0]!.status).toBe("PAID");
+    expect(store.runs[0]!.creditsHeld).toBe(QUOTE_TOTAL);
+    expect(store.usage.reduce((s, u) => s + u.credits, 0)).toBe(QUOTE_TOTAL);
+
+    expect((await post(app, "/run1/checkout", { method: "credits" })).status).toBe(409);
+    expect(store.balances.get("ac1")).toBe(50 - QUOTE_TOTAL);
+  });
+
+  test("too few credits changes nothing and says how many are missing", async () => {
+    const store = memoryStore();
+    store.balances.set("ac1", 3);
+    const app = appFor(store);
+    await post(app, "/", { service: "data-tokenization-erc721", spec });
+
+    const res = await post(app, "/run1/checkout", { method: "credits" });
+    expect(res.status).toBe(402);
+    const body = (await res.json()) as { data: { shortfall: number } };
+    expect(body.data.shortfall).toBe(QUOTE_TOTAL - 3);
+    expect(store.runs[0]!.status).toBe("DRAFT");
+    expect(store.balances.get("ac1")).toBe(3);
+  });
+
+  test("paying from the wallet credits the transfer, then pays the run from it", async () => {
+    const store = memoryStore();
+    const app = appFor(store, "ac1", async (txHash) => {
+      store.payments.push({ id: "pay1", txHash, apiClientId: "ac1" });
+      store.balances.set("ac1", (store.balances.get("ac1") ?? 0) + 20);
+    });
+    await post(app, "/", { service: "data-tokenization-erc721", spec });
+
+    const res = await post(app, "/run1/checkout", { method: "wallet", txHash: "0xabc" });
+    expect(res.status).toBe(200);
+    expect(store.runs[0]!.status).toBe("PAID");
+    expect(store.balances.get("ac1")).toBe(20 - QUOTE_TOTAL);
+  });
+
+  test("a wallet payment that belongs to another account pays nothing", async () => {
+    const store = memoryStore();
+    store.payments.push({ id: "pay9", txHash: "0xdef", apiClientId: "ac2" });
+    const app = appFor(store, "ac1", async () => {});
+    await post(app, "/", { service: "data-tokenization-erc721", spec });
+
+    const res = await post(app, "/run1/checkout", { method: "wallet", txHash: "0xdef" });
+    expect(res.status).toBe(402);
+    expect(store.runs[0]!.status).toBe("DRAFT");
+  });
+
+  test("a checkout without a method is refused", async () => {
+    const store = memoryStore();
+    const app = appFor(store);
+    await post(app, "/", { service: "data-tokenization-erc721", spec });
+    expect((await post(app, "/run1/checkout", { method: "card" })).status).toBe(400);
   });
 });
