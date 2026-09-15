@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import type { AppEnv } from "../../types/hono.js";
-import { createRunRoutes, type ExecutionDeps, type ReceiptEvent, type ReceiptStatus } from "./launchpad-runs.js";
+import {
+  MAX_UPLOAD_URLS_PER_FILE,
+  createRunRoutes,
+  type ExecutionDeps,
+  type ReceiptEvent,
+  type ReceiptStatus,
+} from "./launchpad-runs.js";
 import { COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import type { RunStore, StoredRun } from "../../launchpad/run-store.js";
 
@@ -102,10 +108,13 @@ function world() {
   let receipt: ReceiptStatus = "PENDING";
   let events: ReceiptEvent[] = [];
   const pinned: string[] = [];
+  const issued: string[] = [];
+  const pins = new Map<string, { size: number; keyvalues: Record<string, string> }>();
   const executed: unknown[] = [];
 
   const execution: ExecutionDeps = {
-    pinFile: async (file) => (pinned.push(file.name), `ipfs://file-${file.name}`),
+    signedUpload: async ({ name }) => (issued.push(name), `https://uploads.test/${name}`),
+    pinnedFile: async (cid) => pins.get(cid) ?? null,
     pinJson: async (data) => (pinned.push(String(data.name)), `ipfs://meta-${String(data.name)}`),
     mintCalls: { isCollectionOwner: async () => true },
     registry: () => REGISTRY,
@@ -141,13 +150,15 @@ function world() {
   app.route("/", createRunRoutes({ store, priceOf: async () => 2, execution }));
 
   return {
-    app, runs, balances, refunds, pinned, executed,
+    app, runs, balances, refunds, pinned, issued, pins, executed,
     setReceipt: (status: ReceiptStatus, next: ReceiptEvent[] = []) => {
       receipt = status;
       events = next;
     },
   };
 }
+
+type World = ReturnType<typeof world>;
 
 const spec = {
   collection: { kind: "existing", collectionId: "3", contractAddress: "0x1" },
@@ -173,11 +184,13 @@ const json = (app: Hono<AppEnv>, method: string, path: string, body?: unknown) =
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const upload = (app: Hono<AppEnv>, name: string, bytes: number, type: string) => {
-  const form = new FormData();
-  form.set("file", new File(["x".repeat(bytes)], name, { type }));
-  return app.request("/run1/files", { method: "POST", body: form });
-};
+async function upload(w: World, name: string, bytes: number, runId = "run1") {
+  const urlRes = await json(w.app, "POST", `/${runId}/files/upload-url`, { name });
+  if (urlRes.status !== 201) return urlRes;
+  const cid = `bafy-${name}-${w.issued.length}`;
+  w.pins.set(cid, { size: bytes, keyvalues: { run: runId, file: name } });
+  return json(w.app, "POST", `/${runId}/files/uploaded`, { name, cid });
+}
 
 async function paidRun() {
   const w = world();
@@ -188,43 +201,71 @@ async function paidRun() {
 
 async function readyBatch() {
   const w = await paidRun();
-  expect((await upload(w.app, "r.pdf", 5, "application/pdf")).status).toBe(201);
-  expect((await upload(w.app, "c.png", 3, "image/png")).status).toBe(201);
+  expect((await upload(w, "r.pdf", 5)).status).toBe(201);
+  expect((await upload(w, "c.png", 3)).status).toBe(201);
   expect((await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER })).status).toBe(201);
   return w;
 }
 
-async function submitBatch(w: Awaited<ReturnType<typeof readyBatch>>) {
+async function submitBatch(w: World) {
   const built = await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER, calls: [] });
   expect(built.status).toBe(200);
   const { typedData } = (await built.json()) as { typedData: unknown };
   return json(w.app, "POST", "/run1/batches/0/execute", { userAddress: OWNER, typedData, signature: ["0x1", "0x2"] });
 }
 
-describe("executing a paid run", () => {
-  test("nothing executes before the run is paid", async () => {
+describe("uploading a paid run's files", () => {
+  test("nothing uploads before the run is paid", async () => {
     const w = world();
     await json(w.app, "POST", "/", { service: "data-tokenization-erc721", spec });
-    expect((await upload(w.app, "r.pdf", 5, "application/pdf")).status).toBe(409);
-    expect(w.pinned).toEqual([]);
+    expect((await upload(w, "r.pdf", 5)).status).toBe(409);
+    expect(w.issued).toEqual([]);
   });
 
-  test("only files named in the spec upload, each one once", async () => {
+  test("an upload URL is only issued for a file named in the spec", async () => {
     const w = await paidRun();
-    expect((await upload(w.app, "other.pdf", 5, "application/pdf")).status).toBe(400);
-    expect((await upload(w.app, "r.pdf", 9, "application/pdf")).status).toBe(400);
-    expect((await upload(w.app, "r.pdf", 5, "application/pdf")).status).toBe(201);
-    expect((await upload(w.app, "r.pdf", 5, "application/pdf")).status).toBe(409);
-    expect(w.pinned).toEqual(["r.pdf"]);
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "other.pdf" })).status).toBe(400);
+    expect(w.issued).toEqual([]);
+  });
+
+  test("a file counts only when the pinned upload matches its size and this run, and only once", async () => {
+    const w = await paidRun();
+    expect((await upload(w, "r.pdf", 9)).status).toBe(409);
+    expect(w.runs[0]!.creditsSpent).toBe(0);
+
+    expect((await upload(w, "r.pdf", 5)).status).toBe(201);
+    expect(w.runs[0]!.creditsSpent).toBe(2);
+    expect((w.runs[0]!.progress as { files: Record<string, string> }).files["r.pdf"]).toMatch(/^ipfs:\/\/bafy-r\.pdf-/);
+
+    expect((await upload(w, "r.pdf", 5)).status).toBe(409);
     expect(w.runs[0]!.creditsSpent).toBe(2);
   });
 
+  test("a pin from another run or file does not count", async () => {
+    const w = await paidRun();
+    await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" });
+    w.pins.set("bafy-elsewhere", { size: 5, keyvalues: { run: "run9", file: "r.pdf" } });
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-elsewhere" })).status).toBe(409);
+    w.pins.set("bafy-other-file", { size: 5, keyvalues: { run: "run1", file: "c.png" } });
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-other-file" })).status).toBe(409);
+  });
+
+  test("each file gets a limited number of upload URLs", async () => {
+    const w = await paidRun();
+    for (let i = 0; i < MAX_UPLOAD_URLS_PER_FILE; i++) {
+      expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" })).status).toBe(201);
+    }
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" })).status).toBe(429);
+  });
+});
+
+describe("executing a paid run", () => {
   test("metadata is built by the run, for a wallet on the caller's account, once its files are in", async () => {
     const w = await paidRun();
     expect((await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: "0xbeef" })).status).toBe(403);
     expect((await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER })).status).toBe(409);
-    await upload(w.app, "r.pdf", 5, "application/pdf");
-    await upload(w.app, "c.png", 3, "image/png");
+    await upload(w, "r.pdf", 5);
+    await upload(w, "c.png", 3);
     expect((await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER })).status).toBe(201);
     const progress = w.runs[0]!.progress as { tokenUris: Record<string, string> };
     expect(progress.tokenUris["0"]).toBe("ipfs://meta-Report");
@@ -263,7 +304,7 @@ describe("executing a paid run", () => {
 
   test("resume reads the next step from the run", async () => {
     const w = await paidRun();
-    await upload(w.app, "r.pdf", 5, "application/pdf");
+    await upload(w, "r.pdf", 5);
     const res = await w.app.request("/run1");
     const { data } = (await res.json()) as { data: { next: { kind: string; files: string[] } } };
     expect(data.next).toEqual({ kind: "upload", files: ["c.png"] });
@@ -275,7 +316,7 @@ describe("executing a paid run", () => {
     expect((await json(w.app, "POST", "/run1/cancel")).status).toBe(409);
 
     const fresh = await paidRun();
-    await upload(fresh.app, "r.pdf", 5, "application/pdf");
+    await upload(fresh, "r.pdf", 5);
     const balanceBefore = fresh.balances.get("ac1")!;
     const cancelled = await json(fresh.app, "POST", "/run1/cancel");
     expect(cancelled.status).toBe(200);
@@ -289,7 +330,6 @@ describe("a run that creates its own collection", () => {
 
   async function paidNewCollectionRun() {
     const w = world();
-    w.balances.set("ac1", 100);
     await json(w.app, "POST", "/", { service: "data-tokenization-erc721", spec: newCollection });
     expect((await json(w.app, "POST", "/run1/checkout", { method: "credits" })).status).toBe(200);
     return w;
@@ -300,8 +340,8 @@ describe("a run that creates its own collection", () => {
     const first = (await (await w.app.request("/run1")).json()) as { data: { next: { kind: string } } };
     expect(first.data.next.kind).toBe("collection");
 
-    await upload(w.app, "r.pdf", 5, "application/pdf");
-    await upload(w.app, "c.png", 3, "image/png");
+    await upload(w, "r.pdf", 5);
+    await upload(w, "c.png", 3);
     await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER });
     expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER })).status).toBe(409);
 

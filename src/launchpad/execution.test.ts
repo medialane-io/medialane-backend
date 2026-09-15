@@ -6,7 +6,7 @@ import {
   PENDING,
   batchCount,
   emptyProgress,
-  isExpectedFile,
+  expectedFile,
   itemMetadata,
   itemsInBatch,
   nextStep,
@@ -40,12 +40,11 @@ const attr = (metadata: Record<string, unknown>, trait: string) =>
   (metadata.attributes as { trait_type: string; value: string }[]).find((a) => a.trait_type === trait)?.value;
 
 describe("files a run expects", () => {
-  test("only a file named in the spec, at its declared size, belongs to the run", () => {
+  test("a file named in the spec carries its declared size and type, and nothing else belongs to the run", () => {
     const spec = catalog([doc, song]);
-    expect(isExpectedFile(spec, "r.pdf", 11)).toBe(true);
-    expect(isExpectedFile(spec, "c.png", 12)).toBe(true);
-    expect(isExpectedFile(spec, "r.pdf", 99)).toBe(false);
-    expect(isExpectedFile(spec, "other.pdf", 11)).toBe(false);
+    expect(expectedFile(spec, "r.pdf")).toEqual({ size: 11, type: "application/pdf" });
+    expect(expectedFile(spec, "c.png")).toEqual({ size: 12, type: "image/png" });
+    expect(expectedFile(spec, "other.pdf")).toBeNull();
   });
 });
 

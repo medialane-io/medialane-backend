@@ -20,6 +20,7 @@ export interface CollectionProgress {
 
 export interface DataTokenizationProgress {
   files: Record<string, string>;
+  uploadUrls: Record<string, number>;
   tokenUris: Record<string, string>;
   batches: Record<string, TxState | typeof PENDING>;
   collection?: CollectionProgress;
@@ -35,12 +36,18 @@ export type NextStep =
   | { kind: "done" };
 
 export function emptyProgress(): DataTokenizationProgress {
-  return { files: {}, tokenUris: {}, batches: {} };
+  return { files: {}, uploadUrls: {}, tokenUris: {}, batches: {} };
 }
 
 export function readProgress(raw: unknown): DataTokenizationProgress {
   const p = (raw ?? {}) as Partial<DataTokenizationProgress>;
-  return { files: p.files ?? {}, tokenUris: p.tokenUris ?? {}, batches: p.batches ?? {}, collection: p.collection };
+  return {
+    files: p.files ?? {},
+    uploadUrls: p.uploadUrls ?? {},
+    tokenUris: p.tokenUris ?? {},
+    batches: p.batches ?? {},
+    collection: p.collection,
+  };
 }
 
 export function isInFlight(state: TxState | typeof PENDING | undefined): boolean {
@@ -56,17 +63,27 @@ export function collectionIdOf(spec: DataTokenizationSpec, progress: DataTokeniz
   return progress.collection?.collectionId ?? null;
 }
 
-export function expectedFiles(spec: DataTokenizationSpec): Map<string, number> {
-  const files = new Map<string, number>();
+export interface ExpectedFile {
+  size: number;
+  type: string;
+}
+
+export function expectedFiles(spec: DataTokenizationSpec): Map<string, ExpectedFile> {
+  const files = new Map<string, ExpectedFile>();
   for (const item of spec.items) {
-    files.set(item.file.name, item.file.size);
-    if (item.image) files.set(item.image.name, item.image.size);
+    files.set(item.file.name, { size: item.file.size, type: item.file.type });
+    if (item.image) files.set(item.image.name, { size: item.image.size, type: item.image.type });
   }
   return files;
 }
 
-export function isExpectedFile(spec: DataTokenizationSpec, name: string, size: number): boolean {
-  return expectedFiles(spec).get(name) === size;
+export function expectedFile(spec: DataTokenizationSpec, name: string): ExpectedFile | null {
+  return expectedFiles(spec).get(name) ?? null;
+}
+
+export function uploadedUri(progress: DataTokenizationProgress, name: string): string | null {
+  const uri = progress.files[name];
+  return uri !== undefined && uri !== PENDING ? uri : null;
 }
 
 export function batchCount(spec: DataTokenizationSpec): number {
@@ -80,10 +97,7 @@ export function itemsInBatch(spec: DataTokenizationSpec, index: number): number[
   return Array.from({ length: end - start }, (_, i) => start + i);
 }
 
-const uploaded = (progress: DataTokenizationProgress, name: string) => {
-  const uri = progress.files[name];
-  return uri !== undefined && uri !== PENDING ? uri : null;
-};
+const uploaded = uploadedUri;
 
 export function itemMetadata(
   spec: DataTokenizationSpec,

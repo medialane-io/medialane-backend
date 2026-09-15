@@ -5,7 +5,7 @@ import prisma from "../../db/client.js";
 import { createLogger } from "../../utils/logger.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { creditsForAction } from "../../payments/pricing.js";
-import { uploadFile, uploadJson } from "../../orchestrator/metadataPin.js";
+import { createSignedUpload, findPinnedFile, uploadJson } from "../../orchestrator/metadataPin.js";
 import { parseRunSpec, RUN_SERVICES, type DataTokenizationSpec } from "../../launchpad/run-spec.js";
 import { quoteRun, type QuoteDeps } from "../../launchpad/quote.js";
 import { prismaRunStore, type RunStore, type StoredRun } from "../../launchpad/run-store.js";
@@ -15,12 +15,13 @@ import {
   canSubmit,
   collectionIdOf,
   emptyProgress,
-  isExpectedFile,
+  expectedFile,
   isInFlight,
   itemMetadata,
   itemsInBatch,
   nextStep,
   readProgress,
+  uploadedUri,
   type DataTokenizationProgress,
   type TxState,
 } from "../../launchpad/execution.js";
@@ -52,8 +53,11 @@ export interface RunReceipt {
   events: ReceiptEvent[];
 }
 
+export const MAX_UPLOAD_URLS_PER_FILE = 3;
+
 export interface ExecutionDeps {
-  pinFile(file: File): Promise<string>;
+  signedUpload(input: { name: string; size: number; type: string; keyvalues: Record<string, string> }): Promise<string>;
+  pinnedFile(cid: string): Promise<{ size: number; keyvalues: Record<string, string> } | null>;
   pinJson(data: Record<string, unknown>): Promise<string>;
   mintCalls: MintCallDeps;
   sponsored: SponsoredInvokeDeps;
@@ -75,6 +79,8 @@ const checkoutBody = z.discriminatedUnion("method", [
   z.object({ method: z.literal("wallet"), txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/) }),
 ]);
 const walletBody = z.object({ userAddress: z.string().min(3) }).passthrough();
+const fileNameBody = z.object({ name: z.string().min(1).max(255) });
+const uploadedBody = z.object({ name: z.string().min(1).max(255), cid: z.string().min(10).max(120) });
 const executeBody = z.object({
   userAddress: z.string().min(3),
   typedData: z.unknown(),
@@ -124,7 +130,8 @@ export function createdCollectionId(events: ReceiptEvent[], registry: string): s
 
 function productionExecution(): ExecutionDeps {
   return {
-    pinFile: uploadFile,
+    signedUpload: createSignedUpload,
+    pinnedFile: findPinnedFile,
     pinJson: uploadJson,
     mintCalls: productionMintCallDeps,
     sponsored: { clientFactory: defaultClient, addressChecker: createContractAddressChecker(prisma) },
@@ -452,32 +459,62 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
     return c.json({ data: { status: receipt.status, collectionId } });
   });
 
-  app.post("/:id/files", async (c) => {
+  app.post("/:id/files/upload-url", async (c) => {
     const active = await loadActive(c);
     if (active instanceof Response) return active;
     const apiClientId = c.get("apiClient").id;
 
-    const form = await c.req.formData().catch(() => null);
-    const file = form?.get("file");
-    if (!(file instanceof File)) return c.json({ error: "Attach the file to upload" }, 400);
-    if (!isExpectedFile(active.spec, file.name, file.size)) {
-      return c.json({ error: `${file.name} is not part of this run` }, 400);
+    const body = fileNameBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "name is required" }, 400);
+    const { name } = body.data;
+    const expected = expectedFile(active.spec, name);
+    if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
+    if (uploadedUri(active.progress, name)) return c.json({ error: `${name} is already uploaded` }, 409);
+
+    const issued = active.progress.uploadUrls[name] ?? 0;
+    if (issued >= MAX_UPLOAD_URLS_PER_FILE) {
+      return c.json({ error: `${name} has had too many upload attempts. Contact support to continue.` }, 429);
+    }
+    await deps.store.record(active.run.id, apiClientId, ["uploadUrls", name], issued + 1);
+
+    try {
+      const url = await ex().signedUpload({
+        name,
+        size: expected.size,
+        type: expected.type,
+        keyvalues: { run: active.run.id, file: name },
+      });
+      return c.json({ data: { name, url } }, 201);
+    } catch (err) {
+      log.warn({ err, run: active.run.id, file: name }, "run signed upload failed");
+      return c.json({ error: "Could not prepare this upload. Try again." }, 502);
+    }
+  });
+
+  app.post("/:id/files/uploaded", async (c) => {
+    const active = await loadActive(c);
+    if (active instanceof Response) return active;
+    const apiClientId = c.get("apiClient").id;
+
+    const body = uploadedBody.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "name and cid are required" }, 400);
+    const { name, cid } = body.data;
+    const expected = expectedFile(active.spec, name);
+    if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
+
+    const pinned = await ex().pinnedFile(cid);
+    if (!pinned || pinned.size !== expected.size || pinned.keyvalues.run !== active.run.id || pinned.keyvalues.file !== name) {
+      return c.json({ error: `That upload does not match ${name}` }, 409);
     }
 
     const credits = await priceOf("metadata:upload-file");
-    const path = ["files", file.name];
+    const path = ["files", name];
     if (!(await deps.store.reserve({ id: active.run.id, apiClientId, credits, path }))) {
-      return c.json({ error: `${file.name} is already uploaded` }, 409);
+      return c.json({ error: `${name} is already uploaded` }, 409);
     }
-    try {
-      const uri = await ex().pinFile(file);
-      await deps.store.record(active.run.id, apiClientId, path, uri);
-      return c.json({ data: { name: file.name, uri } }, 201);
-    } catch (err) {
-      await deps.store.release({ id: active.run.id, apiClientId, credits, path });
-      log.warn({ err, run: active.run.id, file: file.name }, "run file upload failed");
-      return c.json({ error: "Could not store that file. Try again." }, 502);
-    }
+    const uri = `ipfs://${cid}`;
+    await deps.store.record(active.run.id, apiClientId, path, uri);
+    return c.json({ data: { name, uri } }, 201);
   });
 
   app.post("/:id/items/:index/metadata", async (c) => {
