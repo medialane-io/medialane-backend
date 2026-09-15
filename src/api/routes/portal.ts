@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { requirePlan } from "../middleware/tierGate.js";
 import { portalSubject } from "../middleware/portalSubject.js";
-import { launchpadRuns } from "./launchpad-runs.js";
+import { launchpadRuns } from "./launchpad-runs/index.js";
 import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";

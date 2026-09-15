@@ -1,9 +1,10 @@
-import type { Chain, LaunchpadRunStatus, Prisma } from "@prisma/client";
+import type { LaunchpadRunStatus, Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { debitCredits, refundCredits, type CreditsDb } from "../payments/credits.js";
-import type { RunQuote } from "./quote.js";
+import type { RunQuote } from "./steps.js";
+import { resolveRecipientWallets } from "../utils/recipientWallets.js";
 
 export interface StoredRun {
   id: string;
@@ -37,7 +38,6 @@ export interface RunStore {
     progress: unknown;
     path: string;
   }): Promise<CheckoutOutcome>;
-  findPayment(txHash: string, apiClientId: string): Promise<string | null>;
   balance(apiClientId: string): Promise<number>;
   reserve(input: {
     id: string;
@@ -113,25 +113,8 @@ export const prismaRunStore: RunStore = {
   },
 
   async countProvisioned(guests) {
-    if (guests.length === 0) return 0;
-    const identities = await prisma.identity.findMany({
-      where: { scheme: IDENTITY_SCHEME.EMAIL, value: { in: guests } },
-      select: { accountId: true },
-    });
-    const accountIds = [...new Set(identities.map((i) => i.accountId))];
-    if (accountIds.length === 0) return 0;
-    const withWallet = await prisma.identity.findMany({
-      where: {
-        accountId: { in: accountIds },
-        chain: "STARKNET" as Chain,
-        scheme: IDENTITY_SCHEME.WALLET,
-        address: { not: null },
-      },
-      distinct: ["accountId"],
-      select: { accountId: true },
-    });
-    const walletAccounts = new Set(withWallet.map((w) => w.accountId));
-    return identities.filter((i) => walletAccounts.has(i.accountId)).length;
+    const wallets = await resolveRecipientWallets("STARKNET", IDENTITY_SCHEME.EMAIL, guests);
+    return wallets.filter((w) => w.walletAddress !== null).length;
   },
 
   async checkout({ id, apiClientId, service, quote, paymentId, progress, path }) {
@@ -176,14 +159,6 @@ export const prismaRunStore: RunStore = {
     }
   },
 
-  async findPayment(txHash, apiClientId) {
-    const payment = await prisma.payment.findFirst({
-      where: { txHash, apiClientId, status: "SETTLED" },
-      select: { id: true },
-    });
-    return payment?.id ?? null;
-  },
-
   async balance(apiClientId) {
     const client = await prisma.apiClient.findUnique({ where: { id: apiClientId }, select: { creditBalance: true } });
     return client?.creditBalance ?? 0;
@@ -195,7 +170,7 @@ export const prismaRunStore: RunStore = {
       UPDATE "LaunchpadRun"
       SET "creditsSpent" = "creditsSpent" + ${credits},
           "status" = 'RUNNING',
-          "progress" = jsonb_set("progress", ${path}::text[], '"pending"'::jsonb, true),
+          "progress" = jsonb_set("progress", ${path}::text[], '{"status":"PENDING"}'::jsonb, true),
           "updatedAt" = now()
       WHERE "id" = ${id}
         AND "apiClientId" = ${apiClientId}

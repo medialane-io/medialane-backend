@@ -1,28 +1,24 @@
 import { buildAssetMetadata } from "@medialane/sdk";
-import { RUN_BATCH_SIZE } from "./quote.js";
-import type { DataTokenizationSpec } from "./run-spec.js";
+import { RUN_BATCH_SIZE } from "../../steps.js";
+import type { DataTokenizationSpec } from "./definition.js";
 
-export const PENDING = "pending";
 export const DOCUMENT_TRAIT = "Document File";
 
-export type BatchStatus = "SUBMITTED" | "SUCCEEDED" | "REVERTED";
-
-export interface TxState {
-  txHash: string;
-  status: BatchStatus;
-}
+export type Reserved = { status: "PENDING" };
+export type StepState = Reserved | { status: "SUBMITTED" | "SUCCEEDED" | "REVERTED"; txHash: string };
+export type Pinned = string | Reserved;
 
 export interface CollectionProgress {
   baseUri?: string;
-  tx?: TxState | typeof PENDING;
+  tx?: StepState;
   collectionId?: string;
 }
 
 export interface DataTokenizationProgress {
-  files: Record<string, string>;
+  files: Record<string, Pinned>;
   uploadUrls: Record<string, number>;
-  tokenUris: Record<string, string>;
-  batches: Record<string, TxState | typeof PENDING>;
+  tokenUris: Record<string, Pinned>;
+  batches: Record<string, StepState>;
   collection?: CollectionProgress;
 }
 
@@ -50,12 +46,20 @@ export function readProgress(raw: unknown): DataTokenizationProgress {
   };
 }
 
-export function isInFlight(state: TxState | typeof PENDING | undefined): boolean {
-  return state === PENDING || (typeof state === "object" && state.status === "SUBMITTED");
+export function pinnedValue(value: Pinned | undefined): string | null {
+  return typeof value === "string" ? value : null;
 }
 
-export function canSubmit(state: TxState | typeof PENDING | undefined): boolean {
-  return state === undefined || (typeof state === "object" && state.status === "REVERTED");
+export function isInFlight(state: StepState | undefined): boolean {
+  return state?.status === "PENDING" || state?.status === "SUBMITTED";
+}
+
+export function canSubmit(state: StepState | undefined): boolean {
+  return state === undefined || state.status === "REVERTED";
+}
+
+export function runInFlight(progress: DataTokenizationProgress): boolean {
+  return Object.values(progress.batches).some(isInFlight) || isInFlight(progress.collection?.tx);
 }
 
 export function collectionIdOf(spec: DataTokenizationSpec, progress: DataTokenizationProgress): string | null {
@@ -82,8 +86,7 @@ export function expectedFile(spec: DataTokenizationSpec, name: string): Expected
 }
 
 export function uploadedUri(progress: DataTokenizationProgress, name: string): string | null {
-  const uri = progress.files[name];
-  return uri !== undefined && uri !== PENDING ? uri : null;
+  return pinnedValue(progress.files[name]);
 }
 
 export function batchCount(spec: DataTokenizationSpec): number {
@@ -97,8 +100,6 @@ export function itemsInBatch(spec: DataTokenizationSpec, index: number): number[
   return Array.from({ length: end - start }, (_, i) => start + i);
 }
 
-const uploaded = uploadedUri;
-
 export function itemMetadata(
   spec: DataTokenizationSpec,
   index: number,
@@ -107,8 +108,8 @@ export function itemMetadata(
 ): Record<string, unknown> {
   const item = spec.items[index];
   if (!item) throw new Error(`No item ${index} in this run`);
-  const fileUri = uploaded(progress, item.file.name);
-  const coverUri = item.image ? uploaded(progress, item.image.name) : null;
+  const fileUri = uploadedUri(progress, item.file.name);
+  const coverUri = item.image ? uploadedUri(progress, item.image.name) : null;
   if (!fileUri || (item.placement !== "image" && !coverUri)) {
     throw new Error(`Item ${index} is waiting for its files`);
   }
@@ -142,13 +143,10 @@ export function nextStep(spec: DataTokenizationSpec, progress: DataTokenizationP
     return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };
   }
 
-  const missing = [...expectedFiles(spec).keys()].filter((name) => !uploaded(progress, name));
+  const missing = [...expectedFiles(spec).keys()].filter((name) => !uploadedUri(progress, name));
   if (missing.length > 0) return { kind: "upload", files: missing };
 
-  const unpinned = spec.items.map((_, i) => i).filter((i) => {
-    const uri = progress.tokenUris[String(i)];
-    return !uri || uri === PENDING;
-  });
+  const unpinned = spec.items.map((_, i) => i).filter((i) => !pinnedValue(progress.tokenUris[String(i)]));
   if (unpinned.length > 0) return { kind: "metadata", items: unpinned };
 
   for (let index = 0; index < batchCount(spec); index++) {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_FILE_BYTES, MAX_RUN_ITEMS, parseRunSpec } from "./run-spec.js";
+import { MAX_FILE_BYTES, MAX_RUN_ITEMS } from "../steps.js";
+import { parseRunSpec } from "./index.js";
 
 const terms = {
   licenseType: "CC BY-SA",

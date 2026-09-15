@@ -55,6 +55,19 @@ export function parseDepositEvents(
   return out;
 }
 
+export interface CreditedPayment {
+  paymentId: string;
+  apiClientId: string;
+}
+
+export interface ExistingPayment {
+  paymentId: string;
+  apiClientId: string | null;
+}
+
+const asCredited = (payment: ExistingPayment | null): CreditedPayment | null =>
+  payment?.apiClientId ? { paymentId: payment.paymentId, apiClientId: payment.apiClientId } : null;
+
 export interface DepositDeps {
   resolveApiClient: (payer: string) => Promise<{ id: string; accountId: string } | null>;
   recordUnattributed: (input: {
@@ -63,18 +76,19 @@ export interface DepositDeps {
     amountAtomic: bigint;
     txHash: string;
   }) => Promise<void>;
-  alreadyCredited: (txHash: string) => Promise<boolean>;
+  existingPayment: (txHash: string) => Promise<ExistingPayment | null>;
   priceAt: typeof defaultPriceAt;
   blockTimestamp: typeof defaultBlockTimestamp;
   mdlnMultiplier: typeof defaultMdlnMultiplier;
   creditAccount: typeof defaultCreditAccount;
 }
 
-export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<void> {
-  if (await deps.alreadyCredited(deposit.txHash)) return;
+export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<CreditedPayment | null> {
+  const existing = await deps.existingPayment(deposit.txHash);
+  if (existing) return asCredited(existing);
 
   const token = tokenByAddress(deposit.token);
-  if (!token) return;
+  if (!token) return null;
 
   const apiClient = await deps.resolveApiClient(deposit.payer);
   if (!apiClient) {
@@ -88,7 +102,7 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
       { txHash: deposit.txHash, payer: deposit.payer, symbol: token.symbol },
       "Treasury deposit from a wallet with no API client — recorded, not credited",
     );
-    return;
+    return null;
   }
 
   const at = await deps.blockTimestamp(deposit.blockNumber);
@@ -128,9 +142,9 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
       "Treasury deposit credited",
     );
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return;
-    throw err;
+    if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
   }
+  return asCredited(await deps.existingPayment(deposit.txHash));
 }
 
 const productionDeps: DepositDeps = {
@@ -163,8 +177,13 @@ const productionDeps: DepositDeps = {
       })
       .catch(() => {});
   },
-  alreadyCredited: async (txHash) =>
-    (await prisma.payment.findUnique({ where: { proofNonce: txHash }, select: { id: true } })) !== null,
+  existingPayment: async (txHash) => {
+    const payment = await prisma.payment.findUnique({
+      where: { proofNonce: txHash },
+      select: { id: true, apiClientId: true },
+    });
+    return payment ? { paymentId: payment.id, apiClientId: payment.apiClientId } : null;
+  },
   priceAt: defaultPriceAt,
   blockTimestamp: defaultBlockTimestamp,
   mdlnMultiplier: defaultMdlnMultiplier,
@@ -182,18 +201,20 @@ export async function creditFromTransaction(
   txHash: string,
   deps: DepositDeps = productionDeps,
   fetchReceipt: (hash: string) => Promise<{ events?: RawStarknetEvent[] }> = defaultFetchReceipt,
-): Promise<{ credited: number }> {
-  if (!x402Config.treasury) return { credited: 0 };
+): Promise<{ credited: number; payments: CreditedPayment[] }> {
+  if (!x402Config.treasury) return { credited: 0, payments: [] };
 
   const receipt = await fetchReceipt(normalizeHash(txHash));
   const deposits = parseDepositEvents(receipt.events ?? [], x402Config.treasury);
 
   let credited = 0;
+  const payments: CreditedPayment[] = [];
   for (const deposit of deposits) {
-    await creditDeposit(deposit, deps);
+    const payment = await creditDeposit(deposit, deps);
+    if (payment) payments.push(payment);
     credited += 1;
   }
-  return { credited };
+  return { credited, payments };
 }
 
 async function defaultFetchReceipt(hash: string): Promise<{ events?: RawStarknetEvent[] }> {

@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
-import prisma from "../../db/client.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { getService } from "@medialane/sdk";
 import { buildMintIntent } from "../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { resolveRecipientWallets } from "../../utils/recipientWallets.js";
 import type { Chain } from "@prisma/client";
 
 export const DEFAULT_BATCH_SIZE = 25;
@@ -136,32 +136,7 @@ export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
 }
 
 const productionDeps: IssuanceDeps = {
-  resolveWallets: async (chain, scheme, values) => {
-    const identities = await prisma.identity.findMany({
-      where: { scheme, value: { in: values } },
-      select: { value: true, accountId: true },
-    });
-    const accountByValue = new Map(identities.map((i) => [i.value!, i.accountId]));
-
-    const accountIds = [...new Set(accountByValue.values())];
-    const wallets = await prisma.identity.findMany({
-      where: { accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-      select: { accountId: true, address: true },
-    });
-    const walletByAccount = new Map<string, string>();
-    for (const w of wallets) {
-      if (!walletByAccount.has(w.accountId)) walletByAccount.set(w.accountId, w.address!);
-    }
-
-    return values.map((value) => {
-      const accountId = accountByValue.get(value);
-      return {
-        recipientValue: value,
-        walletAddress: accountId ? (walletByAccount.get(accountId) ?? null) : null,
-      };
-    });
-  },
+  resolveWallets: resolveRecipientWallets,
   buildMintCalls: async (input) => {
     const { calls } = await buildMintIntent({
       owner: input.owner,
