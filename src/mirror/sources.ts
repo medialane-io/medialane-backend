@@ -90,6 +90,8 @@ const hex = (selector: string) => num.toHex(selector);
 
 const COLLECTION_POLL_CONCURRENCY = 8;
 
+const EVERY_TICK = 0;
+
 const MARKETPLACE_SELECTORS = [
   hex(ORDER_CREATED_SELECTOR),
   hex(ORDER_FULFILLED_SELECTOR),
@@ -188,7 +190,7 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_FACTORY_DATA_TOKENIZATION, scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
 
   { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: [hex(TRANSFER_SELECTOR), hex(TRANSFER_SINGLE_SELECTOR), hex(TRANSFER_BATCH_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
-  { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], apply: applyComments },
+  { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], cadenceMs: EVERY_TICK, apply: applyComments },
 
   ...TREASURY_DEPOSIT_SOURCES,
 

@@ -33,11 +33,11 @@ describe("EVENT_SOURCES", () => {
       expect(!!s.apply).toBe(!isCore);
     }
   });
-  test("only slow-cadence sources use a durable cursor", () => {
+  test("every source with a durable cursor is a known one", () => {
     for (const s of EVENT_SOURCES) {
       if (s.cadenceMs === undefined) continue;
       expect([
-        "transfers", "allowlist:pop", "allowlist:drop", "conditions:drop", "factory:creator-coin",
+        "transfers", "comments", "allowlist:pop", "allowlist:drop", "conditions:drop", "factory:creator-coin",
         "factory:pop", "factory:drop", "factory:mip-erc1155",
         "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
         ...acceptedTokens().map((t) => `deposit:${t.symbol.toLowerCase()}`),
@@ -82,5 +82,17 @@ describe("where a source starts reading", () => {
   test("deposit sources start early enough to see past deposits", () => {
     const source = EVENT_SOURCES.find((s) => s.id === "deposit:strk");
     expect(source?.startBlock).toBeLessThanOrEqual(14677219);
+  });
+});
+
+describe("a source that applies its own events keeps its own cursor", () => {
+  test("every source with an apply step can be retried after a failure", () => {
+    const unrecoverable = EVENT_SOURCES.filter((s) => s.apply && s.cadenceMs === undefined);
+    expect(unrecoverable.map((s) => s.id)).toEqual([]);
+  });
+
+  test("comments are still read on every tick", () => {
+    const comments = EVENT_SOURCES.find((s) => s.id === "comments")!;
+    expect(isDue(comments.cadenceMs, Date.now(), Date.now())).toBe(true);
   });
 });
