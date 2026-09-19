@@ -34,6 +34,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt
           account: { id: "acc_TEST", status: "ACTIVE" },
         },
       });
+      c.set("apiClient", { id: "client_TEST", accountId: "acc_TEST", plan: "FREE", creditBalance: 0 });
     }
     return next();
   });
@@ -341,4 +342,51 @@ test("a key with no app cannot resolve an account, rather than falling into some
 
   expect(res.status).toBe(400);
   expect(await res.json()).toMatchObject({ error: "unknown_app" });
+});
+
+test("a rotated client IP cannot outrun the per-API-client code ceiling", async () => {
+  const seen: Array<string | null> = [];
+  let sent = 0;
+  const app = appWith({
+    checkRateLimit: async (_email, _ip, apiClientId) => {
+      seen.push(apiClientId);
+      return seen.length <= 2;
+    },
+    sendCode: async () => {
+      sent += 1;
+    },
+  });
+
+  const request = (ip: string) =>
+    app.request("/request-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-medialane-client-ip": ip },
+      body: JSON.stringify({ email: "spam@example.com" }),
+    });
+
+  expect((await request("1.1.1.1")).status).toBe(200);
+  expect((await request("2.2.2.2")).status).toBe(200);
+  expect((await request("3.3.3.3")).status).toBe(429);
+
+  expect(seen).toEqual(["client_TEST", "client_TEST", "client_TEST"]);
+  expect(sent).toBe(2);
+});
+
+test("account creation is capped per API client as well as per IP", async () => {
+  const seen: Array<string | null> = [];
+  const app = appWith({
+    checkAccountCreateRateLimit: async (_ip, apiClientId) => {
+      seen.push(apiClientId);
+      return false;
+    },
+  });
+
+  const res = await app.request("/register-account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-medialane-client-ip": "9.9.9.9" },
+    body: JSON.stringify({ email: "new@example.com" }),
+  });
+
+  expect(res.status).toBe(429);
+  expect(seen).toEqual(["client_TEST"]);
 });
