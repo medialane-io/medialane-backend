@@ -6,7 +6,10 @@ import { tokenByAddress, usdcEquivalentAtomic } from "../../payments/token-value
 import { priceAt as defaultPriceAt } from "../../utils/usdPrices.js";
 import { getBlockTimestamp as defaultBlockTimestamp } from "../../utils/blockTimestamp.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "../../payments/mdln.js";
-import { creditAccount as defaultCreditAccount } from "../../payments/credits.js";
+import {
+  creditAccount as defaultCreditAccount,
+  settleUnattributedPayment as defaultSettleUnattributed,
+} from "../../payments/credits.js";
 import { x402Config } from "../../config/x402.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
@@ -19,6 +22,11 @@ export interface DepositEvent {
   amountAtomic: bigint;
   payer: string;
   blockNumber: number;
+  depositIndex: number;
+}
+
+export function depositNonce(txHash: string, depositIndex: number): string {
+  return depositIndex === 0 ? txHash : `${txHash}:${depositIndex}`;
 }
 
 export function parseDepositEvents(
@@ -27,6 +35,7 @@ export function parseDepositEvents(
 ): DepositEvent[] {
   const to = normalizeAddress("STARKNET", treasury);
   const out: DepositEvent[] = [];
+  const perTransaction = new Map<string, number>();
 
   for (const ev of events) {
     try {
@@ -40,12 +49,17 @@ export function parseDepositEvents(
       const amountAtomic = low + (high << 128n);
       if (amountAtomic === 0n) continue;
 
+      const txHash = normalizeHash(ev.transaction_hash);
+      const depositIndex = perTransaction.get(txHash) ?? 0;
+      perTransaction.set(txHash, depositIndex + 1);
+
       out.push({
-        txHash: normalizeHash(ev.transaction_hash),
+        txHash,
         token: normalizeAddress("STARKNET", token.address),
         amountAtomic,
         payer: normalizeAddress("STARKNET", ev.keys[1]),
         blockNumber: Number(ev.block_number ?? 0),
+        depositIndex,
       });
     } catch {
       log.warn({ txHash: ev.transaction_hash }, "Skipped an unreadable event while scanning deposits");
@@ -75,17 +89,20 @@ export interface DepositDeps {
     asset: string;
     amountAtomic: bigint;
     txHash: string;
+    nonce: string;
   }) => Promise<void>;
-  existingPayment: (txHash: string) => Promise<ExistingPayment | null>;
+  existingPayment: (nonce: string) => Promise<ExistingPayment | null>;
   priceAt: typeof defaultPriceAt;
   blockTimestamp: typeof defaultBlockTimestamp;
   mdlnMultiplier: typeof defaultMdlnMultiplier;
   creditAccount: typeof defaultCreditAccount;
+  settleUnattributed: typeof defaultSettleUnattributed;
 }
 
 export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<CreditedPayment | null> {
-  const existing = await deps.existingPayment(deposit.txHash);
-  if (existing) return asCredited(existing);
+  const nonce = depositNonce(deposit.txHash, deposit.depositIndex);
+  const existing = await deps.existingPayment(nonce);
+  if (existing?.apiClientId) return asCredited(existing);
 
   const token = tokenByAddress(deposit.token);
   if (!token) return null;
@@ -97,6 +114,7 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
       asset: deposit.token,
       amountAtomic: deposit.amountAtomic,
       txHash: deposit.txHash,
+      nonce,
     });
     log.warn(
       { txHash: deposit.txHash, payer: deposit.payer, symbol: token.symbol },
@@ -123,20 +141,33 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
     Number(valued / x402Config.usdcAtomicPerCredit) * multiplier,
   );
 
+  const credit = {
+    payer: deposit.payer,
+    apiClientId: apiClient.id,
+    accountId: apiClient.accountId,
+    amountAtomic: valued,
+    creditedAmount,
+    mdlnMultiplier: multiplier,
+    scheme: "starknet-transfer",
+    network: "starknet",
+    asset: deposit.token,
+    txHash: deposit.txHash,
+    proofNonce: nonce,
+  };
+
+  if (existing) {
+    const settled = await deps.settleUnattributed(credit);
+    if (settled) {
+      log.info(
+        { txHash: deposit.txHash, apiClient: apiClient.id, creditedAmount, symbol: token.symbol },
+        "Treasury deposit credited once its payer had an account",
+      );
+    }
+    return asCredited(await deps.existingPayment(nonce));
+  }
+
   try {
-    await deps.creditAccount({
-      payer: deposit.payer,
-      apiClientId: apiClient.id,
-      accountId: apiClient.accountId,
-      amountAtomic: valued,
-      creditedAmount,
-      mdlnMultiplier: multiplier,
-      scheme: "starknet-transfer",
-      network: "starknet",
-      asset: deposit.token,
-      txHash: deposit.txHash,
-      proofNonce: deposit.txHash,
-    });
+    await deps.creditAccount(credit);
     log.info(
       { txHash: deposit.txHash, apiClient: apiClient.id, creditedAmount, symbol: token.symbol },
       "Treasury deposit credited",
@@ -144,7 +175,7 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   } catch (err) {
     if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
   }
-  return asCredited(await deps.existingPayment(deposit.txHash));
+  return asCredited(await deps.existingPayment(nonce));
 }
 
 const productionDeps: DepositDeps = {
@@ -172,14 +203,14 @@ const productionDeps: DepositDeps = {
           creditedAmount: 0,
           status: "UNATTRIBUTED",
           txHash: input.txHash,
-          proofNonce: input.txHash,
+          proofNonce: input.nonce,
         },
       })
       .catch(() => {});
   },
-  existingPayment: async (txHash) => {
+  existingPayment: async (nonce) => {
     const payment = await prisma.payment.findUnique({
-      where: { proofNonce: txHash },
+      where: { proofNonce: nonce },
       select: { id: true, apiClientId: true },
     });
     return payment ? { paymentId: payment.id, apiClientId: payment.apiClientId } : null;
@@ -188,6 +219,7 @@ const productionDeps: DepositDeps = {
   blockTimestamp: defaultBlockTimestamp,
   mdlnMultiplier: defaultMdlnMultiplier,
   creditAccount: defaultCreditAccount,
+  settleUnattributed: defaultSettleUnattributed,
 };
 
 export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise<void> {

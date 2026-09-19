@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { parseDepositEvents, creditDeposit, creditFromTransaction, type DepositDeps, type DepositEvent } from "./treasuryDeposit.js";
+import { parseDepositEvents, creditDeposit, creditFromTransaction, depositNonce, type DepositDeps, type DepositEvent } from "./treasuryDeposit.js";
 import { acceptedTokens } from "../../payments/token-value.js";
 
 const TREASURY = "0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223";
@@ -56,6 +56,7 @@ function deps(over: Partial<DepositDeps> = {}): DepositDeps {
     blockTimestamp: async () => new Date("2026-09-10T22:08:00Z"),
     mdlnMultiplier: async () => 1,
     creditAccount: async () => {},
+    settleUnattributed: async () => false,
     ...over,
   };
 }
@@ -66,6 +67,7 @@ const deposit: DepositEvent = {
   amountAtomic: 10n * 10n ** 18n,
   payer: PAYER,
   blockNumber: 14677219,
+  depositIndex: 0,
 };
 
 describe("crediting a deposit", () => {
@@ -258,5 +260,75 @@ describe("a transfer we cannot attribute", () => {
     let payer = "";
     await creditDeposit(deposit, deps({ creditAccount: async (i) => { payer = i.payer ?? ""; } }));
     expect(BigInt(payer)).toBe(BigInt(PAYER));
+  });
+});
+
+describe("two deposits in one transaction", () => {
+  test("each gets its own proof nonce", () => {
+    const [first, second] = parseDepositEvents([transfer(), transfer()], TREASURY);
+    expect(first.depositIndex).toBe(0);
+    expect(second.depositIndex).toBe(1);
+    expect(depositNonce(first.txHash, first.depositIndex)).toBe(first.txHash);
+    expect(depositNonce(second.txHash, second.depositIndex)).toBe(`${second.txHash}:1`);
+  });
+
+  test("deposits in different transactions each start at zero", () => {
+    const parsed = parseDepositEvents([transfer({ tx: "0x1" }), transfer({ tx: "0x2" })], TREASURY);
+    expect(parsed.map((d) => d.depositIndex)).toEqual([0, 0]);
+  });
+
+  test("both are credited rather than the second being taken for the first", async () => {
+    const credited: string[] = [];
+    const paid = new Map<string, { paymentId: string; apiClientId: string | null }>();
+    const d = deps({
+      existingPayment: async (nonce) => paid.get(nonce) ?? null,
+      creditAccount: async (input) => {
+        credited.push(input.proofNonce);
+        paid.set(input.proofNonce, { paymentId: input.proofNonce, apiClientId: input.apiClientId });
+      },
+    });
+
+    for (const deposit of parseDepositEvents([transfer(), transfer()], TREASURY)) {
+      await creditDeposit(deposit, d);
+    }
+
+    const [first, second] = parseDepositEvents([transfer(), transfer()], TREASURY);
+    expect(credited).toEqual([first.txHash, `${second.txHash}:1`]);
+  });
+});
+
+describe("a deposit that arrived before its payer had an account", () => {
+  test("is credited the next time it is seen", async () => {
+    const unattributed = { paymentId: "pay-1", apiClientId: null as string | null };
+    const settled: string[] = [];
+    const d = deps({
+      existingPayment: async () => (settled.length === 0 ? unattributed : { paymentId: "pay-1", apiClientId: "client-1" }),
+      settleUnattributed: async (input) => {
+        settled.push(input.proofNonce);
+        return true;
+      },
+      creditAccount: async () => {
+        throw new Error("should not create a second payment row");
+      },
+    });
+
+    const result = await creditDeposit(deposit, d);
+
+    expect(settled).toEqual([deposit.txHash]);
+    expect(result).toEqual({ paymentId: "pay-1", apiClientId: "client-1" });
+  });
+
+  test("an already settled deposit is never credited twice", async () => {
+    const settled: string[] = [];
+    const d = deps({
+      existingPayment: async () => ({ paymentId: "pay-1", apiClientId: "client-1" }),
+      settleUnattributed: async (input) => {
+        settled.push(input.proofNonce);
+        return true;
+      },
+    });
+
+    expect(await creditDeposit(deposit, d)).toEqual({ paymentId: "pay-1", apiClientId: "client-1" });
+    expect(settled).toEqual([]);
   });
 });
