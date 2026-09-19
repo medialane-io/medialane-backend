@@ -67,6 +67,20 @@ describe("who may spend sponsored gas", () => {
     expect(lookups).toEqual([normalizeAddress("STARKNET", WALLET)]);
   });
 
+  test("a deploy, which names no wallet yet, still needs a signed-in account", async () => {
+    const { authorizer } = authorizerFor(owners);
+    expect(await authorizer.authorize({})).toEqual({ status: 401, error: "Sign in to use sponsored transactions", code: "not_authorized" });
+    expect(await authorizer.authorize({ apiKeyAccountId: "acct-user" })).toBeNull();
+  });
+
+  test("a deploy counts against the same per-account minute as an invoke", async () => {
+    const { authorizer } = authorizerFor(owners);
+    for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {
+      expect(await authorizer.authorize({ sessionToken: "session:acct-user" })).toBeNull();
+    }
+    expect(await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET })).toMatchObject({ status: 429, code: "rate_limited" });
+  });
+
   test("an account that sponsors too much in a minute is slowed down", async () => {
     const { authorizer } = authorizerFor(owners);
     for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {

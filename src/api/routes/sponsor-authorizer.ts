@@ -37,19 +37,20 @@ export function createSponsorAuthorizer(
     async authorize({ sessionToken, apiKeyAccountId, userAddress }) {
       const accountId = sessionToken ? verifySession(sessionToken) : (apiKeyAccountId ?? null);
       if (!accountId) return NOT_SIGNED_IN;
-      if (!userAddress) return null;
 
-      let address: string;
-      try {
-        address = normalizeAddress("STARKNET", userAddress);
-      } catch {
-        return NOT_YOUR_WALLET;
+      if (userAddress !== undefined) {
+        let address: string;
+        try {
+          address = normalizeAddress("STARKNET", userAddress);
+        } catch {
+          return NOT_YOUR_WALLET;
+        }
+        const identity = await db.identity.findUnique({
+          where: { chain_address: { chain: "STARKNET", address } },
+          select: { accountId: true },
+        });
+        if (identity?.accountId !== accountId) return NOT_YOUR_WALLET;
       }
-      const identity = await db.identity.findUnique({
-        where: { chain_address: { chain: "STARKNET", address } },
-        select: { accountId: true },
-      });
-      if (identity?.accountId !== accountId) return NOT_YOUR_WALLET;
 
       const { count } = await store.increment(`sponsor:${accountId}`, 60_000);
       if (count > SPONSORED_REQUESTS_PER_MINUTE) return TOO_MANY;
