@@ -1,9 +1,6 @@
 import { Contract, cairo } from "starknet";
 import type { Chain } from "@prisma/client";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
-import { evmCollectionOwner, evmHoldsToken } from "./evm.js";
-import { solanaCollectionOwner, solanaHoldsToken } from "./solana.js";
-import { stellarCollectionOwner, stellarHoldsToken } from "./stellar.js";
 
 export async function holdsToken(
   chain: Chain,
@@ -12,44 +9,18 @@ export async function holdsToken(
   standard: "ERC721" | "ERC1155",
   knownTokenIds?: string[],
 ): Promise<boolean> {
-  switch (chain) {
-    case "STARKNET":
-      return starknetHoldsToken(contract, owner, standard, knownTokenIds);
-    case "ETHEREUM":
-    case "BASE":
-      return evmHoldsToken(chain, contract, owner, standard, knownTokenIds);
-    case "SOLANA":
-      return solanaHoldsToken(chain, contract, owner, knownTokenIds);
-    case "STELLAR":
-      return stellarHoldsToken(chain, contract, owner, knownTokenIds);
-    default:
-      throw new Error(`Ownership checks not implemented for chain "${chain}"`);
-  }
+  if (chain !== "STARKNET") throw new Error(`Ownership checks not implemented for chain "${chain}"`);
+  return starknetHoldsToken(contract, owner, standard, knownTokenIds);
 }
 
 export async function getCollectionOwner(chain: Chain, contract: string): Promise<string> {
-  switch (chain) {
-    case "STARKNET":
-      return starknetCollectionOwner(contract);
-    case "ETHEREUM":
-    case "BASE":
-      return normalizeAddress(chain, await evmCollectionOwner(chain, contract));
-    case "SOLANA":
-      return normalizeAddress(chain, await solanaCollectionOwner(chain, contract));
-    case "STELLAR":
-      return normalizeAddress(chain, await stellarCollectionOwner(chain, contract));
-    default:
-      throw new Error(`Owner reads not implemented for chain "${chain}"`);
-  }
+  if (chain !== "STARKNET") throw new Error(`Owner reads not implemented for chain "${chain}"`);
+  return starknetCollectionOwner(contract);
 }
 
 export async function isAccountOwner(chain: Chain, accountAddress: string, ownerPubkey: string): Promise<boolean> {
-  switch (chain) {
-    case "STARKNET":
-      return starknetIsAccountOwner(accountAddress, ownerPubkey);
-    default:
-      throw new Error(`Owner-membership reads not implemented for chain "${chain}"`);
-  }
+  if (chain !== "STARKNET") throw new Error(`Owner-membership reads not implemented for chain "${chain}"`);
+  return starknetIsAccountOwner(accountAddress, ownerPubkey);
 }
 
 async function starknetHoldsToken(
