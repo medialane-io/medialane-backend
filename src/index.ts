@@ -3,6 +3,7 @@ import { createApp } from "./api/server.js";
 import { worker } from "./orchestrator/worker.js";
 import { env } from "./config/env.js";
 import { createLogger } from "./utils/logger.js";
+import { reportRpcEndpoints } from "./utils/rpcFetch.js";
 import prisma from "./db/client.js";
 
 const log = createLogger("main");
@@ -21,6 +22,8 @@ async function main() {
     log.fatal({ err }, "Database connection failed");
     process.exit(1);
   }
+
+  await reportRpcEndpoints();
 
   const app = createApp();
 

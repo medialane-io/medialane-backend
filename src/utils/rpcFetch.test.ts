@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { rpcEndpoints, redactRpcUrl } from "./rpcFetch.js";
+import { rpcEndpoints, redactRpcUrl, reportRpcEndpoints } from "./rpcFetch.js";
 
 describe("which RPC endpoints the backend will call", () => {
   test("only keyed endpoints are used", () => {
@@ -30,3 +30,21 @@ describe("redacting an RPC url for logs", () => {
     expect(redactRpcUrl("not a url")).toBe("invalid-rpc-url");
   });
 });
+
+describe("what startup says about the rpc endpoints", () => {
+  test("a dead endpoint is reported rather than discovered when it is needed", async () => {
+    const results = await reportRpcEndpoints((async (url: string) =>
+      String(url).includes("fallback")
+        ? new Response("This endpoint has been discontinued.", { status: 410 })
+        : new Response("{}", { status: 200 })) as unknown as typeof fetch);
+
+    expect(results).toHaveLength(2);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.find((r) => !r.ok)?.status).toBe(410);
+  });
+
+  test("both answering is the healthy shape", async () => {
+    const results = await reportRpcEndpoints((async () => new Response("{}", { status: 200 })) as unknown as typeof fetch);
+    expect(results.every((r) => r.ok)).toBe(true);
+  });
+})
