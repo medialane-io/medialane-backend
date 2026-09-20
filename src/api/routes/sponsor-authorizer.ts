@@ -2,6 +2,9 @@ import { normalizeAddress } from "@medialane/sdk";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { defaultStore, type RateLimitStore } from "../middleware/rateLimit.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("routes:sponsor-authorizer");
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -43,13 +46,25 @@ export function createSponsorAuthorizer(
         try {
           address = normalizeAddress("STARKNET", userAddress);
         } catch {
+          log.warn({ userAddress, signedInAccount: accountId }, "sponsored gas refused: the wallet address is unreadable");
           return NOT_YOUR_WALLET;
         }
         const identity = await db.identity.findUnique({
           where: { chain_address: { chain: "STARKNET", address } },
           select: { accountId: true },
         });
-        if (identity?.accountId !== accountId) return NOT_YOUR_WALLET;
+        if (identity?.accountId !== accountId) {
+          log.warn(
+            {
+              address,
+              signedInAccount: accountId,
+              walletAccount: identity?.accountId ?? null,
+              via: sessionToken ? "session" : "apiKey",
+            },
+            identity ? "sponsored gas refused: the wallet belongs to another account" : "sponsored gas refused: the wallet is linked to no account",
+          );
+          return NOT_YOUR_WALLET;
+        }
       }
 
       const { count } = await store.increment(`sponsor:${accountId}`, 60_000);
