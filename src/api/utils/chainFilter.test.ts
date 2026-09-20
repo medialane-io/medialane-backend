@@ -5,9 +5,15 @@ describe("parseChainFilter", () => {
   test("defaults to STARKNET", () => {
     expect(parseChainFilter(undefined)).toEqual({ chain: "STARKNET" });
   });
-  test("accepts chains case-insensitively", () => {
-    expect(parseChainFilter("stellar")).toEqual({ chain: "STELLAR" });
-    expect(parseChainFilter("BASE")).toEqual({ chain: "BASE" });
+  test("accepts the chain case-insensitively", () => {
+    expect(parseChainFilter("starknet")).toEqual({ chain: "STARKNET" });
+    expect(parseChainFilter("STARKNET")).toEqual({ chain: "STARKNET" });
+  });
+
+  test("a chain the backend does not index is refused at the edge", () => {
+    for (const other of ["ethereum", "BASE", "solana", "stellar"]) {
+      expect(parseChainFilter(other)).toBeNull();
+    }
   });
   test("all passes through", () => {
     expect(parseChainFilter("all")).toBe("all");
@@ -30,7 +36,7 @@ describe("parseSingleChain", () => {
     expect(parseSingleChain(undefined)).toBe("STARKNET");
   });
   test("accepts a chain case-insensitively", () => {
-    expect(parseSingleChain("stellar")).toBe("STELLAR");
+    expect(parseSingleChain("starknet")).toBe("STARKNET");
   });
   test("'all' is rejected — keyed reads need one chain", () => {
     expect(parseSingleChain("all")).toBeNull();

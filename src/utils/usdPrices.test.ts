@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { nearestPrice, createHistoricalPriceReader } from "./usdPrices.js";
 
 const AT = new Date("2026-09-10T22:08:00Z");
@@ -51,4 +51,31 @@ test("an upstream failure gives no price rather than a wrong one", async () => {
 test("without a key there is no price", async () => {
   const priceAt = createHistoricalPriceReader({ apiKey: "", now: () => 0, fetchImpl: async () => new Response("{}") });
   expect(await priceAt("STRK", AT)).toBeNull();
+});
+
+describe("a dollar is worth a dollar", () => {
+  test("stablecoins are priced without asking an upstream", async () => {
+    let calls = 0;
+    const priceAt = createHistoricalPriceReader({
+      apiKey: "",
+      fetchImpl: (async () => {
+        calls++;
+        throw new Error("should not be called");
+      }) as unknown as typeof fetch,
+      now: () => Date.now(),
+    });
+
+    expect(await priceAt("USDC", new Date())).toBe(1);
+    expect(await priceAt("usdt", new Date())).toBe(1);
+    expect(calls).toBe(0);
+  });
+
+  test("a token that floats still needs a price", async () => {
+    const priceAt = createHistoricalPriceReader({
+      apiKey: "",
+      fetchImpl: (async () => new Response("{}")) as unknown as typeof fetch,
+      now: () => Date.now(),
+    });
+    expect(await priceAt("STRK", new Date())).toBeNull();
+  });
 });

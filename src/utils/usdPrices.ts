@@ -87,8 +87,11 @@ export function nearestPrice(
   return best ? best.value : null;
 }
 
+export const DOLLAR_PEGGED = new Set(["USDC", "USDT"]);
+
 export function createHistoricalPriceReader(deps: UsdPricesDeps) {
   return async function priceAt(symbol: string, at: Date): Promise<number | null> {
+    if (DOLLAR_PEGGED.has(symbol.toUpperCase())) return 1;
     if (!deps.apiKey) return null;
 
     const window = 30 * 60 * 1000;
