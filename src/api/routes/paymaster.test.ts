@@ -497,3 +497,48 @@ describe("Medialane sponsors a bounded amount of gas per transaction", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("the gas ceiling binds at execute, not only at build", () => {
+  const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  function appQuotingOnExecute(feeInStrkWei: string, executed: unknown[]) {
+    const stub: PaymasterClient = {
+      buildTransaction: async () =>
+        ({ typed_data: { message: "td" }, fee: { suggested_max_fee_in_strk: feeInStrkWei } }) as never,
+      executeTransaction: async (req) => {
+        executed.push(req);
+        return { transaction_hash: "0xtx" } as never;
+      },
+    };
+    const app = new Hono<AppEnv>();
+    app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, ALLOW_ALL_SPONSORS));
+    return app;
+  }
+
+  const execute = (app: Hono<AppEnv>) =>
+    app.request("/invoke/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: USER,
+        calls: [SPONSORABLE_CALL],
+        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        signature: ["0x1"],
+      }),
+    });
+
+  test("a caller who skips build cannot spend past the ceiling", async () => {
+    const executed: unknown[] = [];
+    const res = await execute(appQuotingOnExecute((maxSponsoredFeeWei() + 1n).toString(), executed));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "too_expensive" });
+    expect(executed).toHaveLength(0);
+  });
+
+  test("an ordinary transaction still goes through", async () => {
+    const executed: unknown[] = [];
+    const res = await execute(appQuotingOnExecute((maxSponsoredFeeWei() / 1000n).toString(), executed));
+    expect(res.status).toBe(200);
+    expect(executed).toHaveLength(1);
+  });
+});

@@ -55,3 +55,35 @@ export async function postRpc<T = unknown>(
   }
   return json;
 }
+
+export async function reportRpcEndpoints(
+  fetchImpl: typeof fetch = timedFetch as typeof fetch,
+): Promise<{ url: string; ok: boolean; status?: number }[]> {
+  const results = await Promise.all(
+    rpcEndpoints().map(async (url) => {
+      try {
+        const res = await fetchImpl(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "starknet_blockNumber", params: [], id: 1 }),
+        });
+        return { url, ok: res.ok, status: res.status };
+      } catch {
+        return { url, ok: false };
+      }
+    }),
+  );
+
+  for (const r of results) {
+    if (!r.ok) {
+      log.error({ rpcUrl: redactRpcUrl(r.url), status: r.status }, "RPC endpoint is not answering at startup");
+    }
+  }
+  if (results.length < 2) {
+    log.error({ configured: results.length }, "Only one RPC endpoint is configured, so there is nothing to fall back to");
+  }
+  if (results.every((r) => !r.ok)) {
+    log.fatal("No configured RPC endpoint is answering");
+  }
+  return results;
+}

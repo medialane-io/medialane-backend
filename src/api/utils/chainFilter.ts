@@ -1,6 +1,6 @@
 import type { Chain } from "@prisma/client";
 
-const CHAINS = new Set(["STARKNET", "ETHEREUM", "SOLANA", "BASE", "STELLAR"]);
+const CHAINS = new Set(["STARKNET"]);
 
 export function parseChainFilter(raw: string | undefined): { chain: Chain } | "all" | null {
   if (!raw) return { chain: "STARKNET" as Chain };

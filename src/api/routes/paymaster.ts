@@ -335,6 +335,22 @@ export async function buildSponsoredInvoke(
   }
 }
 
+export async function exceedsGasCeiling(
+  deps: SponsoredInvokeDeps,
+  userAddress: string,
+  calls: SponsoredCall[],
+): Promise<{ feeWei: string; capWei: string } | null> {
+  let prepared: unknown;
+  try {
+    prepared = await deps.clientFactory().buildTransaction({ type: "invoke", invoke: { userAddress, calls } }, SPONSORED);
+  } catch {
+    return null;
+  }
+  const feeWei = sponsoredFeeWei(prepared);
+  const capWei = maxSponsoredFeeWei();
+  return feeWei !== null && feeWei > capWei ? { feeWei: feeWei.toString(), capWei: capWei.toString() } : null;
+}
+
 export async function executeSponsoredInvoke(
   deps: SponsoredInvokeDeps,
   body: { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] },
@@ -363,6 +379,18 @@ export async function executeSponsoredInvoke(
     log.warn({ err, userAddress: body.userAddress }, "sponsored invoke execute: typedData does not match submitted calls");
     return { status: 400, body: { error: "typedData does not match the submitted calls", code: "invalid_request" } };
   }
+  const overCeiling = await exceedsGasCeiling(deps, body.userAddress, body.calls as SponsoredCall[]);
+  if (overCeiling) {
+    log.error(
+      { userAddress: body.userAddress, calls: body.calls, ...overCeiling },
+      "sponsored invoke execute: over the per-transaction gas ceiling",
+    );
+    return {
+      status: 400,
+      body: { error: "This transaction costs more gas than Medialane sponsors in one go", code: "too_expensive" },
+    };
+  }
+
   try {
     const result = await deps.clientFactory().executeTransaction(
       {

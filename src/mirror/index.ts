@@ -103,8 +103,18 @@ async function tick(tickId: string): Promise<number> {
   const affectedContracts = outcome.affectedContracts;
   const orderNftContracts = outcome.orderNftContracts;
   const fulfilledOrCancelledHashes = outcome.fulfilledOrCancelledHashes;
-  for (const contractAddress of await applyCollectionsCreated(deduplicatedEvents, CHAIN)) {
-    affectedContracts.add(contractAddress);
+
+  try {
+    for (const contractAddress of await applyCollectionsCreated(deduplicatedEvents, CHAIN)) {
+      affectedContracts.add(contractAddress);
+    }
+  } catch (err) {
+    await saveCursor({ lastBlock: cursor.lastBlock, continuationToken: null }, CHAIN);
+    tlog.error(
+      { err, fromBlock, toBlock, rewoundTo: cursor.lastBlock.toString() },
+      "Writing new collections failed, so the range is left to be read again",
+    );
+    throw err;
   }
 
   const ctx = { affectedContracts };
