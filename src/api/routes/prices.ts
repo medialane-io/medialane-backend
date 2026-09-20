@@ -10,7 +10,7 @@ export function createPricesRoutes(deps: PricesDeps): Hono {
 
   prices.get("/", async (c) => {
     if (!deps.apiKey) {
-      return c.json({ error: "ALCHEMY_PRICES_KEY is not configured on the server" }, 500);
+      return c.json({ error: "ALCHEMY_API_KEY is not configured on the server" }, 500);
     }
     const usd = await read();
     if (!usd) return c.json({ error: "Prices upstream unreachable" }, 502);
@@ -21,7 +21,7 @@ export function createPricesRoutes(deps: PricesDeps): Hono {
 }
 
 export default createPricesRoutes({
-  apiKey: env.ALCHEMY_PRICES_KEY,
+  apiKey: env.ALCHEMY_API_KEY,
   fetchImpl: fetch,
   now: () => Date.now(),
 });

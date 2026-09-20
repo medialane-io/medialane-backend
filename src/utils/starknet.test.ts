@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { createFailoverFetch } from "@medialane/sdk";
 import { normalizeAddress, normalizeHash, callRpc } from "./starknet.js";
+import { rpcEndpoints } from "./rpcFetch.js";
 
 describe("normalizeAddress", () => {
   test("pads a short address to 64 chars", () => {
@@ -49,25 +51,45 @@ describe("normalizeHash", () => {
 });
 
 describe("callRpc", () => {
-  test("retries once on the fallback path after a failure, and returns its result", async () => {
+  test("hands the caller the shared provider and returns its result", async () => {
     let calls = 0;
     const result = await callRpc(async () => {
       calls++;
-      if (calls === 1) throw new Error("transient primary RPC failure");
-      return "recovered";
+      return "answered";
     });
-    expect(result).toBe("recovered");
-    expect(calls).toBe(2);
+    expect(result).toBe("answered");
+    expect(calls).toBe(1);
   });
 
-  test("propagates the error when both the initial call and its retry fail", async () => {
-    let calls = 0;
+  test("an error from the node reaches the caller", async () => {
     await expect(
       callRpc(async () => {
-        calls++;
         throw new Error("genuinely unreachable");
       }),
     ).rejects.toThrow("genuinely unreachable");
-    expect(calls).toBe(2);
+  });
+});
+
+describe("where a Starknet call goes", () => {
+  test("a capped primary falls through to the next endpoint", async () => {
+    const seen: string[] = [];
+    const failover = createFailoverFetch(rpcEndpoints(), {
+      baseFetch: (async (url: string) => {
+        seen.push(String(url));
+        return seen.length === 1
+          ? new Response(JSON.stringify({ error: { code: 429, message: "Monthly capacity limit exceeded" } }), { status: 429 })
+          : new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+
+    const res = await failover(rpcEndpoints()[0]!, { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(rpcEndpoints());
+  });
+
+  test("the endpoints are tried in order, primary first", () => {
+    expect(rpcEndpoints()[0]).toBe(String(process.env.ALCHEMY_RPC_URL));
+    expect(rpcEndpoints()).toHaveLength(2);
   });
 });

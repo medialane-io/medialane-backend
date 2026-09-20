@@ -4,15 +4,11 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   ALCHEMY_RPC_URL: z.string().url(),
 
-  ETHEREUM_RPC_URL: z.string().url().optional(),
-  BASE_RPC_URL: z.string().url().optional(),
-  SOLANA_RPC_URL: z.string().url().optional(),
-  STELLAR_RPC_URL: z.string().url().optional(),
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
 
   STARKNET_RPC_URL: z.string().url().optional(),
 
-  ALCHEMY_PRICES_KEY: z.string().default(""),
+  ALCHEMY_API_KEY: z.string().default(""),
 
   STARKNET_USDC_CONTRACT: z
     .string()
@@ -22,11 +18,7 @@ const envSchema = z.object({
     .string()
     .default("0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223"),
   STARKNET_MDLN_CONTRACT: z.string().default(""),
-  VOYAGER_API_KEY: z.string().default(""),
 
-  COMMENTS_START_BLOCK: z.coerce.number().default(0),
-  POP_START_BLOCK: z.coerce.number().default(0),
-  DROP_START_BLOCK: z.coerce.number().default(0),
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
 
   UNRUG_FACTORY_ADDRESS: z
