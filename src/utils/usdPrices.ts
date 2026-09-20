@@ -63,7 +63,7 @@ export function createUsdPriceReader(deps: UsdPricesDeps) {
 }
 
 export const readUsdPrices = createUsdPriceReader({
-  apiKey: env.ALCHEMY_PRICES_KEY,
+  apiKey: env.ALCHEMY_API_KEY,
   fetchImpl: fetch,
   now: () => Date.now(),
 });
@@ -115,7 +115,7 @@ export function createHistoricalPriceReader(deps: UsdPricesDeps) {
 }
 
 export const priceAt = createHistoricalPriceReader({
-  apiKey: env.ALCHEMY_PRICES_KEY,
+  apiKey: env.ALCHEMY_API_KEY,
   fetchImpl: fetch,
   now: () => Date.now(),
 });
