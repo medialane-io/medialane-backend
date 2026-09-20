@@ -54,7 +54,7 @@ import { applySponsorship } from "./handlers/sponsorship.js";
 import { applyTreasuryDeposits } from "./handlers/treasuryDeposit.js";
 import { acceptedTokens } from "../payments/token-value.js";
 import { x402Config } from "../config/x402.js";
-import type { Chain } from "@prisma/client";
+import type { Chain, Prisma } from "@prisma/client";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 export interface SourceContext {
@@ -66,7 +66,7 @@ export interface EventSource {
   id: string;
   scope:
     | { kind: "contract"; address: string | undefined }
-    | { kind: "collections"; service?: string };
+    | { kind: "collections"; service?: string; services?: string[]; excludeServices?: string[] };
   selectors: string[];
 
   keyFilters?: string[][];
@@ -92,6 +92,12 @@ const COLLECTION_POLL_CONCURRENCY = 8;
 
 const EVERY_TICK = 0;
 
+const TRANSFER_SELECTORS = [
+  hex(TRANSFER_SELECTOR),
+  hex(TRANSFER_SINGLE_SELECTOR),
+  hex(TRANSFER_BATCH_SELECTOR),
+];
+
 const MARKETPLACE_SELECTORS = [
   hex(ORDER_CREATED_SELECTOR),
   hex(ORDER_FULFILLED_SELECTOR),
@@ -104,6 +110,10 @@ export const CORE_MARKETPLACE_1155 = "marketplace-1155";
 export const CORE_FACTORY_MIP721 = "factory:mip-erc721";
 export const CORE_FACTORY_DATA_TOKENIZATION = "factory:data-tokenization-erc721";
 export const CORE_TRANSFERS = "transfers";
+export const CORE_TRANSFERS_EXTERNAL = "transfers:external";
+export const TRANSFER_SOURCE_IDS = [CORE_TRANSFERS, CORE_TRANSFERS_EXTERNAL] as const;
+
+export const EXTERNAL_SERVICES = ["external-erc721", "external-erc1155"];
 
 async function applyComments(events: RawStarknetEvent[]): Promise<void> {
   const txCounters: Record<string, number> = {};
@@ -189,7 +199,8 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_FACTORY_MIP721, scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
   { id: CORE_FACTORY_DATA_TOKENIZATION, scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
 
-  { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: [hex(TRANSFER_SELECTOR), hex(TRANSFER_SINGLE_SELECTOR), hex(TRANSFER_BATCH_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
+  { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
+  { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], cadenceMs: EVERY_TICK, apply: applyComments },
 
   ...TREASURY_DEPOSIT_SOURCES,
@@ -215,6 +226,18 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: "allowlist:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyDropAllowlist },
   { id: "conditions:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(CLAIM_CONDITIONS_UPDATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropConditions },
 ];
+
+export function collectionScopeWhere(
+  scope: { kind: "collections"; service?: string; services?: string[]; excludeServices?: string[] },
+  chain: Chain,
+  toBlock: number,
+): Prisma.CollectionWhereInput {
+  const where: Prisma.CollectionWhereInput = { chain, startBlock: { lte: BigInt(toBlock) } };
+  if (scope.excludeServices?.length) return { ...where, service: { notIn: scope.excludeServices } };
+  if (scope.services?.length) return { ...where, service: { in: scope.services } };
+  if (scope.service) return { ...where, service: scope.service };
+  return where;
+}
 
 export function isDue(cadenceMs: number | undefined, lastPollTime: number | undefined, now: number): boolean {
   if (cadenceMs === undefined) return true;
@@ -266,9 +289,7 @@ export async function fetchDueSources(params: {
         });
       } else {
         const collections = await prisma.collection.findMany({
-          where: source.scope.service
-            ? { chain, service: source.scope.service, startBlock: { lte: BigInt(toBlock) } }
-            : { chain, startBlock: { lte: BigInt(toBlock) } },
+          where: collectionScopeWhere(source.scope, chain, toBlock),
           select: { contractAddress: true },
         });
 

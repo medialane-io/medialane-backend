@@ -50,6 +50,7 @@ const envSchema = z.object({
 
   INDEXER_CONFIRMATION_BLOCKS: z.coerce.number().min(0).default(2),
   TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(300_000),
+  EXTERNAL_TRANSFER_POLL_INTERVAL_MS: z.coerce.number().default(1_800_000),
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),

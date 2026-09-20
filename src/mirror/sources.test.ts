@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isDue, sourceFromBlock, EVENT_SOURCES } from "./sources.js";
+import { isDue, sourceFromBlock, collectionScopeWhere, EVENT_SOURCES, CORE_TRANSFERS, CORE_TRANSFERS_EXTERNAL, EXTERNAL_SERVICES } from "./sources.js";
 import { acceptedTokens } from "../payments/token-value.js";
 
 describe("isDue", () => {
@@ -29,7 +29,7 @@ describe("EVENT_SOURCES", () => {
   });
   test("core sources have no apply; side sources do", () => {
     for (const s of EVENT_SOURCES) {
-      const isCore = ["marketplace-721", "marketplace-1155", "factory:mip-erc721", "factory:data-tokenization-erc721", "transfers"].includes(s.id);
+      const isCore = ["marketplace-721", "marketplace-1155", "factory:mip-erc721", "factory:data-tokenization-erc721", "transfers", "transfers:external"].includes(s.id);
       expect(!!s.apply).toBe(!isCore);
     }
   });
@@ -37,7 +37,7 @@ describe("EVENT_SOURCES", () => {
     for (const s of EVENT_SOURCES) {
       if (s.cadenceMs === undefined) continue;
       expect([
-        "transfers", "comments", "allowlist:pop", "allowlist:drop", "conditions:drop", "factory:creator-coin",
+        "transfers", "transfers:external", "comments", "allowlist:pop", "allowlist:drop", "conditions:drop", "factory:creator-coin",
         "factory:pop", "factory:drop", "factory:mip-erc1155",
         "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
         ...acceptedTokens().map((t) => `deposit:${t.symbol.toLowerCase()}`),
@@ -94,5 +94,40 @@ describe("a source that applies its own events keeps its own cursor", () => {
   test("comments are still read on every tick", () => {
     const comments = EVENT_SOURCES.find((s) => s.id === "comments")!;
     expect(isDue(comments.cadenceMs, Date.now(), Date.now())).toBe(true);
+  });
+});
+
+describe("how often each collection is polled for transfers", () => {
+  const scopeOf = (id: string) => {
+    const source = EVENT_SOURCES.find((s) => s.id === id)!;
+    if (source.scope.kind !== "collections") throw new Error(`${id} does not scope to collections`);
+    return source.scope;
+  };
+
+  test("the two tiers between them cover every collection exactly once", () => {
+    expect(scopeOf(CORE_TRANSFERS).excludeServices).toEqual(EXTERNAL_SERVICES);
+    expect(scopeOf(CORE_TRANSFERS_EXTERNAL).services).toEqual(EXTERNAL_SERVICES);
+  });
+
+  test("collections indexed from someone else's marketplace order are polled less often", () => {
+    const medialane = EVENT_SOURCES.find((s) => s.id === CORE_TRANSFERS)!.cadenceMs!;
+    const external = EVENT_SOURCES.find((s) => s.id === CORE_TRANSFERS_EXTERNAL)!.cadenceMs!;
+    expect(external).toBeGreaterThan(medialane);
+  });
+
+  test("each tier asks the database only for its own collections", () => {
+    expect(collectionScopeWhere(scopeOf(CORE_TRANSFERS), "STARKNET", 10)).toMatchObject({
+      service: { notIn: EXTERNAL_SERVICES },
+    });
+    expect(collectionScopeWhere(scopeOf(CORE_TRANSFERS_EXTERNAL), "STARKNET", 10)).toMatchObject({
+      service: { in: EXTERNAL_SERVICES },
+    });
+  });
+
+  test("a scope naming no service still covers every collection", () => {
+    expect(collectionScopeWhere({ kind: "collections" }, "STARKNET", 10)).toEqual({
+      chain: "STARKNET",
+      startBlock: { lte: 10n },
+    });
   });
 });
