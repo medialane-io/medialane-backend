@@ -1,6 +1,11 @@
 import prismaDefault from "../db/client.js";
 import type { Prisma } from "@prisma/client";
 
+export interface CreditsTx {
+  apiClient: { update(args: Prisma.ApiClientUpdateArgs): Promise<unknown> };
+  payment: { updateMany(args: Prisma.PaymentUpdateManyArgs): Promise<{ count: number }> };
+}
+
 export interface CreditsDb {
   apiClient: {
     updateMany(args: Prisma.ApiClientUpdateManyArgs): Promise<{ count: number }>;
@@ -8,6 +13,10 @@ export interface CreditsDb {
   };
   payment: { create(args: Prisma.PaymentCreateArgs): Promise<unknown> };
   $transaction(ops: unknown[]): Promise<unknown>;
+}
+
+export interface UnattributedDb {
+  $transaction<T>(fn: (tx: CreditsTx) => Promise<T>): Promise<T>;
 }
 
 export async function debitCredits(
@@ -73,4 +82,34 @@ export async function creditAccount(
       data: { creditBalance: { increment: input.creditedAmount } },
     }),
   ]);
+}
+
+export async function settleUnattributedPayment(
+  input: CreditInput,
+  db: UnattributedDb = prismaDefault as unknown as UnattributedDb,
+): Promise<boolean> {
+  return db.$transaction(async (tx: CreditsTx) => {
+    const claimed = await tx.payment.updateMany({
+      where: { proofNonce: input.proofNonce, status: "UNATTRIBUTED" },
+      data: {
+        apiClientId: input.apiClientId,
+        payer: input.payer,
+        scheme: input.scheme,
+        network: input.network,
+        asset: input.asset,
+        amountAtomic: input.amountAtomic.toString(),
+        creditedAmount: input.creditedAmount,
+        mdlnMultiplier: input.mdlnMultiplier,
+        status: "SETTLED",
+        txHash: input.txHash,
+      },
+    });
+    if (claimed.count === 0) return false;
+
+    await tx.apiClient.update({
+      where: { id: input.apiClientId },
+      data: { creditBalance: { increment: input.creditedAmount } },
+    });
+    return true;
+  });
 }

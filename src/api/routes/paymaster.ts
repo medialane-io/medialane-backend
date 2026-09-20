@@ -11,6 +11,25 @@ import type { AppEnv } from "../../types/hono.js";
 const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
+
+const STRK_WEI = 10n ** 18n;
+const DEFAULT_MAX_SPONSORED_FEE_STRK = 0.5;
+
+export function maxSponsoredFeeWei(): bigint {
+  const configured = Number(process.env.MAX_SPONSORED_FEE_STRK);
+  const strk = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_SPONSORED_FEE_STRK;
+  return BigInt(Math.round(strk * 1e9)) * (STRK_WEI / 10n ** 9n);
+}
+
+export function sponsoredFeeWei(prepared: unknown): bigint | null {
+  const fee = (prepared as { fee?: { suggested_max_fee_in_strk?: unknown } } | null)?.fee;
+  if (fee?.suggested_max_fee_in_strk === undefined) return null;
+  try {
+    return BigInt(fee.suggested_max_fee_in_strk as string);
+  } catch {
+    return null;
+  }
+}
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
 
 export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
@@ -192,6 +211,7 @@ export type SponsorshipFailureCode =
   | "not_eligible"
   | "not_authorized"
   | "rate_limited"
+  | "too_expensive"
   | "may_have_broadcast";
 
 export interface PaymasterErrorResult {
@@ -289,6 +309,24 @@ export async function buildSponsoredInvoke(
       { type: "invoke", invoke: { userAddress: body.userAddress, calls: body.calls } },
       SPONSORED,
     )) as { typed_data: unknown };
+
+    const feeWei = sponsoredFeeWei(prepared);
+    const capWei = maxSponsoredFeeWei();
+    if (feeWei !== null && feeWei > capWei) {
+      log.error(
+        { userAddress: body.userAddress, calls: body.calls, feeWei: feeWei.toString(), capWei: capWei.toString() },
+        "sponsored invoke build: over the per-transaction gas ceiling",
+      );
+      return {
+        status: 400,
+        body: { error: "This transaction costs more gas than Medialane sponsors in one go", code: "too_expensive" },
+      };
+    }
+    log.info(
+      { userAddress: body.userAddress, feeWei: feeWei === null ? null : feeWei.toString() },
+      "sponsored invoke built",
+    );
+
     return { status: 200, body: { typedData: prepared.typed_data } };
   } catch (err) {
     const failure = classifyPaymasterError(err);
@@ -380,6 +418,11 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { ownerPubkey?: string; ownerAddress?: string; salt?: string }
       | null;
+    const denied = await authorizer.authorize({
+      sessionToken: c.req.header("x-account-session"),
+      apiKeyAccountId: c.get("account")?.id,
+    });
+    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required", code: "invalid_request" }, 400);
     }
@@ -429,6 +472,11 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown; calls?: unknown[] }
       | null;
+    const denied = await authorizer.authorize({
+      sessionToken: c.req.header("x-account-session"),
+      apiKeyAccountId: c.get("account")?.id,
+    });
+    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required", code: "invalid_request" }, 400);
     }

@@ -25,6 +25,8 @@ const UNVERIFIED_SESSION_TTL_SECONDS = DEFAULT_GRACE_DAYS * 24 * 60 * 60;
 const MAX_ATTEMPTS = 5;
 const EMAIL_REQUEST_LIMIT = 3;
 const IP_REQUEST_LIMIT = 10;
+const CLIENT_REQUEST_LIMIT = 300;
+const CLIENT_ACCOUNT_CREATE_LIMIT = 300;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 
 const rateLimitStore: RateLimitStore = env.REDIS_URL
@@ -45,10 +47,10 @@ export interface AuthEmailDeps {
   incrementAttempts: (id: string) => Promise<void>;
   consumeCode: (id: string) => Promise<void>;
   sendCode: (to: string, code: string, tenant: string | null) => Promise<void>;
-  checkRateLimit: (email: string, ip: string) => Promise<boolean>;
+  checkRateLimit: (email: string, ip: string, apiClientId: string | null) => Promise<boolean>;
   checkEmailExists: (email: string, tenant: string) => Promise<boolean>;
   createAccountWithEmail: (email: string, tenant: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
-  checkAccountCreateRateLimit: (ip: string) => Promise<boolean>;
+  checkAccountCreateRateLimit: (ip: string, apiClientId: string | null) => Promise<boolean>;
   checkEmailExistsRateLimit: (ip: string) => Promise<boolean>;
   findAccountIdByEmail: (email: string, tenant: string) => Promise<string | null>;
   releaseAbandonedEmail: (email: string, tenant: string) => Promise<boolean>;
@@ -67,6 +69,10 @@ function tenantOf(c: Context<AppEnv>): string | null {
   return c.get("apiKey")?.tenantId ?? null;
 }
 
+function apiClientOf(c: Context<AppEnv>): string | null {
+  return c.get("apiClient")?.id ?? null;
+}
+
 const NO_TENANT = {
   error: "unknown_app",
   message: "This API key is not attached to an app, so an account cannot be resolved for it.",
@@ -80,7 +86,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const ip = clientIp(c.req.raw);
     const tenant = tenantOf(c);
 
-    const result = await issueVerificationCodeWithDeps(deps, email, ip, tenant);
+    const result = await issueVerificationCodeWithDeps(deps, email, ip, tenant, apiClientOf(c));
     if (!result.ok) return c.json({ error: result.error }, 429);
 
     return c.json({ ok: true });
@@ -140,7 +146,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const { email } = c.req.valid("json");
     const ip = clientIp(c.req.raw);
 
-    const allowed = await deps.checkAccountCreateRateLimit(ip);
+    const allowed = await deps.checkAccountCreateRateLimit(ip, apiClientOf(c));
     if (!allowed) return c.json({ error: "Too many requests" }, 429);
 
     const tenant = tenantOf(c);
@@ -169,7 +175,7 @@ const productionDeps: AuthEmailDeps = {
     await prisma.emailVerificationCode.update({ where: { id }, data: { consumedAt: new Date() } });
   },
   sendCode: sendVerificationCode,
-  checkRateLimit: async (email, ip) => {
+  checkRateLimit: async (email, ip, apiClientId) => {
     const emailResult = await rateLimitStore.increment(`ratelimit:email-code:${email}`, RATE_WINDOW_MS);
     if (emailResult.count > EMAIL_REQUEST_LIMIT) {
       log.warn({ email }, "email-code rate limit hit (per-email)");
@@ -179,6 +185,13 @@ const productionDeps: AuthEmailDeps = {
     if (ipResult.count > IP_REQUEST_LIMIT) {
       log.warn({ ip }, "email-code rate limit hit (per-IP)");
       return false;
+    }
+    if (apiClientId) {
+      const clientResult = await rateLimitStore.increment(`ratelimit:email-code-client:${apiClientId}`, RATE_WINDOW_MS);
+      if (clientResult.count > CLIENT_REQUEST_LIMIT) {
+        log.error({ apiClientId }, "email-code rate limit hit (per-API-client)");
+        return false;
+      }
     }
     return true;
   },
@@ -193,11 +206,18 @@ const productionDeps: AuthEmailDeps = {
     const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, tenant);
     return { accountId, alreadyExisted: !created };
   },
-  checkAccountCreateRateLimit: async (ip) => {
+  checkAccountCreateRateLimit: async (ip, apiClientId) => {
     const result = await rateLimitStore.increment(`ratelimit:account-create-ip:${ip}`, 60 * 60 * 1000);
     if (result.count > 10) {
       log.warn({ ip }, "account-creation rate limit hit (per-IP)");
       return false;
+    }
+    if (apiClientId) {
+      const clientResult = await rateLimitStore.increment(`ratelimit:account-create-client:${apiClientId}`, 60 * 60 * 1000);
+      if (clientResult.count > CLIENT_ACCOUNT_CREATE_LIMIT) {
+        log.error({ apiClientId }, "account-creation rate limit hit (per-API-client)");
+        return false;
+      }
     }
     return true;
   },
@@ -224,8 +244,9 @@ export async function issueVerificationCodeWithDeps(
   email: string,
   ip: string,
   tenant: string | null = null,
+  apiClientId: string | null = null,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const allowed = await deps.checkRateLimit(email, ip);
+  const allowed = await deps.checkRateLimit(email, ip, apiClientId);
   if (!allowed) return { ok: false, error: "Too many requests" };
 
   const code = String(randomInt(100_000, 1_000_000));
@@ -236,8 +257,13 @@ export async function issueVerificationCodeWithDeps(
   return { ok: true };
 }
 
-export function issueVerificationCode(email: string, ip: string, tenant: string | null = null) {
-  return issueVerificationCodeWithDeps(productionDeps, email, ip, tenant);
+export function issueVerificationCode(
+  email: string,
+  ip: string,
+  tenant: string | null = null,
+  apiClientId: string | null = null,
+) {
+  return issueVerificationCodeWithDeps(productionDeps, email, ip, tenant, apiClientId);
 }
 
 export const authEmail = createAuthEmailRoutes(productionDeps);

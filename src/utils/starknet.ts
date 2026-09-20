@@ -1,5 +1,4 @@
 import { RpcProvider, num } from "starknet";
-import { PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
 import { env } from "../config/env.js";
 import { CircuitBreaker } from "./circuitBreaker.js";
 import { createLogger } from "./logger.js";
@@ -21,7 +20,7 @@ const breaker = new CircuitBreaker();
 let _primary: RpcProvider | null = null;
 let _fallback: RpcProvider | null = null;
 
-const FALLBACK_RPC_URL = env.STARKNET_RPC_FALLBACK_URL || PUBLIC_RPC_FALLBACKS[0];
+const FALLBACK_RPC_URL = env.STARKNET_RPC_FALLBACK_URL;
 
 function getPrimary(): RpcProvider {
   if (!_primary) {
@@ -34,7 +33,12 @@ function getPrimary(): RpcProvider {
   return _primary;
 }
 
+export function hasFallback(): boolean {
+  return Boolean(FALLBACK_RPC_URL);
+}
+
 function getFallback(): RpcProvider {
+  if (!FALLBACK_RPC_URL) throw new Error("STARKNET_RPC_FALLBACK_URL is not set, so there is no RPC to fall back to");
   if (!_fallback) {
     _fallback = new RpcProvider({
       nodeUrl: FALLBACK_RPC_URL,
@@ -46,23 +50,23 @@ function getFallback(): RpcProvider {
 }
 
 export function createProvider(): RpcProvider {
-  if (breaker.shouldUsePrimary()) return getPrimary();
-  log.debug("Circuit breaker OPEN — using fallback RPC");
+  if (breaker.shouldUsePrimary() || !hasFallback()) return getPrimary();
+  log.debug("Circuit breaker OPEN, using the fallback RPC");
   return getFallback();
 }
 
 export async function callRpc<T>(fn: (provider: RpcProvider) => Promise<T>): Promise<T> {
-  const usePrimary = breaker.shouldUsePrimary();
+  const usePrimary = breaker.shouldUsePrimary() || !hasFallback();
   const provider = usePrimary ? getPrimary() : getFallback();
   try {
     const result = await fn(provider);
     if (usePrimary) breaker.recordSuccess();
     return result;
   } catch (err) {
-    if (usePrimary) {
+    if (usePrimary && hasFallback()) {
       breaker.recordFailure();
 
-      log.warn("Primary RPC failed — retrying on fallback");
+      log.warn("Primary RPC failed, retrying on the fallback");
       return fn(getFallback());
     }
     throw err;

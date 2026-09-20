@@ -1,5 +1,4 @@
 import { env } from "../config/env.js";
-import { PUBLIC_RPC_FALLBACKS } from "@medialane/sdk";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("utils:rpcFetch");
@@ -10,14 +9,12 @@ export function rpcEndpoints(): string[] {
   return Array.from(new Set([
     env.ALCHEMY_RPC_URL,
     env.STARKNET_RPC_FALLBACK_URL,
-    ...PUBLIC_RPC_FALLBACKS,
   ].filter((url): url is string => Boolean(url))));
 }
 
 export function redactRpcUrl(url: string): string {
   try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname.split("/").slice(0, 4).join("/")}`;
+    return new URL(url).origin;
   } catch {
     return "invalid-rpc-url";
   }
