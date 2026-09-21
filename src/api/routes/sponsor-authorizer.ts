@@ -19,7 +19,7 @@ export interface SponsorRequest {
 export interface SponsorDenial {
   status: 401 | 403 | 429;
   error: string;
-  code: "not_authorized" | "rate_limited";
+  code: "not_authorized" | "session_expired" | "rate_limited";
 }
 
 export interface SponsorAuthorizer {
@@ -27,6 +27,11 @@ export interface SponsorAuthorizer {
 }
 
 const NOT_SIGNED_IN: SponsorDenial = { status: 401, error: "Sign in to use sponsored transactions", code: "not_authorized" };
+const SESSION_EXPIRED: SponsorDenial = {
+  status: 401,
+  error: "Your sign-in has expired. Sign in again to keep using sponsored transactions.",
+  code: "session_expired",
+};
 const NOT_YOUR_WALLET: SponsorDenial = { status: 403, error: "This wallet does not belong to the signed-in account", code: "not_authorized" };
 const TOO_MANY: SponsorDenial = { status: 429, error: "Too many sponsored transactions. Try again in a minute.", code: "rate_limited" };
 
@@ -54,6 +59,7 @@ export function createSponsorAuthorizer(
           select: { accountId: true },
         });
         if (identity?.accountId !== accountId) {
+          const noSessionPresented = !sessionToken;
           log.warn(
             {
               address,
@@ -63,7 +69,7 @@ export function createSponsorAuthorizer(
             },
             identity ? "sponsored gas refused: the wallet belongs to another account" : "sponsored gas refused: the wallet is linked to no account",
           );
-          return NOT_YOUR_WALLET;
+          return noSessionPresented ? SESSION_EXPIRED : NOT_YOUR_WALLET;
         }
       }
 

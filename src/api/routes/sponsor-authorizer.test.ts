@@ -58,7 +58,7 @@ describe("who may spend sponsored gas", () => {
   test("an API client without a session sponsors only wallets of its own account", async () => {
     const { authorizer } = authorizerFor(owners);
     expect(await authorizer.authorize({ apiKeyAccountId: "acct-user", userAddress: WALLET })).toBeNull();
-    expect((await authorizer.authorize({ apiKeyAccountId: "acct-app", userAddress: WALLET }))?.status).toBe(403);
+    expect((await authorizer.authorize({ apiKeyAccountId: "acct-app", userAddress: WALLET }))?.code).toBe("session_expired");
   });
 
   test("the wallet is looked up in its stored address form", async () => {
@@ -87,5 +87,23 @@ describe("who may spend sponsored gas", () => {
       expect(await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET })).toBeNull();
     }
     expect(await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET })).toMatchObject({ status: 429, code: "rate_limited" });
+  });
+});
+
+describe("a caller whose sign-in never reached the backend", () => {
+  test("is told the session expired rather than that the wallet is not theirs", async () => {
+    const { authorizer } = authorizerFor(owners);
+    const denial = await authorizer.authorize({ apiKeyAccountId: "acct-app", userAddress: WALLET });
+    expect(denial).toEqual({
+      status: 401,
+      error: "Your sign-in has expired. Sign in again to keep using sponsored transactions.",
+      code: "session_expired",
+    });
+  });
+
+  test("a real mismatch with a live session still names the wallet", async () => {
+    const { authorizer } = authorizerFor(owners);
+    const denial = await authorizer.authorize({ sessionToken: "session:acct-attacker", userAddress: WALLET });
+    expect(denial).toMatchObject({ status: 403, code: "not_authorized" });
   });
 });

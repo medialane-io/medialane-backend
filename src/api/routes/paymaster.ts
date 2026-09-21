@@ -210,6 +210,7 @@ export type SponsorshipFailureCode =
   | "invalid_request"
   | "not_eligible"
   | "not_authorized"
+  | "session_expired"
   | "rate_limited"
   | "too_expensive"
   | "may_have_broadcast";
