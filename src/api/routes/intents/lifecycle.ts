@@ -73,12 +73,18 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: `Intent is ${intent.status}` }, 409);
     }
 
-    const proof = await verifyWalletSignature({
-      chain: intent.chain,
-      address: intent.requester,
-      typedData: intent.typedData,
-      signature: parsedBody.data.signature,
-    });
+    let proof: VerifyResult;
+    try {
+      proof = await verifyWalletSignature({
+        chain: intent.chain,
+        address: intent.requester,
+        typedData: intent.typedData,
+        signature: parsedBody.data.signature,
+      });
+    } catch (err) {
+      log.warn({ err, id, requester: intent.requester }, "Intent signature accepted unproven: the chain could not be read");
+      proof = { ok: false, reason: "not_deployed" };
+    }
 
     if (signatureIsRefused(proof)) {
       log.warn({ id, requester: intent.requester }, "Intent signature refused: it is not the requester's");
