@@ -4,6 +4,7 @@ import type { Hono } from "hono";
 import { type Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../../db/client.js";
 import { buildPopulatedCalls } from "../../../orchestrator/submit.js";
+import { verifyWalletSignature, type VerifyResult } from "../../../auth/verify.js";
 import type { AppEnv } from "../../../types/hono.js";
 import {
   log,
@@ -18,6 +19,12 @@ import {
   hydrateCreatedOrdersFromTx,
   hydrateFulfillmentFromTx,
 } from "./settle.js";
+
+export const NOT_THE_REQUESTERS_SIGNATURE = "That signature is not from the wallet this intent was built for";
+
+export function signatureIsRefused(proof: VerifyResult): boolean {
+  return !proof.ok && proof.reason === "invalid";
+}
 
 export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
 
@@ -64,6 +71,27 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     }
     if (intent.status !== "PENDING") {
       return c.json({ error: `Intent is ${intent.status}` }, 409);
+    }
+
+    let proof: VerifyResult;
+    try {
+      proof = await verifyWalletSignature({
+        chain: intent.chain,
+        address: intent.requester,
+        typedData: intent.typedData,
+        signature: parsedBody.data.signature,
+      });
+    } catch (err) {
+      log.warn({ err, id, requester: intent.requester }, "Intent signature accepted unproven: the chain could not be read");
+      proof = { ok: false, reason: "not_deployed" };
+    }
+
+    if (signatureIsRefused(proof)) {
+      log.warn({ id, requester: intent.requester }, "Intent signature refused: it is not the requester's");
+      return c.json({ error: NOT_THE_REQUESTERS_SIGNATURE }, 403);
+    }
+    if (!proof.ok) {
+      log.warn({ id, requester: intent.requester }, "Intent signature accepted unproven: the wallet is not on chain yet");
     }
 
     const populatedCalls = buildPopulatedCalls(
