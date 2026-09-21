@@ -15,10 +15,10 @@ function appWithSubject() {
   return app;
 }
 
-test("without a token the key still decides whose account it is", async () => {
+test("without a token nobody is signed in, so the app's own account is not served instead", async () => {
   const res = await appWithSubject().request("/me");
-  expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ apiClient: "client-key" });
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ error: "Sign in to use the portal" });
 });
 
 test("a forged or expired token is refused rather than falling back to the key", async () => {

@@ -15,13 +15,9 @@ function app() {
 }
 
 describe("crediting is not something a caller can ask for", () => {
-  test("a caller cannot report that it paid", async () => {
-    const res = await app().request("/credits/fund", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ txHash: "0xabc" }),
-    });
-    expect(res.status).toBe(404);
+  test("a caller cannot report that it paid", () => {
+    const funding = portal.routes.filter((r) => r.path.includes("fund"));
+    expect(funding).toEqual([]);
   });
 
   test("the ledger is still readable", async () => {
