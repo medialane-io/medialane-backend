@@ -209,8 +209,7 @@ export type SponsorshipFailureCode =
   | "not_executable"
   | "invalid_request"
   | "not_eligible"
-  | "not_authorized"
-  | "session_expired"
+  | "invalid_request_auth"
   | "rate_limited"
   | "too_expensive"
   | "may_have_broadcast";
@@ -249,10 +248,6 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
     return { status: 502, message: "The sponsored transaction may have been submitted. Check your activity before trying again.", code: "may_have_broadcast" };
   }
   return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" };
-}
-
-export function bearerToken(header: string | undefined): string | undefined {
-  return header?.startsWith("Bearer ") ? header.slice(7).trim() || undefined : undefined;
 }
 
 function txHashOf(result: unknown): string {
@@ -423,12 +418,7 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({
-      sessionToken: c.req.header("x-account-session"),
-      apiKeyAccountId: c.get("account")?.id,
-      userAddress: body?.userAddress,
-      identityToken: bearerToken(c.req.header("authorization")),
-    });
+    const denied = await authorizer.authorize({ userAddress: body?.userAddress });
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     const outcome = await buildSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
     return c.json(outcome.body, outcome.status);
@@ -438,12 +428,7 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({
-      sessionToken: c.req.header("x-account-session"),
-      apiKeyAccountId: c.get("account")?.id,
-      userAddress: body?.userAddress,
-      identityToken: bearerToken(c.req.header("authorization")),
-    });
+    const denied = await authorizer.authorize({ userAddress: body?.userAddress });
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     const outcome = await executeSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
     return c.json(outcome.body, outcome.status);
@@ -453,10 +438,7 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { ownerPubkey?: string; ownerAddress?: string; salt?: string }
       | null;
-    const denied = await authorizer.authorize({
-      sessionToken: c.req.header("x-account-session"),
-      apiKeyAccountId: c.get("account")?.id,
-    });
+    const denied = await authorizer.authorize({});
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required", code: "invalid_request" }, 400);
@@ -507,10 +489,7 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({
-      sessionToken: c.req.header("x-account-session"),
-      apiKeyAccountId: c.get("account")?.id,
-    });
+    const denied = await authorizer.authorize({});
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required", code: "invalid_request" }, 400);

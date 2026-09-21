@@ -6,150 +6,65 @@ import { createSponsorAuthorizer, SPONSORED_REQUESTS_PER_MINUTE } from "./sponso
 const WALLET = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const OTHER_WALLET = "0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321";
 
-function authorizerFor(owners: Record<string, string>) {
-  const lookups: string[] = [];
-  const db = {
-    identity: {
-      findUnique: async ({ where }: { where: { chain_address: { address: string } } }) => {
-        lookups.push(where.chain_address.address);
-        const accountId = owners[where.chain_address.address];
-        return accountId ? { accountId } : null;
-      },
-    },
-  } as never;
-  const authorizer = createSponsorAuthorizer(db, {
-    verifySession: (raw) => (raw.startsWith("session:") ? raw.slice("session:".length) : null),
-    store: new InMemoryRateLimitStore(),
-  });
-  return { authorizer, lookups };
+function authorizer() {
+  return createSponsorAuthorizer({} as never, { store: new InMemoryRateLimitStore() });
 }
 
-const owners = { [normalizeAddress("STARKNET", WALLET)]: "acct-user" };
-
-describe("who may spend sponsored gas", () => {
-  test("a request with no session and no account behind its key is refused", async () => {
-    const { authorizer } = authorizerFor(owners);
-    expect(await authorizer.authorize({ userAddress: WALLET })).toEqual({ status: 401, error: "Sign in to use sponsored transactions", code: "not_authorized" });
+describe("what sponsored gas asks of a caller", () => {
+  test("a wallet is sponsored without a session, because the signature is what proves it", async () => {
+    expect(await authorizer().authorize({ userAddress: WALLET })).toBeNull();
   });
 
-  test("a session that does not verify is refused even when the key has an account", async () => {
-    const { authorizer } = authorizerFor(owners);
-    const denial = await authorizer.authorize({ sessionToken: "forged", apiKeyAccountId: "acct-user", userAddress: WALLET });
-    expect(denial?.status).toBe(401);
+  test("a deploy, which names no wallet yet, is sponsored too", async () => {
+    expect(await authorizer().authorize({})).toBeNull();
   });
 
-  test("a signed-in account may sponsor its own wallet", async () => {
-    const { authorizer } = authorizerFor(owners);
-    expect(await authorizer.authorize({ sessionToken: "session:acct-user", apiKeyAccountId: "acct-app", userAddress: WALLET })).toBeNull();
-  });
-
-  test("a signed-in account may not sponsor someone else's wallet", async () => {
-    const { authorizer } = authorizerFor(owners);
-    const denial = await authorizer.authorize({ sessionToken: "session:acct-attacker", userAddress: WALLET });
-    expect(denial).toEqual({ status: 403, error: "This wallet does not belong to the signed-in account", code: "not_authorized" });
-  });
-
-  test("a wallet linked to no account is never sponsored", async () => {
-    const { authorizer } = authorizerFor(owners);
-    const denial = await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: OTHER_WALLET });
-    expect(denial?.status).toBe(403);
-  });
-
-  test("an API client without a session sponsors only wallets of its own account", async () => {
-    const { authorizer } = authorizerFor(owners);
-    expect(await authorizer.authorize({ apiKeyAccountId: "acct-user", userAddress: WALLET })).toBeNull();
-    expect((await authorizer.authorize({ apiKeyAccountId: "acct-app", userAddress: WALLET }))?.code).toBe("session_expired");
-  });
-
-  test("the wallet is looked up in its stored address form", async () => {
-    const { authorizer, lookups } = authorizerFor(owners);
-    await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: "0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" });
-    expect(lookups).toEqual([normalizeAddress("STARKNET", WALLET)]);
-  });
-
-  test("a deploy, which names no wallet yet, still needs a signed-in account", async () => {
-    const { authorizer } = authorizerFor(owners);
-    expect(await authorizer.authorize({})).toEqual({ status: 401, error: "Sign in to use sponsored transactions", code: "not_authorized" });
-    expect(await authorizer.authorize({ apiKeyAccountId: "acct-user" })).toBeNull();
-  });
-
-  test("a deploy counts against the same per-account minute as an invoke", async () => {
-    const { authorizer } = authorizerFor(owners);
-    for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {
-      expect(await authorizer.authorize({ sessionToken: "session:acct-user" })).toBeNull();
-    }
-    expect(await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET })).toMatchObject({ status: 429, code: "rate_limited" });
-  });
-
-  test("an account that sponsors too much in a minute is slowed down", async () => {
-    const { authorizer } = authorizerFor(owners);
-    for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {
-      expect(await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET })).toBeNull();
-    }
-    expect(await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET })).toMatchObject({ status: 429, code: "rate_limited" });
-  });
-});
-
-describe("a caller whose sign-in never reached the backend", () => {
-  test("is told the session expired rather than that the wallet is not theirs", async () => {
-    const { authorizer } = authorizerFor(owners);
-    const denial = await authorizer.authorize({ apiKeyAccountId: "acct-app", userAddress: WALLET });
-    expect(denial).toEqual({
-      status: 401,
-      error: "Your sign-in has expired. Sign in again to keep using sponsored transactions.",
-      code: "session_expired",
+  test("an address that cannot be read is refused", async () => {
+    expect(await authorizer().authorize({ userAddress: "not-an-address" })).toEqual({
+      status: 400,
+      error: "That wallet address could not be read",
+      code: "invalid_request",
     });
   });
 
-  test("a real mismatch with a live session still names the wallet", async () => {
-    const { authorizer } = authorizerFor(owners);
-    const denial = await authorizer.authorize({ sessionToken: "session:acct-attacker", userAddress: WALLET });
-    expect(denial).toMatchObject({ status: 403, code: "not_authorized" });
+  test("the same wallet written differently shares one allowance", async () => {
+    const auth = authorizer();
+    const unpadded = "0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    expect(normalizeAddress("STARKNET", unpadded)).toBe(WALLET);
+
+    for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {
+      expect(await auth.authorize({ userAddress: WALLET })).toBeNull();
+    }
+    expect(await auth.authorize({ userAddress: unpadded })).toMatchObject({ code: "rate_limited" });
   });
 });
 
-describe("a wallet that proves itself", () => {
-  function authorizerWithIdentity(owners: Record<string, string>) {
-    const db = {
-      identity: {
-        findUnique: async ({ where }: { where: { chain_address: { address: string } } }) => {
-          const accountId = owners[where.chain_address.address];
-          return accountId ? { accountId } : null;
-        },
-      },
-    } as never;
-    return createSponsorAuthorizer(db, {
-      verifySession: (raw) => (raw.startsWith("session:") ? raw.slice("session:".length) : null),
-      verifyIdentity: (raw) => (raw.startsWith("siws:") ? { address: raw.slice("siws:".length) } : null),
-      store: new InMemoryRateLimitStore(),
-    });
-  }
-
-  test("is sponsored on its own proof, with no session at all", async () => {
-    const authorizer = authorizerWithIdentity(owners);
-    expect(await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${WALLET}` })).toBeNull();
-  });
-
-  test("a proof for a different wallet does not carry", async () => {
-    const authorizer = authorizerWithIdentity(owners);
-    const denial = await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${OTHER_WALLET}` });
-    expect(denial?.status).toBe(401);
-  });
-
-  test("a forged proof falls back to the session rules", async () => {
-    const authorizer = authorizerWithIdentity(owners);
-    expect(
-      await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET, identityToken: "forged" }),
-    ).toBeNull();
-  });
-
-  test("proving a wallet still counts against its minute", async () => {
-    const authorizer = authorizerWithIdentity(owners);
+describe("how much one wallet may spend in a minute", () => {
+  test("a wallet over its minute is slowed down", async () => {
+    const auth = authorizer();
     for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {
-      expect(await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${WALLET}` })).toBeNull();
+      expect(await auth.authorize({ userAddress: WALLET })).toBeNull();
     }
-    expect(
-      await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${WALLET}` }),
-    ).toMatchObject({ code: "rate_limited" });
+    expect(await auth.authorize({ userAddress: WALLET })).toEqual({
+      status: 429,
+      error: "Too many sponsored transactions. Try again in a minute.",
+      code: "rate_limited",
+    });
+  });
+
+  test("one busy wallet does not slow another down", async () => {
+    const auth = authorizer();
+    for (let i = 0; i <= SPONSORED_REQUESTS_PER_MINUTE; i++) {
+      await auth.authorize({ userAddress: WALLET });
+    }
+    expect(await auth.authorize({ userAddress: OTHER_WALLET })).toBeNull();
+  });
+
+  test("deploys carry their own allowance, apart from any wallet", async () => {
+    const auth = authorizer();
+    for (let i = 0; i <= SPONSORED_REQUESTS_PER_MINUTE; i++) {
+      await auth.authorize({ userAddress: WALLET });
+    }
+    expect(await auth.authorize({})).toBeNull();
   });
 });
