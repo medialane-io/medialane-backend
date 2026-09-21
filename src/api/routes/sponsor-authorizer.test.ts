@@ -107,3 +107,49 @@ describe("a caller whose sign-in never reached the backend", () => {
     expect(denial).toMatchObject({ status: 403, code: "not_authorized" });
   });
 });
+
+describe("a wallet that proves itself", () => {
+  function authorizerWithIdentity(owners: Record<string, string>) {
+    const db = {
+      identity: {
+        findUnique: async ({ where }: { where: { chain_address: { address: string } } }) => {
+          const accountId = owners[where.chain_address.address];
+          return accountId ? { accountId } : null;
+        },
+      },
+    } as never;
+    return createSponsorAuthorizer(db, {
+      verifySession: (raw) => (raw.startsWith("session:") ? raw.slice("session:".length) : null),
+      verifyIdentity: (raw) => (raw.startsWith("siws:") ? { address: raw.slice("siws:".length) } : null),
+      store: new InMemoryRateLimitStore(),
+    });
+  }
+
+  test("is sponsored on its own proof, with no session at all", async () => {
+    const authorizer = authorizerWithIdentity(owners);
+    expect(await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${WALLET}` })).toBeNull();
+  });
+
+  test("a proof for a different wallet does not carry", async () => {
+    const authorizer = authorizerWithIdentity(owners);
+    const denial = await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${OTHER_WALLET}` });
+    expect(denial?.status).toBe(401);
+  });
+
+  test("a forged proof falls back to the session rules", async () => {
+    const authorizer = authorizerWithIdentity(owners);
+    expect(
+      await authorizer.authorize({ sessionToken: "session:acct-user", userAddress: WALLET, identityToken: "forged" }),
+    ).toBeNull();
+  });
+
+  test("proving a wallet still counts against its minute", async () => {
+    const authorizer = authorizerWithIdentity(owners);
+    for (let i = 0; i < SPONSORED_REQUESTS_PER_MINUTE; i++) {
+      expect(await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${WALLET}` })).toBeNull();
+    }
+    expect(
+      await authorizer.authorize({ userAddress: WALLET, identityToken: `siws:${WALLET}` }),
+    ).toMatchObject({ code: "rate_limited" });
+  });
+});

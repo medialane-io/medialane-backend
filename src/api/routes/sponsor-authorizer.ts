@@ -1,6 +1,7 @@
 import { normalizeAddress } from "@medialane/sdk";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { defaultStore, type RateLimitStore } from "../middleware/rateLimit.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -14,6 +15,8 @@ export interface SponsorRequest {
   sessionToken?: string;
   apiKeyAccountId?: string;
   userAddress?: string;
+
+  identityToken?: string;
 }
 
 export interface SponsorDenial {
@@ -35,14 +38,35 @@ const SESSION_EXPIRED: SponsorDenial = {
 const NOT_YOUR_WALLET: SponsorDenial = { status: 403, error: "This wallet does not belong to the signed-in account", code: "not_authorized" };
 const TOO_MANY: SponsorDenial = { status: 429, error: "Too many sponsored transactions. Try again in a minute.", code: "rate_limited" };
 
+function sameWallet(a: string, b: string): boolean {
+  try {
+    return normalizeAddress("STARKNET", a) === normalizeAddress("STARKNET", b);
+  } catch {
+    return false;
+  }
+}
+
 export function createSponsorAuthorizer(
   db: Db,
-  deps: { verifySession?: (raw: string) => string | null; store?: RateLimitStore } = {},
+  deps: {
+    verifySession?: (raw: string) => string | null;
+    verifyIdentity?: (raw: string) => { address: string } | null;
+    store?: RateLimitStore;
+  } = {},
 ): SponsorAuthorizer {
   const verifySession = deps.verifySession ?? verifyAccountSessionToken;
+  const verifyIdentity = deps.verifyIdentity ?? verifySiwsToken;
   const store = deps.store ?? defaultStore;
   return {
-    async authorize({ sessionToken, apiKeyAccountId, userAddress }) {
+    async authorize({ sessionToken, apiKeyAccountId, userAddress, identityToken }) {
+      if (identityToken && userAddress) {
+        const proven = verifyIdentity(identityToken);
+        if (proven && sameWallet(proven.address, userAddress)) {
+          const { count } = await store.increment(`sponsor:${normalizeAddress("STARKNET", userAddress)}`, 60_000);
+          return count > SPONSORED_REQUESTS_PER_MINUTE ? TOO_MANY : null;
+        }
+      }
+
       const accountId = sessionToken ? verifySession(sessionToken) : (apiKeyAccountId ?? null);
       if (!accountId) return NOT_SIGNED_IN;
 

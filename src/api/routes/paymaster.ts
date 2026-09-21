@@ -251,6 +251,10 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
   return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" };
 }
 
+export function bearerToken(header: string | undefined): string | undefined {
+  return header?.startsWith("Bearer ") ? header.slice(7).trim() || undefined : undefined;
+}
+
 function txHashOf(result: unknown): string {
   return (result as { transaction_hash: string }).transaction_hash;
 }
@@ -423,6 +427,7 @@ export default function paymaster(
       sessionToken: c.req.header("x-account-session"),
       apiKeyAccountId: c.get("account")?.id,
       userAddress: body?.userAddress,
+      identityToken: bearerToken(c.req.header("authorization")),
     });
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     const outcome = await buildSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
@@ -437,6 +442,7 @@ export default function paymaster(
       sessionToken: c.req.header("x-account-session"),
       apiKeyAccountId: c.get("account")?.id,
       userAddress: body?.userAddress,
+      identityToken: bearerToken(c.req.header("authorization")),
     });
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     const outcome = await executeSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
