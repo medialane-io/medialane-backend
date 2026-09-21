@@ -340,7 +340,7 @@ describe("upstream failures", () => {
   });
 });
 
-describe("sponsored invokes need an account that owns the wallet", () => {
+describe("a refused sponsored call never reaches the paymaster", () => {
   const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
   function appDenying(seen: SponsorRequest[], calls: unknown[]) {
@@ -357,7 +357,7 @@ describe("sponsored invokes need an account that owns the wallet", () => {
     const authorizer: SponsorAuthorizer = {
       authorize: async (request) => {
         seen.push(request);
-        return { status: 403, error: "This wallet does not belong to the signed-in account", code: "not_authorized" };
+        return { status: 429, error: "Too many sponsored transactions. Try again in a minute.", code: "rate_limited" };
       },
     };
     const app = new Hono<AppEnv>();
@@ -385,10 +385,10 @@ describe("sponsored invokes need an account that owns the wallet", () => {
           signature: ["0x1"],
         }),
       });
-      expect(res.status).toBe(403);
-      expect(((await res.json()) as { code?: string }).code).toBe("not_authorized");
+      expect(res.status).toBe(429);
+      expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
       expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{ sessionToken: "account_session_token", apiKeyAccountId: "acct-app" }]);
+      expect(seen).toEqual([{}]);
     });
   }
 
@@ -406,10 +406,10 @@ describe("sponsored invokes need an account that owns the wallet", () => {
           signature: ["0x1"],
         }),
       });
-      expect(res.status).toBe(403);
-      expect(((await res.json()) as { code?: string }).code).toBe("not_authorized");
+      expect(res.status).toBe(429);
+      expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
       expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{ sessionToken: "account_session_token", apiKeyAccountId: "acct-app", userAddress: USER }]);
+      expect(seen).toEqual([{ userAddress: USER }]);
     });
   }
 });
