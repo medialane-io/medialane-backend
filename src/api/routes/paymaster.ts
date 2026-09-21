@@ -11,25 +11,6 @@ import type { AppEnv } from "../../types/hono.js";
 const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
-
-const STRK_WEI = 10n ** 18n;
-const DEFAULT_MAX_SPONSORED_FEE_STRK = 0.5;
-
-export function maxSponsoredFeeWei(): bigint {
-  const configured = Number(process.env.MAX_SPONSORED_FEE_STRK);
-  const strk = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_MAX_SPONSORED_FEE_STRK;
-  return BigInt(Math.round(strk * 1e9)) * (STRK_WEI / 10n ** 9n);
-}
-
-export function sponsoredFeeWei(prepared: unknown): bigint | null {
-  const fee = (prepared as { fee?: { suggested_max_fee_in_strk?: unknown } } | null)?.fee;
-  if (fee?.suggested_max_fee_in_strk === undefined) return null;
-  try {
-    return BigInt(fee.suggested_max_fee_in_strk as string);
-  } catch {
-    return null;
-  }
-}
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
 
 export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
@@ -211,7 +192,6 @@ export type SponsorshipFailureCode =
   | "not_eligible"
   | "invalid_request_auth"
   | "rate_limited"
-  | "too_expensive"
   | "may_have_broadcast";
 
 export interface PaymasterErrorResult {
@@ -310,22 +290,6 @@ export async function buildSponsoredInvoke(
       SPONSORED,
     )) as { typed_data: unknown };
 
-    const feeWei = sponsoredFeeWei(prepared);
-    const capWei = maxSponsoredFeeWei();
-    if (feeWei !== null && feeWei > capWei) {
-      log.error(
-        { userAddress: body.userAddress, calls: body.calls, feeWei: feeWei.toString(), capWei: capWei.toString() },
-        "sponsored invoke build: over the per-transaction gas ceiling",
-      );
-      return {
-        status: 400,
-        body: { error: "This transaction costs more gas than Medialane sponsors in one go", code: "too_expensive" },
-      };
-    }
-    log.info(
-      { userAddress: body.userAddress, feeWei: feeWei === null ? null : feeWei.toString() },
-      "sponsored invoke built",
-    );
 
     return { status: 200, body: { typedData: prepared.typed_data } };
   } catch (err) {
@@ -335,21 +299,6 @@ export async function buildSponsoredInvoke(
   }
 }
 
-export async function exceedsGasCeiling(
-  deps: SponsoredInvokeDeps,
-  userAddress: string,
-  calls: SponsoredCall[],
-): Promise<{ feeWei: string; capWei: string } | null> {
-  let prepared: unknown;
-  try {
-    prepared = await deps.clientFactory().buildTransaction({ type: "invoke", invoke: { userAddress, calls } }, SPONSORED);
-  } catch {
-    return null;
-  }
-  const feeWei = sponsoredFeeWei(prepared);
-  const capWei = maxSponsoredFeeWei();
-  return feeWei !== null && feeWei > capWei ? { feeWei: feeWei.toString(), capWei: capWei.toString() } : null;
-}
 
 export async function executeSponsoredInvoke(
   deps: SponsoredInvokeDeps,
@@ -378,17 +327,6 @@ export async function executeSponsoredInvoke(
   } catch (err) {
     log.warn({ err, userAddress: body.userAddress }, "sponsored invoke execute: typedData does not match submitted calls");
     return { status: 400, body: { error: "typedData does not match the submitted calls", code: "invalid_request" } };
-  }
-  const overCeiling = await exceedsGasCeiling(deps, body.userAddress, body.calls as SponsoredCall[]);
-  if (overCeiling) {
-    log.error(
-      { userAddress: body.userAddress, calls: body.calls, ...overCeiling },
-      "sponsored invoke execute: over the per-transaction gas ceiling",
-    );
-    return {
-      status: 400,
-      body: { error: "This transaction costs more gas than Medialane sponsors in one go", code: "too_expensive" },
-    };
   }
 
   try {
