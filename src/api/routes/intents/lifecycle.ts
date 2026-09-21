@@ -20,6 +20,10 @@ import {
   hydrateFulfillmentFromTx,
 } from "./settle.js";
 
+export function belongsToCaller(intentAccountId: string | null, callerAccountId: string): boolean {
+  return intentAccountId !== null && intentAccountId === callerAccountId;
+}
+
 export const NOT_THE_REQUESTERS_SIGNATURE = "That signature is not from the wallet this intent was built for";
 
 export function signatureIsRefused(proof: VerifyResult): boolean {
@@ -33,8 +37,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    const callerAccountId = c.get("account").id;
-    if (!intent.accountId || intent.accountId !== callerAccountId) {
+    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -61,8 +64,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    const callerAccountId = c.get("account").id;
-    if (!intent.accountId || intent.accountId !== callerAccountId) {
+    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -115,8 +117,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    const callerAccountId = c.get("account").id;
-    if (!intent.accountId || intent.accountId !== callerAccountId) {
+    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
       return c.json({ error: "Intent not found" }, 404);
     }
 
@@ -162,8 +163,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 
-    const callerAccountId = c.get("account").id;
-    if (!intent.accountId || intent.accountId !== callerAccountId) {
+    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
       return c.json({ error: "Intent not found" }, 404);
     }
 

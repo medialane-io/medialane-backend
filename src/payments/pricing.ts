@@ -4,7 +4,7 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("payments:pricing");
 
-const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string; exact?: boolean }> = [
+export const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string; exact?: boolean }> = [
   { method: "POST", prefix: "/v1/intents/mint", actionKey: "intent:mint" },
   { method: "POST", prefix: "/v1/intents/create-collection", actionKey: "intent:create-collection" },
   { method: "POST", prefix: "/v1/intents/create-tier", actionKey: "intent:create-tier" },

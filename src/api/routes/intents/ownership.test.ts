@@ -1,19 +1,16 @@
-import { test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { belongsToCaller } from "./lifecycle.js";
 
-function callerMayTouch(intentAccountId: string | null, callerAccountId: string): boolean {
-  return !(!intentAccountId || intentAccountId !== callerAccountId);
-}
+describe("which intents a caller may act on", () => {
+  test("its own", () => {
+    expect(belongsToCaller("acc_1", "acc_1")).toBe(true);
+  });
 
-test("the owner may act on their own intent", () => {
-  expect(callerMayTouch("acc_1", "acc_1")).toBe(true);
-});
+  test("not another caller's", () => {
+    expect(belongsToCaller("acc_1", "acc_2")).toBe(false);
+  });
 
-test("another account may not", () => {
-  expect(callerMayTouch("acc_1", "acc_2")).toBe(false);
-});
-
-test("an ownerless intent belongs to nobody, so nobody may act on it", () => {
-
-  expect(callerMayTouch(null, "acc_1")).toBe(false);
-  expect(callerMayTouch(null, "acc_2")).toBe(false);
+  test("an intent belonging to nobody belongs to nobody", () => {
+    expect(belongsToCaller(null, "acc_1")).toBe(false);
+  });
 });
