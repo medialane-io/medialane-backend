@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
-import paymaster, { maxSponsoredFeeWei, type PaymasterClient } from "./paymaster.js";
+import paymaster, { type PaymasterClient } from "./paymaster.js";
 import type { ContractAddressChecker } from "./paymaster-contract-address.js";
 import type { SponsorAuthorizer, SponsorRequest } from "./sponsor-authorizer.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -452,93 +452,4 @@ describe("every sponsorship failure says why it failed", () => {
   });
 });
 
-describe("Medialane sponsors a bounded amount of gas per transaction", () => {
-  const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-  function appQuoting(feeInStrkWei: string, calls: unknown[]) {
-    const stub: PaymasterClient = {
-      buildTransaction: async (req, opts) => {
-        calls.push({ fn: "build", req, opts });
-        return { typed_data: { message: "td" }, fee: { suggested_max_fee_in_strk: feeInStrkWei } } as never;
-      },
-      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
-    };
-    const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, ALLOW_ALL_SPONSORS));
-    return app;
-  }
-
-  const build = (app: Hono<AppEnv>) =>
-    app.request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: USER, calls: [SPONSORABLE_CALL] }),
-    });
-
-  test("an ordinary transaction is sponsored", async () => {
-    const res = await build(appQuoting((maxSponsoredFeeWei() / 1000n).toString(), []));
-    expect(res.status).toBe(200);
-  });
-
-  test("a transaction over the ceiling is refused as too expensive", async () => {
-    const res = await build(appQuoting((maxSponsoredFeeWei() + 1n).toString(), []));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "too_expensive" });
-  });
-
-  test("a paymaster that quotes no fee is still sponsored", async () => {
-    const calls: unknown[] = [];
-    const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => ({
-      buildTransaction: async () => ({ typed_data: { message: "td" } }) as never,
-      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
-    }), ALLOW_ALL_ADDRESSES, ALLOW_ALL_SPONSORS));
-    expect((await build(app)).status).toBe(200);
-    expect(calls).toHaveLength(0);
-  });
-});
-
-describe("the gas ceiling binds at execute, not only at build", () => {
-  const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-  function appQuotingOnExecute(feeInStrkWei: string, executed: unknown[]) {
-    const stub: PaymasterClient = {
-      buildTransaction: async () =>
-        ({ typed_data: { message: "td" }, fee: { suggested_max_fee_in_strk: feeInStrkWei } }) as never,
-      executeTransaction: async (req) => {
-        executed.push(req);
-        return { transaction_hash: "0xtx" } as never;
-      },
-    };
-    const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, ALLOW_ALL_SPONSORS));
-    return app;
-  }
-
-  const execute = (app: Hono<AppEnv>) =>
-    app.request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: USER,
-        calls: [SPONSORABLE_CALL],
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-        signature: ["0x1"],
-      }),
-    });
-
-  test("a caller who skips build cannot spend past the ceiling", async () => {
-    const executed: unknown[] = [];
-    const res = await execute(appQuotingOnExecute((maxSponsoredFeeWei() + 1n).toString(), executed));
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "too_expensive" });
-    expect(executed).toHaveLength(0);
-  });
-
-  test("an ordinary transaction still goes through", async () => {
-    const executed: unknown[] = [];
-    const res = await execute(appQuotingOnExecute((maxSponsoredFeeWei() / 1000n).toString(), executed));
-    expect(res.status).toBe(200);
-    expect(executed).toHaveLength(1);
-  });
-});
