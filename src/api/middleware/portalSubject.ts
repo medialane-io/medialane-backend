@@ -15,7 +15,9 @@ const accountSelect = {
 
 export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const header = c.req.header("Authorization");
-  if (!header?.startsWith("Bearer ")) return next();
+  if (!header?.startsWith("Bearer ")) {
+    return c.json({ error: "Sign in to use the portal" }, 401);
+  }
   const raw = header.slice(7);
 
   const accountId = verifyAccountSessionToken(raw);
