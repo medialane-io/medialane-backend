@@ -232,3 +232,23 @@ export async function checkOnChainOrderCancelled(orderHash: string, is1155: bool
     return false;
   }
 }
+
+export async function fetchTransactionSender(txHash: string): Promise<string | null> {
+  const json = await postRpc<Record<string, unknown>>(
+    {
+      jsonrpc: "2.0",
+      method: "starknet_getTransactionByHash",
+      params: { transaction_hash: txHash },
+      id: 1,
+    },
+    { txHash },
+  ).catch(() => null);
+
+  const sender = json?.result?.sender_address;
+  return typeof sender === "string" ? safeNormalizeAddress(sender) : null;
+}
+
+export function sentBySomeoneElse(sender: string | null, requester: string): boolean {
+  if (!sender) return false;
+  return safeNormalizeAddress(sender) !== safeNormalizeAddress(requester);
+}
