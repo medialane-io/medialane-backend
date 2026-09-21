@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
+import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
 import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { generateApiKey } from "../../utils/apiKey.js";
@@ -133,7 +134,12 @@ siws.post(
       select: { id: true },
     });
 
-    return c.json({ token, accountId, apiClientId: apiClient.id });
+    return c.json({
+      token,
+      accountId,
+      apiClientId: apiClient.id,
+      accountToken: issueAccountSessionToken(accountId),
+    });
   }
 );
 
