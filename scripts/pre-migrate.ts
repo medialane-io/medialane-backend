@@ -90,32 +90,8 @@ async function main() {
   await markApplied("20260505000000_add_siws_nonce");
 
   await prisma.$executeRaw`DROP INDEX IF EXISTS "Report_targetKey_reporterUserId_key"`;
-  await prisma.$executeRaw`DROP INDEX IF EXISTS "User_clerkUserId_key"`;
-  await prisma.$executeRaw`DROP INDEX IF EXISTS "User_clerkUserId_idx"`;
   await prisma.$executeRaw`ALTER TABLE "Report" DROP COLUMN IF EXISTS "reporterUserId"`;
   await prisma.$executeRaw`ALTER TABLE "Report" ADD COLUMN IF NOT EXISTS "reporterWallet" TEXT NOT NULL DEFAULT ''`;
-  await prisma.$executeRaw`ALTER TABLE IF EXISTS "User" DROP COLUMN IF EXISTS "clerkUserId"`;
-  await prisma.$executeRaw`ALTER TABLE IF EXISTS "User" DROP COLUMN IF EXISTS "id"`;
-  await prisma.$executeRaw`
-    DO $$
-    BEGIN
-      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'User')
-      AND NOT EXISTS (
-        SELECT 1
-        FROM information_schema.key_column_usage kcu
-        JOIN information_schema.table_constraints tc
-          ON tc.constraint_name = kcu.constraint_name
-         AND tc.table_name     = kcu.table_name
-        WHERE kcu.table_name  = 'User'
-          AND tc.constraint_type = 'PRIMARY KEY'
-          AND kcu.column_name    = 'walletAddress'
-      ) THEN
-        ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_pkey";
-        ALTER TABLE "User" ADD CONSTRAINT "User_pkey" PRIMARY KEY ("walletAddress");
-      END IF;
-    END
-    $$
-  `;
   await prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "Report_targetKey_reporterWallet_key" ON "Report"("targetKey", "reporterWallet")`;
   await markApplied("20260504000000_identity_wallet_pk");
 
