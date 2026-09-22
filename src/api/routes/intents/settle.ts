@@ -4,8 +4,8 @@ import prisma from "../../../db/client.js";
 import { normalizeAddress, normalizeHash } from "../../../utils/starknet.js";
 import {
   verifyMarketplaceTx,
-  fetchTransactionSender,
-  sentBySomeoneElse,
+  fetchTransactionOwnership,
+  settledByAnotherWallet,
   verifyTransactionSucceeded,
   checkOnChainOrderCancelled,
   fetchMarketplaceReceiptEvents,
@@ -41,11 +41,11 @@ export async function verifyAndSettle(intentId: string, txHash: string): Promise
     : await verifyTransactionSucceeded(txHash);
 
   if (verifyResult.status === "CONFIRMED" && intent?.requester) {
-    const sender = await fetchTransactionSender(txHash);
-    if (sentBySomeoneElse(sender, intent.requester)) {
+    const ownership = await fetchTransactionOwnership(txHash);
+    if (settledByAnotherWallet(ownership, intent.requester)) {
       log.warn(
-        { intentId, txHash, sender, requester: intent.requester },
-        "Intent refused: the transaction was sent by another wallet",
+        { intentId, txHash, sender: ownership.sender, requester: intent.requester },
+        "Intent refused: the transaction does not belong to the wallet it was built for",
       );
       await prisma.transactionIntent.update({
         where: { id: intentId },

@@ -233,7 +233,12 @@ export async function checkOnChainOrderCancelled(orderHash: string, is1155: bool
   }
 }
 
-export async function fetchTransactionSender(txHash: string): Promise<string | null> {
+export interface TransactionOwnership {
+  sender: string | null;
+  calldata: string[] | null;
+}
+
+export async function fetchTransactionOwnership(txHash: string): Promise<TransactionOwnership> {
   const json = await postRpc<Record<string, unknown>>(
     {
       jsonrpc: "2.0",
@@ -244,11 +249,19 @@ export async function fetchTransactionSender(txHash: string): Promise<string | n
     { txHash },
   ).catch(() => null);
 
-  const sender = json?.result?.sender_address;
-  return typeof sender === "string" ? safeNormalizeAddress(sender) : null;
+  const result = json?.result as Record<string, unknown> | undefined;
+  const sender = typeof result?.sender_address === "string" ? result.sender_address : null;
+  const calldata = Array.isArray(result?.calldata)
+    ? (result.calldata as unknown[]).filter((entry): entry is string => typeof entry === "string")
+    : null;
+
+  return { sender, calldata };
 }
 
-export function sentBySomeoneElse(sender: string | null, requester: string): boolean {
-  if (!sender) return false;
-  return safeNormalizeAddress(sender) !== safeNormalizeAddress(requester);
+export function settledByAnotherWallet(tx: TransactionOwnership, requester: string): boolean {
+  const owner = safeNormalizeAddress(requester);
+  if (!owner) return false;
+  if (!tx.sender) return false;
+  if (safeNormalizeAddress(tx.sender) === owner) return false;
+  return !tx.calldata?.some((entry) => safeNormalizeAddress(entry) === owner);
 }
