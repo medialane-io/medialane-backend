@@ -20,7 +20,7 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
   return {
     isAccountOwner: async () => true,
     deriveWalletAddress: () => "0x111",
-    findAccountWallet: async () => null,
+    findExistingWalletForRecipient: async () => null,
     getProvisioningByRecipient: async ({ recipientScheme, recipientValue, apiClientId }) =>
       [...store.values()].find(
         (r) =>
@@ -155,7 +155,7 @@ describe("POST /v1/business/provisioning", () => {
   test("reuses the wallet an account already has instead of deploying another", async () => {
     let deploys = 0;
     const deps = fakeDeps({
-      findAccountWallet: async () => "0xexisting",
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-x", walletAddress: "0xexisting" }),
       deployWallet: async () => { deploys += 1; return "0xtx"; },
     });
     const app = makeApp(deps);
@@ -182,7 +182,7 @@ describe("POST /v1/business/provisioning", () => {
   test("deploys a wallet for an account that exists but has none", async () => {
     let deploys = 0;
     const deps = fakeDeps({
-      findAccountWallet: async () => null,
+      findExistingWalletForRecipient: async () => null,
       deployWallet: async () => { deploys += 1; return "0xtx"; },
     });
     const app = makeApp(deps);
@@ -447,5 +447,115 @@ describe("POST /v1/business/provisioning/:id/complete", () => {
     const app = makeApp(deps);
     const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("recipient wallet reuse across tenants", () => {
+  function reuseDeps(overrides: Partial<BusinessProvisioningDeps> = {}) {
+    let deployCalls = 0;
+    const deps = fakeDeps({
+      deployWallet: async () => {
+        deployCalls += 1;
+        return "0xdeploytx";
+      },
+      ...overrides,
+    });
+    return { deps, deployCalls: () => deployCalls };
+  }
+
+  const body = {
+    chain: "STARKNET",
+    recipientScheme: "email",
+    recipientValue: "salvadorcamino@gmail.com",
+    interimOwnerPubkey: "0xbee7",
+    derivationSalt: "salt-0123456789abcdef",
+    deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
+  };
+
+  async function post(app: ReturnType<typeof makeApp>, payload: unknown = body) {
+    return app.request("/v1/business/provisioning", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  test("reuses a wallet the recipient already has under another tenant", async () => {
+    const { deps, deployCalls } = reuseDeps({
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
+    });
+    const res = await post(makeApp(deps));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.reusedExistingWallet).toBe(true);
+    expect(json.data.walletAddress).toBe("0xabc123");
+    expect(deployCalls()).toBe(0);
+  });
+
+  test("deploys when the recipient has no wallet anywhere", async () => {
+    const { deps, deployCalls } = reuseDeps({
+      findExistingWalletForRecipient: async () => null,
+    });
+    const res = await post(makeApp(deps));
+
+    expect(res.status).toBe(201);
+    expect(deployCalls()).toBe(1);
+  });
+
+  test("records no interim owner on a reused wallet", async () => {
+    const { deps } = reuseDeps({
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
+    });
+    const res = await post(makeApp(deps));
+    const json = await res.json();
+
+    expect(json.data.interimOwnerPubkey).toBeNull();
+  });
+
+  test("marks a reused row REUSED rather than DEPLOYED", async () => {
+    const { deps } = reuseDeps({
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
+    });
+    const res = await post(makeApp(deps));
+    const json = await res.json();
+
+    expect(json.data.status).toBe("REUSED");
+  });
+
+  test("does not create a second account when reusing", async () => {
+    let ensureCalls = 0;
+    const { deps } = reuseDeps({
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
+      ensureRecipientAccount: async (_s, v) => {
+        ensureCalls += 1;
+        return `acct-for-${v}`;
+      },
+    });
+    await post(makeApp(deps));
+
+    expect(ensureCalls).toBe(0);
+  });
+
+  test("refuses handoff on a reused wallet the business never controlled", async () => {
+    const { deps } = reuseDeps({
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
+    });
+    const app = makeApp(deps);
+    await post(app);
+
+    const res = await app.request("/v1/business/provisioning/handoff", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chain: "STARKNET",
+        recipientScheme: "email",
+        recipientValue: "salvadorcamino@gmail.com",
+        newOwnerPubkey: "0xcafe",
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("wallet_not_provisioned_by_caller");
   });
 });
