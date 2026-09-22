@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { computeAccountAddress, buildAddOwnerCall, buildRemoveOwnerCall } from "@medialane/sdk/starknet";
 import { executeSponsoredDeploy } from "./paymaster.js";
 import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
@@ -218,11 +218,10 @@ const productionDeps: BusinessProvisioningDeps = {
     return row ? assertLinked(row) : null;
   },
   findExistingWalletForRecipient: async (chain, recipientScheme, recipientValue) => {
-    const isEmail = recipientScheme === IDENTITY_SCHEME.EMAIL;
     const identities = await prisma.identity.findMany({
       where: {
         scheme: recipientScheme,
-        value: isEmail ? { equals: recipientValue, mode: "insensitive" } : recipientValue,
+        value: normalizeIdentityValue(recipientScheme, recipientValue),
       },
       select: { accountId: true },
     });
