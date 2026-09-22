@@ -1,6 +1,6 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
-import { IDENTITY_SCHEME } from "./identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
 import type { Chain, AccountType, AccountRole } from "@prisma/client";
 
 async function ensureApiClient(accountId: string): Promise<void> {
@@ -187,10 +187,11 @@ export async function ensureAccountForWallet(params: {
 
 export async function ensureAccountForIdentity(
   scheme: string,
-  value: string,
+  rawValue: string,
   tenantId: string,
   accountType: AccountType = "PERSON",
 ): Promise<{ accountId: string; created: boolean }> {
+  const value = normalizeIdentityValue(scheme, rawValue);
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { computeAccountAddress, buildAddOwnerCall, buildRemoveOwnerCall } from "@medialane/sdk/starknet";
 import { executeSponsoredDeploy } from "./paymaster.js";
 import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
@@ -21,7 +21,7 @@ export interface ProvisioningRecord {
   walletAddress: string;
   recipientScheme: string;
   recipientValue: string;
-  interimOwnerPubkey: string;
+  interimOwnerPubkey: string | null;
   newOwnerPubkey: string | null;
   status: ProvisioningStatus;
 }
@@ -31,10 +31,14 @@ export interface BusinessProvisioningDeps {
   deriveWalletAddress: (ownerPubkey: string) => string;
   deployWallet: (input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown }) => Promise<string>;
   ensureRecipientAccount: (recipientScheme: string, recipientValue: string) => Promise<string | null>;
-  findAccountWallet: (chain: Chain, accountId: string) => Promise<string | null>;
+  findExistingWalletForRecipient: (
+    chain: Chain,
+    recipientScheme: string,
+    recipientValue: string,
+  ) => Promise<{ accountId: string; walletAddress: string } | null>;
   linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
   createProvisioning: (input: {
-    apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string; derivationSalt: string;
+    apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string | null; derivationSalt: string; status?: ProvisioningStatus;
   }) => Promise<ProvisioningRecord>;
   listProvisioning: (apiClientId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
   getProvisioningById: (id: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
@@ -81,26 +85,25 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
     const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
 
-    const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+    const existing = await deps.findExistingWalletForRecipient(chain, recipientScheme, recipientValue);
 
-    const existingWallet = recipientAccountId
-      ? await deps.findAccountWallet(chain, recipientAccountId)
-      : null;
-
-    if (existingWallet) {
+    if (existing) {
       bill(c, 0);
       const record = await deps.createProvisioning({
         apiClientId: apiClient.id,
         accountId: apiClient.accountId,
         chain,
-        walletAddress: existingWallet,
+        walletAddress: existing.walletAddress,
         recipientScheme,
         recipientValue,
-        interimOwnerPubkey: normPubkey,
+        interimOwnerPubkey: null,
         derivationSalt,
+        status: "REUSED",
       });
       return c.json({ data: record, reusedExistingWallet: true }, 200);
     }
+
+    const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
 
     try {
       await deps.deployWallet({
@@ -143,6 +146,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
       apiClientId: apiClient.id,
     });
     if (!record) return c.json({ error: "not_found" }, 404);
+    if (record.status === "REUSED") return c.json({ error: "wallet_not_provisioned_by_caller" }, 409);
     if (record.status === "TRANSFERRED") return c.json({ error: "already_transferred" }, 409);
 
     const updated = await deps.recordNewOwnerPubkey(record.id, normalizeAddress(chain, newOwnerPubkey));
@@ -154,6 +158,9 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     const apiClient = c.get("apiClient");
     const record = await deps.getProvisioningById(id, apiClient.id);
     if (!record) return c.json({ error: "not_found" }, 404);
+    if (record.status === "REUSED" || !record.interimOwnerPubkey) {
+      return c.json({ error: "wallet_not_provisioned_by_caller" }, 409);
+    }
     if (!record.newOwnerPubkey) return c.json({ error: "no_recipient_key_yet" }, 409);
 
     return c.json({
@@ -169,6 +176,9 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     const apiClient = c.get("apiClient");
     const record = await deps.getProvisioningById(id, apiClient.id);
     if (!record) return c.json({ error: "not_found" }, 404);
+    if (record.status === "REUSED" || !record.interimOwnerPubkey) {
+      return c.json({ error: "wallet_not_provisioned_by_caller" }, 409);
+    }
     if (!record.newOwnerPubkey) return c.json({ error: "not_claimed_yet" }, 409);
 
     const [newOwnerConfirmed, interimStillOwner] = await Promise.all([
@@ -207,13 +217,24 @@ const productionDeps: BusinessProvisioningDeps = {
     const row = await prisma.businessProvisioning.findUnique({ where: { id } });
     return row ? assertLinked(row) : null;
   },
-  findAccountWallet: async (chain, accountId) => {
-    const identity = await prisma.identity.findFirst({
-      where: { accountId, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-      select: { address: true },
+  findExistingWalletForRecipient: async (chain, recipientScheme, recipientValue) => {
+    const identities = await prisma.identity.findMany({
+      where: {
+        scheme: recipientScheme,
+        value: normalizeIdentityValue(recipientScheme, recipientValue),
+      },
+      select: { accountId: true },
     });
-    return identity?.address ?? null;
+    if (identities.length === 0) return null;
+
+    const accountIds = [...new Set(identities.map((i) => i.accountId))];
+    const wallet = await prisma.identity.findFirst({
+      where: { accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      select: { accountId: true, address: true },
+    });
+    if (!wallet?.address) return null;
+    return { accountId: wallet.accountId, walletAddress: wallet.address };
   },
   ensureRecipientAccount: async (recipientScheme, recipientValue) => {
     const tenantId = await requireTenant("MEDIALANE_SDK");

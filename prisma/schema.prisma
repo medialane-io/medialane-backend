@@ -357,6 +357,7 @@ model ClaimChallenge {
 
 enum ProvisioningStatus {
   DEPLOYED
+  REUSED
   HANDOFF
   TRANSFERRED
 }
@@ -368,7 +369,7 @@ model BusinessProvisioning {
   walletAddress      String
   recipientScheme    String
   recipientValue     String
-  interimOwnerPubkey String
+  interimOwnerPubkey String?
   newOwnerPubkey     String?
   derivationSalt     String?
   status             ProvisioningStatus @default(DEPLOYED)
