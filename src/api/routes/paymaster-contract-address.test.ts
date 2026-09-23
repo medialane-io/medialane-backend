@@ -4,15 +4,21 @@ import { createContractAddressChecker } from "./paymaster-contract-address.js";
 
 const coords = getCoordinates("STARKNET");
 
-function fakeDb(collections: Record<string, string>) {
+function fakeDb(collections: Record<string, string>, provisionedWallets: string[] = []) {
   const normalized = Object.fromEntries(
     Object.entries(collections).map(([addr, service]) => [normalizeAddress("STARKNET", addr), service]),
   );
+  const provisioned = new Set(provisionedWallets.map((a) => normalizeAddress("STARKNET", a)));
   return {
     collection: {
       async findUnique({ where }: { where: { chain_contractAddress: { contractAddress: string } } }) {
         const service = normalized[where.chain_contractAddress.contractAddress];
         return service ? { service } : null;
+      },
+    },
+    businessProvisioning: {
+      async findFirst({ where }: { where: { walletAddress: string } }) {
+        return provisioned.has(where.walletAddress) ? { id: "provisioning-1" } : null;
       },
     },
   } as never;
@@ -78,5 +84,25 @@ describe("createContractAddressChecker: malformed input", () => {
   test("fails closed instead of throwing on a non-address contractAddress", async () => {
     const checker = createContractAddressChecker(fakeDb({}));
     expect(await checker.isEligible("not-an-address")).toBe(false);
+  });
+});
+
+describe("createContractAddressChecker: wallets Medialane provisioned", () => {
+  const wallet = "0x071c174b93d24b72fc4b25e1d28fce1267e30c4c57fa4b0980a403a97fa84f5f";
+  const stranger = "0x03a90664ef86880dbe6bf9c6c8f874177944a3e48b40463e8de60bcb3d4790f5";
+
+  test("accepts a wallet we provisioned, so its handoff can be sponsored", async () => {
+    const checker = createContractAddressChecker(fakeDb({}, [wallet]));
+    expect(await checker.isEligible(wallet)).toBe(true);
+  });
+
+  test("accepts it written unpadded, because addresses arrive both ways", async () => {
+    const checker = createContractAddressChecker(fakeDb({}, [wallet]));
+    expect(await checker.isEligible("0x71c174b93d24b72fc4b25e1d28fce1267e30c4c57fa4b0980a403a97fa84f5f")).toBe(true);
+  });
+
+  test("rejects a wallet we never provisioned", async () => {
+    const checker = createContractAddressChecker(fakeDb({}, [wallet]));
+    expect(await checker.isEligible(stranger)).toBe(false);
   });
 });
