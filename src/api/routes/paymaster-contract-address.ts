@@ -43,7 +43,13 @@ export function createContractAddressChecker(db: Db): ContractAddressChecker {
       if (trusted.has(normalized)) return true;
       if (getTokenByAddress(normalized)) return true;
 
-      return (await resolveServiceForContract(db, "STARKNET", normalized)) != null;
+      if ((await resolveServiceForContract(db, "STARKNET", normalized)) != null) return true;
+
+      const provisioned = await db.businessProvisioning.findFirst({
+        where: { chain: "STARKNET", walletAddress: normalized },
+        select: { id: true },
+      });
+      return provisioned != null;
     },
   };
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { ALLOWED_PAYMASTER_ENTRYPOINTS } from "./paymaster.js";
+import { buildAddOwnerCall, buildRemoveOwnerCall } from "@medialane/sdk/starknet";
 
 const INTENT_DIR = join(import.meta.dir, "../../orchestrator/intent");
 
@@ -30,3 +31,14 @@ describe("paymaster entrypoint allowlist", () => {
   });
 });
 
+
+describe("handing a provisioned wallet to the person it was made for", () => {
+  const wallet = "0x071c174b93d24b72fc4b25e1d28fce1267e30c4c57fa4b0980a403a97fa84f5f";
+  const recipientKey = "0x034cc13b274446654ca3233ed2c1620d4c5d1d32fd20b47146a3371064bdc57d";
+
+  test("every call the handoff route hands out can be sponsored", () => {
+    const calls = [buildAddOwnerCall(wallet, recipientKey), buildRemoveOwnerCall(wallet, recipientKey)];
+    const missing = calls.map((c) => c.entrypoint).filter((e) => !ALLOWED_PAYMASTER_ENTRYPOINTS.has(e));
+    expect(missing).toEqual([]);
+  });
+});
