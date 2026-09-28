@@ -13,7 +13,6 @@ import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from ".
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
-import { toErrorMessage } from "../../utils/error.js";
 import { callRpc } from "../../utils/starknet.js";
 import { parseStandardFilter } from "./collections.standardFilter.js";
 import { registerCollectionSyncRoutes } from "./collections-sync.js";

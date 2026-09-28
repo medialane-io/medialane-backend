@@ -62,8 +62,10 @@ export function createdCollectionId(events: ReceiptEvent[], registry: string): s
   return null;
 }
 
-const notReady = (c: Context<AppEnv>, err: unknown) =>
-  c.json({ error: err instanceof Error ? err.message : "This step is not ready" }, 409);
+const notReady = (c: Context<AppEnv>, err: unknown) => {
+  log.warn({ err }, "run step not ready");
+  return c.json({ error: "This step is not ready" }, 409);
+};
 
 export function createDataTokenizationRoutes(ctx: RunContext): Hono<AppEnv> {
   const app = new Hono<AppEnv>();

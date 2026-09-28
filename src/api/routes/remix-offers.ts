@@ -270,7 +270,7 @@ remixOffers.post(
         });
       });
     } catch (err: unknown) {
-      if (err instanceof DuplicateOfferError) return c.json({ error: err.message }, 409);
+      if (err instanceof DuplicateOfferError) return c.json({ error: "Active offer already exists" }, 409);
       throw err;
     }
 
@@ -355,7 +355,7 @@ remixOffers.post(
         });
       });
     } catch (err: unknown) {
-      if (err instanceof DuplicateOfferError) return c.json({ error: err.message }, 409);
+      if (err instanceof DuplicateOfferError) return c.json({ error: "Active offer already exists" }, 409);
       throw err;
     }
 
@@ -396,7 +396,7 @@ remixOffers.post(
     const remixContract = normalizeAddress(chain, body.remixContract);
     const verified = await verifyTransactionSucceeded(body.txHash);
     if (verified.status !== "CONFIRMED") {
-      return c.json({ error: `Mint transaction not verified on-chain: ${verified.failReason ?? "not found"}` }, 400);
+      return c.json({ error: "That mint could not be verified onchain. Please try again." }, 400);
     }
     const receiptEvents = await fetchReceiptEvents(body.txHash);
     if (!findTransferTo(receiptEvents, { contractAddress: remixContract, tokenId: body.remixTokenId, to: walletAddress })) {
