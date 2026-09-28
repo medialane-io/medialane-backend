@@ -56,8 +56,10 @@ export interface AuthEmailDeps {
   releaseAbandonedEmail: (email: string, tenant: string) => Promise<boolean>;
 }
 
+const CODE_HASH_DOMAIN = "otp-code-v1";
+
 function hashCode(code: string): string {
-  return createHmac("sha256", env.SIWS_SECRET).update(code).digest("hex");
+  return createHmac("sha256", env.SIWS_SECRET).update(`${CODE_HASH_DOMAIN}.${code}`).digest("hex");
 }
 
 const requestCodeSchema = z.object({ email: z.string().email() });

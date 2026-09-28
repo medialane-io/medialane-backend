@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 
 const TTL_SECONDS = 10 * 60;
 const PREFIX = "email_verified_";
+const DOMAIN = "email-verified-v1";
 
 interface TokenPayload {
   email: string;
@@ -53,5 +54,5 @@ function b64u(s: string): string {
 }
 
 function hmac(payload: string): string {
-  return createHmac("sha256", env.SIWS_SECRET).update(payload).digest("hex");
+  return createHmac("sha256", env.SIWS_SECRET).update(`${DOMAIN}.${payload}`).digest("hex");
 }

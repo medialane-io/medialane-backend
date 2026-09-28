@@ -97,7 +97,7 @@ test("POST /request-code is rate-limited", async () => {
 test("POST /verify-code with the correct code returns 200 and a token", async () => {
   const { createHmac } = await import("crypto");
   const { env } = await import("../../config/env.js");
-  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("482913").digest("hex");
+  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("otp-code-v1.482913").digest("hex");
   const app = appWith({
     findLatestCode: async () => ({
       id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
@@ -116,7 +116,7 @@ test("POST /verify-code with the correct code returns 200 and a token", async ()
 test("POST /verify-code returns an accountToken when the verified email belongs to an existing account", async () => {
   const { createHmac } = await import("crypto");
   const { env } = await import("../../config/env.js");
-  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("482913").digest("hex");
+  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("otp-code-v1.482913").digest("hex");
   const app = appWith({
     findLatestCode: async () => ({
       id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
@@ -136,7 +136,7 @@ test("POST /verify-code returns an accountToken when the verified email belongs 
 test("POST /verify-code omits accountToken when no account exists for the email (shouldn't normally happen, but must not crash)", async () => {
   const { createHmac } = await import("crypto");
   const { env } = await import("../../config/env.js");
-  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("482913").digest("hex");
+  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("otp-code-v1.482913").digest("hex");
   const app = appWith({
     findLatestCode: async () => ({
       id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
