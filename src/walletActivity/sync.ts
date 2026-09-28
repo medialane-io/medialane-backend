@@ -7,6 +7,13 @@ import { SUPPORTED_TOKENS, TRANSFER_SELECTOR, START_BLOCK } from "../config/cons
 import { decodeTransferLeg, decodeAccountEvent, pairSwapLegs, type TransferLeg } from "./decode.js";
 import { mapWithConcurrency } from "../utils/retry.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
+import { getEscapeReadyAt } from "../chainRead/index.js";
+import { resolveAccountIdFromWallet } from "../utils/account.js";
+import { getCurrentEmailIdentity } from "../utils/emailVerification.js";
+import { sendGuardianEscapeTriggeredEmail } from "../utils/mailer.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("walletActivity:sync");
 
 export interface SyncDeps {
   getCursor: (chain: Chain, accountAddress: string) => Promise<{ lastSyncedBlock: bigint } | null>;
@@ -15,6 +22,7 @@ export interface SyncDeps {
   getBlockTimestamp: (blockNumber: number) => Promise<Date>;
   upsertActivities: (rows: Array<Record<string, unknown>>) => Promise<void>;
   setCursor: (chain: Chain, accountAddress: string, block: bigint) => Promise<void>;
+  notifyGuardianEscapeTriggered: (chain: Chain, accountAddress: string) => Promise<void>;
 }
 
 const TOKEN_POLL_CONCURRENCY = 4;
@@ -90,6 +98,11 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
   }
 
   if (rows.length > 0) await deps.upsertActivities(rows);
+
+  if (rows.some((r) => r.type === "GUARDIAN_TRIGGER_ESCAPE")) {
+    await deps.notifyGuardianEscapeTriggered(chain, accountAddress);
+  }
+
   await deps.setCursor(chain, accountAddress, BigInt(toBlock));
 }
 
@@ -113,6 +126,22 @@ const productionDeps: SyncDeps = {
         create: row as never,
         update: row as never,
       });
+    }
+  },
+  notifyGuardianEscapeTriggered: async (chain, accountAddress) => {
+    try {
+      const readyAt = await getEscapeReadyAt(chain, accountAddress);
+      if (!readyAt) return;
+
+      const accountId = await resolveAccountIdFromWallet(chain, accountAddress);
+      if (!accountId) return;
+
+      const identity = await getCurrentEmailIdentity(accountId);
+      if (!identity?.email) return;
+
+      await sendGuardianEscapeTriggeredEmail(identity.email, accountAddress, readyAt);
+    } catch (err) {
+      log.error({ err, chain, accountAddress }, "Failed to send guardian escape alert");
     }
   },
   setCursor: (chain, accountAddress, lastSyncedBlock) =>

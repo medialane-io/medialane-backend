@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { syncWalletActivity, type SyncDeps } from "./sync.js";
-import { TRANSFER_SELECTOR, ACCOUNT_CREATED_GUID_SELECTOR, SUPPORTED_TOKENS, START_BLOCK } from "../config/constants.js";
+import { TRANSFER_SELECTOR, ACCOUNT_CREATED_GUID_SELECTOR, ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR, SUPPORTED_TOKENS, START_BLOCK } from "../config/constants.js";
 
 const LATEST_BLOCK = START_BLOCK + 100;
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -11,6 +11,7 @@ const CHAIN = "STARKNET" as const;
 function fakeDeps(overrides: Partial<SyncDeps> = {}) {
   const upserted: Array<Record<string, unknown>> = [];
   let cursorSet: bigint | null = null;
+  const guardianNotifications: string[] = [];
   const deps: SyncDeps = {
     getCursor: async () => null,
     getLatestBlock: async () => LATEST_BLOCK,
@@ -18,9 +19,10 @@ function fakeDeps(overrides: Partial<SyncDeps> = {}) {
     getBlockTimestamp: async () => new Date("2026-01-01T00:00:00.000Z"),
     upsertActivities: async (rows) => { upserted.push(...rows); },
     setCursor: async (_chain, _address, block) => { cursorSet = block; },
+    notifyGuardianEscapeTriggered: async (_chain, address) => { guardianNotifications.push(address); },
     ...overrides,
   };
-  return { deps, upserted, getCursorSet: () => cursorSet };
+  return { deps, upserted, getCursorSet: () => cursorSet, guardianNotifications };
 }
 
 test("a fresh account (no cursor) syncs from START_BLOCK", async () => {
@@ -94,4 +96,31 @@ test("decodes an account-contract event into a DEPLOY row", async () => {
   await syncWalletActivity(deps, CHAIN, ACCOUNT);
   expect(upserted).toHaveLength(1);
   expect(upserted[0]).toMatchObject({ type: "DEPLOY", accountAddress: ACCOUNT, txHash: "0xtx2" });
+});
+
+test("a guardian-triggered escape notifies the account, in addition to being recorded", async () => {
+  const escapeEvent: RawStarknetEvent = {
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx3",
+    from_address: ACCOUNT, keys: [ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR], data: [],
+  };
+  const { deps, upserted, guardianNotifications } = fakeDeps({
+    pollEvents: async (params) => (params.address === ACCOUNT ? [escapeEvent] : []),
+  });
+  await syncWalletActivity(deps, CHAIN, ACCOUNT);
+  expect(upserted).toHaveLength(1);
+  expect(upserted[0]).toMatchObject({ type: "GUARDIAN_TRIGGER_ESCAPE", accountAddress: ACCOUNT });
+  expect(guardianNotifications).toEqual([ACCOUNT]);
+});
+
+test("an ordinary transfer does not trigger a guardian-escape notification", async () => {
+  const token = SUPPORTED_TOKENS[0].address;
+  const transferEvent: RawStarknetEvent = {
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx",
+    from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeone"], data: ["0x64", "0x0"],
+  };
+  const { deps, guardianNotifications } = fakeDeps({
+    pollEvents: async (params) => (params.address === token ? [transferEvent] : []),
+  });
+  await syncWalletActivity(deps, CHAIN, ACCOUNT);
+  expect(guardianNotifications).toEqual([]);
 });

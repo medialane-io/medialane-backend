@@ -1,5 +1,6 @@
 import { Contract, cairo } from "starknet";
 import type { Chain } from "@prisma/client";
+import { getEscape } from "@medialane/sdk/starknet";
 import { callRpc, normalizeAddress } from "../utils/starknet.js";
 
 export async function holdsToken(
@@ -21,6 +22,19 @@ export async function getCollectionOwner(chain: Chain, contract: string): Promis
 export async function isAccountOwner(chain: Chain, accountAddress: string, ownerPubkey: string): Promise<boolean> {
   if (chain !== "STARKNET") throw new Error(`Owner-membership reads not implemented for chain "${chain}"`);
   return starknetIsAccountOwner(accountAddress, ownerPubkey);
+}
+
+export async function getEscapeReadyAt(chain: Chain, accountAddress: string): Promise<Date | null> {
+  if (chain !== "STARKNET") throw new Error(`Escape reads not implemented for chain "${chain}"`);
+  return callRpc((provider) => __unstable_starknetGetEscapeReadyAtWithProvider(provider, accountAddress));
+}
+
+export async function __unstable_starknetGetEscapeReadyAtWithProvider(
+  provider: Parameters<typeof getEscape>[0],
+  accountAddress: string,
+): Promise<Date | null> {
+  const escape = await getEscape(provider, accountAddress);
+  return escape.readyAt > 0 ? new Date(escape.readyAt * 1000) : null;
 }
 
 async function starknetHoldsToken(
