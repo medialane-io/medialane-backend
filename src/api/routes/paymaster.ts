@@ -377,11 +377,11 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { ownerPubkey?: string; ownerAddress?: string; salt?: string }
       | null;
-    const denied = await authorizer.authorize({});
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required", code: "invalid_request" }, 400);
     }
+    const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
+    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
 
     const strk = getTokenBySymbol("STRK");
     if (!strk) return c.json({ error: "STRK token not found in registry", code: "sponsor_unavailable" }, 500);
@@ -428,11 +428,11 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({});
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required", code: "invalid_request" }, 400);
     }
+    const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
+    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
 
     const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
     const deployment = body.deployment as { class_hash?: string; address?: string } | null;

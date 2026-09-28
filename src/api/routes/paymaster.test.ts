@@ -388,7 +388,7 @@ describe("a refused sponsored call never reaches the paymaster", () => {
       expect(res.status).toBe(429);
       expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
       expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{}]);
+      expect(seen).toEqual([{ userAddress: USER }]);
     });
   }
 
