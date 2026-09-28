@@ -58,7 +58,7 @@ metadata.get("/signed-url", async (c) => {
     log.error({ err }, "Failed to create signed URL");
     const msg = toErrorMessage(err);
     const status = msg.includes("403") || msg.includes("plan limits") ? 403 : 500;
-    return c.json({ error: msg }, status);
+    return c.json({ error: "Uploads are temporarily unavailable. Please try again in a moment." }, status);
   }
 });
 
@@ -85,7 +85,7 @@ metadata.post("/upload", async (c) => {
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to upload metadata");
-    return c.json({ error: toErrorMessage(err) }, 500);
+    return c.json({ error: "We could not save that metadata. Please try again." }, 500);
   }
 });
 
@@ -135,7 +135,7 @@ metadata.post("/upload-file", async (c) => {
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to upload file");
-    return c.json({ error: toErrorMessage(err) }, 500);
+    return c.json({ error: "That file could not be uploaded. Please try again." }, 500);
   }
 });
 
@@ -196,13 +196,13 @@ metadata.post("/upload-directory", async (c) => {
     if (!res.ok) {
       const text = await res.text();
       log.error({ status: res.status, text }, "Pinata directory pin failed");
-      return c.json({ error: `Pinata error: ${text}` }, 502);
+      return c.json({ error: "That upload could not be completed. Please try again." }, 502);
     }
     const json = (await res.json()) as { IpfsHash: string };
     return c.json({ data: { cid: json.IpfsHash, baseUri: `ipfs://${json.IpfsHash}/` } }, 201);
   } catch (err: unknown) {
     log.error({ err }, "Failed to upload directory");
-    return c.json({ error: toErrorMessage(err) }, 500);
+    return c.json({ error: "That upload could not be completed. Please try again." }, 500);
   }
 });
 

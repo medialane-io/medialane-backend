@@ -16,7 +16,6 @@ import { getTokenBySymbol } from "@medialane/sdk";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere, buildCoinListOrderBy } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
-import { toErrorMessage } from "../../utils/error.js";
 
 const log = createLogger("routes:coins");
 const coins = new Hono<AppEnv>();
@@ -91,7 +90,7 @@ coins.post("/sync", async (c) => {
     return c.json({ data: coin ? serializeCoin(coin) : { contractAddress: coinAddress, ...resolved.coin, standard: "ERC20" } }, 201);
   } catch (err) {
     log.error({ err, coinAddress }, "coin sync failed");
-    return c.json({ error: toErrorMessage(err) }, 500);
+    return c.json({ error: "We could not sync that coin. Please try again in a moment." }, 500);
   }
 });
 

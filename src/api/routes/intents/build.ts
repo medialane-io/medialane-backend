@@ -27,7 +27,6 @@ import {
   buildRejectSponsorshipProposalIntent,
 } from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
-import { toErrorMessage } from "../../../utils/error.js";
 import type { AppEnv } from "../../../types/hono.js";
 import {
   log,
@@ -123,7 +122,7 @@ function registerIntentRoute<T>(
       );
     } catch (err: unknown) {
       log.error({ err }, `Failed to build ${cfg.path.slice(1)} intent`);
-      return c.json({ error: toErrorMessage(err) }, 500);
+      return c.json({ error: "We could not prepare that transaction. Please try again." }, 500);
     }
   });
 }
@@ -304,7 +303,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build offer intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
+      return c.json({ error: "We could not prepare that offer. Please try again." }, 500);
     }
   });
 
@@ -383,7 +382,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
         return c.json({ error: "A counter-offer already exists for this order" }, 400);
       }
       log.error({ err }, "Failed to build counter-offer intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
+      return c.json({ error: "We could not prepare that counter-offer. Please try again." }, 500);
     }
   });
 
@@ -422,7 +421,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
       log.error({ err }, "Failed to build create-collection intent");
-      return c.json({ error: toErrorMessage(err) }, 500);
+      return c.json({ error: "We could not prepare that collection. Please try again." }, 500);
     }
   });
 
@@ -466,10 +465,11 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           });
           return { ok: true, orderHash, calls };
         } catch (err) {
+          log.error({ err, orderHash }, "Failed to build fulfill intent");
           return {
             ok: false,
             orderHash,
-            error: err instanceof Error ? err.message : "Failed to create intent",
+            error: "We could not prepare that purchase. Please try again.",
           };
         }
       })

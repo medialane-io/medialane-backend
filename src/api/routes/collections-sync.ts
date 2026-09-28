@@ -8,7 +8,6 @@ import { STARKNET_COLLECTION_721_CONTRACT,
   STARKNET_DATA_TOKENIZATION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
-import { toErrorMessage } from "../../utils/error.js";
 import { callRpc } from "../../utils/starknet.js";
 import { serializeCollection } from "../utils/serialize.js";
 import { createLogger } from "../../utils/logger.js";
@@ -206,7 +205,7 @@ collections.post("/sync-tx", async (c) => {
     return c.json({ data: { synced } });
   } catch (err) {
     log.error({ err, txHash }, "sync-tx failed");
-    return c.json({ error: toErrorMessage(err) }, 500);
+    return c.json({ error: "We could not sync that transaction. Please try again in a moment." }, 500);
   }
 });
 
