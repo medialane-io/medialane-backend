@@ -10,10 +10,17 @@ import type { RawStarknetEvent } from "../types/starknet.js";
 import { getEscapeReadyAt } from "../chainRead/index.js";
 import { resolveAccountIdFromWallet } from "../utils/account.js";
 import { getCurrentEmailIdentity } from "../utils/emailVerification.js";
-import { sendGuardianEscapeTriggeredEmail } from "../utils/mailer.js";
+import {
+  sendGuardianSetEmail,
+  sendGuardianEscapeTriggeredEmail,
+  sendGuardianEscapeCompletedEmail,
+} from "../utils/mailer.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("walletActivity:sync");
+
+export type GuardianEventType = "GUARDIAN_SET" | "GUARDIAN_TRIGGER_ESCAPE" | "GUARDIAN_COMPLETE_ESCAPE";
+const GUARDIAN_EVENT_TYPES: GuardianEventType[] = ["GUARDIAN_SET", "GUARDIAN_TRIGGER_ESCAPE", "GUARDIAN_COMPLETE_ESCAPE"];
 
 export interface SyncDeps {
   getCursor: (chain: Chain, accountAddress: string) => Promise<{ lastSyncedBlock: bigint } | null>;
@@ -22,7 +29,7 @@ export interface SyncDeps {
   getBlockTimestamp: (blockNumber: number) => Promise<Date>;
   upsertActivities: (rows: Array<Record<string, unknown>>) => Promise<void>;
   setCursor: (chain: Chain, accountAddress: string, block: bigint) => Promise<void>;
-  notifyGuardianEscapeTriggered: (chain: Chain, accountAddress: string) => Promise<void>;
+  notifyGuardianEvent: (chain: Chain, accountAddress: string, type: GuardianEventType) => Promise<void>;
 }
 
 const TOKEN_POLL_CONCURRENCY = 4;
@@ -99,8 +106,9 @@ export async function syncWalletActivity(deps: SyncDeps, chain: Chain, accountAd
 
   if (rows.length > 0) await deps.upsertActivities(rows);
 
-  if (rows.some((r) => r.type === "GUARDIAN_TRIGGER_ESCAPE")) {
-    await deps.notifyGuardianEscapeTriggered(chain, accountAddress);
+  const rowTypes = new Set(rows.map((r) => r.type));
+  for (const type of GUARDIAN_EVENT_TYPES) {
+    if (rowTypes.has(type)) await deps.notifyGuardianEvent(chain, accountAddress, type);
   }
 
   await deps.setCursor(chain, accountAddress, BigInt(toBlock));
@@ -128,10 +136,13 @@ const productionDeps: SyncDeps = {
       });
     }
   },
-  notifyGuardianEscapeTriggered: async (chain, accountAddress) => {
+  notifyGuardianEvent: async (chain, accountAddress, type) => {
     try {
-      const readyAt = await getEscapeReadyAt(chain, accountAddress);
-      if (!readyAt) return;
+      // A trigger can be cancelled or can complete before we get here; skip if it's no
+      // longer live rather than send a stale alert. SET and COMPLETE have no such
+      // "resolved" state to check against — once true, they stay true.
+      const readyAt = type === "GUARDIAN_TRIGGER_ESCAPE" ? await getEscapeReadyAt(chain, accountAddress) : null;
+      if (type === "GUARDIAN_TRIGGER_ESCAPE" && !readyAt) return;
 
       const accountId = await resolveAccountIdFromWallet(chain, accountAddress);
       if (!accountId) return;
@@ -139,9 +150,19 @@ const productionDeps: SyncDeps = {
       const identity = await getCurrentEmailIdentity(accountId);
       if (!identity?.email) return;
 
-      await sendGuardianEscapeTriggeredEmail(identity.email, accountAddress, readyAt);
+      switch (type) {
+        case "GUARDIAN_SET":
+          await sendGuardianSetEmail(identity.email, accountAddress);
+          break;
+        case "GUARDIAN_TRIGGER_ESCAPE":
+          await sendGuardianEscapeTriggeredEmail(identity.email, accountAddress, readyAt!);
+          break;
+        case "GUARDIAN_COMPLETE_ESCAPE":
+          await sendGuardianEscapeCompletedEmail(identity.email, accountAddress);
+          break;
+      }
     } catch (err) {
-      log.error({ err, chain, accountAddress }, "Failed to send guardian escape alert");
+      log.error({ err, chain, accountAddress, type }, "Failed to send guardian event alert");
     }
   },
   setCursor: (chain, accountAddress, lastSyncedBlock) =>

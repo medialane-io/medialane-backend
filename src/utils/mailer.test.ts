@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { buildVerificationCodeEmailHtml, buildGuardianEscapeTriggeredEmailHtml } from "./mailer";
+import {
+  buildVerificationCodeEmailHtml,
+  buildGuardianEscapeTriggeredEmailHtml,
+  buildGuardianSetEmailHtml,
+  buildGuardianEscapeCompletedEmailHtml,
+} from "./mailer";
+
+const ADDRESS = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 test("buildVerificationCodeEmailHtml includes the code", () => {
   const html = buildVerificationCodeEmailHtml("482913");
@@ -13,11 +20,22 @@ test("buildVerificationCodeEmailHtml does not leak other codes", () => {
 
 test("buildGuardianEscapeTriggeredEmailHtml shows a shortened address and the ready time", () => {
   const readyAt = new Date("2026-10-05T12:00:00.000Z");
-  const html = buildGuardianEscapeTriggeredEmailHtml(
-    "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    readyAt,
-  );
+  const html = buildGuardianEscapeTriggeredEmailHtml(ADDRESS, readyAt);
   expect(html).toContain("0x0123…cdef");
-  expect(html).not.toContain("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  expect(html).not.toContain(ADDRESS);
   expect(html).toContain(readyAt.toUTCString());
+});
+
+test("buildGuardianSetEmailHtml shows a shortened address, not the full one", () => {
+  const html = buildGuardianSetEmailHtml(ADDRESS);
+  expect(html).toContain("0x0123…cdef");
+  expect(html).not.toContain(ADDRESS);
+  expect(html).toContain("guardian was added");
+});
+
+test("buildGuardianEscapeCompletedEmailHtml shows a shortened address, not the full one", () => {
+  const html = buildGuardianEscapeCompletedEmailHtml(ADDRESS);
+  expect(html).toContain("0x0123…cdef");
+  expect(html).not.toContain(ADDRESS);
+  expect(html).toContain("owner key was just replaced");
 });

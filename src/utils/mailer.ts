@@ -92,19 +92,17 @@ export async function sendProvisioningClaimEmail(to: string, claimUrl: string): 
   }
 }
 
-export function buildGuardianEscapeTriggeredEmailHtml(walletAddress: string, readyAt: Date): string {
-  const short = `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`;
+const shortAddress = (address: string): string => `${address.slice(0, 6)}…${address.slice(-4)}`;
+
+function buildGuardianAlertEmailHtml(headline: string, bodyHtml: string): string {
   return `
     <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
       <div style="text-align:center;padding-bottom:28px;">
         <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
       </div>
       <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:16px;padding:32px 24px;">
-        <p style="margin:0 0 8px;color:#991b1b;font-size:15px;font-weight:700;">A guardian started replacing your wallet's owner key</p>
-        <p style="margin:0 0 12px;color:#111827;font-size:14px;">Wallet ${short} can get a new owner key on or after
-          <strong>${readyAt.toUTCString()}</strong> unless you cancel it first.</p>
-        <p style="margin:0;color:#111827;font-size:14px;">If this was you (recovering with a guardian), no action is needed.
-          If it wasn't, open Medialane, go to Settings → Security &amp; Recovery, and cancel it now.</p>
+        <p style="margin:0 0 8px;color:#991b1b;font-size:15px;font-weight:700;">${headline}</p>
+        ${bodyHtml}
       </div>
       <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
         Medialane will never ask you for your recovery key. Treat any message requesting it as an attempt to take your assets.
@@ -113,19 +111,78 @@ export function buildGuardianEscapeTriggeredEmailHtml(walletAddress: string, rea
   `;
 }
 
-export async function sendGuardianEscapeTriggeredEmail(to: string, walletAddress: string, readyAt: Date): Promise<void> {
+async function sendGuardianAlertEmail(to: string, subject: string, html: string, logLabel: string): Promise<void> {
   const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping guardian escape alert email"); return; }
+  if (!transporter) { log.warn(`SMTP not configured — skipping ${logLabel} email`); return; }
   try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: "Security alert: a guardian started recovering your Medialane wallet",
-      html: buildGuardianEscapeTriggeredEmailHtml(walletAddress, readyAt),
-    });
+    await transporter.sendMail({ from: from(), to, subject, html });
   } catch (err) {
-    log.error({ err }, "Failed to send guardian escape alert email");
+    log.error({ err }, `Failed to send ${logLabel} email`);
   }
+}
+
+export function buildGuardianEscapeTriggeredEmailHtml(walletAddress: string, readyAt: Date): string {
+  const short = shortAddress(walletAddress);
+  return buildGuardianAlertEmailHtml(
+    "A guardian started replacing your wallet's owner key",
+    `
+    <p style="margin:0 0 12px;color:#111827;font-size:14px;">Wallet ${short} can get a new owner key on or after
+      <strong>${readyAt.toUTCString()}</strong> unless you cancel it first.</p>
+    <p style="margin:0;color:#111827;font-size:14px;">If this was you (recovering with a guardian), no action is needed.
+      If it wasn't, open Medialane, go to Settings → Security &amp; Recovery, and cancel it now.</p>
+    `,
+  );
+}
+
+export async function sendGuardianEscapeTriggeredEmail(to: string, walletAddress: string, readyAt: Date): Promise<void> {
+  await sendGuardianAlertEmail(
+    to,
+    "Security alert: a guardian started recovering your Medialane wallet",
+    buildGuardianEscapeTriggeredEmailHtml(walletAddress, readyAt),
+    "guardian escape alert",
+  );
+}
+
+export function buildGuardianSetEmailHtml(walletAddress: string): string {
+  const short = shortAddress(walletAddress);
+  return buildGuardianAlertEmailHtml(
+    "A guardian was added to your wallet",
+    `
+    <p style="margin:0;color:#111827;font-size:14px;">A guardian can now help recover wallet ${short} if you lose every
+      device, but can never move your funds directly. If you set this up yourself, no action is needed.
+      If you didn't, open Medialane and check Settings → Security &amp; Recovery.</p>
+    `,
+  );
+}
+
+export async function sendGuardianSetEmail(to: string, walletAddress: string): Promise<void> {
+  await sendGuardianAlertEmail(
+    to,
+    "A guardian was added to your Medialane wallet",
+    buildGuardianSetEmailHtml(walletAddress),
+    "guardian added alert",
+  );
+}
+
+export function buildGuardianEscapeCompletedEmailHtml(walletAddress: string): string {
+  const short = shortAddress(walletAddress);
+  return buildGuardianAlertEmailHtml(
+    "Your wallet's owner key was just replaced by a guardian",
+    `
+    <p style="margin:0;color:#111827;font-size:14px;">Wallet ${short} now has a new owner key, set by its guardian.
+      If this was you completing a recovery, no action is needed. If it wasn't, your old device's key no longer
+      controls this wallet — contact support right away.</p>
+    `,
+  );
+}
+
+export async function sendGuardianEscapeCompletedEmail(to: string, walletAddress: string): Promise<void> {
+  await sendGuardianAlertEmail(
+    to,
+    "Security alert: your Medialane wallet's owner key was replaced",
+    buildGuardianEscapeCompletedEmailHtml(walletAddress),
+    "guardian escape completed alert",
+  );
 }
 
 export function buildVerificationCodeEmailHtml(code: string): string {
