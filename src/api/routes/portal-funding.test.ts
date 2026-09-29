@@ -36,6 +36,7 @@ function makeStore(intents: FundingIntentRecord[] = [], over: Partial<FundingSto
       return true;
     },
     openForPayer: async () => [],
+    cancel: async () => true,
     settle: async (): Promise<SettleOutcome> => ({ outcome: "settled", paymentId: "pay1" }),
     ...over,
   };
@@ -168,5 +169,44 @@ describe("authorizing and paying", () => {
     const s = makeStore([open({ payer: "0xpayer" })], { settle: async () => ({ outcome: "duplicate" }) });
     const res = await post(app(s), "/fi1/submit", { txHash: "0xh" });
     expect(res.status).toBe(409);
+  });
+});
+
+describe("cancelling a top-up", () => {
+  const open = (over: Partial<FundingIntentRecord> = {}): FundingIntentRecord => ({
+    id: "fi1", apiClientId: "ac1", method: "chain-transfer", status: "PENDING", payer: "0xpayer", params: { amountAtomic: "1000000" }, expiresAt: new Date(Date.now() + 60_000), ...over,
+  });
+
+  test("closes an open top-up so it stops counting and matching", async () => {
+    let cancelled = 0;
+    const s = makeStore([open()], { cancel: async () => { cancelled++; return true; } });
+    const res = await post(app(s), "/fi1/cancel", {});
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.status).toBe("EXPIRED");
+    expect(cancelled).toBe(1);
+  });
+
+  test("cancelling again reports the state it is already in", async () => {
+    const s = makeStore([open({ status: "EXPIRED" })]);
+    const res = await post(app(s), "/fi1/cancel", {});
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.status).toBe("EXPIRED");
+  });
+
+  test("a paid top-up cannot be cancelled", async () => {
+    const res = await post(app(makeStore([open({ status: "SETTLED" })])), "/fi1/cancel", {});
+    expect(res.status).toBe(409);
+  });
+
+  test("losing a race to a settlement is a 409, not a false cancel", async () => {
+    const intents = [open()];
+    const s = makeStore(intents, { cancel: async () => { intents[0]!.status = "SETTLED"; return false; } });
+    const res = await post(app(s), "/fi1/cancel", {});
+    expect(res.status).toBe(409);
+  });
+
+  test("another account's top-up looks like it does not exist", async () => {
+    const res = await post(app(makeStore([open({ apiClientId: "other" })])), "/fi1/cancel", {});
+    expect(res.status).toBe(404);
   });
 });

@@ -77,6 +77,14 @@ export const prismaFundingStore: FundingStore = {
     return rows.map(toRecord);
   },
 
+  async cancel(id, apiClientId) {
+    const res = await prisma.fundingIntent.updateMany({
+      where: { id, apiClientId, status: "PENDING" },
+      data: { status: "EXPIRED" },
+    });
+    return res.count === 1;
+  },
+
   async settle({ intent, verified, credited, multiplier }: SettleInput): Promise<SettleOutcome> {
     try {
       return await prisma.$transaction(async (tx) => {
