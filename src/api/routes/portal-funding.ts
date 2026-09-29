@@ -37,7 +37,9 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
       });
       return c.json({ data: { id: intent.id, method: intent.method, status: intent.status, expiresAt: intent.expiresAt } }, 201);
     } catch (err) {
-      if (err instanceof FundingError && err.code === "too_many_open") return c.json({ error: err.message }, 429);
+      if (err instanceof FundingError && err.code === "too_many_open") {
+        return c.json({ error: "Finish or wait out your open top-ups before starting another." }, 429);
+      }
       throw err;
     }
   });
