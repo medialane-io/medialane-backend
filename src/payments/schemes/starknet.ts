@@ -10,7 +10,7 @@ function u256FromLowHigh(low: string, high: string): bigint {
   return BigInt(low ?? "0x0") + (BigInt(high ?? "0x0") << 128n);
 }
 
-const FINALIZED_STATUSES = new Set(["ACCEPTED_ON_L2", "ACCEPTED_ON_L1"]);
+export const FINALIZED_STATUSES = new Set(["ACCEPTED_ON_L2", "ACCEPTED_ON_L1"]);
 
 export interface StarknetReceipt {
   execution_status?: string;

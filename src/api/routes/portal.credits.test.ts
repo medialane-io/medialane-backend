@@ -16,8 +16,14 @@ function app() {
 
 describe("crediting is not something a caller can ask for", () => {
   test("a caller cannot report that it paid", () => {
-    const funding = portal.routes.filter((r) => r.path.includes("fund"));
-    expect(funding).toEqual([]);
+    const reporting = portal.routes.filter((r) => /report|paid|claim/i.test(r.path));
+    expect(reporting).toEqual([]);
+  });
+
+  test("funding routes exist, and none takes a credit amount or a paid amount in its path", () => {
+    const paths = portal.routes.filter((r) => r.path.startsWith("/funding")).map((r) => r.path);
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths.some((p) => /credit|amount|paid/i.test(p))).toBe(false);
   });
 
   test("the ledger is still readable", async () => {

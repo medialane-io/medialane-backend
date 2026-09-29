@@ -13,61 +13,13 @@ import {
 import { x402Config } from "../../config/x402.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
+import { parseDepositEvents, depositNonce, type DepositEvent } from "../../funding/deposits.js";
+import { intentSettler } from "../../funding/settle-deposit.js";
+import { prismaFundingStore } from "../../funding/store.js";
+
+export { parseDepositEvents, depositNonce, type DepositEvent };
 
 const log = createLogger("mirror:treasury-deposit");
-
-export interface DepositEvent {
-  txHash: string;
-  token: string;
-  amountAtomic: bigint;
-  payer: string;
-  blockNumber: number;
-  depositIndex: number;
-}
-
-export function depositNonce(txHash: string, depositIndex: number): string {
-  return depositIndex === 0 ? txHash : `${txHash}:${depositIndex}`;
-}
-
-export function parseDepositEvents(
-  events: RawStarknetEvent[],
-  treasury: string,
-): DepositEvent[] {
-  const to = normalizeAddress("STARKNET", treasury);
-  const out: DepositEvent[] = [];
-  const perTransaction = new Map<string, number>();
-
-  for (const ev of events) {
-    try {
-      const token = tokenByAddress(ev.from_address);
-      if (!token) continue;
-      if (!ev.keys?.[2] || normalizeAddress("STARKNET", ev.keys[2]) !== to) continue;
-      if (!ev.keys[1] || !ev.data?.[0]) continue;
-
-      const low = BigInt(ev.data[0]);
-      const high = ev.data[1] ? BigInt(ev.data[1]) : 0n;
-      const amountAtomic = low + (high << 128n);
-      if (amountAtomic === 0n) continue;
-
-      const txHash = normalizeHash(ev.transaction_hash);
-      const depositIndex = perTransaction.get(txHash) ?? 0;
-      perTransaction.set(txHash, depositIndex + 1);
-
-      out.push({
-        txHash,
-        token: normalizeAddress("STARKNET", token.address),
-        amountAtomic,
-        payer: normalizeAddress("STARKNET", ev.keys[1]),
-        blockNumber: Number(ev.block_number ?? 0),
-        depositIndex,
-      });
-    } catch {
-      log.warn({ txHash: ev.transaction_hash }, "Skipped an unreadable event while scanning deposits");
-    }
-  }
-
-  return out;
-}
 
 export interface CreditedPayment {
   paymentId: string;
@@ -97,6 +49,7 @@ export interface DepositDeps {
   mdlnMultiplier: typeof defaultMdlnMultiplier;
   creditAccount: typeof defaultCreditAccount;
   settleUnattributed: typeof defaultSettleUnattributed;
+  settleForIntent: (deposit: DepositEvent, nonce: string) => Promise<CreditedPayment | null>;
 }
 
 export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<CreditedPayment | null> {
@@ -106,6 +59,9 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
 
   const token = tokenByAddress(deposit.token);
   if (!token) return null;
+
+  const viaIntent = await deps.settleForIntent(deposit, nonce);
+  if (viaIntent) return viaIntent;
 
   const apiClient = await deps.resolveApiClient(deposit.payer);
   if (!apiClient) {
@@ -220,6 +176,7 @@ const productionDeps: DepositDeps = {
   mdlnMultiplier: defaultMdlnMultiplier,
   creditAccount: defaultCreditAccount,
   settleUnattributed: defaultSettleUnattributed,
+  settleForIntent: intentSettler({ store: prismaFundingStore, mdlnMultiplier: defaultMdlnMultiplier }),
 };
 
 export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise<void> {

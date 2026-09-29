@@ -24,7 +24,8 @@
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
     "pricing:apply:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run pricing:apply'",
     "test": "bun test src",
-    "test:sql": "bash scripts/test-run-store-sql.sh"
+    "test:sql": "bash scripts/test-run-store-sql.sh",
+    "test:sql:funding": "bash scripts/test-funding-store-sql.sh"
   },
   "dependencies": {
     "@avnu/avnu-sdk": "^4.2.0",

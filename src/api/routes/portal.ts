@@ -14,6 +14,10 @@ import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { drift } from "../../payments/usage.js";
+import { createFundingRoutes } from "./portal-funding.js";
+import { prismaFundingStore } from "../../funding/store.js";
+import { productionFundingMethods } from "../../funding/registry.js";
+import { mdlnMultiplier } from "../../payments/mdln.js";
 
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
@@ -22,6 +26,10 @@ const starknetScheme = new StarknetUsdcScheme();
 portal.use("*", portalSubject);
 
 portal.route("/runs", launchpadRuns);
+portal.route(
+  "/funding",
+  createFundingRoutes({ store: prismaFundingStore, methods: productionFundingMethods(), mdlnMultiplier }),
+);
 
 portal.get("/me", async (c) => {
   const account = c.get("account");
