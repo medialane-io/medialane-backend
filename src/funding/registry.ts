@@ -1,4 +1,5 @@
 import { callRpc } from "../utils/starknet.js";
+import { readUsdPrices } from "../utils/usdPrices.js";
 import { verifyWalletSignature } from "../auth/verify.js";
 import { createChainTransferMethod } from "./methods/chain-transfer.js";
 import type { StarknetReceipt } from "../payments/schemes/starknet.js";
@@ -12,6 +13,7 @@ export function productionFundingMethods(): FundingMethod[] {
           (provider as { getTransactionReceipt: (h: string) => Promise<StarknetReceipt> }).getTransactionReceipt(hash),
         ),
       verifySignature: verifyWalletSignature,
+      readUsdPrices,
     }),
   ];
 }

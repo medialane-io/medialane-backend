@@ -1,13 +1,12 @@
 import { z } from "zod";
 import { x402Config } from "../../config/x402.js";
+import { acceptedTokens } from "../../payments/token-value.js";
 import { normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import type { verifyWalletSignature } from "../../auth/verify.js";
 import { FINALIZED_STATUSES, type StarknetReceipt } from "../../payments/schemes/starknet.js";
 import { depositNonce, parseDepositEvents, type DepositEvent } from "../deposits.js";
 import type { FundingIntentRecord, FundingMethod, VerifiedPayment } from "../types.js";
-
-export const MIN_AMOUNT_ATOMIC = 1_000_000n; // 1 USDC = 100 credits
-export const MAX_AMOUNT_ATOMIC = 10_000_000_000n; // 10,000 USDC
+import { tokenAmountFor, tokenBySymbol, usdValueOf, type PriceReader } from "./assets.js";
 
 export function atomicFromUsdc(amount: string): bigint {
   const [whole = "0", fraction = ""] = amount.split(".");
@@ -16,13 +15,16 @@ export function atomicFromUsdc(amount: string): bigint {
 
 const paramsSchema = z.object({
   chain: z.literal("STARKNET").default("STARKNET"),
-  amountUsdc: z.string().regex(/^\d{1,6}(\.\d{1,6})?$/),
+  /** Only a suggestion for how much to send. Whatever arrives is credited at its value. */
+  amountUsdc: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).optional(),
+  asset: z.string().min(1).max(12).optional(),
 });
 const challengeSchema = z.object({ payer: z.string().min(3) });
 const authorizeSchema = z.object({ payer: z.string().min(3), signature: z.array(z.string()).min(1) });
 const submitSchema = z.object({ txHash: z.string().min(3) });
 
-export function fundingTypedData(input: { intentId: string; payer: string; amountAtomic: bigint }) {
+/** The challenge proves the payer owns the wallet, for this one top-up. */
+export function fundingTypedData(input: { intentId: string; payer: string }) {
   return {
     domain: { name: "Medialane", version: "1", chainId: "SN_MAIN", revision: "1" },
     primaryType: "FundingIntent",
@@ -36,14 +38,12 @@ export function fundingTypedData(input: { intentId: string; payer: string; amoun
       FundingIntent: [
         { name: "intent", type: "shortstring" },
         { name: "wallet", type: "ContractAddress" },
-        { name: "amount", type: "u128" },
         { name: "app", type: "shortstring" },
       ],
     },
     message: {
       intent: input.intentId,
       wallet: input.payer,
-      amount: input.amountAtomic.toString(),
       app: "medialane.io/funding",
     },
   };
@@ -51,18 +51,41 @@ export function fundingTypedData(input: { intentId: string; payer: string; amoun
 
 const same = (a: string, b: string) => normalizeAddress("STARKNET", a) === normalizeAddress("STARKNET", b);
 
-const expectedAtomic = (intent: FundingIntentRecord): bigint => BigInt(String(intent.params.amountAtomic ?? "0"));
+const suggestedUsd = (intent: FundingIntentRecord): bigint | null => {
+  const raw = intent.params.suggestedUsdAtomic;
+  return typeof raw === "string" && /^\d+$/.test(raw) ? BigInt(raw) : null;
+};
 
-export function depositSatisfies(deposit: DepositEvent, intent: FundingIntentRecord): boolean {
-  if (!intent.payer) return false;
-  if (!same(deposit.token, x402Config.usdcContract)) return false;
-  if (!same(deposit.payer, intent.payer)) return false;
-  return deposit.amountAtomic >= expectedAtomic(intent);
+const assetOf = (intent: FundingIntentRecord) =>
+  tokenBySymbol(String(intent.params.asset ?? "USDC")) ?? tokenBySymbol("USDC")!;
+
+export type DepositMatch =
+  | { ok: true; valueUsdcAtomic: bigint }
+  | { ok: false; reason: "mismatch" | "unpriced" | "dust" };
+
+/**
+ * What a deposit is worth to a top-up: any supported token sent by its payer is credited at its dollar
+ * value. The only limit is that it must be worth at least one credit, or there is nothing to credit.
+ */
+export async function depositValueFor(
+  deposit: DepositEvent,
+  intent: FundingIntentRecord,
+  readPrices: PriceReader,
+): Promise<DepositMatch> {
+  if (!intent.payer || !same(deposit.payer, intent.payer)) return { ok: false, reason: "mismatch" };
+  const token = acceptedTokens().find((t) => same(t.address, deposit.token));
+  if (!token) return { ok: false, reason: "mismatch" };
+
+  const value = await usdValueOf(token, deposit.amountAtomic, readPrices);
+  if (value === null) return { ok: false, reason: "unpriced" };
+  if (value < x402Config.usdcAtomicPerCredit) return { ok: false, reason: "dust" };
+  return { ok: true, valueUsdcAtomic: value };
 }
 
 export interface ChainTransferDeps {
   fetchReceipt: (hash: string) => Promise<StarknetReceipt>;
   verifySignature: typeof verifyWalletSignature;
+  readUsdPrices: PriceReader;
 }
 
 export function createChainTransferMethod(deps: ChainTransferDeps): FundingMethod {
@@ -73,18 +96,24 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
 
     describe: () => ({
       chains: ["STARKNET"],
-      asset: "USDC",
-      minAmountUsdc: "1",
-      maxAmountUsdc: "10000",
+      assets: acceptedTokens().map((t) => ({ symbol: t.symbol, decimals: t.decimals })),
     }),
 
     parseParams(raw) {
-      const parsed = paramsSchema.safeParse(raw);
-      if (!parsed.success) return { ok: false, error: "Enter an amount in USDC, for example 10 or 10.5." };
-      const amount = atomicFromUsdc(parsed.data.amountUsdc);
-      if (amount < MIN_AMOUNT_ATOMIC) return { ok: false, error: "The minimum top-up is 1 USDC." };
-      if (amount > MAX_AMOUNT_ATOMIC) return { ok: false, error: "The maximum top-up is 10,000 USDC." };
-      return { ok: true, params: { chain: parsed.data.chain, amountAtomic: amount.toString() } };
+      const parsed = paramsSchema.safeParse(raw ?? {});
+      if (!parsed.success) return { ok: false, error: "Enter an amount in dollars, for example 10 or 10.5." };
+
+      const params: Record<string, unknown> = { chain: parsed.data.chain };
+      const token = tokenBySymbol(parsed.data.asset ?? "USDC");
+      if (!token) return { ok: false, error: "That token can't be used to add credits." };
+      params.asset = token.symbol;
+
+      if (parsed.data.amountUsdc !== undefined) {
+        const usd = atomicFromUsdc(parsed.data.amountUsdc);
+        if (usd <= 0n) return { ok: false, error: "Enter an amount above zero." };
+        params.suggestedUsdAtomic = usd.toString();
+      }
+      return { ok: true, params };
     },
 
     challenge(intent, body) {
@@ -96,7 +125,7 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
       } catch {
         return { ok: false, error: "That wallet address is not valid." };
       }
-      return { ok: true, typedData: fundingTypedData({ intentId: intent.id, payer, amountAtomic: expectedAtomic(intent) }) };
+      return { ok: true, typedData: fundingTypedData({ intentId: intent.id, payer }) };
     },
 
     async authorize(intent, body) {
@@ -113,7 +142,7 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
       const result = await deps.verifySignature({
         chain: "STARKNET",
         address: payer,
-        typedData: fundingTypedData({ intentId: intent.id, payer, amountAtomic: expectedAtomic(intent) }),
+        typedData: fundingTypedData({ intentId: intent.id, payer }),
         signature: parsed.data.signature,
       });
       if (!result.ok) {
@@ -126,16 +155,27 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
         };
       }
 
-      return {
-        ok: true,
-        payer,
-        instructions: {
-          chain: "STARKNET",
-          payTo: normalizeAddress("STARKNET", x402Config.treasury),
-          asset: normalizeAddress("STARKNET", x402Config.usdcContract),
-          amountAtomic: expectedAtomic(intent).toString(),
-        },
+      const token = assetOf(intent);
+      const instructions: Record<string, unknown> = {
+        chain: "STARKNET",
+        payTo: normalizeAddress("STARKNET", x402Config.treasury),
+        asset: normalizeAddress("STARKNET", token.address),
+        assetSymbol: token.symbol,
+        assets: acceptedTokens().map((t) => ({
+          symbol: t.symbol,
+          address: normalizeAddress("STARKNET", t.address),
+          decimals: t.decimals,
+        })),
       };
+
+      const usd = suggestedUsd(intent);
+      if (usd !== null) {
+        const amount = await tokenAmountFor(token, usd, deps.readUsdPrices);
+        if (amount === null) return { ok: false, error: "Prices are unavailable right now. Try again shortly." };
+        instructions.amountAtomic = amount.toString();
+      }
+
+      return { ok: true, payer, instructions };
     },
 
     async verify(intent, evidence) {
@@ -165,19 +205,28 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
 
       // Receipts list events without their transaction hash, so stamp it on before parsing.
       const events = (receipt.events ?? []).map((ev) => ({ ...ev, transaction_hash: hash, block_number: 0 }));
-      const deposit = parseDepositEvents(events as never, x402Config.treasury).find((d) => depositSatisfies(d, intent));
-      if (!deposit) return { ok: false, reason: "no matching USDC transfer from your wallet to Medialane was found" };
-
-      const payment: VerifiedPayment = {
-        valueUsdcAtomic: deposit.amountAtomic,
-        asset: deposit.token,
-        payer: deposit.payer,
-        proofNonce: depositNonce(deposit.txHash, deposit.depositIndex),
-        scheme: "starknet-transfer",
-        network: "starknet",
-        txHash: deposit.txHash,
-      };
-      return { ok: true, payment };
+      let unpriced = false;
+      let dust = false;
+      for (const deposit of parseDepositEvents(events as never, x402Config.treasury)) {
+        const match = await depositValueFor(deposit, intent, deps.readUsdPrices);
+        if (match.ok) {
+          const payment: VerifiedPayment = {
+            valueUsdcAtomic: match.valueUsdcAtomic,
+            asset: deposit.token,
+            payer: deposit.payer,
+            proofNonce: depositNonce(deposit.txHash, deposit.depositIndex),
+            scheme: "starknet-transfer",
+            network: "starknet",
+            txHash: deposit.txHash,
+          };
+          return { ok: true, payment };
+        }
+        if (match.reason === "unpriced") unpriced = true;
+        if (match.reason === "dust") dust = true;
+      }
+      if (unpriced) return { ok: false, reason: "could not price that token right now, try again shortly" };
+      if (dust) return { ok: false, reason: "that transfer is worth less than one credit" };
+      return { ok: false, reason: "no transfer from your wallet to Medialane was found" };
     },
   };
 }
