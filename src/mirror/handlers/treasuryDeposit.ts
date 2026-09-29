@@ -14,6 +14,8 @@ import { x402Config } from "../../config/x402.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import { parseDepositEvents, depositNonce, type DepositEvent } from "../../funding/deposits.js";
+import { intentSettler } from "../../funding/settle-deposit.js";
+import { prismaFundingStore } from "../../funding/store.js";
 
 export { parseDepositEvents, depositNonce, type DepositEvent };
 
@@ -47,6 +49,7 @@ export interface DepositDeps {
   mdlnMultiplier: typeof defaultMdlnMultiplier;
   creditAccount: typeof defaultCreditAccount;
   settleUnattributed: typeof defaultSettleUnattributed;
+  settleForIntent: (deposit: DepositEvent, nonce: string) => Promise<CreditedPayment | null>;
 }
 
 export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<CreditedPayment | null> {
@@ -56,6 +59,9 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
 
   const token = tokenByAddress(deposit.token);
   if (!token) return null;
+
+  const viaIntent = await deps.settleForIntent(deposit, nonce);
+  if (viaIntent) return viaIntent;
 
   const apiClient = await deps.resolveApiClient(deposit.payer);
   if (!apiClient) {
@@ -170,6 +176,7 @@ const productionDeps: DepositDeps = {
   mdlnMultiplier: defaultMdlnMultiplier,
   creditAccount: defaultCreditAccount,
   settleUnattributed: defaultSettleUnattributed,
+  settleForIntent: intentSettler({ store: prismaFundingStore, mdlnMultiplier: defaultMdlnMultiplier }),
 };
 
 export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise<void> {

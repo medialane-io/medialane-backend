@@ -58,6 +58,7 @@ function deps(over: Partial<DepositDeps> = {}): DepositDeps {
     mdlnMultiplier: async () => 1,
     creditAccount: async () => {},
     settleUnattributed: async () => false,
+    settleForIntent: async () => null,
     ...over,
   };
 }
@@ -331,5 +332,23 @@ describe("a deposit that arrived before its payer had an account", () => {
 
     expect(await creditDeposit(deposit, d)).toEqual({ paymentId: "pay-1", apiClientId: "client-1" });
     expect(settled).toEqual([]);
+  });
+});
+
+describe("a deposit that matches an open intent", () => {
+  test("is settled to the intent's account and the payer-based path never runs", async () => {
+    let resolved = false;
+    const result = await creditDeposit(deposit, deps({
+      settleForIntent: async () => ({ paymentId: "pay-i", apiClientId: "client-intent" }),
+      resolveApiClient: async () => { resolved = true; return { id: "client-1", accountId: "acct-1" }; },
+    }));
+    expect(result).toEqual({ paymentId: "pay-i", apiClientId: "client-intent" });
+    expect(resolved).toBe(false);
+  });
+
+  test("with no matching intent, the existing payer-based crediting still applies", async () => {
+    let credited = 0;
+    await creditDeposit(deposit, deps({ creditAccount: async (i) => { credited = i.creditedAmount; } }));
+    expect(credited).toBeGreaterThan(0);
   });
 });
