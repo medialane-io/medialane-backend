@@ -41,10 +41,14 @@ export interface ExecutionDeps {
 
 export type SettleWalletPayment = (txHash: string) => Promise<{ payments: CreditedPayment[] }>;
 
+/** The payment id of the caller's own settled funding intent, or null when there is none. */
+export type IntentPayment = (intentId: string, apiClientId: string) => Promise<string | null>;
+
 export interface RunRouteDeps {
   store: RunStore;
   priceOf?: PriceOf;
   settleWalletPayment?: SettleWalletPayment;
+  intentPayment?: IntentPayment;
   execution?: ExecutionDeps;
 }
 
@@ -52,6 +56,7 @@ export interface RunContext {
   store: RunStore;
   priceOf: PriceOf;
   settleWalletPayment: SettleWalletPayment;
+  intentPayment: IntentPayment;
   execution(): ExecutionDeps;
 }
 
@@ -87,6 +92,15 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
     store: deps.store,
     priceOf: deps.priceOf ?? ((action) => creditsForAction(action)),
     settleWalletPayment: deps.settleWalletPayment ?? ((txHash) => creditFromTransaction(txHash)),
+    intentPayment:
+      deps.intentPayment ??
+      (async (intentId, apiClientId) => {
+        const payment = await prisma.payment.findFirst({
+          where: { fundingIntentId: intentId, apiClientId, status: "SETTLED" },
+          select: { id: true },
+        });
+        return payment?.id ?? null;
+      }),
     execution: () => (execution ??= productionExecution()),
   };
 }
