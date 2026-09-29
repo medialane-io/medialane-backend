@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { parseDepositEvents, creditDeposit, creditFromTransaction, depositNonce, type DepositDeps, type DepositEvent } from "./treasuryDeposit.js";
 import { acceptedTokens } from "../../payments/token-value.js";
 
+const TRANSFER_KEY = "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9";
 const TREASURY = "0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223";
 const PAYER = "0x000c9";
 const STRK = acceptedTokens().find((t) => t.symbol === "STRK")!;
@@ -10,7 +11,7 @@ const ETH = acceptedTokens().find((t) => t.symbol === "ETH")!;
 function transfer(over: Partial<{ token: string; to: string; from: string; low: string; tx: string }> = {}) {
   return {
     from_address: over.token ?? STRK.address,
-    keys: ["0xtransfer", over.from ?? PAYER, over.to ?? TREASURY],
+    keys: [TRANSFER_KEY, over.from ?? PAYER, over.to ?? TREASURY],
     data: [over.low ?? "0x8ac7230489e80000", "0x0"],
     transaction_hash: over.tx ?? "0xabc",
     block_number: 1,
@@ -131,7 +132,7 @@ describe("crediting a deposit", () => {
 describe("crediting a specific transaction on request", () => {
   const strkTransfer = {
     from_address: STRK.address,
-    keys: ["0xtransfer", PAYER, TREASURY],
+    keys: [TRANSFER_KEY, PAYER, TREASURY],
     data: ["0x8ac7230489e80000", "0x0"],
     transaction_hash: "0xabc",
     block_number: 1,
@@ -168,7 +169,7 @@ describe("crediting a specific transaction on request", () => {
         events: [
           {
             from_address: STRK.address,
-            keys: ["0xtransfer", PAYER, "0x0dead"],
+            keys: [TRANSFER_KEY, PAYER, "0x0dead"],
             data: ["0x8ac7230489e80000", "0x0"],
             transaction_hash: "0xdeadbeef",
             block_number: 1,
@@ -217,12 +218,12 @@ describe("crediting a specific transaction on request", () => {
 test("one unreadable event does not stop the rest being credited", () => {
   const good = {
     from_address: STRK.address,
-    keys: ["0xtransfer", PAYER, TREASURY],
+    keys: [TRANSFER_KEY, PAYER, TREASURY],
     data: ["0x8ac7230489e80000", "0x0"],
     transaction_hash: "0x600d",
     block_number: 1,
   } as never;
-  const broken = { from_address: STRK.address, keys: ["0xtransfer", PAYER, "zzz"], data: ["0x1"], transaction_hash: "0x0bad" } as never;
+  const broken = { from_address: STRK.address, keys: [TRANSFER_KEY, PAYER, "zzz"], data: ["0x1"], transaction_hash: "0x0bad" } as never;
   expect(parseDepositEvents([broken, good], TREASURY).length).toBe(1);
 });
 
