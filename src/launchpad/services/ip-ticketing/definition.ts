@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GAS, MAX_RUN_ITEMS, batchSizes, type CostTable, type PlannedStep } from "../../steps.js";
 import { collection, fileRef, terms, type RunServiceDefinition } from "../shared-spec.js";
+import { nextStep, readProgress, runInFlight } from "./progress.js";
 
 const spec = z.object({
   collection,
@@ -53,6 +54,7 @@ export const ipTicketing: RunServiceDefinition<IpTicketingSpec> = {
     return steps;
   },
   guests: (value) => value.guests,
-  initialProgress: () => ({}),
-  inFlight: () => false,
+  initialProgress: () => ({ collection: {}, tier: {}, wallets: {}, batches: {} }),
+  nextStep: (value, progress) => nextStep(value, readProgress(progress)),
+  inFlight: (progress) => runInFlight(readProgress(progress)),
 };

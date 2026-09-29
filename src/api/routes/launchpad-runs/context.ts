@@ -13,6 +13,7 @@ import {
   productionMintCallDeps,
   type MintCallDeps,
 } from "../../../launchpad/services/data-tokenization/mint-calls.js";
+import { productionTicketingDeps, type TicketingDeps } from "../../../launchpad/services/ip-ticketing/chain.js";
 import { defaultClient, type SponsoredInvokeDeps } from "../paymaster.js";
 import { createContractAddressChecker } from "../paymaster-contract-address.js";
 
@@ -50,6 +51,7 @@ export interface RunRouteDeps {
   settleWalletPayment?: SettleWalletPayment;
   intentPayment?: IntentPayment;
   execution?: ExecutionDeps;
+  ticketing?: TicketingDeps;
 }
 
 export interface RunContext {
@@ -58,6 +60,7 @@ export interface RunContext {
   settleWalletPayment: SettleWalletPayment;
   intentPayment: IntentPayment;
   execution(): ExecutionDeps;
+  ticketing(): TicketingDeps;
 }
 
 async function productionReceipt(txHash: string): Promise<RunReceipt> {
@@ -102,6 +105,7 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
         return payment?.id ?? null;
       }),
     execution: () => (execution ??= productionExecution()),
+    ticketing: () => deps.ticketing ?? productionTicketingDeps,
   };
 }
 
