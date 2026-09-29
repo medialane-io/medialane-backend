@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { createLogger } from "../../utils/logger.js";
 import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
 import { tokenByAddress, usdcEquivalentAtomic } from "../../payments/token-value.js";
-import { priceAt as defaultPriceAt } from "../../utils/usdPrices.js";
+import { priceAt as defaultPriceAt, readUsdPrices } from "../../utils/usdPrices.js";
 import { getBlockTimestamp as defaultBlockTimestamp } from "../../utils/blockTimestamp.js";
 import { mdlnMultiplier as defaultMdlnMultiplier } from "../../payments/mdln.js";
 import {
@@ -176,7 +176,7 @@ const productionDeps: DepositDeps = {
   mdlnMultiplier: defaultMdlnMultiplier,
   creditAccount: defaultCreditAccount,
   settleUnattributed: defaultSettleUnattributed,
-  settleForIntent: intentSettler({ store: prismaFundingStore, mdlnMultiplier: defaultMdlnMultiplier }),
+  settleForIntent: intentSettler({ store: prismaFundingStore, mdlnMultiplier: defaultMdlnMultiplier, readUsdPrices }),
 };
 
 export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise<void> {
