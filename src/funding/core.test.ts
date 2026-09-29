@@ -31,6 +31,7 @@ function store(over: Partial<FundingStore> = {}): FundingStore & { settled: Sett
     get: async () => null,
     setPayer: async () => true,
     openForPayer: async () => [],
+    cancel: async () => true,
     settle: async (input): Promise<SettleOutcome> => {
       settled.push(input);
       return { outcome: "settled", paymentId: "pay1" };

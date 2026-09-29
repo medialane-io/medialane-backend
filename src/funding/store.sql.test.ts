@@ -72,6 +72,20 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
     expect(counted - (await store.countOpen(apiClientId, new Date()))).toBe(1);
   });
 
+  test("cancelling closes an open intent once and removes it from matching and the open count", async () => {
+    const payer = `0xcancel${Date.now()}`;
+    const made = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
+    await store.setPayer(made.id, apiClientId, payer, new Date());
+    const before = await store.countOpen(apiClientId, new Date());
+    expect((await store.openForPayer(payer, new Date())).map((i) => i.id)).toEqual([made.id]);
+
+    expect(await store.cancel(made.id, "someone-else")).toBe(false);
+    expect(await store.cancel(made.id, apiClientId)).toBe(true);
+    expect(await store.cancel(made.id, apiClientId)).toBe(false);
+    expect(await store.openForPayer(payer, new Date())).toEqual([]);
+    expect(await store.countOpen(apiClientId, new Date())).toBe(before - 1);
+  });
+
   test("a payer can be set once", async () => {
     const made = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
     expect(await store.setPayer(made.id, apiClientId, "0xaaa", new Date())).toBe(true);

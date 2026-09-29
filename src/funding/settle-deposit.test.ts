@@ -19,6 +19,7 @@ function store(open: FundingIntentRecord[]) {
   const s: FundingStore = {
     countOpen: async () => 0, create: async () => open[0]!, get: async () => null, setPayer: async () => true,
     openForPayer: async () => open,
+    cancel: async () => true,
     settle: async (input) => { settled.push(input); return { outcome: "settled", paymentId: `pay-${input.intent.id}` }; },
   };
   return { s, settled };
