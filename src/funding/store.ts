@@ -67,7 +67,7 @@ export const prismaFundingStore: FundingStore = {
   async openForPayer(payer) {
     const rows = await prisma.fundingIntent.findMany({
       where: { payer, status: "PENDING" },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select,
     });
     return rows.map(toRecord);
