@@ -83,6 +83,7 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     const found = await load(c);
     if (!found) return c.json({ error: "Top-up not found" }, 404);
     const { intent, method } = found;
+    if (intent.status === "SETTLED") return c.json({ data: { status: "SETTLED" } });
     if (intent.status !== "PENDING") return c.json({ error: "This top-up is already closed" }, 409);
     if (!intent.payer) return c.json({ error: "Choose and sign with your wallet first" }, 409);
 

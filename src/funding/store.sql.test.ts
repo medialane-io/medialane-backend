@@ -56,6 +56,22 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
     await prisma.fundingIntent.update({ where: { id: made.id }, data: { status: "EXPIRED" } });
   });
 
+  test("an authorized intent stops counting and matching a week after its window, so stale intents cannot capture later transfers", async () => {
+    const payer = `0xstale${Date.now()}`;
+    const day = 24 * 3_600_000;
+    const stale = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: new Date(Date.now() - 8 * day) });
+    const recent = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: new Date(Date.now() - 2 * day) });
+    await prisma.fundingIntent.update({ where: { id: stale.id }, data: { payer } });
+    await prisma.fundingIntent.update({ where: { id: recent.id }, data: { payer } });
+
+    const matching = await store.openForPayer(payer, new Date());
+    expect(matching.map((i) => i.id)).toEqual([recent.id]);
+
+    const counted = await store.countOpen(apiClientId, new Date());
+    await prisma.fundingIntent.updateMany({ where: { id: { in: [stale.id, recent.id] } }, data: { status: "EXPIRED" } });
+    expect(counted - (await store.countOpen(apiClientId, new Date()))).toBe(1);
+  });
+
   test("a payer can be set once", async () => {
     const made = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
     expect(await store.setPayer(made.id, apiClientId, "0xaaa", new Date())).toBe(true);
@@ -75,7 +91,7 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
     const b = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
     await store.setPayer(b.id, apiClientId, payer, new Date());
     await store.setPayer(a.id, apiClientId, payer, new Date());
-    const open = await store.openForPayer(payer);
+    const open = await store.openForPayer(payer, new Date());
     expect(open.map((i) => i.id)).toEqual([a.id, b.id]);
   });
 

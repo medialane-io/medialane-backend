@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
+import { PAYMENT_GRACE_MS } from "./core.js";
 import type { FundingIntentRecord, FundingStore, SettleInput, SettleOutcome } from "./types.js";
 
 const select = {
@@ -33,7 +34,10 @@ export const prismaFundingStore: FundingStore = {
       where: {
         apiClientId,
         status: "PENDING",
-        OR: [{ payer: { not: null } }, { expiresAt: { gt: now } }],
+        OR: [
+          { payer: null, expiresAt: { gt: now } },
+          { payer: { not: null }, expiresAt: { gt: new Date(now.getTime() - PAYMENT_GRACE_MS) } },
+        ],
       },
     });
   },
@@ -64,9 +68,9 @@ export const prismaFundingStore: FundingStore = {
     return res.count === 1;
   },
 
-  async openForPayer(payer) {
+  async openForPayer(payer, now) {
     const rows = await prisma.fundingIntent.findMany({
-      where: { payer, status: "PENDING" },
+      where: { payer, status: "PENDING", expiresAt: { gt: new Date(now.getTime() - PAYMENT_GRACE_MS) } },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select,
     });

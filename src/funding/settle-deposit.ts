@@ -19,7 +19,7 @@ export interface SettledDeposit {
  */
 export function intentSettler(deps: IntentSettlerDeps) {
   return async (deposit: DepositEvent, nonce: string): Promise<SettledDeposit | null> => {
-    const open = await deps.store.openForPayer(deposit.payer);
+    const open = await deps.store.openForPayer(deposit.payer, new Date());
     const intent = open.find((candidate) => depositSatisfies(deposit, candidate));
     if (!intent) return null;
 

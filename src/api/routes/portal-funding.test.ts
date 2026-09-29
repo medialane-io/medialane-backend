@@ -150,8 +150,18 @@ describe("authorizing and paying", () => {
     expect((await post(app(makeStore([open()])), "/fi1/submit", { txHash: "0xh" })).status).toBe(409);
   });
 
-  test("submitting for an intent that is already settled is a 409", async () => {
-    expect((await post(app(makeStore([open({ payer: "0xpayer", status: "SETTLED" })])), "/fi1/submit", { txHash: "0xh" })).status).toBe(409);
+  test("submitting again for an intent that is already settled reports it as settled, so a retry after a lost response is harmless", async () => {
+    let settleCalls = 0;
+    const s = makeStore([open({ payer: "0xpayer", status: "SETTLED" })], { settle: async () => { settleCalls++; return { outcome: "settled", paymentId: "x" }; } });
+    const res = await post(app(s), "/fi1/submit", { txHash: "0xh" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.status).toBe("SETTLED");
+    expect(settleCalls).toBe(0);
+  });
+
+  test("submitting for an intent that failed or expired is a 409", async () => {
+    expect((await post(app(makeStore([open({ payer: "0xpayer", status: "EXPIRED" })])), "/fi1/submit", { txHash: "0xh" })).status).toBe(409);
+    expect((await post(app(makeStore([open({ payer: "0xpayer", status: "FAILED" })])), "/fi1/submit", { txHash: "0xh" })).status).toBe(409);
   });
 
   test("a transfer already credited elsewhere does not credit twice", async () => {

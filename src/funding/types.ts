@@ -43,7 +43,7 @@ export interface FundingStore {
   }): Promise<FundingIntentRecord>;
   get(id: string, apiClientId: string): Promise<FundingIntentRecord | null>;
   setPayer(id: string, apiClientId: string, payer: string, now: Date): Promise<boolean>;
-  openForPayer(payer: string): Promise<FundingIntentRecord[]>;
+  openForPayer(payer: string, now: Date): Promise<FundingIntentRecord[]>;
   settle(input: SettleInput): Promise<SettleOutcome>;
 }
 

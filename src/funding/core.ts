@@ -3,6 +3,12 @@ import type { FundingIntentRecord, FundingStore, VerifiedPayment } from "./types
 
 export const INTENT_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_OPEN_INTENTS = 5;
+/**
+ * How long after its authorization deadline an authorized intent can still match a transfer.
+ * Bounded so an abandoned intent cannot count against the account forever, or capture a
+ * transfer the payer makes months later for something else.
+ */
+export const PAYMENT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class FundingError extends Error {
   constructor(
