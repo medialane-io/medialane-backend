@@ -815,6 +815,7 @@ model ApiClient {
   apiKeys              ApiKey[]
   webhooks             WebhookEndpoint[]
   payments             Payment[]
+  fundingIntents       FundingIntent[]
   usage                UsageEvent[]
   businessProvisioning BusinessProvisioning[]
   launchpadRuns        LaunchpadRun[]
@@ -1096,7 +1097,11 @@ model Payment {
   proofNonce     String        @unique
   createdAt      DateTime      @default(now())
 
+  fundingIntentId String?        @unique
+  fundingIntent   FundingIntent? @relation(fields: [fundingIntentId], references: [id], onDelete: SetNull)
+
   @@index([apiClientId])
+  @@index([payer])
 }
 
 model UsageEvent {
@@ -1125,6 +1130,31 @@ enum PaymentStatus {
   SETTLED
   FAILED
   UNATTRIBUTED
+}
+
+enum FundingIntentStatus {
+  PENDING
+  SETTLED
+  FAILED
+  EXPIRED
+}
+
+model FundingIntent {
+  id          String              @id @default(cuid())
+  apiClientId String
+  apiClient   ApiClient           @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  method      String
+  status      FundingIntentStatus @default(PENDING)
+  payer       String?
+  params      Json
+  expiresAt   DateTime
+  settledAt   DateTime?
+  createdAt   DateTime            @default(now())
+  payment     Payment?
+
+  @@index([apiClientId, status])
+  @@index([payer, status])
+  @@index([status, expiresAt])
 }
 
 model AdminAuthNonce {
