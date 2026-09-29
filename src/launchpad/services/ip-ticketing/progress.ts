@@ -17,8 +17,8 @@ export interface IpTicketingProgress {
 export type NextStep =
   | { kind: "collection" }
   | { kind: "wait-collection" }
-  | { kind: "upload"; file: string }
-  | { kind: "metadata" }
+  | { kind: "upload"; files: string[] }
+  | { kind: "ticket-metadata" }
   | { kind: "tier" }
   | { kind: "wait-tier" }
   | { kind: "wallets" }
@@ -77,8 +77,8 @@ export function nextStep(spec: IpTicketingSpec, progress: IpTicketingProgress): 
   if (spec.collection.kind === "new" && !progress.collection?.address) {
     return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };
   }
-  if (spec.artwork && !pinnedValue(progress.artwork)) return { kind: "upload", file: spec.artwork.name };
-  if (!pinnedValue(progress.tokenUri)) return { kind: "metadata" };
+  if (spec.artwork && !pinnedValue(progress.artwork)) return { kind: "upload", files: [spec.artwork.name] };
+  if (!pinnedValue(progress.tokenUri)) return { kind: "ticket-metadata" };
   if (!progress.tier?.ticketId) return isInFlight(progress.tier?.tx) ? { kind: "wait-tier" } : { kind: "tier" };
   if (spec.guests.some((guest) => !pinnedValue(progress.wallets[guest]))) return { kind: "wallets" };
 

@@ -28,13 +28,13 @@ describe("the next step of an IP Ticketing run", () => {
 
   test("artwork is uploaded before the ticket's metadata is stored", () => {
     const spec = parse({ artwork: { name: "a.png", size: 3, type: "image/png" } });
-    expect(nextStep(spec, progress())).toEqual({ kind: "upload", file: "a.png" });
-    expect(nextStep(spec, progress({ artwork: "ipfs://art" }))).toEqual({ kind: "metadata" });
+    expect(nextStep(spec, progress())).toEqual({ kind: "upload", files: ["a.png"] });
+    expect(nextStep(spec, progress({ artwork: "ipfs://art" }))).toEqual({ kind: "ticket-metadata" });
   });
 
   test("the ticket type is created once the metadata is stored, and waited on until it lands", () => {
     const spec = parse();
-    expect(nextStep(spec, progress())).toEqual({ kind: "metadata" });
+    expect(nextStep(spec, progress())).toEqual({ kind: "ticket-metadata" });
     expect(nextStep(spec, progress({ tokenUri: "ipfs://meta" }))).toEqual({ kind: "tier" });
     expect(
       nextStep(spec, progress({ tokenUri: "ipfs://meta", tier: { tx: { status: "SUBMITTED", txHash: "0x2" } } })),
