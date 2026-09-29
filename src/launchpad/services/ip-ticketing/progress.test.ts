@@ -81,6 +81,13 @@ describe("what is in flight", () => {
   });
 });
 
+describe("a fresh run's progress", () => {
+  test("has every parent object a step is recorded under, because the database only fills in the last key of a path", () => {
+    const fresh = ipTicketing.initialProgress() as Record<string, unknown>;
+    for (const parent of ["collection", "tier", "wallets", "batches"]) expect(fresh[parent]).toEqual({});
+  });
+});
+
 describe("batches and metadata", () => {
   test("guests go out in batches of 25", () => {
     const guests = Array.from({ length: 60 }, (_, i) => `g${i}@x.com`);
@@ -96,7 +103,7 @@ describe("batches and metadata", () => {
       artwork: { name: "a.png", size: 3, type: "image/png" },
       terms: { ...terms, aiPolicy: "Allowed", derivatives: "Share-Alike", transferable: "Not Allowed", royalty: 5 },
     });
-    const metadata = ticketMetadata(spec, progress({ artwork: "ipfs://art" }), "0xabc") as Record<string, unknown>;
+    const metadata = ticketMetadata(spec, progress({ artwork: "ipfs://art" }), "0xabc");
     expect(metadata.name).toBe("General admission");
     expect(metadata.description).toBe("Doors at 8");
     expect(metadata.image).toBe("ipfs://art");

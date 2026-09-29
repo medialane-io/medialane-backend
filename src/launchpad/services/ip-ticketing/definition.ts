@@ -54,7 +54,7 @@ export const ipTicketing: RunServiceDefinition<IpTicketingSpec> = {
     return steps;
   },
   guests: (value) => value.guests,
-  initialProgress: () => readProgress({}),
+  initialProgress: () => ({ collection: {}, tier: {}, wallets: {}, batches: {} }),
   nextStep: (value, progress) => nextStep(value, readProgress(progress)),
   inFlight: (progress) => runInFlight(readProgress(progress)),
 };

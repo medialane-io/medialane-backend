@@ -75,57 +75,79 @@ const registerSchema = z.object({
   }),
 });
 
+export type RegisterInput = z.infer<typeof registerSchema>;
+
+export type RegisterResult =
+  | { status: 200 | 201; record: ProvisioningRecord; reused: boolean }
+  | { status: 502; message: string };
+
+/** Gives a recipient a wallet: reuses the one they already have, or deploys a fresh one owned by an interim key. */
+export async function registerProvisioning(
+  deps: BusinessProvisioningDeps,
+  apiClient: { id: string; accountId: string },
+  input: RegisterInput,
+): Promise<RegisterResult> {
+  const { chain, recipientScheme, recipientValue, interimOwnerPubkey, derivationSalt, deployment } = input;
+  const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
+  const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
+
+  const existing = await deps.findExistingWalletForRecipient(chain, recipientScheme, recipientValue);
+  if (existing) {
+    const record = await deps.createProvisioning({
+      apiClientId: apiClient.id,
+      accountId: apiClient.accountId,
+      chain,
+      walletAddress: existing.walletAddress,
+      recipientScheme,
+      recipientValue,
+      interimOwnerPubkey: null,
+      derivationSalt,
+      status: "REUSED",
+    });
+    return { status: 200, record, reused: true };
+  }
+
+  const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+
+  try {
+    await deps.deployWallet({
+      ownerAddress: normWallet,
+      typedData: deployment.typedData,
+      signature: deployment.signature,
+      deployment: deployment.deployment,
+    });
+  } catch (err) {
+    return { status: 502, message: err instanceof Error ? err.message : "deploy_failed" };
+  }
+
+  if (recipientAccountId) {
+    await deps.linkWalletToAccount({ chain, walletAddress: normWallet, accountId: recipientAccountId });
+  }
+
+  const record = await deps.createProvisioning({
+    apiClientId: apiClient.id,
+    accountId: apiClient.accountId,
+    chain,
+    walletAddress: normWallet,
+    recipientScheme,
+    recipientValue,
+    interimOwnerPubkey: normPubkey,
+    derivationSalt,
+  });
+  return { status: 201, record, reused: false };
+}
+
 export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
-    const { chain, recipientScheme, recipientValue, interimOwnerPubkey, derivationSalt, deployment } =
-      c.req.valid("json");
-    const apiClient = c.get("apiClient");
-    const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
-    const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
-
-    const existing = await deps.findExistingWalletForRecipient(chain, recipientScheme, recipientValue);
-
-    if (existing) {
+    const result = await registerProvisioning(deps, c.get("apiClient"), c.req.valid("json"));
+    if (result.status === 502) return c.json({ error: "deploy_failed", message: result.message }, 502);
+    if (result.reused) {
       bill(c, 0);
-      const record = await deps.createProvisioning({
-        apiClientId: apiClient.id,
-        accountId: apiClient.accountId,
-        chain,
-        walletAddress: existing.walletAddress,
-        recipientScheme,
-        recipientValue,
-        interimOwnerPubkey: null,
-        derivationSalt,
-        status: "REUSED",
-      });
-      return c.json({ data: record, reusedExistingWallet: true }, 200);
+      return c.json({ data: result.record, reusedExistingWallet: true }, 200);
     }
-
-    const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
-
-    try {
-      await deps.deployWallet({
-        ownerAddress: normWallet,
-        typedData: deployment.typedData,
-        signature: deployment.signature,
-        deployment: deployment.deployment,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "deploy_failed";
-      return c.json({ error: "deploy_failed", message }, 502);
-    }
-
-    if (recipientAccountId) {
-      await deps.linkWalletToAccount({ chain, walletAddress: normWallet, accountId: recipientAccountId });
-    }
-
-    const record = await deps.createProvisioning({
-      apiClientId: apiClient.id, accountId: apiClient.accountId, chain, walletAddress: normWallet, recipientScheme, recipientValue, interimOwnerPubkey: normPubkey, derivationSalt,
-    });
-
-    return c.json({ data: record }, 201);
+    return c.json({ data: result.record }, 201);
   });
 
   app.get("/", async (c) => {
@@ -201,7 +223,7 @@ function assertLinked<T extends { apiClientId: string | null }>(row: T): T & { a
   return row as T & { apiClientId: string };
 }
 
-const productionDeps: BusinessProvisioningDeps = {
+export const productionProvisioningDeps: BusinessProvisioningDeps = {
   isAccountOwner: realIsAccountOwner,
   deriveWalletAddress: (ownerPubkey) => computeAccountAddress(ownerPubkey, 0),
   deployWallet: (input) => executeSponsoredDeploy(input),
@@ -266,4 +288,4 @@ const productionDeps: BusinessProvisioningDeps = {
   },
 };
 
-export const businessProvisioningRoutes = createBusinessProvisioningRoutes(productionDeps);
+export const businessProvisioningRoutes = createBusinessProvisioningRoutes(productionProvisioningDeps);
