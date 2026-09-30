@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../../../types/hono.js";
 import type { StoredRun } from "../../../launchpad/run-store.js";
+import { STALE_PENDING_MS } from "../../../launchpad/run-store.js";
+import { pendingPaths } from "../../../launchpad/pending.js";
 import { RUN_SERVICES, definitionOf, parseRunSpec, quoteRun } from "../../../launchpad/services/index.js";
 import { specError, type RunContext } from "./context.js";
 
@@ -19,6 +21,19 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
   const quoteFor = (run: StoredRun) =>
     quoteRun(parseRunSpec(run.service, run.spec), { priceOf: ctx.priceOf, countProvisioned: ctx.store.countProvisioned });
+
+  const sweepAbandoned = async (run: StoredRun): Promise<StoredRun> => {
+    if (run.status !== "PAID" && run.status !== "RUNNING") return run;
+    const paths = pendingPaths(run.progress);
+    if (paths.length === 0) return run;
+    const released = await ctx.store.sweepStale({
+      id: run.id,
+      apiClientId: run.apiClientId,
+      paths,
+      olderThanMs: STALE_PENDING_MS,
+    });
+    return released > 0 ? ((await ctx.store.get(run.id, run.apiClientId)) ?? run) : run;
+  };
 
   const present = async (run: StoredRun) => {
     if (run.status === "DRAFT") {
@@ -58,9 +73,9 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
   });
 
   app.get("/:id", async (c) => {
-    const run = await ctx.store.get(c.req.param("id"), c.get("apiClient").id);
-    if (!run) return c.json({ error: "Run not found" }, 404);
-    return c.json({ data: await present(run) });
+    const found = await ctx.store.get(c.req.param("id"), c.get("apiClient").id);
+    if (!found) return c.json({ error: "Run not found" }, 404);
+    return c.json({ data: await present(await sweepAbandoned(found)) });
   });
 
   app.patch("/:id", async (c) => {
@@ -84,8 +99,9 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
   app.post("/:id/cancel", async (c) => {
     const apiClientId = c.get("apiClient").id;
-    const existing = await ctx.store.get(c.req.param("id"), apiClientId);
-    if (!existing) return c.json({ error: "Run not found" }, 404);
+    const found = await ctx.store.get(c.req.param("id"), apiClientId);
+    if (!found) return c.json({ error: "Run not found" }, 404);
+    const existing = await sweepAbandoned(found);
 
     if (existing.status === "DRAFT") {
       const run = await ctx.store.cancelDraft(existing.id, apiClientId);
