@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
+import { provisioningKeyWith } from "../../utils/provisioningKey.js";
 import { createBusinessProvisioningRoutes, type BusinessProvisioningDeps, type ProvisioningRecord } from "./business-provisioning.js";
+
+const SECRET = "c".repeat(64);
 
 function makeApp(deps: BusinessProvisioningDeps, apiClientId = "biz-1") {
   const app = new Hono<AppEnv>();
@@ -14,26 +17,29 @@ function makeApp(deps: BusinessProvisioningDeps, apiClientId = "biz-1") {
   return app;
 }
 
-function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessProvisioningDeps {
-  const store = new Map<string, ProvisioningRecord>();
+function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}) {
+  const store = new Map<string, ProvisioningRecord & { derivationSalt: string | null }>();
+  const deployed: { ownerAddress: string; signature: string[] }[] = [];
+  const signedWith: string[] = [];
   let seq = 0;
-  return {
-    isAccountOwner: async () => true,
-    deriveWalletAddress: () => "0x111",
+  const deps: BusinessProvisioningDeps = {
+    keyFor: (input) => provisioningKeyWith(SECRET, input),
+    newSalt: () => "0123456789abcdef",
+    buildDeployment: async (owner) => ({ typedData: { owner }, deployment: { address: owner.ownerAddress } }),
+    signTypedData: (privateKey) => {
+      signedWith.push(privateKey);
+      return ["0xr", "0xs"];
+    },
+    deployWallet: async (input) => {
+      deployed.push({ ownerAddress: input.ownerAddress, signature: input.signature });
+      return "0xdeploytx";
+    },
     findExistingWalletForRecipient: async () => null,
-    getProvisioningByRecipient: async ({ recipientScheme, recipientValue, apiClientId }) =>
-      [...store.values()].find(
-        (r) =>
-          r.recipientScheme === recipientScheme &&
-          r.recipientValue === recipientValue &&
-          r.apiClientId === apiClientId,
-      ) ?? null,
-    deployWallet: async () => "0xdeploytx",
     ensureRecipientAccount: async (_scheme, value) => `acct-for-${value}`,
     linkWalletToAccount: async () => {},
     createProvisioning: async (input) => {
       seq += 1;
-      const record: ProvisioningRecord = { id: `prov-${seq}`, status: "DEPLOYED", newOwnerPubkey: null, ...input };
+      const record = { id: `prov-${seq}`, status: "DEPLOYED" as const, newOwnerPubkey: null, ...input };
       store.set(record.id, record);
       return record;
     },
@@ -42,520 +48,106 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}): BusinessPr
       const r = store.get(id);
       return r && r.apiClientId === apiClientId ? r : null;
     },
-    getProvisioningByIdUnscoped: async () => null,
-    markTransferred: async (id) => {
-      const r = store.get(id)!;
-      const updated = { ...r, status: "TRANSFERRED" as const };
-      store.set(id, updated);
-      return updated;
-    },
-    recordNewOwnerPubkey: async (id, pubkey) => {
-      const r = store.get(id)!;
-      const updated = { ...r, newOwnerPubkey: pubkey, status: "HANDOFF" as const };
-      store.set(id, updated);
-      return updated;
-    },
     ...overrides,
   };
+  return { deps, store, deployed, signedWith };
 }
 
+const issue = (app: Hono<AppEnv>, recipientValue: string) =>
+  app.request("/v1/business/provisioning", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chain: "STARKNET", recipientScheme: "email", recipientValue }),
+  });
+
 describe("POST /v1/business/provisioning", () => {
-  test("registers a provisioned wallet after verifying the interim owner on-chain", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-    const res = await app.request("/v1/business/provisioning", {
+  test("deploys a wallet owned by the key the backend computes", async () => {
+    const { deps, deployed, store } = fakeDeps();
+    const res = await issue(makeApp(deps), "ana@example.com");
+    expect(res.status).toBe(201);
+    const key = provisioningKeyWith(SECRET, { apiClientId: "biz-1", recipientScheme: "email", recipientValue: "ana@example.com", salt: "0123456789abcdef" });
+    const [record] = [...store.values()];
+    expect(deployed).toHaveLength(1);
+    expect(BigInt(record!.walletAddress)).toBe(BigInt(key.walletAddress));
+    expect(BigInt(record!.interimOwnerPubkey!)).toBe(BigInt(key.publicKey));
+    expect(record!.derivationSalt).toBe("0123456789abcdef");
+  });
+
+  test("stores no private key", async () => {
+    const { deps, store, signedWith } = fakeDeps();
+    await issue(makeApp(deps), "ana@example.com");
+    const stored = JSON.stringify([...store.values()]);
+    expect(signedWith).toHaveLength(1);
+    expect(stored.includes(signedWith[0]!.replace(/^0x/, ""))).toBe(false);
+  });
+
+  test("stores the recipient normalized, so a different letter case still matches later", async () => {
+    const { deps, store } = fakeDeps();
+    await issue(makeApp(deps), "Ana@Example.com");
+    expect([...store.values()][0]!.recipientValue).toBe("ana@example.com");
+  });
+
+  test("ignores a signed deployment sent by an old client", async () => {
+    const { deps, deployed } = fakeDeps();
+    const res = await makeApp(deps).request("/v1/business/provisioning", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         chain: "STARKNET",
-        recipientScheme: "email", recipientValue: "worker@example.com",
-        interimOwnerPubkey: "0x222",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
+        recipientScheme: "email",
+        recipientValue: "ana@example.com",
+        interimOwnerPubkey: "0x1",
+        derivationSalt: "s".repeat(16),
         deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
       }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { data: ProvisioningRecord };
-    expect(body.data.status).toBe("DEPLOYED");
-    expect(body.data.apiClientId).toBe("biz-1");
+    expect(deployed[0]!.signature).toEqual(["0xr", "0xs"]);
   });
 
-  test("creates an account for the recipient and links the wallet to it", async () => {
-    let linked: { walletAddress: string; accountId: string } | null = null;
-    const deps = fakeDeps({
-      linkWalletToAccount: async ({ walletAddress, accountId }) => {
-        linked = { walletAddress, accountId };
+  test("puts the assets in the wallet the recipient already has", async () => {
+    const { deps, deployed, store } = fakeDeps({
+      findExistingWalletForRecipient: async () => ({ accountId: "acct-ana", walletAddress: "0xabc" }),
+    });
+    const res = await issue(makeApp(deps), "ana@example.com");
+    expect(res.status).toBe(200);
+    expect(deployed).toHaveLength(0);
+    const [record] = [...store.values()];
+    expect(record!.status).toBe("REUSED");
+    expect(record!.interimOwnerPubkey).toBeNull();
+    expect(record!.derivationSalt).toBeNull();
+  });
+
+  test("records nothing when the deploy fails", async () => {
+    const { deps, store } = fakeDeps({
+      deployWallet: async () => {
+        throw new Error("paymaster down");
       },
     });
-    const app = makeApp(deps);
-
-    const res = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "student@example.com",
-        interimOwnerPubkey: "0x2",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-
-    expect(res.status).toBe(201);
-    expect(linked).not.toBeNull();
-    expect(linked!.accountId).toBe("acct-for-student@example.com");
-  });
-
-  test("creates an account for a recipient identified by something other than email", async () => {
-    const linked: string[] = [];
-    const deps = fakeDeps({ linkWalletToAccount: async ({ accountId }) => { linked.push(accountId); } });
-    const app = makeApp(deps);
-
-    const res = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "student_id",
-        recipientValue: "12345",
-        interimOwnerPubkey: "0x2",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-
-    expect(res.status).toBe(201);
-    expect(linked).toEqual(["acct-for-12345"]);
-  });
-
-  test("creates the account before deploying the wallet", async () => {
-    const order: string[] = [];
-    const deps = fakeDeps({
-      ensureRecipientAccount: async () => { order.push("account"); return "acct-1"; },
-      deployWallet: async () => { order.push("deploy"); return "0xtx"; },
-      linkWalletToAccount: async () => { order.push("link"); },
-    });
-    const app = makeApp(deps);
-
-    const res = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "student@example.com",
-        interimOwnerPubkey: "0x2",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-
-    expect(res.status).toBe(201);
-    expect(order).toEqual(["account", "deploy", "link"]);
-  });
-
-  test("reuses the wallet an account already has instead of deploying another", async () => {
-    let deploys = 0;
-    const deps = fakeDeps({
-      findExistingWalletForRecipient: async () => ({ accountId: "acct-x", walletAddress: "0xexisting" }),
-      deployWallet: async () => { deploys += 1; return "0xtx"; },
-    });
-    const app = makeApp(deps);
-
-    const res = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "already@example.com",
-        interimOwnerPubkey: "0x2",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(deploys).toBe(0);
-    const body = (await res.json()) as { data: ProvisioningRecord; reusedExistingWallet: boolean };
-    expect(body.reusedExistingWallet).toBe(true);
-    expect(body.data.walletAddress).toBe("0xexisting");
-  });
-
-  test("deploys a wallet for an account that exists but has none", async () => {
-    let deploys = 0;
-    const deps = fakeDeps({
-      findExistingWalletForRecipient: async () => null,
-      deployWallet: async () => { deploys += 1; return "0xtx"; },
-    });
-    const app = makeApp(deps);
-
-    const res = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "nowallet@example.com",
-        interimOwnerPubkey: "0x2",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-
-    expect(res.status).toBe(201);
-    expect(deploys).toBe(1);
-  });
-
-  test("records nothing when the wallet fails to deploy", async () => {
-    let created = 0;
-    const deps = fakeDeps({
-      deployWallet: async () => { throw new Error("paymaster rejected the deployment"); },
-      linkWalletToAccount: async () => { created += 1; },
-    });
-    const app = makeApp(deps);
-    const res = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chain: "STARKNET",
-        recipientScheme: "email", recipientValue: "worker@example.com",
-        interimOwnerPubkey: "0x222",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
+    const res = await issue(makeApp(deps), "ana@example.com");
     expect(res.status).toBe(502);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("deploy_failed");
-    expect(created).toBe(0);
+    expect(store.size).toBe(0);
   });
 });
 
 describe("GET /v1/business/provisioning", () => {
   test("lists only the caller's own rows", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-    await deps.createProvisioning({ apiClientId: "biz-1", accountId: "acc-biz-1", chain: "STARKNET", walletAddress: "0xA", recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", derivationSalt: "s1" });
-    await deps.createProvisioning({ apiClientId: "biz-2", accountId: "acc-biz-2", chain: "STARKNET", walletAddress: "0xB", recipientScheme: "email", recipientValue: "b@example.com", interimOwnerPubkey: "0x2", derivationSalt: "s2" });
-    const res = await app.request("/v1/business/provisioning");
+    const { deps } = fakeDeps();
+    await issue(makeApp(deps, "biz-1"), "ana@example.com");
+    await issue(makeApp(deps, "biz-2"), "bob@example.com");
+    const res = await makeApp(deps, "biz-1").request("/v1/business/provisioning");
     const body = (await res.json()) as { data: ProvisioningRecord[] };
-    expect(body.data).toHaveLength(1);
-    expect(body.data[0].walletAddress).toBe("0xA");
+    expect(body.data.map((r) => r.recipientValue)).toEqual(["ana@example.com"]);
   });
 });
 
-describe("POST /v1/business/provisioning/handoff", () => {
-  async function register(app: ReturnType<typeof makeApp>) {
-    return app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "student@example.com",
-        interimOwnerPubkey: "0x222",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-  }
-
-  test("records the recipient's key and the proof it can sign", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-    await register(app);
-
-    const res = await app.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "student@example.com",
-        newOwnerPubkey: "0xabc",
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: ProvisioningRecord };
-    expect(body.data.status).toBe("HANDOFF");
-    expect(BigInt(body.data.newOwnerPubkey!)).toBe(BigInt("0xabc"));
-  });
-
-  test("refuses a handoff without a recipient key", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-    await register(app);
-
-    const res = await app.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ recipientScheme: "email", recipientValue: "student@example.com" }),
-    });
-
-    expect(res.status).toBe(400);
-  });
-
-  test("another business cannot hand off a wallet it did not provision", async () => {
-    const deps = fakeDeps();
-    const owner = makeApp(deps, "biz-1");
-    const attacker = makeApp(deps, "biz-2");
-
-    await owner.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "victim@example.com",
-        interimOwnerPubkey: "0x222",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-
-    const res = await attacker.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "victim@example.com",
-        newOwnerPubkey: "0xbad0",
-      }),
-    });
-
-    expect(res.status).toBe(404);
-  });
-
-  test("a mismatched recipient finds nothing rather than the wrong wallet", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-    await register(app);
-
-    const res = await app.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "someone-else@example.com",
-        newOwnerPubkey: "0xabc",
-      }),
-    });
-
-    expect(res.status).toBe(404);
-  });
-
-  test("404s for a wallet that was never provisioned", async () => {
-    const app = makeApp(fakeDeps());
-    const res = await app.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "never@example.com",
-        newOwnerPubkey: "0xabc",
-      }),
-    });
-    expect(res.status).toBe(404);
-  });
-});
-
-describe("GET /v1/business/provisioning/:id/handoff-calls", () => {
-  test("returns one call adding the recipient and one removing the business", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-
-    const created = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "someone@example.com",
-        interimOwnerPubkey: "0x222",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-    const { data: record } = (await created.json()) as { data: ProvisioningRecord };
-
-    await app.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "someone@example.com",
-        newOwnerPubkey: "0xabc",
-      }),
-    });
-
-    const res = await app.request(`/v1/business/provisioning/${record.id}/handoff-calls`);
-    expect(res.status).toBe(200);
-
-    const body = (await res.json()) as {
-      data: { addRecipient: { entrypoint: string }; removeInterim: { entrypoint: string } };
-    };
-    expect(body.data.addRecipient.entrypoint).toBe("change_owners");
-    expect(body.data.removeInterim.entrypoint).toBe("change_owners");
-  });
-
-  test("409s before the recipient has supplied a key", async () => {
-    const deps = fakeDeps();
-    const app = makeApp(deps);
-
-    const created = await app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recipientScheme: "email",
-        recipientValue: "someone@example.com",
-        interimOwnerPubkey: "0x222",
-        derivationSalt: "0123456789abcdef0123456789abcdef",
-        deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-      }),
-    });
-    const { data: record } = (await created.json()) as { data: ProvisioningRecord };
-
-    const res = await app.request(`/v1/business/provisioning/${record.id}/handoff-calls`);
-    expect(res.status).toBe(409);
-  });
-});
-
-describe("POST /v1/business/provisioning/:id/complete", () => {
-  const claimPendingRecord: ProvisioningRecord = {
-    id: "prov-1", apiClientId: "biz-1", chain: "STARKNET", walletAddress: "0xa",
-    recipientScheme: "email", recipientValue: "a@example.com", interimOwnerPubkey: "0x1", newOwnerPubkey: "0x3", status: "HANDOFF",
-  };
-
-  test("marks TRANSFERRED once the new owner is confirmed on-chain and the interim owner is gone", async () => {
-    const deps = fakeDeps({
-      getProvisioningById: async (id, apiClientId) => (id === "prov-1" && apiClientId === "biz-1" ? claimPendingRecord : null),
-      isAccountOwner: async (_chain, _wallet, pubkey) => pubkey === "0x3",
-    });
-    const app = makeApp(deps);
-    const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: ProvisioningRecord };
-    expect(body.data.status).toBe("TRANSFERRED");
-  });
-
-  test("409s when the on-chain handoff isn't confirmed yet", async () => {
-    const deps = fakeDeps({
-      getProvisioningById: async () => claimPendingRecord,
-      isAccountOwner: async () => false,
-    });
-    const app = makeApp(deps);
-    const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
-    expect(res.status).toBe(409);
-  });
-
-  test("404s for a row that belongs to a different business account", async () => {
-    const deps = fakeDeps({ getProvisioningById: async () => null });
-    const app = makeApp(deps);
-    const res = await app.request("/v1/business/provisioning/prov-1/complete", { method: "POST" });
-    expect(res.status).toBe(404);
-  });
-});
-
-describe("recipient wallet reuse across tenants", () => {
-  function reuseDeps(overrides: Partial<BusinessProvisioningDeps> = {}) {
-    let deployCalls = 0;
-    const deps = fakeDeps({
-      deployWallet: async () => {
-        deployCalls += 1;
-        return "0xdeploytx";
-      },
-      ...overrides,
-    });
-    return { deps, deployCalls: () => deployCalls };
-  }
-
-  const body = {
-    chain: "STARKNET",
-    recipientScheme: "email",
-    recipientValue: "salvadorcamino@gmail.com",
-    interimOwnerPubkey: "0xbee7",
-    derivationSalt: "salt-0123456789abcdef",
-    deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-  };
-
-  async function post(app: ReturnType<typeof makeApp>, payload: unknown = body) {
-    return app.request("/v1/business/provisioning", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  test("reuses a wallet the recipient already has under another tenant", async () => {
-    const { deps, deployCalls } = reuseDeps({
-      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
-    });
-    const res = await post(makeApp(deps));
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.reusedExistingWallet).toBe(true);
-    expect(json.data.walletAddress).toBe("0xabc123");
-    expect(deployCalls()).toBe(0);
-  });
-
-  test("deploys when the recipient has no wallet anywhere", async () => {
-    const { deps, deployCalls } = reuseDeps({
-      findExistingWalletForRecipient: async () => null,
-    });
-    const res = await post(makeApp(deps));
-
-    expect(res.status).toBe(201);
-    expect(deployCalls()).toBe(1);
-  });
-
-  test("records no interim owner on a reused wallet", async () => {
-    const { deps } = reuseDeps({
-      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
-    });
-    const res = await post(makeApp(deps));
-    const json = await res.json();
-
-    expect(json.data.interimOwnerPubkey).toBeNull();
-  });
-
-  test("marks a reused row REUSED rather than DEPLOYED", async () => {
-    const { deps } = reuseDeps({
-      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
-    });
-    const res = await post(makeApp(deps));
-    const json = await res.json();
-
-    expect(json.data.status).toBe("REUSED");
-  });
-
-  test("does not create a second account when reusing", async () => {
-    let ensureCalls = 0;
-    const { deps } = reuseDeps({
-      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
-      ensureRecipientAccount: async (_s, v) => {
-        ensureCalls += 1;
-        return `acct-for-${v}`;
-      },
-    });
-    await post(makeApp(deps));
-
-    expect(ensureCalls).toBe(0);
-  });
-
-  test("refuses handoff on a reused wallet the business never controlled", async () => {
-    const { deps } = reuseDeps({
-      findExistingWalletForRecipient: async () => ({ accountId: "acct-io", walletAddress: "0xabc123" }),
-    });
-    const app = makeApp(deps);
-    await post(app);
-
-    const res = await app.request("/v1/business/provisioning/handoff", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chain: "STARKNET",
-        recipientScheme: "email",
-        recipientValue: "salvadorcamino@gmail.com",
-        newOwnerPubkey: "0xcafe",
-      }),
-    });
-
-    expect(res.status).toBe(409);
-    expect((await res.json()).error).toBe("wallet_not_provisioned_by_caller");
+describe("the business-signed handoff is gone", () => {
+  test.each([
+    ["POST", "/v1/business/provisioning/handoff"],
+    ["GET", "/v1/business/provisioning/prov-1/handoff-calls"],
+    ["POST", "/v1/business/provisioning/prov-1/complete"],
+  ])("%s %s is 404", async (method, path) => {
+    const { deps } = fakeDeps();
+    expect((await makeApp(deps).request(path, { method })).status).toBe(404);
   });
 });

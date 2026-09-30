@@ -16,7 +16,6 @@ import {
   type IpTicketingProgress,
 } from "../../../launchpad/services/ip-ticketing/progress.js";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
-import { buildDeployment } from "../paymaster.js";
 import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 
@@ -24,13 +23,7 @@ const log = createLogger("routes:launchpad-runs:ip-ticketing");
 
 const SERVICE = "ip-ticketing";
 
-const walletBuildRequest = z.object({ ownerPubkey: z.string().min(3), ownerAddress: z.string().min(3) });
-const walletRequest = z.object({
-  recipient: z.string().email(),
-  interimOwnerPubkey: z.string(),
-  derivationSalt: z.string().min(16).max(128),
-  deployment: z.object({ typedData: z.unknown(), signature: z.array(z.string()).min(1), deployment: z.unknown() }),
-});
+const walletRequest = z.object({ recipient: z.string().email() });
 
 interface ActiveRun extends ActiveBase {
   spec: IpTicketingSpec;
@@ -250,29 +243,12 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         return c.json({ data: { pending } });
       });
 
-      app.post("/wallets/build", async (c) => {
-        const active = await loadActive(c);
-        if (active instanceof Response) return active;
-
-        const body = walletBuildRequest.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
-
-        const builds = active.progress.walletBuilds ?? 0;
-        if (builds >= active.spec.guests.length * 2) {
-          return c.json({ error: "Too many wallet attempts for this run. Contact support to continue." }, 429);
-        }
-        await record(active, ["walletBuilds"], builds + 1);
-
-        const outcome = await buildDeployment({ clientFactory: ex().sponsored.clientFactory }, body.data);
-        return c.json(outcome.body, outcome.status);
-      });
-
       app.post("/wallets", async (c) => {
         const active = await loadActive(c);
         if (active instanceof Response) return active;
 
         const body = walletRequest.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "recipient, interimOwnerPubkey, derivationSalt and deployment are required" }, 400);
+        if (!body.success) return c.json({ error: "recipient is required" }, 400);
         const recipient = body.data.recipient.trim().toLowerCase();
         if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
 
@@ -287,7 +263,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         try {
           result = await chain().registerWallet(
             { id: apiClient.id, accountId: apiClient.accountId },
-            { chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient, ...body.data },
+            { chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient },
           );
         } catch (err) {
           log.warn({ err, run: active.run.id }, "run wallet provisioning failed");

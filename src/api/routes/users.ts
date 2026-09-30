@@ -17,6 +17,7 @@ import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, isEmailVerificationRequired, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
+import { claimWallets, productionClaimDeps } from "../../provisioning/claim.js";
 
 const log = createLogger("routes:users");
 
@@ -250,6 +251,31 @@ users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
   });
 
   return c.json({ walletAddress: wallet?.address ?? null });
+});
+
+const claimWalletSchema = z.object({
+  accountToken: z.string().min(1),
+  newOwnerPubkey: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/),
+  proofs: z
+    .array(
+      z.object({
+        walletAddress: z.string().min(3),
+        signature: z.array(z.string()).length(2),
+        expiration: z.number().int().positive(),
+      }),
+    )
+    .min(1),
+});
+
+users.post("/me/claim-wallet", zValidator("json", claimWalletSchema), async (c) => {
+  const { accountToken, newOwnerPubkey, proofs } = c.req.valid("json");
+  const accountId = verifyAccountSessionToken(accountToken);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  const tenant = c.get("apiKey")?.tenantId ?? null;
+  if (!tenant) return c.json(NO_TENANT, 400);
+  const outcome = await claimWallets(productionClaimDeps(tenant), accountId, newOwnerPubkey, proofs);
+  if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
+  return c.json({ claimed: outcome.claimed });
 });
 
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {

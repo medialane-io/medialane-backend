@@ -17,6 +17,9 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt
     checkEmailExistsRateLimit: async () => true,
     findAccountIdByEmail: async () => null,
     releaseAbandonedEmail: async () => false,
+    findWaitingWallets: async () => [],
+    createVerifiedAccount: async () => "acc_NEW",
+    markEmailVerified: async () => {},
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -133,25 +136,98 @@ test("POST /verify-code returns an accountToken when the verified email belongs 
   expect(body.accountToken?.startsWith("account_session_")).toBe(true);
 });
 
-test("POST /verify-code omits accountToken when no account exists for the email (shouldn't normally happen, but must not crash)", async () => {
+async function storedCode() {
   const { createHmac } = await import("crypto");
   const { env } = await import("../../config/env.js");
   const codeHash = createHmac("sha256", env.SIWS_SECRET).update("otp-code-v1.482913").digest("hex");
+  return { id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null };
+}
+
+const verify = (app: ReturnType<typeof appWith>, email = "alice@example.com") =>
+  app.request("/verify-code", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code: "482913" }),
+  });
+
+test("POST /verify-code creates a verified account when the email is new", async () => {
+  const created: string[] = [];
+  const code = await storedCode();
   const app = appWith({
-    findLatestCode: async () => ({
-      id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
-    }),
-    findAccountIdByEmail: async () => null,
-    releaseAbandonedEmail: async () => false,
+    findLatestCode: async () => code,
+    createVerifiedAccount: async (email) => {
+      created.push(email);
+      return "acc_NEW";
+    },
+  });
+  const res = await verify(app);
+  expect(res.status).toBe(200);
+  expect(created).toEqual(["alice@example.com"]);
+  const body = (await res.json()) as { accountToken?: string };
+  expect(typeof body.accountToken).toBe("string");
+});
+
+test("POST /verify-code marks an existing account's email verified", async () => {
+  const marked: string[] = [];
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    findAccountIdByEmail: async () => "acc_OLD",
+    markEmailVerified: async (email) => {
+      marked.push(email);
+    },
+  });
+  expect((await verify(app)).status).toBe(200);
+  expect(marked).toEqual(["alice@example.com"]);
+});
+
+test("POST /verify-code lists the wallets waiting for the proven email", async () => {
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    findWaitingWallets: async (email) => (email === "alice@example.com" ? ["0xabc"] : []),
+  });
+  const body = (await (await verify(app)).json()) as { waitingWallets: string[] };
+  expect(body.waitingWallets).toEqual(["0xabc"]);
+});
+
+test("POST /verify-code with a wrong code lists nothing and creates nothing", async () => {
+  let created = false;
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    createVerifiedAccount: async () => {
+      created = true;
+      return "acc_NEW";
+    },
+    findWaitingWallets: async () => ["0xabc"],
   });
   const res = await app.request("/verify-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "alice@example.com", code: "482913" }),
+    body: JSON.stringify({ email: "alice@example.com", code: "000000" }),
   });
-  expect(res.status).toBe(200);
-  const body = await res.json() as { token: string; accountToken?: string };
-  expect(body.accountToken).toBeUndefined();
+  expect(res.status).toBe(400);
+  expect(created).toBe(false);
+  expect(JSON.stringify(await res.json()).includes("0xabc")).toBe(false);
+});
+
+test("GET /exists says when a wallet is waiting for the email", async () => {
+  const app = appWith({ findWaitingWallets: async () => ["0xabc"] });
+  const res = await app.request("/exists?email=alice@example.com");
+  expect(await res.json()).toEqual({ exists: false, walletWaiting: true });
+});
+
+test("GET /exists matches the email in any letter case", async () => {
+  const seen: string[] = [];
+  const app = appWith({
+    findWaitingWallets: async (email) => {
+      seen.push(email);
+      return [];
+    },
+  });
+  await app.request("/exists?email=Alice@Example.com");
+  expect(seen).toEqual(["alice@example.com"]);
 });
 
 test("POST /verify-code with the wrong code returns 400 and increments attempts", async () => {

@@ -12,7 +12,7 @@ import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateLimit.js";
 import { createRedisStore } from "../middleware/redisRateLimit.js";
 import { createLogger } from "../../utils/logger.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { clientIp } from "../../utils/clientIp.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -54,6 +54,9 @@ export interface AuthEmailDeps {
   checkEmailExistsRateLimit: (ip: string) => Promise<boolean>;
   findAccountIdByEmail: (email: string, tenant: string) => Promise<string | null>;
   releaseAbandonedEmail: (email: string, tenant: string) => Promise<boolean>;
+  findWaitingWallets: (email: string) => Promise<string[]>;
+  createVerifiedAccount: (email: string, tenant: string) => Promise<string>;
+  markEmailVerified: (email: string, tenant: string) => Promise<void>;
 }
 
 const CODE_HASH_DOMAIN = "otp-code-v1";
@@ -124,11 +127,12 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     await deps.releaseAbandonedEmail(email, tenant);
 
-    const accountId = await deps.findAccountIdByEmail(email, tenant);
-    return c.json({
-      token,
-      ...(accountId ? { accountToken: issueAccountSessionToken(accountId) } : {}),
-    });
+    const normalized = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email);
+    let accountId = await deps.findAccountIdByEmail(normalized, tenant);
+    if (accountId) await deps.markEmailVerified(normalized, tenant);
+    else accountId = await deps.createVerifiedAccount(normalized, tenant);
+    const waitingWallets = await deps.findWaitingWallets(normalized);
+    return c.json({ token, accountToken: issueAccountSessionToken(accountId), waitingWallets });
   });
 
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
@@ -139,9 +143,10 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const tenant = tenantOf(c);
     if (!tenant) return c.json(NO_TENANT, 400);
 
-    const { email } = c.req.valid("query");
+    const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, c.req.valid("query").email);
     const exists = await deps.checkEmailExists(email, tenant);
-    return c.json({ exists });
+    const walletWaiting = (await deps.findWaitingWallets(email)).length > 0;
+    return c.json({ exists, walletWaiting });
   });
 
   app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
@@ -232,6 +237,33 @@ const productionDeps: AuthEmailDeps = {
     return true;
   },
   releaseAbandonedEmail,
+  findWaitingWallets: async (email) =>
+    (
+      await prisma.businessProvisioning.findMany({
+        where: {
+          recipientScheme: IDENTITY_SCHEME.EMAIL,
+          recipientValue: email,
+          status: "DEPLOYED",
+          interimOwnerPubkey: { not: null },
+          derivationSalt: { not: null },
+        },
+        select: { walletAddress: true },
+      })
+    ).map((row) => row.walletAddress),
+  createVerifiedAccount: async (email, tenant) => {
+    const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, tenant);
+    await prisma.identity.updateMany({
+      where: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant },
+      data: { verifiedAt: new Date() },
+    });
+    return accountId;
+  },
+  markEmailVerified: async (email, tenant) => {
+    await prisma.identity.updateMany({
+      where: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant, verifiedAt: null },
+      data: { verifiedAt: new Date() },
+    });
+  },
   findAccountIdByEmail: async (email, tenant) => {
     const identity = await prisma.identity.findUnique({
       where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } },
