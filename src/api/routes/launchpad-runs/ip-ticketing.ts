@@ -1,6 +1,4 @@
-import { Hono, type Context } from "hono";
 import { z } from "zod";
-import type { AppEnv } from "../../../types/hono.js";
 import { createLogger } from "../../../utils/logger.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { IDENTITY_SCHEME } from "../../../utils/identity.js";
@@ -17,22 +15,15 @@ import {
   ticketMetadata,
   type IpTicketingProgress,
 } from "../../../launchpad/services/ip-ticketing/progress.js";
-import { canSubmit, pinnedValue, type StepState } from "../../../launchpad/services/data-tokenization/progress.js";
-import { buildDeployment, buildSponsoredInvoke } from "../paymaster.js";
-import { executeBody, indexParam, ownsWallet, walletBody, type ReceiptEvent, type RunContext, type RunReceipt } from "./context.js";
-import { confirmStep, executeStep } from "./sponsored-step.js";
+import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
+import { buildDeployment } from "../paymaster.js";
+import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
+import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 
 const log = createLogger("routes:launchpad-runs:ip-ticketing");
 
 const SERVICE = "ip-ticketing";
 
-/** Data Tokenization owns the un-prefixed step paths, so this service's steps live under their own. */
-const BASE = "/:id/ticketing";
-
-export const MAX_ARTWORK_UPLOAD_URLS = 3;
-
-const fileNameBody = z.object({ name: z.string().min(1).max(255) });
-const uploadedBody = z.object({ name: z.string().min(1).max(255), cid: z.string().min(10).max(120) });
 const walletBuildRequest = z.object({ ownerPubkey: z.string().min(3), ownerAddress: z.string().min(3) });
 const walletRequest = z.object({
   recipient: z.string().email(),
@@ -41,11 +32,7 @@ const walletRequest = z.object({
   deployment: z.object({ typedData: z.unknown(), signature: z.array(z.string()).min(1), deployment: z.unknown() }),
 });
 
-class NotReady extends Error {}
-
-interface ActiveRun {
-  run: StoredRun;
-  apiClientId: string;
+interface ActiveRun extends ActiveBase {
   spec: IpTicketingSpec;
   progress: IpTicketingProgress;
 }
@@ -78,41 +65,11 @@ export function createdTicketId(events: ReceiptEvent[], collection: string): str
   return null;
 }
 
-interface SponsoredStep {
-  route: string;
-  indexed?: boolean;
-  label: string;
-  path(index: number): string[];
-  credits(active: ActiveRun, index: number): Promise<number>;
-  /** False once the step is on its way or done. */
-  open(active: ActiveRun, index: number): boolean;
-  calls(active: ActiveRun, index: number, owner: string): Promise<Call[]>;
-  state(active: ActiveRun, index: number): StepState | undefined;
-  succeeded(active: ActiveRun, index: number, receipt: RunReceipt, txHash: string, c: Context<AppEnv>): Promise<Response>;
-}
 
-export function createIpTicketingRoutes(ctx: RunContext): Hono<AppEnv> {
-  const app = new Hono<AppEnv>();
+
+export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
   const ex = () => ctx.execution();
   const chain = () => ctx.ticketing();
-
-  const loadActive = async (c: Context<AppEnv>): Promise<ActiveRun | Response> => {
-    const apiClientId = c.get("apiClient").id;
-    const run = await ctx.store.get(c.req.param("id") ?? "", apiClientId);
-    if (!run) return c.json({ error: "Run not found" }, 404);
-    if (run.service !== SERVICE) return c.json({ error: "This run does not issue tickets" }, 400);
-    if (run.status !== "PAID" && run.status !== "RUNNING") {
-      return c.json({ error: "This run is not ready to execute" }, 409);
-    }
-    const parsed = parseRunSpec(run.service, run.spec);
-    if (parsed.service !== SERVICE) return c.json({ error: "This run does not issue tickets" }, 400);
-    return { run, apiClientId, spec: parsed.spec, progress: readProgress(run.progress) };
-  };
-
-  const notReady = (c: Context<AppEnv>, err: unknown) => {
-    log.warn({ err }, "run step not ready");
-    return c.json({ error: "This step is not ready" }, 409);
-  };
 
   const record = (active: ActiveRun, path: string[], value: unknown) =>
     ctx.store.record(active.run.id, active.apiClientId, path, value);
@@ -129,7 +86,7 @@ export function createIpTicketingRoutes(ctx: RunContext): Hono<AppEnv> {
     return ticketId;
   };
 
-  const steps: SponsoredStep[] = [
+  const sponsored: SponsoredStep<ActiveRun>[] = [
     {
       route: "collection",
       label: "The collection",
@@ -194,7 +151,6 @@ export function createIpTicketingRoutes(ctx: RunContext): Hono<AppEnv> {
     },
     {
       route: "batches/:index",
-      indexed: true,
       label: "This batch",
       path: (index) => ["batches", String(index)],
       credits: (active, index) => stepCredits(SERVICE, "emission", batchGuests(active.spec, index).length, ctx.priceOf),
@@ -232,234 +188,119 @@ export function createIpTicketingRoutes(ctx: RunContext): Hono<AppEnv> {
     },
   ];
 
-  for (const step of steps) {
-    const indexOf = (c: Context<AppEnv>) => (step.indexed ? indexParam(c) : 0);
+  return {
+    service: SERVICE,
+    load(run: StoredRun) {
+      const parsed = parseRunSpec(run.service, run.spec);
+      if (parsed.service !== SERVICE) throw new Error("This run does not issue tickets");
+      return { run, apiClientId: run.apiClientId, spec: parsed.spec, progress: readProgress(run.progress) };
+    },
+    sponsored,
+    files: {
+      expected: (active, name) => (active.spec.artwork?.name === name ? active.spec.artwork : null),
+      uri: (active) => pinnedValue(active.progress.artwork),
+      path: () => ["artwork"],
+      urlCount: (active) => active.progress.uploadUrls ?? 0,
+      urlCountPath: () => ["uploadUrls"],
+      credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
+    },
+    extra(app, { loadActive, notReady }) {
+      app.post("/metadata", async (c) => {
+        const active = await loadActive(c);
+        if (active instanceof Response) return active;
 
-    app.post(`${BASE}/${step.route}/build`, async (c) => {
-      const active = await loadActive(c);
-      if (active instanceof Response) return active;
-      const index = indexOf(c);
-      if (index === null) return c.json({ error: "No such batch in this run" }, 404);
+        const body = walletBody.safeParse(await c.req.json().catch(() => null));
+        if (!body.success) return c.json({ error: "userAddress is required" }, 400);
+        if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
 
-      const body = walletBody.safeParse(await c.req.json().catch(() => null));
-      if (!body.success) return c.json({ error: "userAddress is required" }, 400);
-      if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
-      if (!step.open(active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
+        let metadata: Record<string, unknown>;
+        try {
+          metadata = { ...ticketMetadata(active.spec, active.progress, normalizeAddress("STARKNET", body.data.userAddress)) };
+        } catch (err) {
+          return notReady(c, err);
+        }
 
-      let calls: Call[];
-      try {
-        calls = await step.calls(active, index, body.data.userAddress);
-      } catch (err) {
-        if (err instanceof NotReady) return notReady(c, err);
-        log.warn({ err, run: active.run.id }, "run step could not be prepared");
-        return c.json({ error: `Could not prepare ${step.label.toLowerCase()}. Try again.` }, 502);
-      }
-      const outcome = await buildSponsoredInvoke(ex().sponsored, { userAddress: body.data.userAddress, calls });
-      return c.json(outcome.body, outcome.status);
-    });
-
-    app.post(`${BASE}/${step.route}/execute`, async (c) => {
-      const active = await loadActive(c);
-      if (active instanceof Response) return active;
-      const index = indexOf(c);
-      if (index === null) return c.json({ error: "No such batch in this run" }, 404);
-
-      const body = executeBody.safeParse(await c.req.json().catch(() => null));
-      if (!body.success) return c.json({ error: "userAddress, typedData and signature are required" }, 400);
-      if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
-      if (!step.open(active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
-
-      let calls: Call[];
-      try {
-        calls = await step.calls(active, index, body.data.userAddress);
-      } catch (err) {
-        if (err instanceof NotReady) return notReady(c, err);
-        log.warn({ err, run: active.run.id }, "run step could not be prepared");
-        return c.json({ error: `Could not prepare ${step.label.toLowerCase()}. Try again.` }, 502);
-      }
-
-      return executeStep(ctx, c, {
-        runId: active.run.id,
-        apiClientId: active.apiClientId,
-        path: step.path(index),
-        credits: await step.credits(active, index),
-        label: step.label,
-        ...body.data,
-        calls,
+        const credits = await stepCredits(SERVICE, "metadata", 1, ctx.priceOf);
+        const path = ["tokenUri"];
+        if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
+          return c.json({ error: "The ticket's metadata is already stored" }, 409);
+        }
+        try {
+          const tokenUri = await ex().pinJson(metadata);
+          await record(active, path, tokenUri);
+          return c.json({ data: { tokenUri } }, 201);
+        } catch (err) {
+          await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
+          log.warn({ err, run: active.run.id }, "run metadata pin failed");
+          return c.json({ error: "Could not store the ticket's metadata. Try again." }, 502);
+        }
       });
-    });
 
-    app.post(`${BASE}/${step.route}/confirm`, async (c) => {
-      const active = await loadActive(c);
-      if (active instanceof Response) return active;
-      const index = indexOf(c);
-      if (index === null) return c.json({ error: "No such batch in this run" }, 404);
+      app.post("/wallets/resolve", async (c) => {
+        const active = await loadActive(c);
+        if (active instanceof Response) return active;
 
-      return confirmStep(ctx, c, {
-        runId: active.run.id,
-        apiClientId: active.apiClientId,
-        path: step.path(index),
-        credits: await step.credits(active, index),
-        label: step.label,
-        state: step.state(active, index),
-        extra: step.indexed ? { index } : undefined,
-        onSucceeded: (receipt, txHash) => step.succeeded(active, index, receipt, txHash, c),
+        const waiting = active.spec.guests.filter((guest) => active.progress.wallets[guest] === undefined);
+        const resolved = waiting.length > 0 ? await chain().resolveWallets(waiting) : [];
+        const pending: string[] = [];
+        for (const { recipientValue, walletAddress } of resolved) {
+          if (walletAddress) await record(active, ["wallets", recipientValue], walletAddress);
+          else pending.push(recipientValue);
+        }
+        return c.json({ data: { pending } });
       });
-    });
-  }
 
-  app.post(`${BASE}/files/upload-url`, async (c) => {
-    const active = await loadActive(c);
-    if (active instanceof Response) return active;
+      app.post("/wallets/build", async (c) => {
+        const active = await loadActive(c);
+        if (active instanceof Response) return active;
 
-    const body = fileNameBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "name is required" }, 400);
-    const { name } = body.data;
-    const artwork = active.spec.artwork;
-    if (!artwork || artwork.name !== name) return c.json({ error: `${name} is not part of this run` }, 400);
-    if (pinnedValue(active.progress.artwork)) return c.json({ error: `${name} is already uploaded` }, 409);
+        const body = walletBuildRequest.safeParse(await c.req.json().catch(() => null));
+        if (!body.success) return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
 
-    const issued = active.progress.uploadUrls ?? 0;
-    if (issued >= MAX_ARTWORK_UPLOAD_URLS) {
-      return c.json({ error: `${name} has had too many upload attempts. Contact support to continue.` }, 429);
-    }
-    await record(active, ["uploadUrls"], issued + 1);
+        const builds = active.progress.walletBuilds ?? 0;
+        if (builds >= active.spec.guests.length * 2) {
+          return c.json({ error: "Too many wallet attempts for this run. Contact support to continue." }, 429);
+        }
+        await record(active, ["walletBuilds"], builds + 1);
 
-    try {
-      const url = await ex().signedUpload({
-        name,
-        size: artwork.size,
-        type: artwork.type,
-        keyvalues: { run: active.run.id, file: name },
+        const outcome = await buildDeployment({ clientFactory: ex().sponsored.clientFactory }, body.data);
+        return c.json(outcome.body, outcome.status);
       });
-      return c.json({ data: { name, url } }, 201);
-    } catch (err) {
-      log.warn({ err, run: active.run.id, file: name }, "run signed upload failed");
-      return c.json({ error: "Could not prepare this upload. Try again." }, 502);
-    }
-  });
 
-  app.post(`${BASE}/files/uploaded`, async (c) => {
-    const active = await loadActive(c);
-    if (active instanceof Response) return active;
+      app.post("/wallets", async (c) => {
+        const active = await loadActive(c);
+        if (active instanceof Response) return active;
 
-    const body = uploadedBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "name and cid are required" }, 400);
-    const { name, cid } = body.data;
-    const artwork = active.spec.artwork;
-    if (!artwork || artwork.name !== name) return c.json({ error: `${name} is not part of this run` }, 400);
+        const body = walletRequest.safeParse(await c.req.json().catch(() => null));
+        if (!body.success) return c.json({ error: "recipient, interimOwnerPubkey, derivationSalt and deployment are required" }, 400);
+        const recipient = body.data.recipient.trim().toLowerCase();
+        if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
 
-    const pinned = await ex().pinnedFile(cid);
-    if (!pinned || pinned.size !== artwork.size || pinned.keyvalues.run !== active.run.id || pinned.keyvalues.file !== name) {
-      return c.json({ error: `That upload does not match ${name}` }, 409);
-    }
+        const credits = await stepCredits(SERVICE, "wallet", 1, ctx.priceOf);
+        const path = ["wallets", recipient];
+        if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
+          return c.json({ error: `${recipient} already has a wallet on the way` }, 409);
+        }
 
-    const credits = await stepCredits(SERVICE, "file", 1, ctx.priceOf);
-    const path = ["artwork"];
-    if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
-      return c.json({ error: `${name} is already uploaded` }, 409);
-    }
-    const uri = `ipfs://${cid}`;
-    await record(active, path, uri);
-    return c.json({ data: { name, uri } }, 201);
-  });
+        const apiClient = c.get("apiClient");
+        let result;
+        try {
+          result = await chain().registerWallet(
+            { id: apiClient.id, accountId: apiClient.accountId },
+            { chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient, ...body.data },
+          );
+        } catch (err) {
+          log.warn({ err, run: active.run.id }, "run wallet provisioning failed");
+          result = null;
+        }
+        if (!result || result.status === 502) {
+          await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
+          return c.json({ error: `Could not prepare a wallet for ${recipient}. Try again.` }, 502);
+        }
 
-  app.post(`${BASE}/metadata`, async (c) => {
-    const active = await loadActive(c);
-    if (active instanceof Response) return active;
-
-    const body = walletBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "userAddress is required" }, 400);
-    if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
-
-    let metadata: Record<string, unknown>;
-    try {
-      metadata = { ...ticketMetadata(active.spec, active.progress, normalizeAddress("STARKNET", body.data.userAddress)) };
-    } catch {
-      return c.json({ error: "The ticket is waiting for its artwork" }, 409);
-    }
-
-    const credits = await stepCredits(SERVICE, "metadata", 1, ctx.priceOf);
-    const path = ["tokenUri"];
-    if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
-      return c.json({ error: "The ticket's metadata is already stored" }, 409);
-    }
-    try {
-      const tokenUri = await ex().pinJson(metadata);
-      await record(active, path, tokenUri);
-      return c.json({ data: { tokenUri } }, 201);
-    } catch (err) {
-      await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
-      log.warn({ err, run: active.run.id }, "run metadata pin failed");
-      return c.json({ error: "Could not store the ticket's metadata. Try again." }, 502);
-    }
-  });
-
-  app.post(`${BASE}/wallets/resolve`, async (c) => {
-    const active = await loadActive(c);
-    if (active instanceof Response) return active;
-
-    const waiting = active.spec.guests.filter((guest) => active.progress.wallets[guest] === undefined);
-    const resolved = waiting.length > 0 ? await chain().resolveWallets(waiting) : [];
-    const pending: string[] = [];
-    for (const { recipientValue, walletAddress } of resolved) {
-      if (walletAddress) await record(active, ["wallets", recipientValue], walletAddress);
-      else pending.push(recipientValue);
-    }
-    return c.json({ data: { pending } });
-  });
-
-  app.post(`${BASE}/wallets/build`, async (c) => {
-    const active = await loadActive(c);
-    if (active instanceof Response) return active;
-
-    const body = walletBuildRequest.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
-
-    const builds = active.progress.walletBuilds ?? 0;
-    if (builds >= active.spec.guests.length * 2) {
-      return c.json({ error: "Too many wallet attempts for this run. Contact support to continue." }, 429);
-    }
-    await record(active, ["walletBuilds"], builds + 1);
-
-    const outcome = await buildDeployment({ clientFactory: ex().sponsored.clientFactory }, body.data);
-    return c.json(outcome.body, outcome.status);
-  });
-
-  app.post(`${BASE}/wallets`, async (c) => {
-    const active = await loadActive(c);
-    if (active instanceof Response) return active;
-
-    const body = walletRequest.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "recipient, interimOwnerPubkey, derivationSalt and deployment are required" }, 400);
-    const recipient = body.data.recipient.trim().toLowerCase();
-    if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
-
-    const credits = await stepCredits(SERVICE, "wallet", 1, ctx.priceOf);
-    const path = ["wallets", recipient];
-    if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
-      return c.json({ error: `${recipient} already has a wallet on the way` }, 409);
-    }
-
-    const apiClient = c.get("apiClient");
-    let result;
-    try {
-      result = await chain().registerWallet(
-        { id: apiClient.id, accountId: apiClient.accountId },
-        { chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient, ...body.data },
-      );
-    } catch (err) {
-      log.warn({ err, run: active.run.id }, "run wallet provisioning failed");
-      result = null;
-    }
-    if (!result || result.status === 502) {
-      await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
-      return c.json({ error: `Could not prepare a wallet for ${recipient}. Try again.` }, 502);
-    }
-
-    await record(active, path, result.record.walletAddress);
-    return c.json({ data: { recipient, walletAddress: result.record.walletAddress } }, 201);
-  });
-
-  return app;
+        await record(active, path, result.record.walletAddress);
+        return c.json({ data: { recipient, walletAddress: result.record.walletAddress } }, 201);
+      });
+    },
+  };
 }
