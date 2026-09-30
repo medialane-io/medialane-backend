@@ -18,7 +18,7 @@ import {
   type IpTicketingProgress,
 } from "../../../launchpad/services/ip-ticketing/progress.js";
 import { canSubmit, pinnedValue, type StepState } from "../../../launchpad/services/data-tokenization/progress.js";
-import { buildSponsoredInvoke } from "../paymaster.js";
+import { buildDeployment, buildSponsoredInvoke } from "../paymaster.js";
 import { executeBody, indexParam, ownsWallet, walletBody, type ReceiptEvent, type RunContext, type RunReceipt } from "./context.js";
 import { confirmStep, executeStep } from "./sponsored-step.js";
 
@@ -33,6 +33,7 @@ export const MAX_ARTWORK_UPLOAD_URLS = 3;
 
 const fileNameBody = z.object({ name: z.string().min(1).max(255) });
 const uploadedBody = z.object({ name: z.string().min(1).max(255), cid: z.string().min(10).max(120) });
+const walletBuildRequest = z.object({ ownerPubkey: z.string().min(3), ownerAddress: z.string().min(3) });
 const walletRequest = z.object({
   recipient: z.string().email(),
   interimOwnerPubkey: z.string(),
@@ -406,6 +407,23 @@ export function createIpTicketingRoutes(ctx: RunContext): Hono<AppEnv> {
       else pending.push(recipientValue);
     }
     return c.json({ data: { pending } });
+  });
+
+  app.post(`${BASE}/wallets/build`, async (c) => {
+    const active = await loadActive(c);
+    if (active instanceof Response) return active;
+
+    const body = walletBuildRequest.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
+
+    const builds = active.progress.walletBuilds ?? 0;
+    if (builds >= active.spec.guests.length * 2) {
+      return c.json({ error: "Too many wallet attempts for this run. Contact support to continue." }, 429);
+    }
+    await record(active, ["walletBuilds"], builds + 1);
+
+    const outcome = await buildDeployment({ clientFactory: ex().sponsored.clientFactory }, body.data);
+    return c.json(outcome.body, outcome.status);
   });
 
   app.post(`${BASE}/wallets`, async (c) => {
