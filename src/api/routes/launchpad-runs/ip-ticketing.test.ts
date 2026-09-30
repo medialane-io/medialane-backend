@@ -103,7 +103,7 @@ const terms = {
 };
 
 const spec = {
-  collection: { kind: "existing", collectionId: "1", contractAddress: GROUP },
+  collection: { kind: "existing", contractAddress: GROUP },
   terms,
   name: "General admission",
   artwork: { name: "a.png", size: 3, type: "image/png" },
