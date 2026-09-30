@@ -62,7 +62,8 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
     const run = await paidRun();
     expect(await store.reserve({ id: run.id, apiClientId, credits: 4, path: ["files", "a.pdf"] })).toBe(true);
     expect(await store.reserve({ id: run.id, apiClientId, credits: 4, path: ["files", "a.pdf"] })).toBe(false);
-    expect(((await read(run.id))!.progress as { files: Record<string, unknown> }).files["a.pdf"]).toEqual({ status: "PENDING" });
+    expect(((await read(run.id))!.progress as { files: Record<string, unknown> }).files["a.pdf"]).toMatchObject({ status: "PENDING", credits: 4 });
+    expect(typeof ((await read(run.id))!.progress as { files: Record<string, { at: string }> }).files["a.pdf"]!.at).toBe("string");
 
     expect(await store.reserve({ id: run.id, apiClientId, credits: 7, path: ["files", "b.pdf"] })).toBe(false);
 
@@ -105,5 +106,56 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
 
     expect(await store.complete({ id: run.id, apiClientId, status: "COMPLETED", path: "/complete" })).toBeNull();
     expect(await store.balance(apiClientId)).toBe(before + 7);
+  });
+
+  describe("a step that was reserved and then abandoned", () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    test("is released with its credits once it is older than the limit", async () => {
+      const run = await paidRun();
+      const path = ["tokenUris", "0"];
+      await store.reserve({ id: run.id, apiClientId, credits: 4, path });
+      await wait(5);
+
+      expect(await store.sweepStale({ id: run.id, apiClientId, paths: [path], olderThanMs: 0 })).toBe(1);
+      const swept = (await read(run.id))!;
+      expect(swept.creditsSpent).toBe(0);
+      expect((swept.progress as { tokenUris: Record<string, unknown> }).tokenUris["0"]).toBeUndefined();
+      expect(await store.reserve({ id: run.id, apiClientId, credits: 4, path })).toBe(true);
+    });
+
+    test("is left alone while it is still fresh", async () => {
+      const run = await paidRun();
+      const path = ["tokenUris", "0"];
+      await store.reserve({ id: run.id, apiClientId, credits: 4, path });
+
+      expect(await store.sweepStale({ id: run.id, apiClientId, paths: [path], olderThanMs: 60_000 })).toBe(0);
+      expect((await read(run.id))!.creditsSpent).toBe(4);
+    });
+
+    test("is never released once it reached the chain", async () => {
+      const run = await paidRun();
+      const path = ["batches", "0"];
+      await store.reserve({ id: run.id, apiClientId, credits: 4, path });
+      await store.record(run.id, apiClientId, path, { txHash: "0x1", status: "SUBMITTED" });
+      await wait(5);
+
+      expect(await store.sweepStale({ id: run.id, apiClientId, paths: [path], olderThanMs: 0 })).toBe(0);
+      expect((await read(run.id))!.creditsSpent).toBe(4);
+    });
+
+    test("is released once, however often the sweep runs", async () => {
+      const run = await paidRun();
+      const path = ["tokenUris", "0"];
+      await store.reserve({ id: run.id, apiClientId, credits: 4, path });
+      await wait(5);
+
+      const results = await Promise.all([
+        store.sweepStale({ id: run.id, apiClientId, paths: [path], olderThanMs: 0 }),
+        store.sweepStale({ id: run.id, apiClientId, paths: [path], olderThanMs: 0 }),
+      ]);
+      expect(results.reduce((a, b) => a + b, 0)).toBe(1);
+      expect((await read(run.id))!.creditsSpent).toBe(0);
+    });
   });
 });

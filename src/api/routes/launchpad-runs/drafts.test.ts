@@ -180,3 +180,52 @@ describe("checkout", () => {
     expect((await post(app, "/run1/checkout", { method: "card" })).status).toBe(400);
   });
 });
+
+describe("a step that was abandoned part-way", () => {
+  const MINUTE = 60_000;
+
+  async function paidWithStuckBatch() {
+    let clock = Date.parse("2026-09-30T12:00:00Z");
+    const store = createMemoryRunStore({ balances: { ac1: 100 }, now: () => new Date(clock) });
+    const app = appFor(store);
+    await post(app, "/", { service: "data-tokenization-erc721", spec });
+    await post(app, "/run1/checkout", { method: "credits" });
+    await store.reserve({ id: "run1", apiClientId: "ac1", credits: 4, path: ["batches", "0"] });
+    return { store, app, later: (ms: number) => void (clock += ms) };
+  }
+
+  test("a run cannot be cancelled while the step is fresh", async () => {
+    const { app, later } = await paidWithStuckBatch();
+    later(2 * MINUTE);
+    expect((await post(app, "/run1/cancel", {})).status).toBe(409);
+  });
+
+  test("cancelling after it went stale refunds everything that was not really spent", async () => {
+    const { store, app, later } = await paidWithStuckBatch();
+    later(11 * MINUTE);
+    const res = await post(app, "/run1/cancel", {});
+    expect(res.status).toBe(200);
+    expect(store.runs[0]!.status).toBe("CANCELLED");
+    expect(store.runs[0]!.creditsSpent).toBe(0);
+    expect(store.balances.get("ac1")).toBe(100);
+  });
+
+  test("resuming after it went stale clears it so the step can run again", async () => {
+    const { store, app, later } = await paidWithStuckBatch();
+    later(11 * MINUTE);
+    const res = await app.request("/run1");
+    const { data } = (await res.json()) as { data: { next: { kind: string } } };
+    expect(data.next.kind).not.toBe("wait");
+    expect((store.runs[0]!.progress as { batches: Record<string, unknown> }).batches["0"]).toBeUndefined();
+    expect(store.runs[0]!.creditsSpent).toBe(0);
+  });
+
+  test("a step that reached the chain is not cleared however long it takes", async () => {
+    const { store, app, later } = await paidWithStuckBatch();
+    await store.record("run1", "ac1", ["batches", "0"], { txHash: "0x1", status: "SUBMITTED" });
+    later(60 * MINUTE);
+    await app.request("/run1");
+    expect(store.runs[0]!.creditsSpent).toBe(4);
+    expect((await post(app, "/run1/cancel", {})).status).toBe(409);
+  });
+});
