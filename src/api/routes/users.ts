@@ -6,7 +6,6 @@ import { identityAuth } from "../middleware/identityAuth.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
-import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
 import { callerClientId } from "../../utils/caller.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
@@ -25,18 +24,15 @@ const walletTypeSchema = z.string().max(64);
 const chainEnum = z.nativeEnum(Chain);
 
 const VALID_CHAINS = new Set<Chain>(Object.values(Chain));
-const accountTypeEnum = z.enum(["PERSON", "AGENT", "ORGANIZATION", "PARTNER"]);
 
 const registerBodySchema = z.object({
   walletAddress: z.string().min(1, "walletAddress is required"),
   walletType: walletTypeSchema.optional(),
   chain: chainEnum.optional(),
-  accountType: accountTypeEnum.optional(),
 });
 
 const meBodySchema = z.object({
   walletType: walletTypeSchema.optional(),
-  accountType: accountTypeEnum.optional(),
 
   chain: chainEnum.optional(),
 
@@ -66,7 +62,6 @@ users.post(
       address: body.walletAddress,
       provider,
       clientId,
-      accountType: body.accountType,
     });
 
     const account = await prisma.account.findUniqueOrThrow({
@@ -117,7 +112,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     address: walletAddress,
     provider,
     clientId: clientId,
-    accountType: parsed.data.accountType,
     linkToAccountId,
   });
 

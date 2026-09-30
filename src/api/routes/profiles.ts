@@ -8,11 +8,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { callerClientId } from "../../utils/caller.js";
-import {
-  ensureAccountForWallet,
-  resolveAccountIdFromWallet,
-  addAccountRole,
-} from "../../utils/account.js";
+import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -326,8 +322,6 @@ profiles.patch(
       address: wallet,
       clientId,
     });
-
-    await addAccountRole(accountId, "CREATOR");
 
     const profile = await prisma.accountProfile.upsert({
       where: { accountId },

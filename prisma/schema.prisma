@@ -749,29 +749,6 @@ model DropClaimConditions {
   @@unique([chain, collectionAddress])
 }
 
-enum AppSource {
-  MEDIALANE_STARKNET
-  MEDIALANE_IO
-  MEDIALANE_PORTAL
-  MEDIALANE_DAO
-  MEDIALANE_SDK
-}
-
-enum AccountType {
-  PERSON
-  AGENT
-  ORGANIZATION
-  PARTNER
-}
-
-enum AccountRole {
-  CREATOR
-  COLLECTOR
-  ORGANIZATION
-  AGENT
-  PARTNER
-}
-
 enum Plan {
   FREE
   PREMIUM
@@ -786,8 +763,6 @@ enum AccountStatus {
 model Account {
   id        String        @id @default(cuid())
   publicId  String        @unique
-  type      AccountType   @default(PERSON)
-  roles     AccountRole[] @default([])
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -798,7 +773,6 @@ model Account {
 
   apiClient ApiClient?
 
-  @@index([type])
   @@index([createdAt])
 }
 

@@ -1,7 +1,7 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
-import type { Chain, AccountType, AccountRole } from "@prisma/client";
+import type { Chain } from "@prisma/client";
 
 async function ensureApiClient(accountId: string): Promise<void> {
   await prisma.apiClient.upsert({
@@ -54,33 +54,8 @@ export function generateAccountPublicId(): string {
   return out;
 }
 
-export async function addAccountRole(
-  accountId: string,
-  role: "CREATOR" | "COLLECTOR" | "ORGANIZATION" | "AGENT" | "PARTNER",
-): Promise<void> {
-  await prisma.$executeRaw`
-    UPDATE "Account"
-    SET roles = array_append(roles, ${role}::"AccountRole")
-    WHERE id = ${accountId}
-      AND NOT (roles @> ARRAY[${role}::"AccountRole"])
-  `;
-}
-
 export function shouldBePrimaryWallet(accountHasPrimaryWallet: boolean): boolean {
   return !accountHasPrimaryWallet;
-}
-
-export function defaultRolesForType(type: AccountType): AccountRole[] {
-  switch (type) {
-    case "AGENT":
-      return ["AGENT"];
-    case "ORGANIZATION":
-      return ["ORGANIZATION"];
-    case "PARTNER":
-      return ["PARTNER"];
-    default:
-      return [];
-  }
 }
 
 export async function ensureAccountForWallet(params: {
@@ -89,10 +64,8 @@ export async function ensureAccountForWallet(params: {
   provider?: string;
   clientId: string;
   email?: string;
-  accountType?: AccountType;
   linkToAccountId?: string;
 }): Promise<{ accountId: string; created: boolean }> {
-  const accountType: AccountType = params.accountType ?? "PERSON";
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
@@ -136,11 +109,7 @@ export async function ensureAccountForWallet(params: {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         account = await tx.account.create({
-          data: {
-            publicId: generateAccountPublicId(),
-            type: accountType,
-            roles: defaultRolesForType(accountType),
-          },
+          data: { publicId: generateAccountPublicId() },
           select: { id: true },
         });
         break;
@@ -175,7 +144,6 @@ export async function ensureAccountForIdentity(
   scheme: string,
   rawValue: string,
   clientId: string,
-  accountType: AccountType = "PERSON",
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
@@ -189,11 +157,7 @@ export async function ensureAccountForIdentity(
     try {
       const accountId = await prisma.$transaction(async (tx) => {
         const account = await tx.account.create({
-          data: {
-            publicId: generateAccountPublicId(),
-            type: accountType,
-            roles: defaultRolesForType(accountType),
-          },
+          data: { publicId: generateAccountPublicId() },
           select: { id: true },
         });
         await tx.identity.create({
