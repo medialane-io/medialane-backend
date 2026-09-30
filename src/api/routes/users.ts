@@ -10,7 +10,6 @@ import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
 import { tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
-import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
@@ -43,7 +42,6 @@ const meBodySchema = z.object({
 
   email: z.string().email().optional(),
 
-  emailVerificationToken: z.string().optional(),
 
   accountToken: z.string().optional(),
 });
@@ -161,27 +159,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
       });
       issueVerificationCode(parsed.data.email, tenant).catch((err: unknown) => {
         log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
-      });
-    }
-
-  }
-
-  if (parsed.data.emailVerificationToken) {
-    const email = verifyEmailVerifiedToken(parsed.data.emailVerificationToken);
-    if (email) {
-      await prisma.identity.upsert({
-        where: {
-          scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant },
-        },
-        create: {
-          accountId,
-          scheme: IDENTITY_SCHEME.EMAIL,
-          value: email,
-          email,
-          tenantId: tenant,
-          verifiedAt: new Date(),
-        },
-        update: { verifiedAt: new Date() },
       });
     }
 

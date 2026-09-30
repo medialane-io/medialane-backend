@@ -85,23 +85,14 @@ test("POST /request-code with an invalid email format returns 400", async () => 
   expect(res.status).toBe(400);
 });
 
-test("POST /verify-code with the correct code returns 200 and a token", async () => {
-  const { createHmac } = await import("crypto");
-  const { env } = await import("../../config/env.js");
-  const codeHash = createHmac("sha256", env.SIWS_SECRET).update("otp-code-v1.482913").digest("hex");
-  const app = appWith({
-    findLatestCode: async () => ({
-      id: "1", codeHash, attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
-    }),
-  });
-  const res = await app.request("/verify-code", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "alice@example.com", code: "482913" }),
-  });
+test("POST /verify-code with the correct code returns a session and no separate email token", async () => {
+  const code = await storedCode();
+  const app = appWith({ findLatestCode: async () => code });
+  const res = await verify(app);
   expect(res.status).toBe(200);
-  const body = await res.json() as { token: string };
-  expect(body.token.startsWith("email_verified_")).toBe(true);
+  const body = (await res.json()) as { token?: string; accountToken?: string };
+  expect(body.token).toBeUndefined();
+  expect(typeof body.accountToken).toBe("string");
 });
 
 test("POST /verify-code returns an accountToken when the verified email belongs to an existing account", async () => {

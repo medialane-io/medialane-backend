@@ -5,7 +5,6 @@ import { createHmac, timingSafeEqual, randomInt } from "crypto";
 import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
-import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { createLogger } from "../../utils/logger.js";
@@ -98,7 +97,6 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     }
 
     await deps.consumeCode(stored.id);
-    const token = issueEmailVerifiedToken(email);
 
     await deps.releaseAbandonedEmail(email, tenant);
 
@@ -110,7 +108,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       accountId = await deps.createVerifiedAccount(email, tenant);
     }
     const waitingWallets = await deps.findWaitingWallets(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email));
-    return c.json({ token, accountToken: issueAccountSessionToken(accountId), waitingWallets });
+    return c.json({ accountToken: issueAccountSessionToken(accountId), waitingWallets });
   });
 
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {

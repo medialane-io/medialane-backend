@@ -35,6 +35,6 @@ test("rejects a malformed token", () => {
   expect(verifyAccountSessionToken("")).toBeNull();
 });
 
-test("rejects an emailVerificationToken passed to the wrong verifier (different prefix)", () => {
+test("rejects a token with a different prefix", () => {
   expect(verifyAccountSessionToken("email_verified_abc.def")).toBeNull();
 });
