@@ -12,8 +12,6 @@ const updateBody = z.object({ spec: z.unknown() });
 const checkoutBody = z.union([
   z.object({ method: z.literal("credits") }),
   z.object({ method: z.literal("wallet"), intentId: z.string().min(1) }),
-  // Legacy body, removed together with creditFromTransaction in Phase B.
-  z.object({ method: z.literal("wallet"), txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/) }),
 ]);
 
 export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
@@ -139,12 +137,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
     let paymentId: string | undefined;
     if (body.data.method === "wallet") {
-      if ("intentId" in body.data) {
-        paymentId = (await ctx.intentPayment(body.data.intentId, apiClientId)) ?? undefined;
-      } else {
-        const settled = await ctx.settleWalletPayment(body.data.txHash);
-        paymentId = settled.payments.find((p) => p.apiClientId === apiClientId)?.paymentId;
-      }
+      paymentId = (await ctx.intentPayment(body.data.intentId, apiClientId)) ?? undefined;
       if (!paymentId) {
         return c.json({ error: "That payment has not reached your account yet. Try again in a moment." }, 402);
       }

@@ -7,7 +7,6 @@ import { creditsForAction } from "../../../payments/pricing.js";
 import { createSignedUpload, findPinnedFile, uploadJson } from "../../../orchestrator/metadataPin.js";
 import type { RunStore } from "../../../launchpad/run-store.js";
 import type { PriceOf } from "../../../launchpad/steps.js";
-import { creditFromTransaction, type CreditedPayment } from "../../../mirror/handlers/treasuryDeposit.js";
 import {
   dataTokenizationRegistry,
   productionMintCallDeps,
@@ -40,15 +39,12 @@ export interface ExecutionDeps {
   registry(): string;
 }
 
-export type SettleWalletPayment = (txHash: string) => Promise<{ payments: CreditedPayment[] }>;
-
 /** The payment id of the caller's own settled funding intent, or null when there is none. */
 export type IntentPayment = (intentId: string, apiClientId: string) => Promise<string | null>;
 
 export interface RunRouteDeps {
   store: RunStore;
   priceOf?: PriceOf;
-  settleWalletPayment?: SettleWalletPayment;
   intentPayment?: IntentPayment;
   execution?: ExecutionDeps;
   ticketing?: TicketingDeps;
@@ -57,7 +53,6 @@ export interface RunRouteDeps {
 export interface RunContext {
   store: RunStore;
   priceOf: PriceOf;
-  settleWalletPayment: SettleWalletPayment;
   intentPayment: IntentPayment;
   execution(): ExecutionDeps;
   ticketing(): TicketingDeps;
@@ -94,7 +89,6 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
   return {
     store: deps.store,
     priceOf: deps.priceOf ?? ((action) => creditsForAction(action)),
-    settleWalletPayment: deps.settleWalletPayment ?? ((txHash) => creditFromTransaction(txHash)),
     intentPayment:
       deps.intentPayment ??
       (async (intentId, apiClientId) => {
