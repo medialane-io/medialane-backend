@@ -346,6 +346,58 @@ export async function executeSponsoredInvoke(
   }
 }
 
+export type DeploymentBuildOutcome =
+  | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
+  | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string } };
+
+/** Builds the sponsored deployment of a Media Wallet owned by the given key, without charging anyone. */
+export async function buildDeployment(
+  deps: { clientFactory: () => PaymasterClient },
+  body: { ownerPubkey: string; ownerAddress: string; salt?: string },
+): Promise<DeploymentBuildOutcome> {
+  const strk = getTokenBySymbol("STRK");
+  if (!strk) return { status: 500, body: { error: "STRK token not found in registry", code: "sponsor_unavailable" } };
+
+  const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
+  if (!classHash) {
+    return { status: 500, body: { error: "Media Wallet class hash is not configured", code: "sponsor_unavailable" } };
+  }
+
+  const calls = [
+    {
+      contractAddress: strk.address,
+      entrypoint: "transfer",
+      calldata: CallData.compile([body.ownerAddress, uint256.bnToUint256(0)]),
+    },
+  ];
+
+  try {
+    const prepared = (await deps.clientFactory().buildTransaction(
+      {
+        type: "deploy_and_invoke",
+        deployment: {
+          address: body.ownerAddress,
+          class_hash: classHash,
+          salt: body.salt ?? "0x0",
+          calldata: ownerConstructorCalldata(body.ownerPubkey),
+          version: 1,
+        },
+        invoke: {
+          userAddress: body.ownerAddress,
+          calls,
+        },
+      },
+      SPONSORED,
+    )) as { typed_data: unknown; deployment: unknown };
+
+    return { status: 200, body: { typedData: prepared.typed_data, deployment: prepared.deployment, calls } };
+  } catch (err) {
+    const failure = classifyPaymasterError(err);
+    log.warn({ err, status: failure.status }, "sponsored deploy build failed");
+    return { status: failure.status, body: { error: failure.message, code: failure.code } };
+  }
+}
+
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   addressChecker: ContractAddressChecker = createContractAddressChecker(prisma),
@@ -383,45 +435,12 @@ export default function paymaster(
     const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
     if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
 
-    const strk = getTokenBySymbol("STRK");
-    if (!strk) return c.json({ error: "STRK token not found in registry", code: "sponsor_unavailable" }, 500);
-
-    const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
-    if (!classHash) return c.json({ error: "Media Wallet class hash is not configured", code: "sponsor_unavailable" }, 500);
-
-    const calls = [
-      {
-        contractAddress: strk.address,
-        entrypoint: "transfer",
-        calldata: CallData.compile([body.ownerAddress, uint256.bnToUint256(0)]),
-      },
-    ];
-
-    try {
-      const prepared = (await clientFactory().buildTransaction(
-        {
-          type: "deploy_and_invoke",
-          deployment: {
-            address: body.ownerAddress,
-            class_hash: classHash,
-            salt: body.salt ?? "0x0",
-            calldata: ownerConstructorCalldata(body.ownerPubkey),
-            version: 1,
-          },
-          invoke: {
-            userAddress: body.ownerAddress,
-            calls,
-          },
-        },
-        SPONSORED,
-      )) as { typed_data: unknown; deployment: unknown };
-
-      return c.json({ typedData: prepared.typed_data, deployment: prepared.deployment, calls });
-    } catch (err) {
-      const failure = classifyPaymasterError(err);
-      log.warn({ err, status: failure.status }, "sponsored deploy build failed");
-      return c.json({ error: failure.message, code: failure.code }, failure.status);
-    }
+    const outcome = await buildDeployment({ clientFactory }, {
+      ownerPubkey: body.ownerPubkey,
+      ownerAddress: body.ownerAddress,
+      salt: body.salt,
+    });
+    return c.json(outcome.body, outcome.status);
   });
 
   app.post("/deploy/execute", async (c) => {
