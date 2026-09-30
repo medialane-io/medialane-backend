@@ -10,11 +10,8 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt
     incrementAttempts: async () => {},
     consumeCode: async () => {},
     sendCode: async () => {},
-    checkRateLimit: async () => true,
     checkEmailExists: async () => false,
     createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
-    checkAccountCreateRateLimit: async () => true,
-    checkEmailExistsRateLimit: async () => true,
     findAccountIdByEmail: async () => null,
     releaseAbandonedEmail: async () => false,
     findWaitingWallets: async () => [],
@@ -85,16 +82,6 @@ test("POST /request-code with an invalid email format returns 400", async () => 
     body: JSON.stringify({ email: "not-an-email" }),
   });
   expect(res.status).toBe(400);
-});
-
-test("POST /request-code is rate-limited", async () => {
-  const app = appWith({ checkRateLimit: async () => false });
-  const res = await app.request("/request-code", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "alice@example.com" }),
-  });
-  expect(res.status).toBe(429);
 });
 
 test("POST /verify-code with the correct code returns 200 and a token", async () => {
@@ -340,16 +327,6 @@ test("POST /register-account with an invalid email format returns 400", async ()
   expect(res.status).toBe(400);
 });
 
-test("POST /register-account is rate-limited per IP", async () => {
-  const app = appWith({ checkAccountCreateRateLimit: async () => false });
-  const res = await app.request("/register-account", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "alice@example.com" }),
-  });
-  expect(res.status).toBe(429);
-});
-
 test("POST /register-account refuses to mint a session for an account that already exists", async () => {
   const app = appWith({
     createAccountWithEmail: async () => ({ accountId: "acc_EXISTING", alreadyExisted: true }),
@@ -378,25 +355,6 @@ test("POST /register-account does not leak whether the existing account was ever
   expect(Object.keys(body).sort()).toEqual(["error", "message"]);
 });
 
-test("GET /exists returns 429 once the per-IP lookup rate limit is exceeded", async () => {
-  const app = appWith({
-    checkEmailExists: async () => true,
-    checkEmailExistsRateLimit: async () => false,
-  });
-  const res = await app.request("/exists?email=alice@example.com");
-  expect(res.status).toBe(429);
-});
-
-test("GET /exists does not reveal existence when rate limited", async () => {
-  const app = appWith({
-    checkEmailExists: async () => true,
-    checkEmailExistsRateLimit: async () => false,
-  });
-  const res = await app.request("/exists?email=alice@example.com");
-  const body = await res.json() as { exists?: boolean };
-  expect(body.exists).toBeUndefined();
-});
-
 test("an account belongs to the app that created it, so the same address in two apps is two accounts", async () => {
   const asked: Array<{ email: string; tenant: string }> = [];
   const app = appWith({
@@ -418,53 +376,6 @@ test("a key with no app cannot resolve an account, rather than falling into some
 
   expect(res.status).toBe(400);
   expect(await res.json()).toMatchObject({ error: "unknown_app" });
-});
-
-test("a rotated client IP cannot outrun the per-API-client code ceiling", async () => {
-  const seen: Array<string | null> = [];
-  let sent = 0;
-  const app = appWith({
-    checkRateLimit: async (_email, _ip, apiClientId) => {
-      seen.push(apiClientId);
-      return seen.length <= 2;
-    },
-    sendCode: async () => {
-      sent += 1;
-    },
-  });
-
-  const request = (ip: string) =>
-    app.request("/request-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-medialane-client-ip": ip },
-      body: JSON.stringify({ email: "spam@example.com" }),
-    });
-
-  expect((await request("1.1.1.1")).status).toBe(200);
-  expect((await request("2.2.2.2")).status).toBe(200);
-  expect((await request("3.3.3.3")).status).toBe(429);
-
-  expect(seen).toEqual(["client_TEST", "client_TEST", "client_TEST"]);
-  expect(sent).toBe(2);
-});
-
-test("account creation is capped per API client as well as per IP", async () => {
-  const seen: Array<string | null> = [];
-  const app = appWith({
-    checkAccountCreateRateLimit: async (_ip, apiClientId) => {
-      seen.push(apiClientId);
-      return false;
-    },
-  });
-
-  const res = await app.request("/register-account", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-medialane-client-ip": "9.9.9.9" },
-    body: JSON.stringify({ email: "new@example.com" }),
-  });
-
-  expect(res.status).toBe(429);
-  expect(seen).toEqual(["client_TEST"]);
 });
 
 test("GET /exists looks the account up with the email as typed", async () => {
@@ -510,4 +421,38 @@ test("POST /verify-code finds waiting wallets with the email in lower case", asy
   });
   await verify(app, "Alice@Example.com");
   expect(seen).toEqual(["alice@example.com"]);
+});
+
+test("POST /request-code sends a code every time it is asked", async () => {
+  let sent = 0;
+  const app = appWith({ sendCode: async () => { sent += 1; } });
+  for (let i = 0; i < 12; i++) {
+    const res = await app.request("/request-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "alice@example.com" }),
+    });
+    expect(res.status).toBe(200);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(sent).toBe(12);
+});
+
+test("POST /register-account creates accounts without a volume ceiling", async () => {
+  const app = appWith();
+  for (let i = 0; i < 12; i++) {
+    const res = await app.request("/register-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `person${i}@example.com` }),
+    });
+    expect(res.status).toBe(200);
+  }
+});
+
+test("GET /exists answers every lookup", async () => {
+  const app = appWith();
+  for (let i = 0; i < 70; i++) {
+    expect((await app.request(`/exists?email=person${i}@example.com`)).status).toBe(200);
+  }
 });

@@ -193,8 +193,6 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
       expected: (active, name) => (active.spec.artwork?.name === name ? active.spec.artwork : null),
       uri: (active) => pinnedValue(active.progress.artwork),
       path: () => ["artwork"],
-      urlCount: (active) => active.progress.uploadUrls ?? 0,
-      urlCountPath: () => ["uploadUrls"],
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {

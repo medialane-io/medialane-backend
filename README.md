@@ -167,22 +167,6 @@ PATCH  /admin/comments/:id/show                     Set isHidden = false
 
 ---
 
-## Rate Limiting
-
-| Plan | Limit | Window |
-|---|---|---|
-| FREE | 50 requests | per calendar month |
-| PREMIUM | 3,000 requests | per minute |
-
-Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
-
-Backed by Redis (`REDIS_URL`) when set, so the limit is shared correctly across API
-replicas; falls back to in-process memory otherwise (fine for a single replica, but each
-replica then counts independently). Fails **open** on any store error — the rate limiter
-must never be the reason a request fails.
-
----
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -268,7 +252,6 @@ Optional env vars (all have sensible defaults):
 | `MARKETPLACE_1155_CONTRACT_MAINNET` | current audited address | ERC-1155 marketplace protocol override |
 | `COLLECTION_721_CONTRACT_MAINNET` | current audited address | ERC-721 mint / collection registry override |
 | `COLLECTION_1155_CONTRACT_MAINNET` | current audited address | ERC-1155 mint / collection factory override |
-| `REDIS_URL` | none — falls back to in-process memory | Shared store for API-key rate limiting. Required for correct limits once the API runs more than one replica (each replica's in-memory counter is otherwise independent); a Redis outage fails **open** (requests proceed, a warning is logged) rather than failing the request. |
 
 ### Commands
 

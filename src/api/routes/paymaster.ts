@@ -4,7 +4,6 @@ import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
 import { createContractAddressChecker, type ContractAddressChecker } from "./paymaster-contract-address.js";
-import { createSponsorAuthorizer, type SponsorAuthorizer } from "./sponsor-authorizer.js";
 import prisma from "../../db/client.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -401,7 +400,6 @@ export async function buildDeployment(
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   addressChecker: ContractAddressChecker = createContractAddressChecker(prisma),
-  authorizer: SponsorAuthorizer = createSponsorAuthorizer(prisma),
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -409,8 +407,6 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({ userAddress: body?.userAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     const outcome = await buildSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
@@ -419,8 +415,6 @@ export default function paymaster(
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({ userAddress: body?.userAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
     const outcome = await executeSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
@@ -432,8 +426,6 @@ export default function paymaster(
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required", code: "invalid_request" }, 400);
     }
-    const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
 
     const outcome = await buildDeployment({ clientFactory }, {
       ownerPubkey: body.ownerPubkey,
@@ -450,8 +442,6 @@ export default function paymaster(
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
       return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required", code: "invalid_request" }, 400);
     }
-    const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
 
     const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
     const deployment = body.deployment as { class_hash?: string; address?: string } | null;

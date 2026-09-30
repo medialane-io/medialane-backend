@@ -10,7 +10,6 @@ import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
 import { requireTenant, tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
-import { clientIp } from "../../utils/clientIp.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
@@ -160,8 +159,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           verifiedAt: null,
         },
       });
-      const ip = clientIp(c.req.raw);
-      issueVerificationCode(parsed.data.email, ip, tenant, c.get("apiClient")?.id ?? null).catch((err: unknown) => {
+      issueVerificationCode(parsed.data.email, tenant).catch((err: unknown) => {
         log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
       });
     }
@@ -350,9 +348,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     }),
   ]);
 
-  const ip = clientIp(c.req.raw);
-  const result = await issueVerificationCode(email, ip, ioTenantId, c.get("apiClient")?.id ?? null);
-  if (!result.ok) return c.json({ error: result.error }, 429);
+  await issueVerificationCode(email, ioTenantId);
 
   return c.json({ email, emailVerified: false });
 });

@@ -4,11 +4,9 @@ import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import paymaster, { type PaymasterClient } from "./paymaster.js";
 import type { ContractAddressChecker } from "./paymaster-contract-address.js";
-import type { SponsorAuthorizer, SponsorRequest } from "./sponsor-authorizer.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const ALLOW_ALL_ADDRESSES: ContractAddressChecker = { isEligible: async () => true };
-const ALLOW_ALL_SPONSORS: SponsorAuthorizer = { authorize: async () => null };
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -45,7 +43,7 @@ function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
     ...client,
   };
   const app = new Hono<AppEnv>();
-  app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, ALLOW_ALL_SPONSORS));
+  app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES));
   return app;
 }
 
@@ -103,7 +101,7 @@ describe("contract address eligibility", () => {
       executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
     };
     const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => stub, { isEligible: async () => false }, ALLOW_ALL_SPONSORS));
+    app.route("/", paymaster(() => stub, { isEligible: async () => false }));
 
     const res = await app.request("/invoke/build", {
       method: "POST",
@@ -125,7 +123,7 @@ describe("contract address eligibility", () => {
       },
     };
     const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => stub, { isEligible: async () => false }, ALLOW_ALL_SPONSORS));
+    app.route("/", paymaster(() => stub, { isEligible: async () => false }));
 
     const res = await app.request("/invoke/execute", {
       method: "POST",
@@ -340,78 +338,33 @@ describe("upstream failures", () => {
   });
 });
 
-describe("a refused sponsored call never reaches the paymaster", () => {
-  const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-  function appDenying(seen: SponsorRequest[], calls: unknown[]) {
+describe("sponsored calls are never refused for volume", () => {
+  test("a wallet's 61st sponsored build in a minute still reaches the paymaster", async () => {
+    const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let built = 0;
     const stub: PaymasterClient = {
-      buildTransaction: async (req, opts) => {
-        calls.push({ fn: "build", req, opts });
+      buildTransaction: async () => {
+        built += 1;
         return { typed_data: { message: "td" } } as never;
       },
-      executeTransaction: async (req, opts) => {
-        calls.push({ fn: "execute", req, opts });
-        return { transaction_hash: "0xtx" } as never;
-      },
-    };
-    const authorizer: SponsorAuthorizer = {
-      authorize: async (request) => {
-        seen.push(request);
-        return { status: 429, error: "Too many sponsored transactions. Try again in a minute.", code: "rate_limited" };
-      },
+      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
     };
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => {
       c.set("account", { id: "acct-app", status: "ACTIVE" } as never);
       await next();
     });
-    app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, authorizer));
-    return app;
-  }
-
-  for (const path of ["/deploy/build", "/deploy/execute"]) {
-    test(`${path} refuses a denied caller without reaching the paymaster`, async () => {
-      const seen: SponsorRequest[] = [];
-      const calls: unknown[] = [];
-      const res = await appDenying(seen, calls).request(path, {
+    app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES));
+    for (let i = 0; i < 61; i++) {
+      const res = await app.request("/invoke/build", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-account-session": "account_session_token" },
-        body: JSON.stringify({
-          ownerPubkey: "0x9",
-          ownerAddress: USER,
-          deployment: { address: USER, class_hash: getCoordinates("STARKNET").mediaWalletClassHash },
-          calls: [SPONSORABLE_CALL],
-          typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-          signature: ["0x1"],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userAddress: USER, calls: [SPONSORABLE_CALL] }),
       });
-      expect(res.status).toBe(429);
-      expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
-      expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{ userAddress: USER }]);
-    });
-  }
-
-  for (const path of ["/invoke/build", "/invoke/execute"]) {
-    test(`${path} refuses a denied caller without reaching the paymaster`, async () => {
-      const seen: SponsorRequest[] = [];
-      const calls: unknown[] = [];
-      const res = await appDenying(seen, calls).request(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-account-session": "account_session_token" },
-        body: JSON.stringify({
-          userAddress: USER,
-          calls: [SPONSORABLE_CALL],
-          typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-          signature: ["0x1"],
-        }),
-      });
-      expect(res.status).toBe(429);
-      expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
-      expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{ userAddress: USER }]);
-    });
-  }
+      expect(res.status).toBe(200);
+    }
+    expect(built).toBe(61);
+  });
 });
 
 describe("every sponsorship failure says why it failed", () => {

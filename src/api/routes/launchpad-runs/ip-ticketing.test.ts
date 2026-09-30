@@ -208,11 +208,10 @@ describe("the artwork", () => {
     expect(w.runs[0]!.creditsSpent).toBe(PRICE);
   });
 
-  test("only the file named in the spec gets an upload URL, and only a few times", async () => {
+  test("only the file named in the spec gets an upload URL, as often as the upload needs", async () => {
     const w = await paid();
     expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "other.png" })).status).toBe(400);
-    for (let i = 0; i < 3; i++) expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(201);
-    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(429);
+    for (let i = 0; i < 6; i++) expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(201);
   });
 
   test("a run without artwork has nothing to upload", async () => {

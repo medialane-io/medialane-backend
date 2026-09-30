@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import type { AppEnv } from "../../../types/hono.js";
 import { createRunRoutes } from "./index.js";
-import { MAX_UPLOAD_URLS_PER_FILE } from "./steps.js";
 import type { ExecutionDeps, ReceiptEvent, ReceiptStatus } from "./context.js";
 import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
 import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
@@ -160,12 +159,11 @@ describe("uploading a paid run's files", () => {
     expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-other-file" })).status).toBe(409);
   });
 
-  test("each file gets a limited number of upload URLs", async () => {
+  test("a file can be retried as often as the upload needs, with no lock on the run", async () => {
     const w = await paidRun();
-    for (let i = 0; i < MAX_UPLOAD_URLS_PER_FILE; i++) {
+    for (let i = 0; i < 6; i++) {
       expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" })).status).toBe(201);
     }
-    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" })).status).toBe(429);
   });
 });
 

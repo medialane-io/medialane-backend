@@ -11,8 +11,6 @@ import { confirmStep, executeStep } from "./sponsored-step.js";
 
 const log = createLogger("routes:launchpad-runs:steps");
 
-export const MAX_UPLOAD_URLS_PER_FILE = 3;
-
 const fileNameBody = z.object({ name: z.string().min(1).max(255) });
 const uploadedBody = z.object({ name: z.string().min(1).max(255), cid: z.string().min(10).max(120) });
 
@@ -38,8 +36,6 @@ export interface RunFiles<A> {
   expected(active: A, name: string): { size: number; type: string } | null;
   uri(active: A, name: string): string | null;
   path(name: string): string[];
-  urlCount(active: A, name: string): number;
-  urlCountPath(name: string): string[];
   credits(): Promise<number>;
 }
 
@@ -202,12 +198,6 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     const expected = service.files.expected(active, name);
     if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
     if (service.files.uri(active, name)) return c.json({ error: `${name} is already uploaded` }, 409);
-
-    const issued = service.files.urlCount(active, name);
-    if (issued >= MAX_UPLOAD_URLS_PER_FILE) {
-      return c.json({ error: `${name} has had too many upload attempts. Contact support to continue.` }, 429);
-    }
-    await record(active, service.files.urlCountPath(name), issued + 1);
 
     try {
       const url = await ex().signedUpload({

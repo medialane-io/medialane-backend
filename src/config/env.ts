@@ -47,7 +47,6 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
-  REDIS_URL: z.string().url().optional(),
   SMTP_HOST: z.string().default(""),
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_USER: z.string().default(""),

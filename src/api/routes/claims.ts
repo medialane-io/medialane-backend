@@ -12,9 +12,7 @@ import { worker } from "../../orchestrator/worker.js";
 
 const claims = new Hono<AppEnv>();
 
-import { createSlidingWindow } from "../../utils/slidingWindow.js";
 
-const checkRateLimit = createSlidingWindow(10, 60_000);
 
 claims.post(
   "/",
@@ -34,11 +32,6 @@ claims.post(
 
     if (jwtWallet !== normWallet) {
       return c.json({ error: "Wallet address does not match authenticated session" }, 403);
-    }
-
-    const accountId = c.get("account").id;
-    if (!checkRateLimit(`claim:${accountId}`)) {
-      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
     }
 
     const existing = await prisma.collectionClaim.findFirst({
@@ -208,11 +201,6 @@ claims.post(
     const { contractAddress, walletAddress, email, notes } = c.req.valid("json");
     const normContract = normalizeAddress(chain, contractAddress);
     const normWallet = walletAddress ? normalizeAddress(chain, walletAddress) : null;
-
-    const accountId = c.get("account").id;
-    if (!checkRateLimit(`request:${accountId}`)) {
-      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
-    }
 
     const emailDup = await prisma.collectionClaim.findFirst({
       where: { contractAddress: normContract, claimantEmail: email, status: "PENDING" },

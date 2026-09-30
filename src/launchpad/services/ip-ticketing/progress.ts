@@ -5,8 +5,6 @@ import type { IpTicketingSpec } from "./definition.js";
 
 export interface IpTicketingProgress {
   collection?: { baseUri?: string; tx?: StepState; address?: string };
-  uploadUrls?: number;
-  walletBuilds?: number;
   artwork?: Pinned;
   tokenUri?: Pinned;
   tier?: { tx?: StepState; ticketId?: string };
