@@ -9,7 +9,7 @@ import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
 import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { generateApiKey } from "../../utils/apiKey.js";
-import { TENANT_SLUG_INPUT, requireTenant } from "../../utils/tenant.js";
+import { callerClientId } from "../../utils/caller.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -70,7 +70,7 @@ siws.post(
     walletAddress: z.string().min(1),
     nonce:         z.string().min(1),
     signature:     z.array(z.string()).min(1),
-    appSource:     z.enum(TENANT_SLUG_INPUT).optional(),
+    appSource:     z.string().optional(),
   })),
   async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
@@ -118,13 +118,13 @@ siws.post(
     await prisma.siwsNonce.delete({ where: { nonce } });
 
     const token = issueToken(chain, wallet);
-    const tenantId = c.get("apiKey")?.tenantId ?? null;
-    if (!appSource || !tenantId) return c.json({ token });
+    const clientId = callerClientId(c);
+    if (!appSource || !clientId) return c.json({ token });
 
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      tenantId,
+      clientId,
     });
     const apiClient = await prisma.apiClient.upsert({
       where: { accountId },
@@ -147,7 +147,9 @@ siws.post("/keys", identityAuth, async (c) => {
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
   const wallet = c.get("walletAddress") as string;
-  const accountId = await resolveAccountIdFromWallet(chain, wallet);
+  const clientId = callerClientId(c);
+  if (!clientId) return c.json({ error: "This API key has no client" }, 400);
+  const accountId = await resolveAccountIdFromWallet(clientId, chain, wallet);
   if (!accountId) return c.json({ error: "Account not found — sign in first" }, 404);
 
   const apiClient = await prisma.apiClient.findUnique({ where: { accountId }, select: { id: true } });
@@ -161,7 +163,7 @@ siws.post("/keys", identityAuth, async (c) => {
   const { plaintext, prefix, keyHash } = generateApiKey();
   const key = await prisma.apiKey.create({
 
-    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session", tenantId: await requireTenant("MEDIALANE_PORTAL") },
+    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session" },
     select: { id: true, prefix: true, label: true },
   });
 

@@ -17,9 +17,9 @@ export function claimOutcome(identity: ClaimableIdentity | null): "none" | "own"
   return identity.accountStatus === "INACTIVE" ? "release" : "own";
 }
 
-export async function releaseAbandonedEmail(email: string, tenantId: string): Promise<boolean> {
+export async function releaseAbandonedEmail(email: string, clientId: string): Promise<boolean> {
   const identity = await prisma.identity.findUnique({
-    where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId } },
+    where: { clientId_scheme_value: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: email } },
     select: {
       id: true,
       accountId: true,
@@ -40,7 +40,7 @@ export async function releaseAbandonedEmail(email: string, tenantId: string): Pr
 
   await prisma.identity.delete({ where: { id: identity!.id } });
   log.info(
-    { accountId: identity!.accountId, tenantId },
+    { accountId: identity!.accountId, clientId },
     "Released an email from an account that never verified it",
   );
   return true;

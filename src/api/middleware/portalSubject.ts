@@ -5,7 +5,7 @@ import prisma from "../../db/client.js";
 import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
 import { accountSessionIssuedAt, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
-import { requireTenant } from "../../utils/tenant.js";
+import { callerClientId } from "../../utils/caller.js";
 
 const accountSelect = {
   id: true,
@@ -36,8 +36,10 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!identity) return c.json({ error: "Invalid or expired token" }, 401);
 
   const address = normalizeAddress(identity.chain, identity.address);
+  const clientId = callerClientId(c);
+  if (!clientId) return c.json({ error: "This API key has no client" }, 400);
   let wallet = await prisma.identity.findUnique({
-    where: { chain_address: { chain: identity.chain, address } },
+    where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
     select: { account: { select: accountSelect } },
   });
 
@@ -47,10 +49,9 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
     // ApiClient (credit wallet) is provisioned here rather than 404ing
     // and relying on a client-side registration call that may never
     // fire before this request.
-    const tenantId = await requireTenant("MEDIALANE_PORTAL");
-    await ensureAccountForWallet({ chain: identity.chain, address, tenantId });
+    await ensureAccountForWallet({ chain: identity.chain, address, clientId });
     wallet = await prisma.identity.findUnique({
-      where: { chain_address: { chain: identity.chain, address } },
+      where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
       select: { account: { select: accountSelect } },
     });
   }

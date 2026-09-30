@@ -35,7 +35,7 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}) {
       return "0xdeploytx";
     },
     findExistingWalletForRecipient: async () => null,
-    ensureRecipientAccount: async (_scheme, value) => `acct-for-${value}`,
+    ensureRecipientAccount: async (_clientId, _scheme, value) => `acct-for-${value}`,
     linkWalletToAccount: async () => {},
     createProvisioning: async (input) => {
       seq += 1;
@@ -127,6 +127,23 @@ describe("POST /v1/business/provisioning", () => {
     const res = await issue(makeApp(deps), "ana@example.com");
     expect(res.status).toBe(502);
     expect(store.size).toBe(0);
+  });
+});
+
+describe("recipients belong to the business's client", () => {
+  test("a new recipient's account and wallet are created under the business's client", async () => {
+    const seen: string[] = [];
+    const { deps } = fakeDeps({
+      ensureRecipientAccount: async (clientId) => {
+        seen.push(`account:${clientId}`);
+        return "acct-ana";
+      },
+      linkWalletToAccount: async ({ clientId }) => {
+        seen.push(`link:${clientId}`);
+      },
+    });
+    await issue(makeApp(deps, "biz-7"), "ana@example.com");
+    expect(seen).toEqual(["account:biz-7", "link:biz-7"]);
   });
 });
 

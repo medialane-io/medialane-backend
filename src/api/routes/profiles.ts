@@ -7,7 +7,7 @@ import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { requireTenant } from "../../utils/tenant.js";
+import { callerClientId } from "../../utils/caller.js";
 import {
   ensureAccountForWallet,
   resolveAccountIdFromWallet,
@@ -294,7 +294,8 @@ profiles.get("/creators/:wallet/profile", async (c) => {
     if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
   const wallet = normalizeAddress(chain, c.req.param("wallet"));
-  const accountId = await resolveAccountIdFromWallet(chain, wallet);
+  const clientId = callerClientId(c);
+  const accountId = clientId ? await resolveAccountIdFromWallet(clientId, chain, wallet) : null;
   if (!accountId) return c.json(null);
   const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
   if (!profile) return c.json(null);
@@ -317,10 +318,13 @@ profiles.patch(
       return c.json({ error: "Not authorized to edit this profile" }, 403);
     }
 
+    const clientId = callerClientId(c);
+    if (!clientId) return c.json({ error: "This API key has no client" }, 400);
+
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      tenantId: await requireTenant("MEDIALANE_STARKNET"),
+      clientId,
     });
 
     await addAccountRole(accountId, "CREATOR");

@@ -1,4 +1,5 @@
 import prisma from "../../db/client.js";
+import { accountIdsHoldingWallet } from "../../utils/account.js";
 import { Prisma } from "@prisma/client";
 import { createLogger } from "../../utils/logger.js";
 import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
@@ -11,7 +12,6 @@ import {
   settleUnattributedPayment as defaultSettleUnattributed,
 } from "../../payments/credits.js";
 import { x402Config } from "../../config/x402.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import { parseDepositEvents, depositNonce, type DepositEvent } from "../../funding/deposits.js";
 import { intentSettler } from "../../funding/settle-deposit.js";
@@ -134,15 +134,16 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   return asCredited(await deps.existingPayment(nonce));
 }
 
+export function payingAccount(accountIds: string[]): string | null {
+  return accountIds.length === 1 ? accountIds[0]! : null;
+}
+
 const productionDeps: DepositDeps = {
   resolveApiClient: async (payer) => {
-    const identity = await prisma.identity.findUnique({
-      where: { chain_address: { chain: "STARKNET", address: payer } },
-      select: { accountId: true, scheme: true },
-    });
-    if (!identity || identity.scheme !== IDENTITY_SCHEME.WALLET) return null;
+    const accountId = payingAccount(await accountIdsHoldingWallet("STARKNET", payer));
+    if (!accountId) return null;
     const apiClient = await prisma.apiClient.findUnique({
-      where: { accountId: identity.accountId },
+      where: { accountId },
       select: { id: true, accountId: true },
     });
     return apiClient ?? null;

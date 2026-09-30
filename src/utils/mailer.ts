@@ -19,10 +19,13 @@ function createTransporter() {
 
 const from = (name: string = DEFAULT_FROM_NAME) => ({ name, address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
 
-async function fromNameForTenant(tenant: string | null): Promise<string> {
-  if (!tenant) return DEFAULT_FROM_NAME;
-  const row = await prisma.tenant.findUnique({ where: { id: tenant }, select: { name: true } });
-  return row?.name ?? DEFAULT_FROM_NAME;
+async function fromNameForClient(clientId: string | null): Promise<string> {
+  if (!clientId) return DEFAULT_FROM_NAME;
+  const client = await prisma.apiClient.findUnique({
+    where: { id: clientId },
+    select: { account: { select: { profile: { select: { name: true } } } } },
+  });
+  return client?.account.profile?.name || DEFAULT_FROM_NAME;
 }
 
 export async function sendUsernameClaimApproved(to: string, username: string): Promise<void> {
@@ -214,8 +217,8 @@ async function sendViaRelay(to: string, code: string, fromName: string): Promise
   return true;
 }
 
-export async function sendVerificationCode(to: string, code: string, tenant: string | null = null): Promise<void> {
-  const fromName = await fromNameForTenant(tenant);
+export async function sendVerificationCode(to: string, code: string, clientId: string | null = null): Promise<void> {
+  const fromName = await fromNameForClient(clientId);
 
   try {
     if (await sendViaRelay(to, code, fromName)) return;

@@ -12,15 +12,25 @@ async function ensureApiClient(accountId: string): Promise<void> {
 }
 
 export async function resolveAccountIdFromWallet(
+  clientId: string,
   chain: Chain,
   address: string,
 ): Promise<string | null> {
   const normalized = normalizeAddress(chain, address);
   const identity = await prisma.identity.findUnique({
-    where: { chain_address: { chain, address: normalized } },
+    where: { clientId_chain_address: { clientId, chain, address: normalized } },
     select: { accountId: true },
   });
   return identity?.accountId ?? null;
+}
+
+export async function accountIdsHoldingWallet(chain: Chain, address: string): Promise<string[]> {
+  const normalized = normalizeAddress(chain, address);
+  const rows = await prisma.identity.findMany({
+    where: { chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
+    select: { accountId: true },
+  });
+  return [...new Set(rows.map((row) => row.accountId))];
 }
 
 export async function isWalletLinkedToAccount(
@@ -29,11 +39,11 @@ export async function isWalletLinkedToAccount(
   address: string,
 ): Promise<boolean> {
   const normalized = normalizeAddress(chain, address);
-  const identity = await prisma.identity.findUnique({
-    where: { chain_address: { chain, address: normalized } },
-    select: { accountId: true, scheme: true },
+  const identity = await prisma.identity.findFirst({
+    where: { accountId, chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
+    select: { id: true },
   });
-  return identity?.scheme === IDENTITY_SCHEME.WALLET && identity.accountId === accountId;
+  return identity !== null;
 }
 
 export function generateAccountPublicId(): string {
@@ -54,23 +64,6 @@ export async function addAccountRole(
     WHERE id = ${accountId}
       AND NOT (roles @> ARRAY[${role}::"AccountRole"])
   `;
-}
-
-export class AccountRequiresEmailError extends Error {
-  constructor() {
-    super(
-      "This app requires a wallet to be linked to an already-registered account. " +
-      "No valid accountToken was provided, so a new account cannot be created for it directly.",
-    );
-    this.name = "AccountRequiresEmailError";
-  }
-}
-
-export function shouldRejectNewAccountForWallet(params: {
-  linkToAccountId?: string;
-  requireExistingAccountLink?: boolean;
-}): boolean {
-  return Boolean(params.requireExistingAccountLink) && !params.linkToAccountId;
 }
 
 export function shouldBePrimaryWallet(accountHasPrimaryWallet: boolean): boolean {
@@ -94,20 +87,17 @@ export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
   provider?: string;
-  tenantId: string;
+  clientId: string;
   email?: string;
   accountType?: AccountType;
-
   linkToAccountId?: string;
-
-  requireExistingAccountLink?: boolean;
 }): Promise<{ accountId: string; created: boolean }> {
   const accountType: AccountType = params.accountType ?? "PERSON";
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
   const existing = await prisma.identity.findUnique({
-    where: { chain_address: { chain: params.chain, address } },
+    where: { clientId_chain_address: { clientId: params.clientId, chain: params.chain, address } },
     select: { id: true, accountId: true, provider: true },
   });
 
@@ -131,17 +121,13 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        tenantId: params.tenantId,
+        clientId: params.clientId,
         isPrimary: shouldBePrimaryWallet(hasPrimary !== null),
         email: params.email ?? null,
       },
     });
     await ensureApiClient(params.linkToAccountId);
     return { accountId: params.linkToAccountId, created: false };
-  }
-
-  if (shouldRejectNewAccountForWallet(params)) {
-    throw new AccountRequiresEmailError();
   }
 
   const accountId = await prisma.$transaction(async (tx) => {
@@ -171,7 +157,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        tenantId: params.tenantId,
+        clientId: params.clientId,
         isPrimary: true,
         email: params.email ?? null,
       },
@@ -188,14 +174,14 @@ export async function ensureAccountForWallet(params: {
 export async function ensureAccountForIdentity(
   scheme: string,
   rawValue: string,
-  tenantId: string,
+  clientId: string,
   accountType: AccountType = "PERSON",
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
-      where: { scheme_value_tenantId: { scheme, value, tenantId } },
+      where: { clientId_scheme_value: { clientId, scheme, value } },
       select: { accountId: true },
     });
     if (existing) return { accountId: existing.accountId, created: false };
@@ -216,7 +202,7 @@ export async function ensureAccountForIdentity(
             scheme,
             value,
             email: isEmail ? value : null,
-            tenantId,
+            clientId,
             verifiedAt: null,
           },
         });

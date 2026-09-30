@@ -88,7 +88,7 @@ export async function claimWallets(
   return { status: 200, claimed };
 }
 
-export function productionClaimDeps(tenantId: string): ClaimDeps {
+export function productionClaimDeps(clientId: string): ClaimDeps {
   const sponsor = { clientFactory: defaultClient, addressChecker: createContractAddressChecker(prisma) };
   return {
     verifiedEmailOf: async (accountId) =>
@@ -122,15 +122,7 @@ export function productionClaimDeps(tenantId: string): ClaimDeps {
     signTypedData: (privateKey, typedData, address) =>
       signWithPrivateKey(privateKey, starknetTypedData.getMessageHash(typedData as never, address)),
     linkWallet: async ({ chain, walletAddress, accountId }) => {
-      const existing = await prisma.identity.findUnique({
-        where: { chain_address: { chain, address: walletAddress } },
-        select: { id: true },
-      });
-      if (existing) {
-        await prisma.identity.update({ where: { id: existing.id }, data: { accountId } });
-        return;
-      }
-      await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", tenantId, linkToAccountId: accountId });
+      await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", clientId, linkToAccountId: accountId });
     },
     markTransferred: async (id, newOwnerPubkey) => {
       await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED", newOwnerPubkey } });

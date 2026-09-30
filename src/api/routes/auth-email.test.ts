@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createAuthEmailRoutes, type AuthEmailDeps } from "./auth-email";
 import type { AppEnv } from "../../types/hono.js";
 
-function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt_medialane_io") {
+function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "client_IO") {
   const fullDeps: AuthEmailDeps = {
     findLatestCode: async () => null,
     createCode: async () => {},
@@ -22,13 +22,12 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt
   };
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    if (tenant) {
+    if (client) {
       c.set("apiKey", {
         id: "key_TEST",
         status: "ACTIVE",
-        tenantId: tenant,
         apiClient: {
-          id: "client_TEST",
+          id: client,
           accountId: "acc_TEST",
           plan: "FREE",
           creditBalance: 0,
@@ -347,27 +346,27 @@ test("POST /register-account does not leak whether the existing account was ever
   expect(Object.keys(body).sort()).toEqual(["error", "message"]);
 });
 
-test("an account belongs to the app that created it, so the same address in two apps is two accounts", async () => {
-  const asked: Array<{ email: string; tenant: string }> = [];
+test("an account belongs to the client that registered it, so the same address in two clients is two accounts", async () => {
+  const asked: Array<{ email: string; client: string }> = [];
   const app = appWith({
-    checkEmailExists: async (email, tenant) => {
-      asked.push({ email, tenant });
+    checkEmailExists: async (email, client) => {
+      asked.push({ email, client });
       return false;
     },
   });
 
   await app.request("/exists?email=person@example.com");
 
-  expect(asked).toEqual([{ email: "person@example.com", tenant: "tnt_medialane_io" }]);
+  expect(asked).toEqual([{ email: "person@example.com", client: "client_IO" }]);
 });
 
-test("a key with no app cannot resolve an account, rather than falling into somebody else's", async () => {
+test("a key with no client cannot resolve an account, rather than falling into somebody else's", async () => {
   const app = appWith({}, null);
 
   const res = await app.request("/exists?email=person@example.com");
 
   expect(res.status).toBe(400);
-  expect(await res.json()).toMatchObject({ error: "unknown_app" });
+  expect(await res.json()).toMatchObject({ error: "unknown_client" });
 });
 
 test("GET /exists looks the account up with the email as typed", async () => {

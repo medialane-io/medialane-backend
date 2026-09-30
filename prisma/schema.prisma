@@ -814,6 +814,7 @@ model ApiClient {
   creditBalance Int  @default(0)
 
   apiKeys              ApiKey[]
+  identities           Identity[]
   webhooks             WebhookEndpoint[]
   payments             Payment[]
   fundingIntents       FundingIntent[]
@@ -841,14 +842,18 @@ model Identity {
   value String?
   email String?
 
-  tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  tenantId   String?
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id])
+  clientId   String?
+  client     ApiClient? @relation(fields: [clientId], references: [id])
   isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
-  @@unique([chain, address])
+  @@unique([clientId, chain, address])
+  @@unique([clientId, scheme, value])
   @@unique([scheme, value, tenantId])
+  @@index([clientId])
   @@index([accountId])
   @@index([address])
   @@index([email])

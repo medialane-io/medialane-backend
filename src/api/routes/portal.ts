@@ -9,7 +9,6 @@ import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { generateApiKey } from "../../utils/apiKey.js";
-import { tenantSlugForId } from "../../utils/tenant.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -139,7 +138,6 @@ portal.get("/keys", async (c) => {
       id: true,
       prefix: true,
       label: true,
-      tenantId: true,
       status: true,
       lastUsedAt: true,
       createdAt: true,
@@ -181,7 +179,6 @@ portal.post("/keys", freshSignature, async (c) => {
           keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
 
-          tenantId: c.get("apiKey")?.tenantId ?? null,
         },
       });
     });
@@ -190,8 +187,8 @@ portal.post("/keys", freshSignature, async (c) => {
     throw err;
   }
 
-  log.info({ keyId: key.id, apiClientId: apiClient.id, tenantId: key.tenantId }, "Self-service API key created");
-  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, appSource: key.tenantId ? await tenantSlugForId(key.tenantId) : null, plaintext: plaintext! } }, 201);
+  log.info({ keyId: key.id, apiClientId: apiClient.id }, "Self-service API key created");
+  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: plaintext! } }, 201);
 });
 
 portal.delete("/keys/:id", freshSignature, async (c) => {

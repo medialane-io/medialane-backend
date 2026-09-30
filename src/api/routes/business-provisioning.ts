@@ -8,7 +8,6 @@ import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js
 import { signWithPrivateKey } from "@medialane/sdk/starknet";
 import { buildDeployment as buildSponsoredDeployment, defaultClient, executeSponsoredDeploy } from "./paymaster.js";
 import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
-import { requireTenant } from "../../utils/tenant.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { provisioningKey, type ProvisioningKey, type ProvisioningKeyInput } from "../../utils/provisioningKey.js";
 import crypto from "crypto";
@@ -33,13 +32,13 @@ export interface BusinessProvisioningDeps {
   buildDeployment: (owner: { ownerPubkey: string; ownerAddress: string }) => Promise<{ typedData: unknown; deployment: unknown }>;
   signTypedData: (privateKey: string, typedData: unknown, address: string) => string[];
   deployWallet: (input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown }) => Promise<string>;
-  ensureRecipientAccount: (recipientScheme: string, recipientValue: string) => Promise<string | null>;
+  ensureRecipientAccount: (clientId: string, recipientScheme: string, recipientValue: string) => Promise<string | null>;
   findExistingWalletForRecipient: (
     chain: Chain,
     recipientScheme: string,
     recipientValue: string,
   ) => Promise<{ accountId: string; walletAddress: string } | null>;
-  linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
+  linkWalletToAccount: (input: { clientId: string; chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
   createProvisioning: (input: {
     apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string | null; derivationSalt: string | null; status?: ProvisioningStatus;
   }) => Promise<ProvisioningRecord>;
@@ -84,7 +83,7 @@ export async function registerProvisioning(
     return { status: 200, record, reused: true };
   }
 
-  const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+  const recipientAccountId = await deps.ensureRecipientAccount(apiClient.id, recipientScheme, recipientValue);
   const salt = deps.newSalt();
   const key = deps.keyFor({ apiClientId: apiClient.id, recipientScheme, recipientValue, salt });
   const walletAddress = normalizeAddress(chain, key.walletAddress);
@@ -102,7 +101,7 @@ export async function registerProvisioning(
   }
 
   if (recipientAccountId) {
-    await deps.linkWalletToAccount({ chain, walletAddress, accountId: recipientAccountId });
+    await deps.linkWalletToAccount({ clientId: apiClient.id, chain, walletAddress, accountId: recipientAccountId });
   }
 
   const record = await deps.createProvisioning({
@@ -186,17 +185,16 @@ export const productionProvisioningDeps: BusinessProvisioningDeps = {
     if (!wallet?.address) return null;
     return { accountId: wallet.accountId, walletAddress: wallet.address };
   },
-  ensureRecipientAccount: async (recipientScheme, recipientValue) => {
-    const tenantId = await requireTenant("MEDIALANE_SDK");
-    const { accountId } = await ensureAccountForIdentity(recipientScheme, recipientValue, tenantId);
+  ensureRecipientAccount: async (clientId, recipientScheme, recipientValue) => {
+    const { accountId } = await ensureAccountForIdentity(recipientScheme, recipientValue, clientId);
     return accountId;
   },
-  linkWalletToAccount: async ({ chain, walletAddress, accountId }) => {
+  linkWalletToAccount: async ({ clientId, chain, walletAddress, accountId }) => {
     await ensureAccountForWallet({
       chain,
       address: walletAddress,
       provider: "mediawallet",
-      tenantId: await requireTenant("MEDIALANE_SDK"),
+      clientId,
       linkToAccountId: accountId,
     });
   },

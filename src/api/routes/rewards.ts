@@ -57,7 +57,7 @@ rewards.get("/batch", async (c) => {
 rewards.get("/:address", async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
 
-  const [score, badges, levels, walletIdentity] = await Promise.all([
+  const [score, badges, levels] = await Promise.all([
     prisma.userScore.findUnique({ where: { address } }),
     prisma.userBadge.findMany({
       where: { address },
@@ -65,13 +65,7 @@ rewards.get("/:address", async (c) => {
       orderBy: { awardedAt: "asc" },
     }),
     prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
-    prisma.identity.findUnique({
-      where: { chain_address: { chain: "STARKNET", address } },
-      include: { account: { select: { publicId: true } } },
-    }),
   ]);
-  const accountId = walletIdentity?.accountId ?? null;
-  const publicId = walletIdentity?.account?.publicId ?? null;
 
   if (!score) {
 
@@ -79,8 +73,6 @@ rewards.get("/:address", async (c) => {
     return c.json({
       data: {
         address,
-        accountId,
-        publicId,
         totalXp: 0,
         currentLevel: 1,
         currentLevelName: starterLevel.name,
@@ -107,8 +99,6 @@ rewards.get("/:address", async (c) => {
   return c.json({
     data: {
       address,
-      accountId,
-      publicId,
       totalXp: score.totalXp,
       currentLevel: score.currentLevel,
       currentLevelName: currentLevelData?.name ?? "Starter",

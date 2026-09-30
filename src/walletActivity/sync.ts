@@ -8,7 +8,8 @@ import { decodeTransferLeg, decodeAccountEvent, pairSwapLegs, type TransferLeg }
 import { mapWithConcurrency } from "../utils/retry.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 import { getEscapeReadyAt } from "../chainRead/index.js";
-import { resolveAccountIdFromWallet } from "../utils/account.js";
+import { accountIdsHoldingWallet } from "../utils/account.js";
+import { guardianRecipients } from "./guardianRecipients.js";
 import { getCurrentEmailIdentity } from "../utils/emailVerification.js";
 import {
   sendGuardianSetEmail,
@@ -144,22 +145,23 @@ const productionDeps: SyncDeps = {
       const readyAt = type === "GUARDIAN_TRIGGER_ESCAPE" ? await getEscapeReadyAt(chain, accountAddress) : null;
       if (type === "GUARDIAN_TRIGGER_ESCAPE" && !readyAt) return;
 
-      const accountId = await resolveAccountIdFromWallet(chain, accountAddress);
-      if (!accountId) return;
+      const recipients = await guardianRecipients(
+        await accountIdsHoldingWallet(chain, accountAddress),
+        async (accountId) => (await getCurrentEmailIdentity(accountId))?.email ?? null,
+      );
 
-      const identity = await getCurrentEmailIdentity(accountId);
-      if (!identity?.email) return;
-
-      switch (type) {
-        case "GUARDIAN_SET":
-          await sendGuardianSetEmail(identity.email, accountAddress);
-          break;
-        case "GUARDIAN_TRIGGER_ESCAPE":
-          await sendGuardianEscapeTriggeredEmail(identity.email, accountAddress, readyAt!);
-          break;
-        case "GUARDIAN_COMPLETE_ESCAPE":
-          await sendGuardianEscapeCompletedEmail(identity.email, accountAddress);
-          break;
+      for (const email of recipients) {
+        switch (type) {
+          case "GUARDIAN_SET":
+            await sendGuardianSetEmail(email, accountAddress);
+            break;
+          case "GUARDIAN_TRIGGER_ESCAPE":
+            await sendGuardianEscapeTriggeredEmail(email, accountAddress, readyAt!);
+            break;
+          case "GUARDIAN_COMPLETE_ESCAPE":
+            await sendGuardianEscapeCompletedEmail(email, accountAddress);
+            break;
+        }
       }
     } catch (err) {
       log.error({ err, chain, accountAddress, type }, "Failed to send guardian event alert");
