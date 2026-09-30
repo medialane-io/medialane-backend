@@ -5,7 +5,6 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { resolveAccountIdFromWallet } from "../../utils/account.js";
-import { requiresEmailVerification } from "../../utils/emailVerification.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -49,10 +48,6 @@ usernameClaims.post(
 
     if (!callerAccountId) {
       return c.json({ error: "Register an account before claiming a username." }, 403);
-    }
-
-    if (await requiresEmailVerification(callerAccountId)) {
-      return c.json({ error: "Verify your email to claim a username." }, 403);
     }
 
     const profile = await prisma.accountProfile.findUnique({

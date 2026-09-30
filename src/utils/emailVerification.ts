@@ -6,19 +6,6 @@ export interface EmailIdentityInfo {
   createdAt: Date;
 }
 
-export const DEFAULT_GRACE_DAYS = 7;
-
-export function isEmailVerificationRequired(
-  identity: EmailIdentityInfo | null,
-  graceDays: number = DEFAULT_GRACE_DAYS,
-  now: Date = new Date(),
-): boolean {
-  if (!identity) return false;
-  if (identity.verifiedAt) return false;
-  const graceMs = graceDays * 24 * 60 * 60 * 1000;
-  return now.getTime() - identity.createdAt.getTime() > graceMs;
-}
-
 export interface CurrentEmailIdentity extends EmailIdentityInfo {
   email: string | null;
 }
@@ -29,14 +16,6 @@ export async function getCurrentEmailIdentity(accountId: string): Promise<Curren
     select: { email: true, verifiedAt: true, createdAt: true },
     orderBy: [{ verifiedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
   });
-}
-
-export async function requiresEmailVerification(
-  accountId: string,
-  graceDays: number = DEFAULT_GRACE_DAYS,
-): Promise<boolean> {
-  const identity = await getCurrentEmailIdentity(accountId);
-  return isEmailVerificationRequired(identity, graceDays);
 }
 
 export interface EmailClaimDecision {

@@ -14,13 +14,14 @@ test("an address nobody holds is free to claim", () => {
 
 test("an address someone proved stays theirs, whatever their account's state", () => {
   expect(claimOutcome(VERIFIED)).toBe("own");
-  expect(claimOutcome({ ...VERIFIED, accountStatus: "SUSPENDED" })).toBe("own");
+  expect(claimOutcome({ ...VERIFIED, accountStatus: "INACTIVE" })).toBe("own");
 });
 
 test("an address still inside its grace stays with the account holding it", () => {
   expect(claimOutcome({ ...VERIFIED, verifiedAt: null })).toBe("own");
+  expect(claimOutcome({ ...VERIFIED, verifiedAt: null, accountStatus: "PENDING" })).toBe("own");
 });
 
 test("an address never proved, on an account that ran out of time, is released", () => {
-  expect(claimOutcome({ ...VERIFIED, verifiedAt: null, accountStatus: "SUSPENDED" })).toBe("release");
+  expect(claimOutcome({ ...VERIFIED, verifiedAt: null, accountStatus: "INACTIVE" })).toBe("release");
 });

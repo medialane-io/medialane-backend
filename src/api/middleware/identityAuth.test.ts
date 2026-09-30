@@ -1,12 +1,12 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
-import { identityAuth } from "./identityAuth";
+import { createIdentityAuth } from "./identityAuth";
 import { issueToken } from "../../utils/siwsToken.js";
 import type { AppEnv } from "../../types/hono.js";
 
-function appWith() {
+function appWith(isInactive: (chain: string, address: string) => Promise<boolean> = async () => false) {
   const app = new Hono<AppEnv>();
-  app.use("*", identityAuth);
+  app.use("*", createIdentityAuth({ isInactive }));
   app.get("/", (c) => c.json({ walletAddress: c.get("walletAddress") }));
   return app;
 }
@@ -37,4 +37,21 @@ test("identityAuth rejects an invalid/expired SIWS token", async () => {
 test("identityAuth rejects a bearer token that isn't SIWS-shaped (no other auth path exists)", async () => {
   const res = await appWith().request("/", { headers: { Authorization: "Bearer eyJhbGciOiJSUzI1NiJ9.fake.jwt" } });
   expect(res.status).toBe(401);
+});
+
+test("identityAuth refuses a wallet whose account is inactive", async () => {
+  const token = issueToken("STARKNET", "0x0123");
+  const res = await appWith(async () => true).request("/", { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status).toBe(403);
+});
+
+test("identityAuth lets a pending account's wallet through", async () => {
+  const seen: string[] = [];
+  const token = issueToken("STARKNET", "0x0123");
+  const res = await appWith(async (_chain, address) => {
+    seen.push(address);
+    return false;
+  }).request("/", { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status).toBe(200);
+  expect(seen).toHaveLength(1);
 });

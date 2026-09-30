@@ -13,7 +13,7 @@ import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
-import { getCurrentEmailIdentity, isEmailVerificationRequired, canClaimEmail } from "../../utils/emailVerification.js";
+import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { claimWallets, productionClaimDeps } from "../../provisioning/claim.js";
@@ -288,7 +288,6 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
     publicId: identity.account.publicId,
     email: emailIdentity?.email ?? null,
     emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
-    requiresEmailVerification: isEmailVerificationRequired(emailIdentity),
   });
 });
 

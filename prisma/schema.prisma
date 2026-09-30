@@ -782,7 +782,8 @@ enum Plan {
 
 enum AccountStatus {
   ACTIVE
-  SUSPENDED
+  PENDING
+  INACTIVE
 }
 
 model Account {

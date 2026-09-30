@@ -7,7 +7,6 @@ import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { DEFAULT_GRACE_DAYS } from "../../utils/emailVerification.js";
 import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
@@ -18,7 +17,6 @@ import { ensureAccountForIdentity } from "../../utils/account.js";
 const log = createLogger("routes:auth-email");
 
 const CODE_TTL_MS = 10 * 60 * 1000;
-const UNVERIFIED_SESSION_TTL_SECONDS = DEFAULT_GRACE_DAYS * 24 * 60 * 60;
 const MAX_ATTEMPTS = 5;
 
 interface StoredCode {
@@ -42,6 +40,7 @@ export interface AuthEmailDeps {
   findWaitingWallets: (email: string) => Promise<string[]>;
   createVerifiedAccount: (email: string, tenant: string) => Promise<string>;
   markEmailVerified: (email: string, tenant: string) => Promise<void>;
+  activateAccount: (accountId: string) => Promise<void>;
 }
 
 const CODE_HASH_DOMAIN = "otp-code-v1";
@@ -104,8 +103,12 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     await deps.releaseAbandonedEmail(email, tenant);
 
     let accountId = await deps.findAccountIdByEmail(email, tenant);
-    if (accountId) await deps.markEmailVerified(email, tenant);
-    else accountId = await deps.createVerifiedAccount(email, tenant);
+    if (accountId) {
+      await deps.markEmailVerified(email, tenant);
+      await deps.activateAccount(accountId);
+    } else {
+      accountId = await deps.createVerifiedAccount(email, tenant);
+    }
     const waitingWallets = await deps.findWaitingWallets(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email));
     return c.json({ token, accountToken: issueAccountSessionToken(accountId), waitingWallets });
   });
@@ -129,7 +132,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     if (alreadyExisted) {
       return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
     }
-    return c.json({ accountToken: issueAccountSessionToken(accountId, UNVERIFIED_SESSION_TTL_SECONDS) });
+    return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
   return app;
@@ -157,7 +160,11 @@ const productionDeps: AuthEmailDeps = {
   },
   createAccountWithEmail: async (email, tenant) => {
     const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, tenant);
+    if (created) await prisma.account.update({ where: { id: accountId }, data: { status: "PENDING" } });
     return { accountId, alreadyExisted: !created };
+  },
+  activateAccount: async (accountId) => {
+    await prisma.account.updateMany({ where: { id: accountId, status: "PENDING" }, data: { status: "ACTIVE" } });
   },
   releaseAbandonedEmail,
   findWaitingWallets: async (email) =>

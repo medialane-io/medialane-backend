@@ -8,13 +8,13 @@ export interface ClaimableIdentity {
   id: string;
   accountId: string;
   verifiedAt: Date | null;
-  accountStatus: "ACTIVE" | "SUSPENDED";
+  accountStatus: "ACTIVE" | "PENDING" | "INACTIVE";
 }
 
 export function claimOutcome(identity: ClaimableIdentity | null): "none" | "own" | "release" {
   if (!identity) return "none";
   if (identity.verifiedAt) return "own";
-  return identity.accountStatus === "SUSPENDED" ? "release" : "own";
+  return identity.accountStatus === "INACTIVE" ? "release" : "own";
 }
 
 export async function releaseAbandonedEmail(email: string, tenantId: string): Promise<boolean> {

@@ -17,6 +17,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, tenant: string | null = "tnt
     findWaitingWallets: async () => [],
     createVerifiedAccount: async () => "acc_NEW",
     markEmailVerified: async () => {},
+    activateAccount: async () => {},
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -455,4 +456,18 @@ test("GET /exists answers every lookup", async () => {
   for (let i = 0; i < 70; i++) {
     expect((await app.request(`/exists?email=person${i}@example.com`)).status).toBe(200);
   }
+});
+
+test("POST /verify-code activates the account it signs in to", async () => {
+  const activated: string[] = [];
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    findAccountIdByEmail: async () => "acc_PENDING",
+    activateAccount: async (accountId) => {
+      activated.push(accountId);
+    },
+  });
+  expect((await verify(app)).status).toBe(200);
+  expect(activated).toEqual(["acc_PENDING"]);
 });

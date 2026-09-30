@@ -53,7 +53,7 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     select: KEY_SELECT,
   });
 
-  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.apiClient || apiKey.apiClient.account.status !== "ACTIVE") {
+  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.apiClient || apiKey.apiClient.account.status === "INACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
 
