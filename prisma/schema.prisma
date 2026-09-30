@@ -647,8 +647,6 @@ model ApiKey {
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
-  tenantId    String?
-  tenant      Tenant?      @relation(fields: [tenantId], references: [id])
   status      ApiKeyStatus @default(ACTIVE)
   lastUsedAt  DateTime?
   createdAt   DateTime     @default(now())
@@ -656,7 +654,6 @@ model ApiKey {
 
   @@index([apiClientId])
   @@index([status])
-  @@index([tenantId])
 }
 
 model WebhookEndpoint {
@@ -842,35 +839,20 @@ model Identity {
   value String?
   email String?
 
-  tenantId   String?
-  tenant     Tenant?   @relation(fields: [tenantId], references: [id])
-  clientId   String?
-  client     ApiClient? @relation(fields: [clientId], references: [id])
+  clientId   String
+  client     ApiClient @relation(fields: [clientId], references: [id])
   isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@unique([clientId, chain, address])
   @@unique([clientId, scheme, value])
-  @@unique([scheme, value, tenantId])
   @@index([clientId])
   @@index([accountId])
   @@index([address])
   @@index([email])
-  @@index([tenantId])
 }
 
-model Tenant {
-  id        String   @id @default(cuid())
-  slug      String   @unique
-  name      String
-  createdAt DateTime @default(now())
-
-  identities Identity[]
-  apiKeys    ApiKey[]
-
-  @@index([slug])
-}
 
 model EmailVerificationCode {
   id         String    @id @default(cuid())
