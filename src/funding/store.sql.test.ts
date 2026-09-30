@@ -39,24 +39,7 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
   const future = () => new Date(Date.now() + 60_000);
   const balance = async () => (await prisma.apiClient.findUnique({ where: { id: apiClientId } }))!.creditBalance;
 
-  test("an unauthorized intent counts as open only until it expires", async () => {
-    const made = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
-    const whileOpen = await store.countOpen(apiClientId, new Date());
-    const afterExpiry = await store.countOpen(apiClientId, new Date(Date.now() + 3_600_000));
-    expect(afterExpiry).toBe(whileOpen - 1);
-    await prisma.fundingIntent.update({ where: { id: made.id }, data: { status: "EXPIRED" } });
-  });
-
-  test("an authorized intent stays open after its window, because a payment may still land", async () => {
-    const made = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
-    await store.setPayer(made.id, apiClientId, `0xlate${Date.now()}`, new Date());
-    const whileOpen = await store.countOpen(apiClientId, new Date());
-    const afterExpiry = await store.countOpen(apiClientId, new Date(Date.now() + 3_600_000));
-    expect(afterExpiry).toBe(whileOpen);
-    await prisma.fundingIntent.update({ where: { id: made.id }, data: { status: "EXPIRED" } });
-  });
-
-  test("an authorized intent stops counting and matching a week after its window, so stale intents cannot capture later transfers", async () => {
+  test("an authorized intent stops matching a week after its window, so stale intents cannot capture later transfers", async () => {
     const payer = `0xstale${Date.now()}`;
     const day = 24 * 3_600_000;
     const stale = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: new Date(Date.now() - 8 * day) });
@@ -66,24 +49,19 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
 
     const matching = await store.openForPayer(payer, new Date());
     expect(matching.map((i) => i.id)).toEqual([recent.id]);
-
-    const counted = await store.countOpen(apiClientId, new Date());
     await prisma.fundingIntent.updateMany({ where: { id: { in: [stale.id, recent.id] } }, data: { status: "EXPIRED" } });
-    expect(counted - (await store.countOpen(apiClientId, new Date()))).toBe(1);
   });
 
-  test("cancelling closes an open intent once and removes it from matching and the open count", async () => {
+  test("cancelling closes an open intent once and removes it from matching", async () => {
     const payer = `0xcancel${Date.now()}`;
     const made = await store.create({ apiClientId, method: "chain-transfer", params: {}, expiresAt: future() });
     await store.setPayer(made.id, apiClientId, payer, new Date());
-    const before = await store.countOpen(apiClientId, new Date());
     expect((await store.openForPayer(payer, new Date())).map((i) => i.id)).toEqual([made.id]);
 
     expect(await store.cancel(made.id, "someone-else")).toBe(false);
     expect(await store.cancel(made.id, apiClientId)).toBe(true);
     expect(await store.cancel(made.id, apiClientId)).toBe(false);
     expect(await store.openForPayer(payer, new Date())).toEqual([]);
-    expect(await store.countOpen(apiClientId, new Date())).toBe(before - 1);
   });
 
   test("a payer can be set once", async () => {

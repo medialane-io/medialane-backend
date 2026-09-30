@@ -29,18 +29,6 @@ const toRecord = (row: Row): FundingIntentRecord => ({
 });
 
 export const prismaFundingStore: FundingStore = {
-  countOpen(apiClientId, now) {
-    return prisma.fundingIntent.count({
-      where: {
-        apiClientId,
-        status: "PENDING",
-        OR: [
-          { payer: null, expiresAt: { gt: now } },
-          { payer: { not: null }, expiresAt: { gt: new Date(now.getTime() - PAYMENT_GRACE_MS) } },
-        ],
-      },
-    });
-  },
 
   async create(input) {
     const row = await prisma.fundingIntent.create({

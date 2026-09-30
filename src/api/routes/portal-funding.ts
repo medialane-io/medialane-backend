@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../../types/hono.js";
-import { createIntent, FundingError, settleIntent } from "../../funding/core.js";
+import { createIntent, settleIntent } from "../../funding/core.js";
 import type { FundingMethod, FundingStore } from "../../funding/types.js";
 
 export interface FundingRouteDeps {
@@ -29,19 +29,12 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     const params = method.parseParams(body.data.params);
     if (!params.ok) return c.json({ error: params.error }, 400);
 
-    try {
-      const intent = await createIntent(deps.store, {
-        apiClientId: c.get("apiClient").id,
-        method: method.id,
-        params: params.params,
-      });
-      return c.json({ data: { id: intent.id, method: intent.method, status: intent.status, expiresAt: intent.expiresAt } }, 201);
-    } catch (err) {
-      if (err instanceof FundingError && err.code === "too_many_open") {
-        return c.json({ error: "Finish or wait out your open top-ups before starting another." }, 429);
-      }
-      throw err;
-    }
+    const intent = await createIntent(deps.store, {
+      apiClientId: c.get("apiClient").id,
+      method: method.id,
+      params: params.params,
+    });
+    return c.json({ data: { id: intent.id, method: intent.method, status: intent.status, expiresAt: intent.expiresAt } }, 201);
   });
 
   const load = async (c: Context<AppEnv>) => {

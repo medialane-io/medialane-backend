@@ -160,35 +160,18 @@ portal.post("/keys", freshSignature, async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  let plaintext: string;
-  let key;
-  try {
-    key = await prisma.$transaction(async (tx) => {
-      const keyCount = await tx.apiKey.count({
-        where: { apiClientId: apiClient.id, status: "ACTIVE" },
-      });
-      if (keyCount >= 5) {
-        throw Object.assign(new Error("Max 5 active API keys per account"), { code: "KEY_LIMIT" });
-      }
-      const generated = generateApiKey();
-      plaintext = generated.plaintext;
-      return tx.apiKey.create({
-        data: {
-          apiClientId: apiClient.id,
-          prefix: generated.prefix,
-          keyHash: generated.keyHash,
-          label: parsed.data.label ?? undefined,
-
-        },
-      });
-    });
-  } catch (err: any) {
-    if (err.code === "KEY_LIMIT") return c.json({ error: "Max 5 active API keys per account" }, 409);
-    throw err;
-  }
+  const generated = generateApiKey();
+  const key = await prisma.apiKey.create({
+    data: {
+      apiClientId: apiClient.id,
+      prefix: generated.prefix,
+      keyHash: generated.keyHash,
+      label: parsed.data.label ?? undefined,
+    },
+  });
 
   log.info({ keyId: key.id, apiClientId: apiClient.id }, "Self-service API key created");
-  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: plaintext! } }, 201);
+  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: generated.plaintext } }, 201);
 });
 
 portal.delete("/keys/:id", freshSignature, async (c) => {

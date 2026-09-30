@@ -22,7 +22,6 @@ function fakeMethod(over: Partial<FundingMethod> = {}): FundingMethod {
 
 function makeStore(intents: FundingIntentRecord[] = [], over: Partial<FundingStore> = {}): FundingStore {
   return {
-    countOpen: async () => 0,
     create: async (i) => {
       const made: FundingIntentRecord = { id: "fi1", apiClientId: i.apiClientId, method: i.method, status: "PENDING", payer: null, params: i.params, expiresAt: i.expiresAt };
       intents.push(made);
@@ -84,9 +83,9 @@ describe("starting a top-up", () => {
     expect((await res.json()).error).toBe("bad amount");
   });
 
-  test("too many open top-ups is a 429", async () => {
-    const res = await post(app(makeStore([], { countOpen: async () => 5 })), "/", { method: "chain-transfer", params: { amountUsdc: "5" } });
-    expect(res.status).toBe(429);
+  test("a top-up is created however many are already open", async () => {
+    const res = await post(app(makeStore([])), "/", { method: "chain-transfer", params: { amountUsdc: "5" } });
+    expect(res.status).toBe(201);
   });
 
   test("the caller cannot name the account or an amount to credit", async () => {

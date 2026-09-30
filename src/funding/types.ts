@@ -34,7 +34,6 @@ export type SettleOutcome =
   | { outcome: "duplicate" };
 
 export interface FundingStore {
-  countOpen(apiClientId: string, now: Date): Promise<number>;
   create(input: {
     apiClientId: string;
     method: string;

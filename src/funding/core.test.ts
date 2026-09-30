@@ -5,7 +5,6 @@ import {
   creditsForUsdcAtomic,
   FundingError,
   INTENT_TTL_MS,
-  MAX_OPEN_INTENTS,
 } from "./core.js";
 import type { FundingIntentRecord, FundingStore, SettleInput, SettleOutcome, VerifiedPayment } from "./types.js";
 
@@ -26,7 +25,6 @@ function store(over: Partial<FundingStore> = {}): FundingStore & { settled: Sett
   const settled: SettleInput[] = [];
   return {
     settled,
-    countOpen: async () => 0,
     create: async (i) => intent({ apiClientId: i.apiClientId, method: i.method, params: i.params, expiresAt: i.expiresAt, payer: null }),
     get: async () => null,
     setPayer: async () => true,
@@ -71,11 +69,9 @@ describe("creating an intent", () => {
     expect(made.expiresAt.getTime()).toBe(now.getTime() + INTENT_TTL_MS);
   });
 
-  test("an account with too many open intents is refused", async () => {
-    const s = store({ countOpen: async () => MAX_OPEN_INTENTS });
-    await expect(createIntent(s, { apiClientId: "ac1", method: "chain-transfer", params: {} })).rejects.toMatchObject({
-      code: "too_many_open",
-    });
+  test("an account can open another top-up however many it has open", async () => {
+    const s = store();
+    await expect(createIntent(s, { apiClientId: "ac1", method: "chain-transfer", params: {} })).resolves.toBeDefined();
   });
 });
 
