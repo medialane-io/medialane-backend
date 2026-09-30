@@ -13,7 +13,6 @@ export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.route("/", createDraftRoutes(ctx));
   app.route("/:id", steps);
-  app.route("/:id/ticketing", steps);
   return app;
 }
 
