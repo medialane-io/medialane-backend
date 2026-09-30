@@ -131,18 +131,18 @@ async function paid(overrides: Record<string, unknown> = {}, options: Parameters
 }
 
 async function uploadArtwork(w: World) {
-  expect((await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "a.png" })).status).toBe(201);
+  expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(201);
   w.pins.set("bafy-artwork-cid", { size: 3, keyvalues: { run: "run1", file: "a.png" } });
-  return json(w.app, "POST", "/run1/ticketing/files/uploaded", { name: "a.png", cid: "bafy-artwork-cid" });
+  return json(w.app, "POST", "/run1/files/uploaded", { name: "a.png", cid: "bafy-artwork-cid" });
 }
 
-const metadata = (w: World) => json(w.app, "POST", "/run1/ticketing/metadata", { userAddress: OWNER });
+const metadata = (w: World) => json(w.app, "POST", "/run1/metadata", { userAddress: OWNER });
 
 async function sponsor(w: World, path: string) {
-  const built = await json(w.app, "POST", `/run1/ticketing/${path}/build`, { userAddress: OWNER });
+  const built = await json(w.app, "POST", `/run1/${path}/build`, { userAddress: OWNER });
   if (built.status !== 200) return built;
   const { typedData } = (await built.json()) as { typedData: unknown };
-  return json(w.app, "POST", `/run1/ticketing/${path}/execute`, { userAddress: OWNER, typedData, signature: ["0x1", "0x2"] });
+  return json(w.app, "POST", `/run1/${path}/execute`, { userAddress: OWNER, typedData, signature: ["0x1", "0x2"] });
 }
 
 const ticketCreated: ReceiptEvent = { from_address: GROUP, keys: [TICKET_CREATED_SELECTOR, "0x7", "0x0"] };
@@ -153,7 +153,7 @@ async function withTier() {
   await metadata(w);
   expect((await sponsor(w, "tier")).status).toBe(200);
   w.setReceipt("SUCCEEDED", [ticketCreated]);
-  expect((await json(w.app, "POST", "/run1/ticketing/tier/confirm")).status).toBe(200);
+  expect((await json(w.app, "POST", "/run1/tier/confirm")).status).toBe(200);
   w.setReceipt("PENDING");
   return w;
 }
@@ -167,7 +167,7 @@ const wallet = (recipient: string) => ({
 
 async function withWallets() {
   const w = await withTier();
-  for (const guest of spec.guests) expect((await json(w.app, "POST", "/run1/ticketing/wallets", wallet(guest))).status).toBe(201);
+  for (const guest of spec.guests) expect((await json(w.app, "POST", "/run1/wallets", wallet(guest))).status).toBe(201);
   return w;
 }
 
@@ -178,7 +178,7 @@ describe("a run only executes once it is paid, and only its own service", () => 
   test("nothing uploads or is stored before the run is paid", async () => {
     const w = world();
     await json(w.app, "POST", "/", { service: "ip-ticketing", spec });
-    expect((await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "a.png" })).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(409);
     expect((await metadata(w)).status).toBe(409);
     expect(w.issued).toEqual([]);
   });
@@ -194,42 +194,42 @@ describe("a run only executes once it is paid, and only its own service", () => 
       },
     });
     await json(w.app, "POST", "/run1/checkout", { method: "credits" });
-    expect((await json(w.app, "POST", "/run1/ticketing/tier/build", { userAddress: OWNER })).status).toBe(400);
+    expect((await json(w.app, "POST", "/run1/tier/build", { userAddress: OWNER })).status).toBe(400);
   });
 });
 
 describe("the artwork", () => {
   test("counts only when the pinned upload matches its size and this run, and only once", async () => {
     const w = await paid();
-    await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "a.png" });
+    await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" });
     w.pins.set("bafy-wrong", { size: 9, keyvalues: { run: "run1", file: "a.png" } });
-    expect((await json(w.app, "POST", "/run1/ticketing/files/uploaded", { name: "a.png", cid: "bafy-wrong" })).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "a.png", cid: "bafy-wrong" })).status).toBe(409);
     expect(w.runs[0]!.creditsSpent).toBe(0);
 
     expect((await uploadArtwork(w)).status).toBe(201);
     expect(w.runs[0]!.creditsSpent).toBe(PRICE);
-    const again = await json(w.app, "POST", "/run1/ticketing/files/uploaded", { name: "a.png", cid: "bafy-artwork-cid" });
+    const again = await json(w.app, "POST", "/run1/files/uploaded", { name: "a.png", cid: "bafy-artwork-cid" });
     expect(again.status).toBe(409);
     expect(w.runs[0]!.creditsSpent).toBe(PRICE);
   });
 
   test("only the file named in the spec gets an upload URL, and only a few times", async () => {
     const w = await paid();
-    expect((await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "other.png" })).status).toBe(400);
-    for (let i = 0; i < 3; i++) expect((await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "a.png" })).status).toBe(201);
-    expect((await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "a.png" })).status).toBe(429);
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "other.png" })).status).toBe(400);
+    for (let i = 0; i < 3; i++) expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(201);
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(429);
   });
 
   test("a run without artwork has nothing to upload", async () => {
     const w = await paid({ artwork: undefined });
-    expect((await json(w.app, "POST", "/run1/ticketing/files/upload-url", { name: "a.png" })).status).toBe(400);
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(400);
   });
 });
 
 describe("the ticket's metadata", () => {
   test("is built by the run, for a wallet on the caller's account, once the artwork is in", async () => {
     const w = await paid();
-    expect((await json(w.app, "POST", "/run1/ticketing/metadata", { userAddress: "0xbeef" })).status).toBe(403);
+    expect((await json(w.app, "POST", "/run1/metadata", { userAddress: "0xbeef" })).status).toBe(403);
     expect((await metadata(w)).status).toBe(409);
     await uploadArtwork(w);
     expect((await metadata(w)).status).toBe(201);
@@ -250,10 +250,10 @@ describe("the ticket type", () => {
     expect(submitted.status).toBe(200);
     expect((await sponsor(w, "tier")).status).toBe(409);
     expect((await nextOf(w)).kind).toBe("wait-tier");
-    expect((await json(w.app, "POST", "/run1/ticketing/tier/confirm")).status).toBe(202);
+    expect((await json(w.app, "POST", "/run1/tier/confirm")).status).toBe(202);
 
     w.setReceipt("SUCCEEDED", [ticketCreated]);
-    const confirmed = await json(w.app, "POST", "/run1/ticketing/tier/confirm");
+    const confirmed = await json(w.app, "POST", "/run1/tier/confirm");
     expect(((await confirmed.json()) as { data: { ticketId: string } }).data.ticketId).toBe("7");
     expect((await nextOf(w)).kind).toBe("wallets");
   });
@@ -264,7 +264,7 @@ describe("the ticket type", () => {
     await metadata(w);
     await sponsor(w, "tier");
     w.setReceipt("SUCCEEDED", []);
-    expect((await json(w.app, "POST", "/run1/ticketing/tier/confirm")).status).toBe(502);
+    expect((await json(w.app, "POST", "/run1/tier/confirm")).status).toBe(502);
     expect((await nextOf(w)).kind).not.toBe("wallets");
   });
 
@@ -275,7 +275,7 @@ describe("the ticket type", () => {
     await sponsor(w, "tier");
     const before = w.runs[0]!.creditsSpent;
     w.setReceipt("REVERTED");
-    await json(w.app, "POST", "/run1/ticketing/tier/confirm");
+    await json(w.app, "POST", "/run1/tier/confirm");
     expect(w.runs[0]!.creditsSpent).toBe(before - PRICE * 3);
     expect((await sponsor(w, "tier")).status).toBe(200);
   });
@@ -286,7 +286,7 @@ describe("guest wallets", () => {
     const w = await withTier();
     const spentBefore = w.runs[0]!.creditsSpent;
 
-    const res = await json(w.app, "POST", "/run1/ticketing/wallets/resolve");
+    const res = await json(w.app, "POST", "/run1/wallets/resolve");
     expect(((await res.json()) as { data: { pending: string[] } }).data.pending).toEqual(["ana@x.com", "bruno@x.com"]);
     expect(w.runs[0]!.creditsSpent).toBe(spentBefore);
   });
@@ -295,7 +295,7 @@ describe("guest wallets", () => {
     const w = world({ known: { "ana@x.com": "0xana" } });
     await json(w.app, "POST", "/", { service: "ip-ticketing", spec });
     await json(w.app, "POST", "/run1/checkout", { method: "credits" });
-    const res = await json(w.app, "POST", "/run1/ticketing/wallets/resolve");
+    const res = await json(w.app, "POST", "/run1/wallets/resolve");
     expect(((await res.json()) as { data: { pending: string[] } }).data.pending).toEqual(["bruno@x.com"]);
     expect((w.runs[0]!.progress as { wallets: Record<string, string> }).wallets["ana@x.com"]).toBe("0xana");
     expect(w.runs[0]!.creditsSpent).toBe(0);
@@ -304,16 +304,16 @@ describe("guest wallets", () => {
   test("preparing a wallet spends its credits once, and records the address", async () => {
     const w = await withTier();
     const before = w.runs[0]!.creditsSpent;
-    expect((await json(w.app, "POST", "/run1/ticketing/wallets", wallet("ana@x.com"))).status).toBe(201);
+    expect((await json(w.app, "POST", "/run1/wallets", wallet("ana@x.com"))).status).toBe(201);
     expect(w.runs[0]!.creditsSpent).toBe(before + PRICE * 3);
     expect((w.runs[0]!.progress as { wallets: Record<string, string> }).wallets["ana@x.com"]).toBe("0xa1");
-    expect((await json(w.app, "POST", "/run1/ticketing/wallets", wallet("ana@x.com"))).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/wallets", wallet("ana@x.com"))).status).toBe(409);
     expect(w.runs[0]!.creditsSpent).toBe(before + PRICE * 3);
   });
 
   test("only someone on the guest list gets a wallet", async () => {
     const w = await withTier();
-    expect((await json(w.app, "POST", "/run1/ticketing/wallets", wallet("eve@x.com"))).status).toBe(400);
+    expect((await json(w.app, "POST", "/run1/wallets", wallet("eve@x.com"))).status).toBe(400);
     expect(w.registered).toEqual([]);
   });
 
@@ -323,9 +323,9 @@ describe("guest wallets", () => {
     await metadata(w);
     await sponsor(w, "tier");
     w.setReceipt("SUCCEEDED", [ticketCreated]);
-    await json(w.app, "POST", "/run1/ticketing/tier/confirm");
+    await json(w.app, "POST", "/run1/tier/confirm");
     const before = w.runs[0]!.creditsSpent;
-    expect((await json(w.app, "POST", "/run1/ticketing/wallets", wallet("ana@x.com"))).status).toBe(502);
+    expect((await json(w.app, "POST", "/run1/wallets", wallet("ana@x.com"))).status).toBe(502);
     expect(w.runs[0]!.creditsSpent).toBe(before);
     expect((w.runs[0]!.progress as { wallets: Record<string, unknown> }).wallets["ana@x.com"]).toBeUndefined();
   });
@@ -333,7 +333,7 @@ describe("guest wallets", () => {
 
 describe("building a guest's wallet deployment", () => {
   const owner = { ownerPubkey: "0x1234", ownerAddress: "0x5678" };
-  const build = (w: World) => json(w.app, "POST", "/run1/ticketing/wallets/build", owner);
+  const build = (w: World) => json(w.app, "POST", "/run1/wallets/build", owner);
 
   test("is built for a paid ticketing run, and the build itself spends nothing", async () => {
     const w = await paid();
@@ -371,7 +371,7 @@ describe("building a guest's wallet deployment", () => {
 
   test("needs an owner key and address", async () => {
     const w = await paid();
-    expect((await json(w.app, "POST", "/run1/ticketing/wallets/build", { ownerPubkey: "0x1234" })).status).toBe(400);
+    expect((await json(w.app, "POST", "/run1/wallets/build", { ownerPubkey: "0x1234" })).status).toBe(400);
     expect(w.builds).toEqual([]);
   });
 
@@ -388,7 +388,7 @@ describe("building a guest's wallet deployment", () => {
 describe("issuing the tickets", () => {
   test("waits for the guests' wallets", async () => {
     const w = await withTier();
-    expect((await json(w.app, "POST", "/run1/ticketing/batches/0/build", { userAddress: OWNER })).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER })).status).toBe(409);
   });
 
   test("a batch mints one ticket per guest to their wallet, and completes the run", async () => {
@@ -399,9 +399,9 @@ describe("issuing the tickets", () => {
     const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } };
     expect(request.invoke.typedData.message.Calls.map((c) => c.Calldata)).toEqual([["0xa1", "7"], ["0xa2", "7"]]);
 
-    expect((await json(w.app, "POST", "/run1/ticketing/batches/0/confirm")).status).toBe(202);
+    expect((await json(w.app, "POST", "/run1/batches/0/confirm")).status).toBe(202);
     w.setReceipt("SUCCEEDED");
-    const confirmed = await json(w.app, "POST", "/run1/ticketing/batches/0/confirm");
+    const confirmed = await json(w.app, "POST", "/run1/batches/0/confirm");
     expect(((await confirmed.json()) as { data: { completed: boolean } }).data.completed).toBe(true);
     expect(w.runs[0]!.status).toBe("COMPLETED");
     expect(w.runs[0]!.creditsSpent).toBe(HELD);
@@ -413,14 +413,14 @@ describe("issuing the tickets", () => {
     await sponsor(w, "batches/0");
     const before = w.runs[0]!.creditsSpent;
     w.setReceipt("REVERTED");
-    await json(w.app, "POST", "/run1/ticketing/batches/0/confirm");
+    await json(w.app, "POST", "/run1/batches/0/confirm");
     expect(w.runs[0]!.creditsSpent).toBe(before - (PRICE * 2 + PRICE * 2));
     expect((await sponsor(w, "batches/0")).status).toBe(200);
   });
 
   test("a wallet from another account cannot issue", async () => {
     const w = await withWallets();
-    expect((await json(w.app, "POST", "/run1/ticketing/batches/0/build", { userAddress: "0xbeef" })).status).toBe(403);
+    expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: "0xbeef" })).status).toBe(403);
   });
 });
 
@@ -461,7 +461,7 @@ describe("a run that creates its own collection", () => {
     expect((await nextOf(w)).kind).toBe("wait-collection");
 
     w.setReceipt("SUCCEEDED", [created]);
-    const confirmed = await json(w.app, "POST", "/run1/ticketing/collection/confirm");
+    const confirmed = await json(w.app, "POST", "/run1/collection/confirm");
     const { data } = (await confirmed.json()) as { data: { collectionAddress: string } };
     expect(BigInt(data.collectionAddress)).toBe(BigInt(NEW_COLLECTION));
     expect((await nextOf(w)).kind).toBe("upload");
@@ -471,7 +471,7 @@ describe("a run that creates its own collection", () => {
     const w = await newCollectionRun();
     await sponsor(w, "collection");
     w.setReceipt("SUCCEEDED", [created]);
-    await json(w.app, "POST", "/run1/ticketing/collection/confirm");
+    await json(w.app, "POST", "/run1/collection/confirm");
     await uploadArtwork(w);
     await metadata(w);
     await sponsor(w, "tier");
@@ -481,6 +481,6 @@ describe("a run that creates its own collection", () => {
 
   test("a run on an existing collection has no collection step", async () => {
     const w = await paid();
-    expect((await json(w.app, "POST", "/run1/ticketing/collection/build", { userAddress: OWNER })).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(409);
   });
 });

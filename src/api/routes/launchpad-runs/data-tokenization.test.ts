@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import type { AppEnv } from "../../../types/hono.js";
 import { createRunRoutes } from "./index.js";
-import { MAX_UPLOAD_URLS_PER_FILE } from "./data-tokenization.js";
+import { MAX_UPLOAD_URLS_PER_FILE } from "./steps.js";
 import type { ExecutionDeps, ReceiptEvent, ReceiptStatus } from "./context.js";
 import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
 import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";

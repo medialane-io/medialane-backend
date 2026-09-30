@@ -3,15 +3,17 @@ import type { AppEnv } from "../../../types/hono.js";
 import { prismaRunStore } from "../../../launchpad/run-store.js";
 import { createRunContext, type RunRouteDeps } from "./context.js";
 import { createDraftRoutes } from "./drafts.js";
-import { createDataTokenizationRoutes } from "./data-tokenization.js";
-import { createIpTicketingRoutes } from "./ip-ticketing.js";
+import { dataTokenizationSteps } from "./data-tokenization.js";
+import { ipTicketingSteps } from "./ip-ticketing.js";
+import { createRunStepRoutes } from "./steps.js";
 
 export function createRunRoutes(deps: RunRouteDeps): Hono<AppEnv> {
   const ctx = createRunContext(deps);
+  const steps = createRunStepRoutes(ctx, [dataTokenizationSteps(ctx), ipTicketingSteps(ctx)]);
   const app = new Hono<AppEnv>();
   app.route("/", createDraftRoutes(ctx));
-  app.route("/", createDataTokenizationRoutes(ctx));
-  app.route("/", createIpTicketingRoutes(ctx));
+  app.route("/:id", steps);
+  app.route("/:id/ticketing", steps);
   return app;
 }
 
