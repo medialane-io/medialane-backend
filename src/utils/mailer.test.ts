@@ -39,3 +39,8 @@ test("buildGuardianEscapeCompletedEmailHtml shows a shortened address, not the f
   expect(html).not.toContain(ADDRESS);
   expect(html).toContain("owner key was just replaced");
 });
+
+test("an email not tied to an app, like a guardian alert, is sent as Medialane", async () => {
+  const { fromNameForClient } = await import("./mailer");
+  expect(await fromNameForClient(null)).toBe("Medialane");
+});

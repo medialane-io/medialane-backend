@@ -5,7 +5,7 @@ import prisma from "../db/client.js";
 
 const log = createLogger("mailer");
 
-const DEFAULT_FROM_NAME = "Medialane.io";
+const DEFAULT_FROM_NAME = "Medialane";
 
 function createTransporter() {
   if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null;
@@ -19,80 +19,13 @@ function createTransporter() {
 
 const from = (name: string = DEFAULT_FROM_NAME) => ({ name, address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
 
-async function fromNameForClient(clientId: string | null): Promise<string> {
+export async function fromNameForClient(clientId: string | null): Promise<string> {
   if (!clientId) return DEFAULT_FROM_NAME;
   const client = await prisma.apiClient.findUnique({
     where: { id: clientId },
     select: { account: { select: { profile: { select: { name: true } } } } },
   });
   return client?.account.profile?.name || DEFAULT_FROM_NAME;
-}
-
-export async function sendUsernameClaimApproved(to: string, username: string): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping approval email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: `@${username} is yours on Medialane!`,
-      html: `
-        <p>Hi there,</p>
-        <p>Your username claim for <strong>@${username}</strong> has been <strong>approved</strong> by the Medialane DAO team.</p>
-        <p>Your public creator profile is now live at:<br>
-        <a href="https://medialane.io/creator/${username}">medialane.io/creator/${username}</a></p>
-        <p>— The Medialane Team</p>
-      `,
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send approval email");
-  }
-}
-
-export async function sendUsernameClaimRejected(to: string, username: string, adminNotes: string | null): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping rejection email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: `Username claim for @${username} — update`,
-      html: `
-        <p>Hi there,</p>
-        <p>Your username claim for <strong>@${username}</strong> was not approved at this time.</p>
-        ${adminNotes ? `<p>Reason: <em>${adminNotes}</em></p>` : ""}
-        <p>You can submit a new claim from your <a href="https://medialane.io/portfolio/settings">profile settings</a>.</p>
-        <p>— The Medialane Team</p>
-      `,
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send rejection email");
-  }
-}
-
-export function buildProvisioningClaimEmailHtml(claimUrl: string): string {
-  return `
-    <p>Hi there,</p>
-    <p>An account has been set up for you, with your assets already in it.</p>
-    <p>Claim it as your own — this takes a minute and confirms it belongs to you:<br>
-    <a href="${claimUrl}">${claimUrl}</a></p>
-    <p>— The Medialane Team</p>
-  `;
-}
-
-export async function sendProvisioningClaimEmail(to: string, claimUrl: string): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping provisioning claim email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: "An account is ready for you on Medialane",
-      html: buildProvisioningClaimEmailHtml(claimUrl),
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send provisioning claim email");
-  }
 }
 
 const shortAddress = (address: string): string => `${address.slice(0, 6)}…${address.slice(-4)}`;
