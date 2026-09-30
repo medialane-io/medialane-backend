@@ -28,13 +28,14 @@ export interface MemoryRunStore extends RunStore {
 }
 
 export function createMemoryRunStore(
-  options: { balances?: Record<string, number>; wallets?: string[]; provisioned?: number } = {},
+  options: { balances?: Record<string, number>; wallets?: string[]; provisioned?: number; now?: () => Date } = {},
 ): MemoryRunStore {
   const runs: StoredRun[] = [];
   const balances = new Map(Object.entries(options.balances ?? {}));
   const usage: MemoryRunStore["usage"] = [];
   const refunds: number[] = [];
   const wallets = new Set(options.wallets ?? []);
+  const now = options.now ?? (() => new Date());
   let n = 0;
 
   const find = (id: string, apiClientId: string) => runs.find((r) => r.id === id && r.apiClientId === apiClientId);
@@ -118,13 +119,28 @@ export function createMemoryRunStore(
       if (current !== undefined && !reverted) return false;
       run.creditsSpent += credits;
       run.status = "RUNNING";
-      setPath(run.progress as Record<string, unknown>, path, { status: "PENDING" });
+      setPath(run.progress as Record<string, unknown>, path, { status: "PENDING", at: now().toISOString(), credits });
       return true;
     },
 
     async record(id, apiClientId, path, value) {
       const run = find(id, apiClientId);
       if (run) setPath(run.progress as Record<string, unknown>, path, structuredClone(value));
+    },
+
+    async sweepStale({ id, apiClientId, paths, olderThanMs }) {
+      const run = withStatus(id, apiClientId, "PAID", "RUNNING");
+      if (!run) return 0;
+      let released = 0;
+      for (const path of paths) {
+        const marker = getPath(run.progress, path) as { status?: string; at?: string; credits?: number } | undefined;
+        if (marker?.status !== "PENDING" || !marker.at || typeof marker.credits !== "number") continue;
+        if (now().getTime() - Date.parse(marker.at) <= olderThanMs) continue;
+        run.creditsSpent = Math.max(0, run.creditsSpent - marker.credits);
+        deletePath(run.progress as Record<string, unknown>, path);
+        released++;
+      }
+      return released;
     },
 
     async release({ id, apiClientId, credits, path }) {

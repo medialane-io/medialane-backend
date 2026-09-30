@@ -8,7 +8,7 @@ const terms = {
 };
 
 const base = {
-  collection: { kind: "existing", collectionId: "1", contractAddress: "0x1" },
+  collection: { kind: "existing", contractAddress: "0x1" },
   terms: { ...terms, transferable: "Allowed" },
   name: "General admission",
   guests: ["a@x.com", "b@x.com"],
@@ -78,6 +78,25 @@ describe("what is in flight", () => {
   test("the definition reports it the same way", () => {
     expect(ipTicketing.inFlight({ tier: { tx: { status: "PENDING" } } })).toBe(true);
     expect(ipTicketing.inFlight({})).toBe(false);
+  });
+});
+
+describe("the group a run issues into", () => {
+  test("an existing group is named by its address alone", () => {
+    expect(parse({ collection: { kind: "existing", contractAddress: "0xabc" } }).collection).toEqual({
+      kind: "existing",
+      contractAddress: "0xabc",
+    });
+  });
+
+  test("a draft saved with a collection id still opens, and the id is dropped", () => {
+    const legacy = parse({ collection: { kind: "existing", collectionId: "7", contractAddress: "0xabc" } });
+    expect(legacy.collection).toEqual({ kind: "existing", contractAddress: "0xabc" });
+  });
+
+  test("a group with no address is refused", () => {
+    expect(() => parse({ collection: { kind: "existing" } })).toThrow();
+    expect(() => parse({ collection: { kind: "existing", contractAddress: "" } })).toThrow();
   });
 });
 

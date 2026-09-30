@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../../../types/hono.js";
 import type { StoredRun } from "../../../launchpad/run-store.js";
+import { STALE_PENDING_MS } from "../../../launchpad/run-store.js";
+import { pendingPaths } from "../../../launchpad/pending.js";
 import { RUN_SERVICES, definitionOf, parseRunSpec, quoteRun } from "../../../launchpad/services/index.js";
 import { specError, type RunContext } from "./context.js";
 
@@ -10,8 +12,6 @@ const updateBody = z.object({ spec: z.unknown() });
 const checkoutBody = z.union([
   z.object({ method: z.literal("credits") }),
   z.object({ method: z.literal("wallet"), intentId: z.string().min(1) }),
-  // Legacy body, removed together with creditFromTransaction in Phase B.
-  z.object({ method: z.literal("wallet"), txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/) }),
 ]);
 
 export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
@@ -19,6 +19,19 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
   const quoteFor = (run: StoredRun) =>
     quoteRun(parseRunSpec(run.service, run.spec), { priceOf: ctx.priceOf, countProvisioned: ctx.store.countProvisioned });
+
+  const sweepAbandoned = async (run: StoredRun): Promise<StoredRun> => {
+    if (run.status !== "PAID" && run.status !== "RUNNING") return run;
+    const paths = pendingPaths(run.progress);
+    if (paths.length === 0) return run;
+    const released = await ctx.store.sweepStale({
+      id: run.id,
+      apiClientId: run.apiClientId,
+      paths,
+      olderThanMs: STALE_PENDING_MS,
+    });
+    return released > 0 ? ((await ctx.store.get(run.id, run.apiClientId)) ?? run) : run;
+  };
 
   const present = async (run: StoredRun) => {
     if (run.status === "DRAFT") {
@@ -58,9 +71,9 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
   });
 
   app.get("/:id", async (c) => {
-    const run = await ctx.store.get(c.req.param("id"), c.get("apiClient").id);
-    if (!run) return c.json({ error: "Run not found" }, 404);
-    return c.json({ data: await present(run) });
+    const found = await ctx.store.get(c.req.param("id"), c.get("apiClient").id);
+    if (!found) return c.json({ error: "Run not found" }, 404);
+    return c.json({ data: await present(await sweepAbandoned(found)) });
   });
 
   app.patch("/:id", async (c) => {
@@ -84,8 +97,9 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
   app.post("/:id/cancel", async (c) => {
     const apiClientId = c.get("apiClient").id;
-    const existing = await ctx.store.get(c.req.param("id"), apiClientId);
-    if (!existing) return c.json({ error: "Run not found" }, 404);
+    const found = await ctx.store.get(c.req.param("id"), apiClientId);
+    if (!found) return c.json({ error: "Run not found" }, 404);
+    const existing = await sweepAbandoned(found);
 
     if (existing.status === "DRAFT") {
       const run = await ctx.store.cancelDraft(existing.id, apiClientId);
@@ -123,12 +137,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
     let paymentId: string | undefined;
     if (body.data.method === "wallet") {
-      if ("intentId" in body.data) {
-        paymentId = (await ctx.intentPayment(body.data.intentId, apiClientId)) ?? undefined;
-      } else {
-        const settled = await ctx.settleWalletPayment(body.data.txHash);
-        paymentId = settled.payments.find((p) => p.apiClientId === apiClientId)?.paymentId;
-      }
+      paymentId = (await ctx.intentPayment(body.data.intentId, apiClientId)) ?? undefined;
       if (!paymentId) {
         return c.json({ error: "That payment has not reached your account yet. Try again in a moment." }, 402);
       }
