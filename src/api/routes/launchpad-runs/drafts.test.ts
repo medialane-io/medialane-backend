@@ -2,17 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../../types/hono.js";
 import { createRunRoutes } from "./index.js";
-import type { IntentPayment, SettleWalletPayment } from "./context.js";
+import type { IntentPayment } from "./context.js";
 import { createMemoryRunStore, type MemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
 
-function appFor(store: MemoryRunStore, apiClientId = "ac1", settleWalletPayment?: SettleWalletPayment, intentPayment?: IntentPayment) {
+function appFor(store: MemoryRunStore, apiClientId = "ac1", intentPayment?: IntentPayment) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: `acct-${apiClientId}`, status: "ACTIVE" });
     c.set("apiClient", { id: apiClientId, accountId: `acct-${apiClientId}`, plan: "FREE", creditBalance: 0 });
     await next();
   });
-  app.route("/", createRunRoutes({ store, priceOf: async () => 2, settleWalletPayment, intentPayment }));
+  app.route("/", createRunRoutes({ store, priceOf: async () => 2, intentPayment }));
   return app;
 }
 
@@ -125,23 +125,20 @@ describe("checkout", () => {
     expect(store.balances.get("ac1")).toBe(3);
   });
 
-  test("paying from the wallet credits the transfer, then pays the run from it", async () => {
-    const store = createMemoryRunStore();
-    const app = appFor(store, "ac1", async () => {
-      store.balances.set("ac1", (store.balances.get("ac1") ?? 0) + 20);
-      return { payments: [{ paymentId: "pay1", apiClientId: "ac1" }] };
-    });
+  test("naming a transaction instead of a top-up is refused and pays nothing", async () => {
+    const store = createMemoryRunStore({ balances: { ac1: 20 } });
+    const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
     const res = await post(app, "/run1/checkout", { method: "wallet", txHash: "0xabc" });
-    expect(res.status).toBe(200);
-    expect(store.runs[0]!.status).toBe("PAID");
-    expect(store.balances.get("ac1")).toBe(20 - QUOTE_TOTAL);
+    expect(res.status).toBe(400);
+    expect(store.runs[0]!.status).toBe("DRAFT");
+    expect(store.balances.get("ac1")).toBe(20);
   });
 
   test("paying from a settled top-up pays the run from it", async () => {
     const store = createMemoryRunStore({ balances: { ac1: 20 } });
-    const app = appFor(store, "ac1", undefined, async (intentId, apiClientId) =>
+    const app = appFor(store, "ac1", async (intentId, apiClientId) =>
       intentId === "fi1" && apiClientId === "ac1" ? "pay-1" : null,
     );
     await post(app, "/", { service: "data-tokenization-erc721", spec });
@@ -154,23 +151,13 @@ describe("checkout", () => {
 
   test("a top-up that is not the caller's, or not settled, pays nothing", async () => {
     const store = createMemoryRunStore({ balances: { ac1: 20 } });
-    const app = appFor(store, "ac1", undefined, async () => null);
+    const app = appFor(store, "ac1", async () => null);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
     const res = await post(app, "/run1/checkout", { method: "wallet", intentId: "someone-elses" });
     expect(res.status).toBe(402);
     expect(store.runs[0]!.status).toBe("DRAFT");
     expect(store.balances.get("ac1")).toBe(20);
-  });
-
-  test("a wallet payment that belongs to another account pays nothing", async () => {
-    const store = createMemoryRunStore();
-    const app = appFor(store, "ac1", async () => ({ payments: [{ paymentId: "pay9", apiClientId: "ac2" }] }));
-    await post(app, "/", { service: "data-tokenization-erc721", spec });
-
-    const res = await post(app, "/run1/checkout", { method: "wallet", txHash: "0xdef" });
-    expect(res.status).toBe(402);
-    expect(store.runs[0]!.status).toBe("DRAFT");
   });
 
   test("a checkout without a method is refused", async () => {
