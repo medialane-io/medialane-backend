@@ -3,7 +3,7 @@ import { typedData as starknetTypedData } from "starknet";
 import type { Chain } from "@prisma/client";
 import { buildChangeOwnersCall, signWithPrivateKey } from "@medialane/sdk/starknet";
 import prisma from "../db/client.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "../utils/identity.js";
 import { ensureAccountForWallet } from "../utils/account.js";
 import { provisioningKey, type ProvisioningKey, type ProvisioningKeyInput } from "../utils/provisioningKey.js";
 import { buildSponsoredInvoke, defaultClient, executeSponsoredInvoke } from "../api/routes/paymaster.js";
@@ -50,7 +50,7 @@ export async function claimWallets(
   const email = await deps.verifiedEmailOf(accountId);
   if (!email) return { status: 403, error: "Verify your email first" };
 
-  const rows = await deps.waitingFor(email);
+  const rows = await deps.waitingFor(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email));
   const claimed: string[] = [];
 
   for (const proof of proofs) {

@@ -94,6 +94,19 @@ describe("claimWallets", () => {
     expect(linked).toEqual([]);
   });
 
+  test("finds the waiting wallets for an account email stored with capitals", async () => {
+    const asked: string[] = [];
+    const { deps } = fakeDeps({
+      verifiedEmailOf: async () => "Ana@Example.com",
+      waitingFor: async (email) => {
+        asked.push(email);
+        return [row()];
+      },
+    });
+    await claimWallets(deps, "acc-1", NEW_OWNER, [proof()]);
+    expect(asked).toEqual(["ana@example.com"]);
+  });
+
   test("matches addresses written with or without leading zeros", async () => {
     const { deps } = fakeDeps({ waitingFor: async () => [row({ walletAddress: "0x0abc" })] });
     const outcome = await claimWallets(deps, "acc-1", NEW_OWNER, [proof("0xabc")]);

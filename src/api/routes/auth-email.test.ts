@@ -466,3 +466,48 @@ test("account creation is capped per API client as well as per IP", async () => 
   expect(res.status).toBe(429);
   expect(seen).toEqual(["client_TEST"]);
 });
+
+test("GET /exists looks the account up with the email as typed", async () => {
+  const seen: string[] = [];
+  const app = appWith({
+    checkEmailExists: async (email) => {
+      seen.push(email);
+      return true;
+    },
+  });
+  await app.request("/exists?email=Alice@Example.com");
+  expect(seen).toEqual(["Alice@Example.com"]);
+});
+
+test("POST /verify-code looks the account up and marks it verified with the email as typed", async () => {
+  const looked: string[] = [];
+  const marked: string[] = [];
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    findAccountIdByEmail: async (email) => {
+      looked.push(email);
+      return "acc_OLD";
+    },
+    markEmailVerified: async (email) => {
+      marked.push(email);
+    },
+  });
+  expect((await verify(app, "Alice@Example.com")).status).toBe(200);
+  expect(looked).toEqual(["Alice@Example.com"]);
+  expect(marked).toEqual(["Alice@Example.com"]);
+});
+
+test("POST /verify-code finds waiting wallets with the email in lower case", async () => {
+  const seen: string[] = [];
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    findWaitingWallets: async (email) => {
+      seen.push(email);
+      return [];
+    },
+  });
+  await verify(app, "Alice@Example.com");
+  expect(seen).toEqual(["alice@example.com"]);
+});

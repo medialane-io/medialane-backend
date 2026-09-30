@@ -127,11 +127,10 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     await deps.releaseAbandonedEmail(email, tenant);
 
-    const normalized = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email);
-    let accountId = await deps.findAccountIdByEmail(normalized, tenant);
-    if (accountId) await deps.markEmailVerified(normalized, tenant);
-    else accountId = await deps.createVerifiedAccount(normalized, tenant);
-    const waitingWallets = await deps.findWaitingWallets(normalized);
+    let accountId = await deps.findAccountIdByEmail(email, tenant);
+    if (accountId) await deps.markEmailVerified(email, tenant);
+    else accountId = await deps.createVerifiedAccount(email, tenant);
+    const waitingWallets = await deps.findWaitingWallets(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email));
     return c.json({ token, accountToken: issueAccountSessionToken(accountId), waitingWallets });
   });
 
@@ -143,9 +142,9 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const tenant = tenantOf(c);
     if (!tenant) return c.json(NO_TENANT, 400);
 
-    const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, c.req.valid("query").email);
+    const { email } = c.req.valid("query");
     const exists = await deps.checkEmailExists(email, tenant);
-    const walletWaiting = (await deps.findWaitingWallets(email)).length > 0;
+    const walletWaiting = (await deps.findWaitingWallets(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email))).length > 0;
     return c.json({ exists, walletWaiting });
   });
 
@@ -253,14 +252,19 @@ const productionDeps: AuthEmailDeps = {
   createVerifiedAccount: async (email, tenant) => {
     const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, tenant);
     await prisma.identity.updateMany({
-      where: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant },
+      where: { scheme: IDENTITY_SCHEME.EMAIL, value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), tenantId: tenant },
       data: { verifiedAt: new Date() },
     });
     return accountId;
   },
   markEmailVerified: async (email, tenant) => {
     await prisma.identity.updateMany({
-      where: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant, verifiedAt: null },
+      where: {
+        scheme: IDENTITY_SCHEME.EMAIL,
+        value: { in: [email, normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email)] },
+        tenantId: tenant,
+        verifiedAt: null,
+      },
       data: { verifiedAt: new Date() },
     });
   },
