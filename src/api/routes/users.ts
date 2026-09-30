@@ -8,7 +8,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
-import { requireTenant, tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
+import { tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
@@ -210,7 +210,8 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   if (!existing) return c.json({ error: "Account not found" }, 404);
 
   const newAddress = normalizeAddress(newWalletId.chain, newWalletId.address);
-  const ioTenantId = await requireTenant("MEDIALANE_IO");
+  const tenant = c.get("apiKey")?.tenantId ?? null;
+  if (!tenant) return c.json(NO_TENANT, 400);
 
   await prisma.$transaction([
     prisma.identity.updateMany({
@@ -224,7 +225,7 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
         provider: "unknown",
         chain: newWalletId.chain,
         address: newAddress,
-        tenantId: ioTenantId,
+        tenantId: tenant,
         isPrimary: true,
       },
     }),
@@ -330,24 +331,22 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: message }, 409);
   }
 
-  const ioTenantId = await requireTenant("MEDIALANE_IO");
-
   await prisma.$transaction([
-    prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL } }),
-    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: email } }),
+    prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, tenantId: tenant } }),
+    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } }),
     prisma.identity.create({
       data: {
         accountId,
         scheme: IDENTITY_SCHEME.EMAIL,
         value: email,
         email,
-        tenantId: ioTenantId,
+        tenantId: tenant,
         verifiedAt: null,
       },
     }),
   ]);
 
-  await issueVerificationCode(email, ioTenantId);
+  await issueVerificationCode(email, tenant);
 
   return c.json({ email, emailVerified: false });
 });
