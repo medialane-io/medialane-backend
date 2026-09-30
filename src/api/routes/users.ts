@@ -8,7 +8,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { AppSource } from "@prisma/client";
 import { Chain } from "@prisma/client";
-import { TENANT_SLUG_INPUT, requireTenant, tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
+import { requireTenant, tenantSlugForId, tenantIdForSlug } from "../../utils/tenant.js";
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { clientIp } from "../../utils/clientIp.js";
 import { verifyEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
@@ -24,7 +24,6 @@ const log = createLogger("routes:users");
 const users = new Hono<AppEnv>();
 
 const walletTypeSchema = z.string().max(64);
-const appSourceEnum = z.enum(TENANT_SLUG_INPUT);
 const chainEnum = z.nativeEnum(Chain);
 
 const VALID_CHAINS = new Set<Chain>(Object.values(Chain));
@@ -33,14 +32,12 @@ const accountTypeEnum = z.enum(["PERSON", "AGENT", "ORGANIZATION", "PARTNER"]);
 const registerBodySchema = z.object({
   walletAddress: z.string().min(1, "walletAddress is required"),
   walletType: walletTypeSchema.optional(),
-  appSource: appSourceEnum.optional(),
   chain: chainEnum.optional(),
   accountType: accountTypeEnum.optional(),
 });
 
 const meBodySchema = z.object({
   walletType: walletTypeSchema.optional(),
-  appSource: appSourceEnum.optional(),
   accountType: accountTypeEnum.optional(),
 
   chain: chainEnum.optional(),
@@ -63,7 +60,8 @@ users.post(
   async (c) => {
     const body = c.req.valid("json");
     const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
-    const tenantId = await requireTenant(body.appSource ?? "MEDIALANE_STARKNET");
+    const tenantId = c.get("apiKey")?.tenantId ?? null;
+    if (!tenantId) return c.json(NO_TENANT, 400);
     const chain: Chain = body.chain ?? "STARKNET";
 
     const { accountId } = await ensureAccountForWallet({
@@ -90,7 +88,7 @@ users.post(
       walletAddress: wallet.address,
       chain: wallet.chain,
       provider: wallet.provider,
-      appSource: body.appSource ?? "MEDIALANE_STARKNET",
+      appSource: await tenantSlugForId(tenantId),
       createdAt: account.createdAt,
     });
   }

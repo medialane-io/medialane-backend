@@ -9,7 +9,7 @@ import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { generateApiKey } from "../../utils/apiKey.js";
-import { TENANT_SLUG_INPUT, requireTenant, tenantSlugForId } from "../../utils/tenant.js";
+import { tenantSlugForId } from "../../utils/tenant.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -152,7 +152,6 @@ portal.get("/keys", async (c) => {
 const createKeySchema = z.object({
   label: z.string().max(64).optional(),
 
-  appSource: z.enum(TENANT_SLUG_INPUT).optional(),
 });
 
 portal.post("/keys", freshSignature, async (c) => {
@@ -182,9 +181,7 @@ portal.post("/keys", freshSignature, async (c) => {
           keyHash: generated.keyHash,
           label: parsed.data.label ?? undefined,
 
-          tenantId: parsed.data.appSource
-            ? await requireTenant(parsed.data.appSource)
-            : "MEDIALANE_SDK",
+          tenantId: c.get("apiKey")?.tenantId ?? null,
         },
       });
     });

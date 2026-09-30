@@ -38,7 +38,7 @@
     "@scure/base": "^2.2.0",
     "hono": "^4.13.4",
     "ioredis": "^5.11.1",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.13",
     "pinata": "^2.5.6",
     "pino": "^9.14.0",
     "pino-pretty": "^11.3.0",

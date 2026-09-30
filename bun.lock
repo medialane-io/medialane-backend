@@ -15,7 +15,7 @@
         "@scure/base": "^2.2.0",
         "hono": "^4.13.4",
         "ioredis": "^5.11.1",
-        "nodemailer": "^9.0.3",
+        "nodemailer": "^10.0.13",
         "pinata": "^2.5.6",
         "pino": "^9.14.0",
         "pino-pretty": "^11.3.0",
@@ -240,7 +240,7 @@
 
     "node-fetch-native": ["node-fetch-native@1.6.7", "", {}, "sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q=="],
 
-    "nodemailer": ["nodemailer@9.0.3", "", {}, "sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw=="],
+    "nodemailer": ["nodemailer@10.0.13", "", {}, "sha512-SzG86OlvcW/NNhUFC6uROMwRTL4n7MswfQqC/T8mhkmnY1YVa23zUEMYi4ijSeXSl9GLz9ZeTJDUatEDuY5FeQ=="],
 
     "nypm": ["nypm@0.6.8", "", { "dependencies": { "citty": "^0.2.2", "pathe": "^2.0.3", "tinyexec": "^1.2.4" }, "bin": { "nypm": "./dist/cli.mjs" } }, "sha512-Q9K4Diu6l5u6xJQogeFSs/zKtyMSgFKFtRQV+tHP4kL7KPm2grpBU0dFIwFaXwNxN0MtfKWc43VpCugAa+LPsw=="],
 

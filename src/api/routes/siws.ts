@@ -119,12 +119,13 @@ siws.post(
     await prisma.siwsNonce.delete({ where: { nonce } });
 
     const token = issueToken(chain, wallet);
-    if (!appSource) return c.json({ token });
+    const tenantId = c.get("apiKey")?.tenantId ?? null;
+    if (!appSource || !tenantId) return c.json({ token });
 
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      tenantId: await requireTenant(appSource),
+      tenantId,
     });
     await reactivateOnWalletProof(accountId);
     const apiClient = await prisma.apiClient.upsert({
