@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { publicCache } from "../middleware/publicCache.js";
 import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
@@ -55,7 +54,7 @@ export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db:
   return held.map((t) => t.tokenId);
 }
 
-sponsorship.get("/offers", publicCache(15), async (c) => {
+sponsorship.get("/offers", async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
   const { page, limit } = parsePage(c);
@@ -76,7 +75,7 @@ sponsorship.get("/offers", publicCache(15), async (c) => {
   return c.json({ data: rows.map(serializeOffer), meta: { page, limit, total } });
 });
 
-sponsorship.get("/offers/:offerId", publicCache(15), async (c) => {
+sponsorship.get("/offers/:offerId", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const offer = await prisma.sponsorshipOffer.findFirst({ where: { chain, offerId: c.req.param("offerId") } });
@@ -84,7 +83,7 @@ sponsorship.get("/offers/:offerId", publicCache(15), async (c) => {
   return c.json({ data: serializeOffer(offer) });
 });
 
-sponsorship.get("/offers/:offerId/bids", publicCache(15), async (c) => {
+sponsorship.get("/offers/:offerId/bids", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const bids = await prisma.sponsorshipBid.findMany({
@@ -94,7 +93,7 @@ sponsorship.get("/offers/:offerId/bids", publicCache(15), async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-sponsorship.get("/proposals", publicCache(15), async (c) => {
+sponsorship.get("/proposals", async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
   const { page, limit } = parsePage(c);
@@ -115,7 +114,7 @@ sponsorship.get("/proposals", publicCache(15), async (c) => {
   return c.json({ data: rows.map(serializeProposal), meta: { page, limit, total } });
 });
 
-sponsorship.get("/proposals/:proposalId", publicCache(15), async (c) => {
+sponsorship.get("/proposals/:proposalId", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const proposal = await prisma.sponsorshipProposal.findFirst({ where: { chain, proposalId: c.req.param("proposalId") } });
@@ -123,7 +122,7 @@ sponsorship.get("/proposals/:proposalId", publicCache(15), async (c) => {
   return c.json({ data: serializeProposal(proposal) });
 });
 
-sponsorship.get("/licenses", publicCache(15), async (c) => {
+sponsorship.get("/licenses", async (c) => {
   const chainFilter = parseChainFilter(c.req.query("chain"));
   if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
   const { page, limit } = parsePage(c);
@@ -152,7 +151,7 @@ sponsorship.get("/licenses", publicCache(15), async (c) => {
   return c.json({ data: rows.map(serializeLicense), meta: { page, limit, total } });
 });
 
-sponsorship.get("/licenses/:tokenId", publicCache(15), async (c) => {
+sponsorship.get("/licenses/:tokenId", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const tokenId = c.req.param("tokenId");

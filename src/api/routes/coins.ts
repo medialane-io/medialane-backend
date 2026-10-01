@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { publicCache } from "../middleware/publicCache.js";
 import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
@@ -94,7 +93,7 @@ coins.post("/sync", async (c) => {
   }
 });
 
-coins.get("/", publicCache(30), async (c) => {
+coins.get("/", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
@@ -194,7 +193,7 @@ coins.get("/claims", async (c) => {
   return c.json({ data: claims });
 });
 
-coins.get("/prices", publicCache(30), async (c) => {
+coins.get("/prices", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
@@ -212,7 +211,7 @@ coins.get("/prices", publicCache(30), async (c) => {
   return c.json({ data: prices });
 });
 
-coins.get("/:contract", publicCache(30), async (c) => {
+coins.get("/:contract", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const contract = normalizeAddress(chain, c.req.param("contract"));

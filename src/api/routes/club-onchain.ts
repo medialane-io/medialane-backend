@@ -4,7 +4,6 @@ import { Hono } from "hono";
 import { cairo, Contract } from "starknet";
 import { IPClubCollectionABI } from "@medialane/sdk/starknet";
 import { createProvider, normalizeAddress } from "../../utils/starknet.js";
-import { publicCache } from "../middleware/publicCache.js";
 import type { AppEnv } from "../../types/hono.js";
 
 export interface MembershipOnchain {
@@ -76,7 +75,7 @@ club.get("/:contract/count", async (c) => {
   return c.json({ data: { count } });
 });
 
-club.get("/:contract/:tokenId", publicCache(30), async (c) => {
+club.get("/:contract/:tokenId", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const col = new Contract({ abi: IPClubCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });

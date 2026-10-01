@@ -24,7 +24,6 @@ rewards.get("/config", async (c) => {
       select: { key: true, name: true, description: true, icon: true, color: true, category: true },
     }),
   ]);
-  c.header("Cache-Control", "public, max-age=300");
   return c.json({ data: { levels, actions, badges } });
 });
 
