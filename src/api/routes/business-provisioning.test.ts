@@ -44,11 +44,11 @@ function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}) {
   return { deps, accounts, deployed, linked };
 }
 
-const issue = (app: Hono<AppEnv>, recipientValue: string, recipientScheme = "email") =>
+const issue = (app: Hono<AppEnv>, email: string) =>
   app.request("/v1/business/provisioning", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chain: "STARKNET", recipientScheme, recipientValue }),
+    body: JSON.stringify({ chain: "STARKNET", email }),
   });
 
 describe("POST /v1/business/provisioning", () => {
@@ -125,9 +125,21 @@ describe("POST /v1/business/provisioning", () => {
     expect(linked).toHaveLength(0);
   });
 
-  test("takes only an email recipient", async () => {
+  test("a failed deployment check deploys nothing and links nothing", async () => {
+    const { deps, deployed, linked } = fakeDeps({
+      isDeployed: async () => {
+        throw new Error("rpc unavailable");
+      },
+    });
+    const res = await issue(makeApp(deps), "ana@example.com");
+    expect(res.status).toBe(502);
+    expect(deployed).toHaveLength(0);
+    expect(linked).toHaveLength(0);
+  });
+
+  test("refuses anything that is not an email", async () => {
     const { deps } = fakeDeps();
-    expect((await issue(makeApp(deps), "0xabc", "wallet")).status).toBe(400);
+    expect((await issue(makeApp(deps), "0xabc")).status).toBe(400);
     expect((await issue(makeApp(deps), "not-an-email")).status).toBe(400);
   });
 });

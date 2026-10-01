@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { ensureAccountForWallet } from "../../utils/account.js";
+import { accountWallet, ensureAccountForWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
@@ -198,18 +198,13 @@ users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
   const accountId = verifyAccountSessionToken(accountToken);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
 
-  const wallet = await prisma.identity.findFirst({
-    where: { accountId, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-    select: { address: true },
-  });
-
-  if (!wallet?.address) return c.json({ walletAddress: null });
-  const keySetup = await needsKeySetup(productionWalletKeyDeps, accountId, wallet.address).catch((err) => {
+  const walletAddress = await accountWallet(accountId);
+  if (!walletAddress) return c.json({ walletAddress: null });
+  const keySetup = await needsKeySetup(productionWalletKeyDeps, accountId, walletAddress).catch((err) => {
     log.warn({ err, accountId }, "could not read the wallet's owners; login goes on without the key setup");
     return false;
   });
-  return c.json({ walletAddress: wallet.address, needsKeySetup: keySetup });
+  return c.json({ walletAddress, needsKeySetup: keySetup });
 });
 
 const walletKeySchema = z.object({

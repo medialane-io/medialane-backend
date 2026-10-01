@@ -118,7 +118,7 @@ export const prismaRunStore: RunStore = {
   },
 
   async countProvisioned(guests) {
-    const wallets = await resolveRecipientWallets("STARKNET", IDENTITY_SCHEME.EMAIL, guests);
+    const wallets = await resolveRecipientWallets("STARKNET", guests);
     return wallets.filter((w) => w.walletAddress !== null).length;
   },
 
