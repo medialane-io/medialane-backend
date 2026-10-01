@@ -355,33 +355,6 @@ model ClaimChallenge {
   @@index([walletAddress, contractAddress])
 }
 
-enum ProvisioningStatus {
-  DEPLOYED
-  REUSED
-  HANDOFF
-  TRANSFERRED
-}
-
-model BusinessProvisioning {
-  id                 String             @id @default(cuid())
-  apiClientId        String
-  chain              Chain              @default(STARKNET)
-  walletAddress      String
-  recipientScheme    String
-  recipientValue     String
-  interimOwnerPubkey String?
-  newOwnerPubkey     String?
-  derivationSalt     String?
-  status             ProvisioningStatus @default(DEPLOYED)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-
-  apiClient ApiClient @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
-
-  @@unique([chain, walletAddress])
-  @@index([apiClientId, status])
-}
-
 enum WalletActivityType {
   SEND
   RECEIVE
@@ -790,7 +763,6 @@ model ApiClient {
   payments             Payment[]
   fundingIntents       FundingIntent[]
   usage                UsageEvent[]
-  businessProvisioning BusinessProvisioning[]
   launchpadRuns        LaunchpadRun[]
 
   createdAt DateTime @default(now())

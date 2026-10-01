@@ -256,13 +256,9 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
           return c.json({ error: `${recipient} already has a wallet on the way` }, 409);
         }
 
-        const apiClient = c.get("apiClient");
         let result;
         try {
-          result = await chain().registerWallet(
-            { id: apiClient.id, accountId: apiClient.accountId },
-            { chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient },
-          );
+          result = await chain().registerWallet({ chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient });
         } catch (err) {
           log.warn({ err, run: active.run.id }, "run wallet provisioning failed");
           result = null;
@@ -272,8 +268,8 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
           return c.json({ error: `Could not prepare a wallet for ${recipient}. Try again.` }, 502);
         }
 
-        await record(active, path, result.record.walletAddress);
-        return c.json({ data: { recipient, walletAddress: result.record.walletAddress } }, 201);
+        await record(active, path, result.walletAddress);
+        return c.json({ data: { recipient, walletAddress: result.walletAddress } }, 201);
       });
     },
   };

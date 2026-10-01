@@ -14,7 +14,7 @@ import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
-import { claimWallets, productionClaimDeps } from "../../provisioning/claim.js";
+import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
 
 const log = createLogger("routes:users");
 
@@ -204,32 +204,28 @@ users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
     select: { address: true },
   });
 
-  return c.json({ walletAddress: wallet?.address ?? null });
+  if (!wallet?.address) return c.json({ walletAddress: null });
+  const keySetup = await needsKeySetup(productionWalletKeyDeps, accountId, wallet.address).catch((err) => {
+    log.warn({ err, accountId }, "could not read the wallet's owners; login goes on without the key setup");
+    return false;
+  });
+  return c.json({ walletAddress: wallet.address, needsKeySetup: keySetup });
 });
 
-const claimWalletSchema = z.object({
+const walletKeySchema = z.object({
   accountToken: z.string().min(1),
   newOwnerPubkey: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/),
-  proofs: z
-    .array(
-      z.object({
-        walletAddress: z.string().min(3),
-        signature: z.array(z.string()).length(2),
-        expiration: z.number().int().positive(),
-      }),
-    )
-    .min(1),
+  signature: z.array(z.string()).length(2),
+  expiration: z.number().int().positive(),
 });
 
-users.post("/me/claim-wallet", zValidator("json", claimWalletSchema), async (c) => {
-  const { accountToken, newOwnerPubkey, proofs } = c.req.valid("json");
+users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
+  const { accountToken, newOwnerPubkey, signature, expiration } = c.req.valid("json");
   const accountId = verifyAccountSessionToken(accountToken);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
-  const clientId = callerClientId(c);
-  if (!clientId) return c.json(NO_CLIENT, 400);
-  const outcome = await claimWallets(productionClaimDeps(clientId), accountId, newOwnerPubkey, proofs);
+  const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey, { signature, expiration });
   if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
-  return c.json({ claimed: outcome.claimed });
+  return c.json({ walletAddress: outcome.walletAddress });
 });
 
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {

@@ -67,16 +67,12 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
       { contractAddress: collection, entrypoint: "mint", calldata: [recipient, ticketId] },
     ],
     resolveWallets: async (guests) => guests.map((g) => ({ recipientValue: g, walletAddress: known[g] ?? null })),
-    registerWallet: async (_client, input) => {
+    registerWallet: async (input) => {
       if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
       registered.push(input.recipientValue);
       const walletAddress = `0xa${registered.length}`;
       known[input.recipientValue] = walletAddress;
-      return {
-        status: 201,
-        reused: false,
-        record: { walletAddress } as never,
-      };
+      return { status: 201, reused: false, walletAddress };
     },
   };
 

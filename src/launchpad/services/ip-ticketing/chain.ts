@@ -30,7 +30,7 @@ export interface TicketingDeps {
   }): Promise<Call[]>;
   mintCalls(input: { owner: string; recipient: string; collection: string; ticketId: string }): Promise<Call[]>;
   resolveWallets(guests: string[]): Promise<{ recipientValue: string; walletAddress: string | null }[]>;
-  registerWallet(apiClient: { id: string; accountId: string }, input: RegisterInput): Promise<RegisterResult>;
+  registerWallet(input: RegisterInput): Promise<RegisterResult>;
   factory(): string;
 }
 
@@ -44,7 +44,7 @@ export const productionTicketingDeps: TicketingDeps = {
     (await buildMintIntent({ owner, recipient, collectionContract: collection, tokenId: ticketId, amount: "1" } as never))
       .calls as Call[],
   resolveWallets: (guests) => resolveRecipientWallets("STARKNET", IDENTITY_SCHEME.EMAIL, guests),
-  registerWallet: (apiClient, input) => registerProvisioning(productionProvisioningDeps, apiClient, input),
+  registerWallet: (input) => registerProvisioning(productionProvisioningDeps, input),
   factory: () => normalizeAddress("STARKNET", STARKNET_IP_TICKETS_FACTORY_CONTRACT),
 };
 

@@ -35,6 +35,7 @@ const envSchema = z.object({
   HMAC_KEY: z.string().min(32, "HMAC_KEY must be at least 32 characters"),
   SIWS_SECRET: z.string().min(32),
   PROVISIONING_SECRET: z.string().default(""),
+  IO_CLIENT_ID: z.string().default(""),
   CORS_ORIGINS: z
     .string()
     .default("https://medialane.io,https://www.medialane.io,https://starknet.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
