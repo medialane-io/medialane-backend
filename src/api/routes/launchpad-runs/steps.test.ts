@@ -5,6 +5,8 @@ import { createRunRoutes } from "./index.js";
 import type { ExecutionDeps } from "./context.js";
 import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
 import type { TicketingDeps } from "../../../launchpad/services/ip-ticketing/chain.js";
+import { createRunStepRoutes, type RunServiceSteps } from "./steps.js";
+import type { RunContext } from "./context.js";
 
 const OWNER = "0x0123";
 const terms = {
@@ -96,5 +98,58 @@ describe("run steps live on one set of paths, whichever service the run belongs 
     const { send } = await world();
     expect((await send("/run1/ticketing/wallets/resolve", {})).status).toBe(200);
     expect((await send("/run1/ticketing/tier/build")).status).not.toBe(404);
+  });
+});
+
+describe("a route collision between two services' extra() handlers", () => {
+  test("fails fast at startup instead of letting one service's handler silently shadow the other's", () => {
+    const fakeCtx = {} as RunContext;
+
+    const serviceA: RunServiceSteps<never> = {
+      service: "service-a",
+      load: (run) => run as never,
+      sponsored: [],
+      files: { expected: () => null, uri: () => null, path: () => [], credits: async () => 0 },
+      extra(app) {
+        app.post("/shared-path", (c) => c.json({ from: "a" }));
+      },
+    };
+    const serviceB: RunServiceSteps<never> = {
+      service: "service-b",
+      load: (run) => run as never,
+      sponsored: [],
+      files: { expected: () => null, uri: () => null, path: () => [], credits: async () => 0 },
+      extra(app) {
+        app.post("/shared-path", (c) => c.json({ from: "b" }));
+      },
+    };
+
+    expect(() => createRunStepRoutes(fakeCtx, [serviceA, serviceB])).toThrow(
+      /Route collision.*service-a.*service-b|Route collision.*service-b.*service-a/,
+    );
+  });
+
+  test("two services registering different paths is unaffected", () => {
+    const fakeCtx = {} as RunContext;
+    const serviceA: RunServiceSteps<never> = {
+      service: "service-a",
+      load: (run) => run as never,
+      sponsored: [],
+      files: { expected: () => null, uri: () => null, path: () => [], credits: async () => 0 },
+      extra(app) {
+        app.post("/path-a", (c) => c.json({ from: "a" }));
+      },
+    };
+    const serviceB: RunServiceSteps<never> = {
+      service: "service-b",
+      load: (run) => run as never,
+      sponsored: [],
+      files: { expected: () => null, uri: () => null, path: () => [], credits: async () => 0 },
+      extra(app) {
+        app.post("/path-b", (c) => c.json({ from: "b" }));
+      },
+    };
+
+    expect(() => createRunStepRoutes(fakeCtx, [serviceA, serviceB])).not.toThrow();
   });
 });

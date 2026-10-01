@@ -58,6 +58,34 @@ type AnyService = RunServiceSteps<any>;
 
 const indexed = (route: string) => route.includes(":index");
 
+const EXTRA_ROUTE_METHODS = ["get", "post", "put", "patch", "delete"] as const;
+
+/**
+ * Every service's `extra()` registers its own routes directly onto one shared Hono app, with no
+ * per-service path prefix — Hono matches a method+path to whichever handler was registered first,
+ * so two services registering the same path (e.g. both calling `app.post("/metadata", ...)`)
+ * silently shadow one another instead of erroring. This wrapper fails fast at startup instead,
+ * before any request can hit the shadowed handler.
+ */
+function guardAgainstRouteCollisions(app: Hono<AppEnv>, service: AnyService, claimed: Map<string, string>): Hono<AppEnv> {
+  const guarded = Object.create(app) as Hono<AppEnv>;
+  for (const method of EXTRA_ROUTE_METHODS) {
+    (guarded as unknown as Record<string, unknown>)[method] = (path: string, ...rest: unknown[]) => {
+      const key = `${method.toUpperCase()} ${path}`;
+      const owner = claimed.get(key);
+      if (owner && owner !== service.service) {
+        throw new Error(
+          `Route collision: "${service.service}" and "${owner}" both register ${key} on the shared launchpad-run app. ` +
+            `Give one of them its own path — see ip-ticketing vs certificate-emission for the convention.`,
+        );
+      }
+      claimed.set(key, service.service);
+      return (app as unknown as Record<string, (...args: unknown[]) => unknown>)[method](path, ...rest);
+    };
+  }
+  return guarded;
+}
+
 export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const ex = () => ctx.execution();
@@ -82,8 +110,9 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     return { service, active: service.load(run) };
   };
 
+  const claimedExtraRoutes = new Map<string, string>();
   for (const service of services) {
-    service.extra?.(app, {
+    service.extra?.(guardAgainstRouteCollisions(app, service, claimedExtraRoutes), {
       ctx,
       record,
       notReady,
