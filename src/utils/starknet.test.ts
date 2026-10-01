@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createFailoverFetch } from "@medialane/sdk";
-import { normalizeAddress, normalizeHash, callRpc } from "./starknet.js";
+import { normalizeAddress, normalizeHash, callRpc, isContractNotFound } from "./starknet.js";
 import { rpcEndpoints } from "./rpcFetch.js";
 
 describe("normalizeAddress", () => {
@@ -92,4 +92,11 @@ describe("where a Starknet call goes", () => {
     expect(rpcEndpoints()[0]).toBe(String(process.env.ALCHEMY_RPC_URL));
     expect(rpcEndpoints()).toHaveLength(2);
   });
+});
+
+test("only the contract-not-found RPC error means nothing is deployed", () => {
+  expect(isContractNotFound({ code: 20, message: "Contract not found" })).toBe(true);
+  expect(isContractNotFound({ code: 63, message: "Unexpected error" })).toBe(false);
+  expect(isContractNotFound(new Error("fetch failed"))).toBe(false);
+  expect(isContractNotFound(null)).toBe(false);
 });

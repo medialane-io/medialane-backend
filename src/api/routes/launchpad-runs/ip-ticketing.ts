@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { createLogger } from "../../../utils/logger.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
-import { IDENTITY_SCHEME } from "../../../utils/identity.js";
 import { COLLECTION_DEPLOYED_SELECTOR } from "../../../config/constants.js";
 import type { StoredRun } from "../../../launchpad/run-store.js";
 import { parseRunSpec, stepCredits } from "../../../launchpad/services/index.js";
@@ -234,9 +233,9 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         const waiting = active.spec.guests.filter((guest) => active.progress.wallets[guest] === undefined);
         const resolved = waiting.length > 0 ? await chain().resolveWallets(waiting) : [];
         const pending: string[] = [];
-        for (const { recipientValue, walletAddress } of resolved) {
-          if (walletAddress) await record(active, ["wallets", recipientValue], walletAddress);
-          else pending.push(recipientValue);
+        for (const { email, walletAddress } of resolved) {
+          if (walletAddress) await record(active, ["wallets", email], walletAddress);
+          else pending.push(email);
         }
         return c.json({ data: { pending } });
       });
@@ -258,7 +257,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
 
         let result;
         try {
-          result = await chain().registerWallet({ chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient });
+          result = await chain().registerWallet({ chain: "STARKNET", email: recipient });
         } catch (err) {
           log.warn({ err, run: active.run.id }, "run wallet provisioning failed");
           result = null;

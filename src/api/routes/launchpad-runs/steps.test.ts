@@ -27,7 +27,7 @@ const ticketing: TicketingDeps = {
   collectionCalls: async () => [],
   tierCalls: async () => [],
   mintCalls: async () => [],
-  resolveWallets: async (guests) => guests.map((g) => ({ recipientValue: g, walletAddress: null })),
+  resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: null })),
   registerWallet: async () => ({ status: 502, message: "no" }),
 };
 

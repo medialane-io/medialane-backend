@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { getService } from "@medialane/sdk";
 import { buildMintIntent } from "../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { resolveRecipientWallets } from "../../utils/recipientWallets.js";
+import { resolveRecipientWallets, type RecipientWallet } from "../../utils/recipientWallets.js";
 import type { Chain } from "@prisma/client";
 
 export const DEFAULT_BATCH_SIZE = 25;
@@ -14,13 +14,8 @@ export const MAX_RECIPIENTS = 500;
 
 export type Call = { contractAddress: string; entrypoint: string; calldata: string[] };
 
-export interface RecipientResolution {
-  recipientValue: string;
-  walletAddress: string | null;
-}
-
 export interface IssuanceDeps {
-  resolveWallets: (chain: Chain, scheme: string, values: string[]) => Promise<RecipientResolution[]>;
+  resolveWallets: (chain: Chain, emails: string[]) => Promise<RecipientWallet[]>;
   buildMintCalls: (input: {
     owner: string;
     recipient: string;
@@ -32,16 +27,11 @@ export interface IssuanceDeps {
   }) => Promise<Call[]>;
 }
 
-export function normalizeRecipientValue(scheme: string, value: string): string {
-  const trimmed = value.trim();
-  return scheme === IDENTITY_SCHEME.EMAIL ? trimmed.toLowerCase() : trimmed;
-}
-
-export function dedupeRecipients(scheme: string, values: string[]): string[] {
+export function dedupeRecipients(emails: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of values) {
-    const value = normalizeRecipientValue(scheme, raw);
+  for (const raw of emails) {
+    const value = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, raw);
     if (!value || seen.has(value)) continue;
     seen.add(value);
     out.push(value);
@@ -69,7 +59,6 @@ const mintCallsSchema = z
     chain: z.enum(["STARKNET"]).default("STARKNET"),
     service: z.string().min(1),
     owner: z.string().min(1),
-    recipientScheme: z.string().min(1).default(IDENTITY_SCHEME.EMAIL),
     recipients: z.array(z.string().min(1)).min(1).max(MAX_RECIPIENTS),
     tokenUri: z.string().optional(),
     collectionId: z.string().optional(),
@@ -95,12 +84,12 @@ export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
       return c.json({ error: "service_cannot_mint", service: body.service }, 400);
     }
 
-    const recipients = dedupeRecipients(body.recipientScheme, body.recipients);
+    const recipients = dedupeRecipients(body.recipients);
     if (recipients.length === 0) return c.json({ error: "no_recipients" }, 400);
 
-    const resolved = await deps.resolveWallets(body.chain, body.recipientScheme, recipients);
+    const resolved = await deps.resolveWallets(body.chain, recipients);
 
-    const unprovisioned = resolved.filter((r) => !r.walletAddress).map((r) => r.recipientValue);
+    const unprovisioned = resolved.filter((r) => !r.walletAddress).map((r) => r.email);
     if (unprovisioned.length > 0) {
       return c.json({ error: "recipients_not_provisioned", recipients: unprovisioned }, 409);
     }

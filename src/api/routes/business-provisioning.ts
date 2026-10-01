@@ -8,8 +8,8 @@ import prisma from "../../db/client.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { signWithPrivateKey } from "@medialane/sdk/starknet";
 import { buildDeployment as buildSponsoredDeployment, defaultClient, executeSponsoredDeploy } from "./paymaster.js";
-import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
-import { createProvider, normalizeAddress } from "../../utils/starknet.js";
+import { accountWallet, ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
+import { createProvider, isContractNotFound, normalizeAddress } from "../../utils/starknet.js";
 import { ioClientId } from "../../utils/caller.js";
 import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningKey.js";
 import { bill } from "../../payments/usage.js";
@@ -29,8 +29,7 @@ export interface BusinessProvisioningDeps {
 
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
-  recipientScheme: z.literal(IDENTITY_SCHEME.EMAIL),
-  recipientValue: z.string().email(),
+  email: z.string().email(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -42,7 +41,7 @@ export type RegisterResult =
 /** Returns the email's account wallet, deploying one if the account has none. */
 export async function registerProvisioning(deps: BusinessProvisioningDeps, input: RegisterInput): Promise<RegisterResult> {
   const { chain } = input;
-  const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, input.recipientValue);
+  const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, input.email);
 
   const account = await deps.findIoAccount(email);
   if (account?.walletAddress) {
@@ -96,12 +95,7 @@ export const productionProvisioningDeps: BusinessProvisioningDeps = {
       select: { accountId: true },
     });
     if (!identity) return null;
-    const wallet = await prisma.identity.findFirst({
-      where: { accountId: identity.accountId, chain: "STARKNET", scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-      select: { address: true },
-    });
-    return { accountId: identity.accountId, walletAddress: wallet?.address ?? null };
+    return { accountId: identity.accountId, walletAddress: await accountWallet(identity.accountId) };
   },
   createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, ioClientId())).accountId,
   keyFor: provisioningKey,
@@ -109,8 +103,9 @@ export const productionProvisioningDeps: BusinessProvisioningDeps = {
     try {
       await createProvider().getClassHashAt(walletAddress);
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (isContractNotFound(err)) return false;
+      throw err;
     }
   },
   buildDeployment: async (owner) => {
