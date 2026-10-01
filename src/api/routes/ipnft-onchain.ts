@@ -4,7 +4,6 @@ import { Hono } from "hono";
 import { cairo, Contract, num } from "starknet";
 import { IPNftABI } from "@medialane/sdk/starknet";
 import { createProvider, normalizeAddress } from "../../utils/starknet.js";
-import { publicCache } from "../middleware/publicCache.js";
 import type { AppEnv } from "../../types/hono.js";
 
 export interface FullTokenData {
@@ -30,7 +29,7 @@ export function parseFullTokenDataResult(raw: [unknown, unknown, unknown, unknow
 
 const ipnft = new Hono<AppEnv>();
 
-ipnft.get("/:contract/:tokenId", publicCache(30), async (c) => {
+ipnft.get("/:contract/:tokenId", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const col = new Contract({ abi: IPNftABI as never, address: contract, providerOrAccount: createProvider() as never });

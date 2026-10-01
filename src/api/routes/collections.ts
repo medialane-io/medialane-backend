@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { publicCache } from "../middleware/publicCache.js";
 import { z } from "zod";
 import { Prisma, type Collection } from "@prisma/client";
 import { chainWhere, parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
@@ -24,7 +23,7 @@ const collections = new Hono();
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-collections.get("/", publicCache(30), async (c) => {
+collections.get("/", async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
@@ -116,7 +115,7 @@ collections.get("/", publicCache(30), async (c) => {
   return c.json({ data: data.map(serializeCollection), meta: { page, limit, total } });
 });
 
-collections.get("/by-slug/:slug", publicCache(60), async (c) => {
+collections.get("/by-slug/:slug", async (c) => {
   const slug = c.req.param("slug").toLowerCase().trim();
 
   const profile = await prisma.collectionProfile.findUnique({
@@ -158,7 +157,7 @@ collections.get("/by-slug/:slug", publicCache(60), async (c) => {
   return c.json({ data: { ...serializeCollection(col), profile: col.profile } });
 });
 
-collections.get("/:contract", publicCache(30), async (c) => {
+collections.get("/:contract", async (c) => {
   const { contract } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
@@ -187,7 +186,7 @@ collections.get("/:contract", publicCache(30), async (c) => {
   });
 });
 
-collections.get("/:contract/tokens", publicCache(30), async (c) => {
+collections.get("/:contract/tokens", async (c) => {
   const { contract } = c.req.param();
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));

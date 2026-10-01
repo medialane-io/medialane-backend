@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { publicCache } from "../middleware/publicCache.js";
 import prisma from "../../db/client.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -26,7 +25,7 @@ drop.get("/mint-status/:collection/:wallet", async (c) => {
   return c.json({ data: { mintedByWallet, totalMinted } });
 });
 
-drop.get("/:contract/info", publicCache(30), async (c) => {
+drop.get("/:contract/info", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const contractAddress = normalizeAddress(chain, c.req.param("contract"));
