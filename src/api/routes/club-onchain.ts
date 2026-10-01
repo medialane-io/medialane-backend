@@ -65,7 +65,8 @@ export async function countMemberships(exists: (id: number) => Promise<boolean>)
 
 const club = new Hono<AppEnv>();
 
-club.get("/:contract/count", publicCache(30), async (c) => {
+// Not cached: apps read the count to pick the next tier id right before creating it.
+club.get("/:contract/count", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const col = new Contract({ abi: IPClubCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });
   const count = await countMemberships(async (id) => {

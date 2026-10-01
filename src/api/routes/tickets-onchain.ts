@@ -43,7 +43,8 @@ export function parseTicketResult(raw: {
 
 const tickets = new Hono<AppEnv>();
 
-tickets.get("/:contract/count", publicCache(30), async (c) => {
+// Not cached: apps read the count to pick the next ticket id right before creating it.
+tickets.get("/:contract/count", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const col = new Contract({ abi: IPTicketCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });
   const count = Number(await col.call("ticket_count", []));
