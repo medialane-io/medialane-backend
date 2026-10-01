@@ -14,6 +14,7 @@ import {
   IPClubFactoryABI,
   IPClubCollectionABI,
   POPFactoryABI,
+  POPCollectionABI,
   DropFactoryABI,
   toDropContractConditions,
 } from "@medialane/sdk/starknet";
@@ -106,6 +107,12 @@ export async function buildMintIntent(body: MintIntentBody) {
       throw new Error(`tokenId and amount are required to mint on ${service} — create the tier first via CREATE_TIER`);
     }
     const call = collection.populate("mint", [recipient, cairo.uint256(body.tokenId), cairo.uint256(body.amount)]);
+    return { calls: [call] };
+  }
+
+  if (service === "pop-protocol") {
+    const collection = new Contract({ abi: POPCollectionABI as never, address: contractAddress, providerOrAccount: createProvider() as never });
+    const call = collection.populate("admin_mint", [recipient, body.customUri ?? ""]);
     return { calls: [call] };
   }
 
