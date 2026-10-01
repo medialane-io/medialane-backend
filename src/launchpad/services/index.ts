@@ -4,17 +4,20 @@ import { creditsForStep, quotePlan, type PriceOf, type RunQuote } from "../steps
 import type { RunServiceDefinition } from "./shared-spec.js";
 import { dataTokenization, type DataTokenizationSpec } from "./data-tokenization/definition.js";
 import { ipTicketing, type IpTicketingSpec } from "./ip-ticketing/definition.js";
+import { certificateEmission, type CertificateEmissionSpec } from "./certificate-emission/definition.js";
 
-export const RUN_SERVICES = ["data-tokenization-erc721", "ip-ticketing"] as const;
+export const RUN_SERVICES = ["data-tokenization-erc721", "ip-ticketing", "certificate-emission"] as const;
 export type RunService = (typeof RUN_SERVICES)[number];
 
 export type RunSpec =
   | { service: "data-tokenization-erc721"; spec: DataTokenizationSpec }
-  | { service: "ip-ticketing"; spec: IpTicketingSpec };
+  | { service: "ip-ticketing"; spec: IpTicketingSpec }
+  | { service: "certificate-emission"; spec: CertificateEmissionSpec };
 
 const DEFINITIONS: Record<RunService, RunServiceDefinition<unknown>> = {
   "data-tokenization-erc721": dataTokenization as unknown as RunServiceDefinition<unknown>,
   "ip-ticketing": ipTicketing as unknown as RunServiceDefinition<unknown>,
+  "certificate-emission": certificateEmission as unknown as RunServiceDefinition<unknown>,
 };
 
 const defaultPriceOf: PriceOf = (action) => creditsForAction(action);

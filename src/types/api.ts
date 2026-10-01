@@ -90,6 +90,8 @@ export interface MintIntentBody {
   value?: string;
 
   collectionContract?: string;
+
+  customUri?: string;
 }
 
 export interface CreateCollectionIntentBody {
