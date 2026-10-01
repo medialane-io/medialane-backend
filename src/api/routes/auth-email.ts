@@ -37,7 +37,6 @@ export interface AuthEmailDeps {
   createAccountWithEmail: (email: string, clientId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
   findAccountIdByEmail: (email: string, clientId: string) => Promise<string | null>;
   releaseAbandonedEmail: (email: string, clientId: string) => Promise<boolean>;
-  findWaitingWallets: (email: string) => Promise<string[]>;
   createVerifiedAccount: (email: string, clientId: string) => Promise<string>;
   markEmailVerified: (email: string, clientId: string) => Promise<void>;
   activateAccount: (accountId: string) => Promise<void>;
@@ -106,8 +105,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     } else {
       accountId = await deps.createVerifiedAccount(email, clientId);
     }
-    const waitingWallets = await deps.findWaitingWallets(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email));
-    return c.json({ accountToken: issueAccountSessionToken(accountId), waitingWallets });
+    return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
@@ -116,8 +114,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     const { email } = c.req.valid("query");
     const exists = await deps.checkEmailExists(email, clientId);
-    const walletWaiting = (await deps.findWaitingWallets(normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email))).length > 0;
-    return c.json({ exists, walletWaiting });
+    return c.json({ exists });
   });
 
   app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
@@ -164,19 +161,6 @@ const productionDeps: AuthEmailDeps = {
     await prisma.account.updateMany({ where: { id: accountId, status: "PENDING" }, data: { status: "ACTIVE" } });
   },
   releaseAbandonedEmail,
-  findWaitingWallets: async (email) =>
-    (
-      await prisma.businessProvisioning.findMany({
-        where: {
-          recipientScheme: IDENTITY_SCHEME.EMAIL,
-          recipientValue: email,
-          status: "DEPLOYED",
-          interimOwnerPubkey: { not: null },
-          derivationSalt: { not: null },
-        },
-        select: { walletAddress: true },
-      })
-    ).map((row) => row.walletAddress),
   createVerifiedAccount: async (email, clientId) => {
     const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, clientId);
     await prisma.identity.updateMany({

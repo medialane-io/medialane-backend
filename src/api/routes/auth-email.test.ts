@@ -14,7 +14,6 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
     createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
     findAccountIdByEmail: async () => null,
     releaseAbandonedEmail: async () => false,
-    findWaitingWallets: async () => [],
     createVerifiedAccount: async () => "acc_NEW",
     markEmailVerified: async () => {},
     activateAccount: async () => {},
@@ -159,17 +158,7 @@ test("POST /verify-code marks an existing account's email verified", async () =>
   expect(marked).toEqual(["alice@example.com"]);
 });
 
-test("POST /verify-code lists the wallets waiting for the proven email", async () => {
-  const code = await storedCode();
-  const app = appWith({
-    findLatestCode: async () => code,
-    findWaitingWallets: async (email) => (email === "alice@example.com" ? ["0xabc"] : []),
-  });
-  const body = (await (await verify(app)).json()) as { waitingWallets: string[] };
-  expect(body.waitingWallets).toEqual(["0xabc"]);
-});
-
-test("POST /verify-code with a wrong code lists nothing and creates nothing", async () => {
+test("POST /verify-code with a wrong code creates nothing", async () => {
   let created = false;
   const code = await storedCode();
   const app = appWith({
@@ -178,7 +167,6 @@ test("POST /verify-code with a wrong code lists nothing and creates nothing", as
       created = true;
       return "acc_NEW";
     },
-    findWaitingWallets: async () => ["0xabc"],
   });
   const res = await app.request("/verify-code", {
     method: "POST",
@@ -187,25 +175,6 @@ test("POST /verify-code with a wrong code lists nothing and creates nothing", as
   });
   expect(res.status).toBe(400);
   expect(created).toBe(false);
-  expect(JSON.stringify(await res.json()).includes("0xabc")).toBe(false);
-});
-
-test("GET /exists says when a wallet is waiting for the email", async () => {
-  const app = appWith({ findWaitingWallets: async () => ["0xabc"] });
-  const res = await app.request("/exists?email=alice@example.com");
-  expect(await res.json()).toEqual({ exists: false, walletWaiting: true });
-});
-
-test("GET /exists matches the email in any letter case", async () => {
-  const seen: string[] = [];
-  const app = appWith({
-    findWaitingWallets: async (email) => {
-      seen.push(email);
-      return [];
-    },
-  });
-  await app.request("/exists?email=Alice@Example.com");
-  expect(seen).toEqual(["alice@example.com"]);
 });
 
 test("POST /verify-code with the wrong code returns 400 and increments attempts", async () => {
@@ -398,20 +367,6 @@ test("POST /verify-code looks the account up and marks it verified with the emai
   expect((await verify(app, "Alice@Example.com")).status).toBe(200);
   expect(looked).toEqual(["Alice@Example.com"]);
   expect(marked).toEqual(["Alice@Example.com"]);
-});
-
-test("POST /verify-code finds waiting wallets with the email in lower case", async () => {
-  const seen: string[] = [];
-  const code = await storedCode();
-  const app = appWith({
-    findLatestCode: async () => code,
-    findWaitingWallets: async (email) => {
-      seen.push(email);
-      return [];
-    },
-  });
-  await verify(app, "Alice@Example.com");
-  expect(seen).toEqual(["alice@example.com"]);
 });
 
 test("POST /request-code sends a code every time it is asked", async () => {

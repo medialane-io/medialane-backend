@@ -1,6 +1,7 @@
 import type { Chain } from "@prisma/client";
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "./identity.js";
+import { ioClientId } from "./caller.js";
 
 export interface RecipientWallet {
   recipientValue: string;
@@ -10,7 +11,7 @@ export interface RecipientWallet {
 export async function resolveRecipientWallets(chain: Chain, scheme: string, values: string[]): Promise<RecipientWallet[]> {
   if (values.length === 0) return [];
   const identities = await prisma.identity.findMany({
-    where: { scheme, value: { in: values } },
+    where: { clientId: ioClientId(), scheme, value: { in: values } },
     select: { value: true, accountId: true },
   });
   const accountByValue = new Map(identities.map((i) => [i.value!, i.accountId]));

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { CallData, PaymasterRpc, hash, uint256 } from "starknet";
+import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
@@ -47,7 +47,6 @@ export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
   "transfer_from",
   "safe_transfer_from",
   "mint_item",
-  "change_owners",
 ]);
 
 interface SponsoredCall {
@@ -252,6 +251,26 @@ export async function executeSponsoredDeploy(
         typedData: input.typedData,
         signature: input.signature,
       },
+    },
+    SPONSORED,
+  );
+  return txHashOf(result);
+}
+
+/** Sponsored transaction signed by a key the backend holds. */
+export async function executeOwnSponsoredInvoke(
+  input: { userAddress: string; calls: Call[]; sign: (typedData: unknown) => string[] },
+  clientFactory: () => PaymasterClient = defaultClient,
+): Promise<string> {
+  const client = clientFactory();
+  const prepared = (await client.buildTransaction(
+    { type: "invoke", invoke: { userAddress: input.userAddress, calls: input.calls } },
+    SPONSORED,
+  )) as { typed_data: unknown };
+  const result = await client.executeTransaction(
+    {
+      type: "invoke",
+      invoke: { userAddress: input.userAddress, typedData: prepared.typed_data, signature: input.sign(prepared.typed_data) },
     },
     SPONSORED,
   );

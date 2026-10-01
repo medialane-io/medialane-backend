@@ -3,38 +3,25 @@ import { computeAccountAddress } from "@medialane/sdk/starknet";
 import { provisioningKeyWith } from "./provisioningKey.js";
 
 const SECRET = "a".repeat(64);
-const input = { apiClientId: "client-1", recipientScheme: "email", recipientValue: "ana@example.com", salt: "0123456789abcdef" };
 
-test("the same inputs give the same key", () => {
-  expect(provisioningKeyWith(SECRET, input)).toEqual(provisioningKeyWith(SECRET, input));
+test("the same account gives the same key", () => {
+  expect(provisioningKeyWith(SECRET, "acc-1")).toEqual(provisioningKeyWith(SECRET, "acc-1"));
 });
 
-test("a different recipient gives a different key", () => {
-  const other = provisioningKeyWith(SECRET, { ...input, recipientValue: "bob@example.com" });
-  expect(other.publicKey).not.toBe(provisioningKeyWith(SECRET, input).publicKey);
-});
-
-test("a different business gives a different key", () => {
-  const other = provisioningKeyWith(SECRET, { ...input, apiClientId: "client-2" });
-  expect(other.publicKey).not.toBe(provisioningKeyWith(SECRET, input).publicKey);
-});
-
-test("a different salt gives a different key", () => {
-  const other = provisioningKeyWith(SECRET, { ...input, salt: "fedcba9876543210" });
-  expect(other.publicKey).not.toBe(provisioningKeyWith(SECRET, input).publicKey);
+test("a different account gives a different key", () => {
+  expect(provisioningKeyWith(SECRET, "acc-2").publicKey).not.toBe(provisioningKeyWith(SECRET, "acc-1").publicKey);
 });
 
 test("a different secret gives a different key", () => {
-  const other = provisioningKeyWith("b".repeat(64), input);
-  expect(other.publicKey).not.toBe(provisioningKeyWith(SECRET, input).publicKey);
+  expect(provisioningKeyWith("b".repeat(64), "acc-1").publicKey).not.toBe(provisioningKeyWith(SECRET, "acc-1").publicKey);
 });
 
 test("the wallet address is the Media Wallet address of the public key", () => {
-  const key = provisioningKeyWith(SECRET, input);
+  const key = provisioningKeyWith(SECRET, "acc-1");
   expect(key.walletAddress).toBe(computeAccountAddress(key.publicKey, 0));
 });
 
 test("refuses a missing or short secret", () => {
-  expect(() => provisioningKeyWith("", input)).toThrow("PROVISIONING_SECRET is not configured");
-  expect(() => provisioningKeyWith("short", input)).toThrow("PROVISIONING_SECRET is not configured");
+  expect(() => provisioningKeyWith("", "acc-1")).toThrow("PROVISIONING_SECRET is not configured");
+  expect(() => provisioningKeyWith("short", "acc-1")).toThrow("PROVISIONING_SECRET is not configured");
 });
