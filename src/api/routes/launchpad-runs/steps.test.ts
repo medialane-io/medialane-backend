@@ -19,7 +19,7 @@ const execution = {
   mintCalls: { isCollectionOwner: async () => true },
   registry: () => "0x0789",
   receipt: async () => ({ status: "PENDING" as const, events: [] }),
-  sponsored: { addressChecker: { isEligible: async () => true }, clientFactory: () => ({}) as never },
+  sponsored: { clientFactory: () => ({}) as never },
 } satisfies ExecutionDeps;
 
 const ticketing: TicketingDeps = {

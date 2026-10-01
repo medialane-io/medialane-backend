@@ -29,7 +29,6 @@ function world() {
     registry: () => REGISTRY,
     receipt: async () => ({ status: receipt, events }),
     sponsored: {
-      addressChecker: { isEligible: async () => true },
       clientFactory: () => ({
         buildTransaction: async (req) => {
           const calls = (req as { invoke: { calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] } }).invoke.calls;

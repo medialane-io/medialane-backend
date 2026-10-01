@@ -36,7 +36,6 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
     registry: () => "0x0789",
     receipt: async () => ({ status: receipt, events }),
     sponsored: {
-      addressChecker: { isEligible: async () => true },
       clientFactory: () => ({
         buildTransaction: async (req) => {
           builds.push(req as { type?: string });

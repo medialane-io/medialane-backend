@@ -14,7 +14,6 @@ import {
 } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { productionTicketingDeps, type TicketingDeps } from "../../../launchpad/services/ip-ticketing/chain.js";
 import { defaultClient, type SponsoredInvokeDeps } from "../paymaster.js";
-import { createContractAddressChecker } from "../paymaster-contract-address.js";
 
 export type ReceiptStatus = "SUCCEEDED" | "REVERTED" | "PENDING";
 
@@ -78,7 +77,7 @@ function productionExecution(): ExecutionDeps {
     pinnedFile: findPinnedFile,
     pinJson: uploadJson,
     mintCalls: productionMintCallDeps,
-    sponsored: { clientFactory: defaultClient, addressChecker: createContractAddressChecker(prisma) },
+    sponsored: { clientFactory: defaultClient },
     receipt: productionReceipt,
     registry: dataTokenizationRegistry,
   };
