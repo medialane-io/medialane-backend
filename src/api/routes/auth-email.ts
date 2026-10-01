@@ -158,7 +158,7 @@ const productionDeps: AuthEmailDeps = {
     return { accountId, alreadyExisted: !created };
   },
   activateAccount: async (accountId) => {
-    await prisma.account.updateMany({ where: { id: accountId, status: { in: ["PENDING", "INACTIVE"] } }, data: { status: "ACTIVE" } });
+    await prisma.account.updateMany({ where: { id: accountId, status: "PENDING" }, data: { status: "ACTIVE" } });
   },
   releaseAbandonedEmail,
   createVerifiedAccount: async (email, clientId) => {
