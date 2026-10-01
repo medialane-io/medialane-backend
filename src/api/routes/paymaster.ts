@@ -47,6 +47,11 @@ export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
   "transfer_from",
   "safe_transfer_from",
   "mint_item",
+  "change_owners",
+  "change_guardians",
+  "trigger_escape_owner",
+  "escape_owner",
+  "cancel_escape",
 ]);
 
 interface SponsoredCall {
@@ -126,12 +131,14 @@ export function disallowedEntrypoint(calls: unknown[]): string | null {
   return null;
 }
 
+/** A call is eligible when it targets a platform contract or the signing wallet itself. */
 export async function disallowedContractAddress(
   checker: ContractAddressChecker,
   calls: SponsoredCall[],
+  userAddress: string,
 ): Promise<string | null> {
   for (const call of calls) {
-    if (!(await checker.isEligible(call.contractAddress))) {
+    if (!sameFelt(call.contractAddress, userAddress) && !(await checker.isEligible(call.contractAddress))) {
       return call.contractAddress;
     }
   }
@@ -298,7 +305,7 @@ export async function buildSponsoredInvoke(
     log.warn({ userAddress: body.userAddress, calls: body.calls, disallowed }, "sponsored invoke build: entrypoint not eligible");
     return { status: 400, body: { error: `Entrypoint "${disallowed}" is not eligible for sponsored gas`, code: "not_eligible" } };
   }
-  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, body.calls as SponsoredCall[]);
+  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, body.calls as SponsoredCall[], body.userAddress);
   if (disallowedAddress) {
     log.warn({ userAddress: body.userAddress, calls: body.calls, disallowedAddress }, "sponsored invoke build: contract not eligible");
     return { status: 400, body: { error: `Contract "${disallowedAddress}" is not eligible for sponsored gas`, code: "not_eligible" } };
@@ -336,7 +343,7 @@ export async function executeSponsoredInvoke(
     log.warn({ userAddress: body.userAddress, signed, disallowed }, "sponsored invoke execute: entrypoint not eligible");
     return { status: 400, body: { error: `Entrypoint "${disallowed}" is not eligible for sponsored gas`, code: "not_eligible" } };
   }
-  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, signed as SponsoredCall[]);
+  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, signed as SponsoredCall[], body.userAddress);
   if (disallowedAddress) {
     log.warn({ userAddress: body.userAddress, signed, disallowedAddress }, "sponsored invoke execute: contract not eligible");
     return { status: 400, body: { error: `Contract "${disallowedAddress}" is not eligible for sponsored gas`, code: "not_eligible" } };
@@ -472,7 +479,7 @@ export default function paymaster(
     if (disallowed) {
       return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas`, code: "not_eligible" }, 400);
     }
-    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
+    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[], body.ownerAddress);
     if (disallowedAddress) {
       return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas`, code: "not_eligible" }, 400);
     }
