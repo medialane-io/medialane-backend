@@ -13,6 +13,10 @@ import {
   type MintCallDeps,
 } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { productionTicketingDeps, type TicketingDeps } from "../../../launchpad/services/ip-ticketing/chain.js";
+import {
+  productionCertificateEmissionDeps,
+  type CertificateEmissionDeps,
+} from "../../../launchpad/services/certificate-emission/chain.js";
 import { defaultClient, type SponsoredInvokeDeps } from "../paymaster.js";
 
 export type ReceiptStatus = "SUCCEEDED" | "REVERTED" | "PENDING";
@@ -47,6 +51,7 @@ export interface RunRouteDeps {
   intentPayment?: IntentPayment;
   execution?: ExecutionDeps;
   ticketing?: TicketingDeps;
+  certificateEmission?: CertificateEmissionDeps;
 }
 
 export interface RunContext {
@@ -55,6 +60,7 @@ export interface RunContext {
   intentPayment: IntentPayment;
   execution(): ExecutionDeps;
   ticketing(): TicketingDeps;
+  certificateEmission(): CertificateEmissionDeps;
 }
 
 async function productionReceipt(txHash: string): Promise<RunReceipt> {
@@ -99,6 +105,7 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
       }),
     execution: () => (execution ??= productionExecution()),
     ticketing: () => deps.ticketing ?? productionTicketingDeps,
+    certificateEmission: () => deps.certificateEmission ?? productionCertificateEmissionDeps,
   };
 }
 
