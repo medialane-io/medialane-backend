@@ -15,7 +15,7 @@ export interface StepTarget {
 export async function executeStep(
   ctx: RunContext,
   c: Context<AppEnv>,
-  target: StepTarget & { userAddress: string; typedData?: unknown; signature: string[]; calls: unknown[] },
+  target: StepTarget & { userAddress: string; typedData?: unknown; signature: string[] },
 ): Promise<Response> {
   const { runId: id, apiClientId, credits, path } = target;
   if (!(await ctx.store.reserve({ id, apiClientId, credits, path, retryReverted: true }))) {
@@ -26,7 +26,6 @@ export async function executeStep(
     userAddress: target.userAddress,
     typedData: target.typedData,
     signature: target.signature,
-    calls: target.calls,
   });
   if (outcome.status !== 200) {
     await ctx.store.release({ id, apiClientId, credits, path });
