@@ -7,8 +7,8 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
   const fullDeps: AuthEmailDeps = {
     findLatestCode: async () => null,
     createCode: async () => {},
-    incrementAttempts: async () => {},
-    consumeCode: async () => {},
+    claimAttempt: async () => true,
+    consumeCode: async () => true,
     sendCode: async () => {},
     checkEmailExists: async () => false,
     createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
@@ -177,13 +177,13 @@ test("POST /verify-code with a wrong code creates nothing", async () => {
   expect(created).toBe(false);
 });
 
-test("POST /verify-code with the wrong code returns 400 and increments attempts", async () => {
+test("POST /verify-code with the wrong code returns 400 and spends an attempt", async () => {
   let incremented = false;
   const app = appWith({
     findLatestCode: async () => ({
       id: "1", codeHash: "wrong-hash", attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null,
     }),
-    incrementAttempts: async () => { incremented = true; },
+    claimAttempt: async () => { incremented = true; return true; },
   });
   const res = await app.request("/verify-code", {
     method: "POST",
@@ -415,4 +415,36 @@ test("POST /verify-code activates the account it signs in to", async () => {
   });
   expect((await verify(app)).status).toBe(200);
   expect(activated).toEqual(["acc_PENDING"]);
+});
+
+test("POST /verify-code refuses when the atomic attempt claim fails, even if the stored count looked fine", async () => {
+  let created = false;
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    claimAttempt: async () => false,
+    createVerifiedAccount: async () => {
+      created = true;
+      return "acc_NEW";
+    },
+  });
+  const res = await verify(app);
+  expect(res.status).toBe(429);
+  expect(created).toBe(false);
+});
+
+test("POST /verify-code lets a correct code sign in only once", async () => {
+  let created = 0;
+  const code = await storedCode();
+  const app = appWith({
+    findLatestCode: async () => code,
+    consumeCode: async () => false,
+    createVerifiedAccount: async () => {
+      created += 1;
+      return "acc_NEW";
+    },
+  });
+  const res = await verify(app);
+  expect(res.status).toBe(400);
+  expect(created).toBe(0);
 });

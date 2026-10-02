@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { issueAccountSessionToken, verifyAccountSessionToken } from "./accountSessionToken";
+import { accountSessionIssuedAt, isSessionCurrent, issueAccountSessionToken, verifyAccountSessionToken } from "./accountSessionToken";
 
 test("issues a token that verifies back to the same accountId", () => {
   const token = issueAccountSessionToken("acc_ABC123");
@@ -37,4 +37,26 @@ test("rejects a malformed token", () => {
 
 test("rejects a token with a different prefix", () => {
   expect(verifyAccountSessionToken("email_verified_abc.def")).toBeNull();
+});
+
+test("a session is current when the account has no cutoff", () => {
+  expect(isSessionCurrent(1_000, null)).toBe(true);
+  expect(isSessionCurrent(null, null)).toBe(true);
+});
+
+test("a session issued before the cutoff is not current, one issued at or after it is", () => {
+  const cutoff = new Date(10_500_000);
+  expect(isSessionCurrent(10_499, cutoff)).toBe(false);
+  expect(isSessionCurrent(10_500, cutoff)).toBe(true);
+  expect(isSessionCurrent(10_501, cutoff)).toBe(true);
+});
+
+test("a session with no readable issue time is not current once a cutoff exists", () => {
+  expect(isSessionCurrent(null, new Date())).toBe(false);
+});
+
+test("a token issued now is current against a cutoff set just before it", () => {
+  const cutoff = new Date();
+  const token = issueAccountSessionToken("acc_ABC123");
+  expect(isSessionCurrent(accountSessionIssuedAt(token), cutoff)).toBe(true);
 });

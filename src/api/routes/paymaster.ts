@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { CallData, PaymasterRpc, uint256, type Call } from "starknet";
+import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
@@ -68,6 +68,44 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
     return { status: 502, message: "The sponsored transaction may have been submitted. Check your activity before trying again.", code: "may_have_broadcast" };
   }
   return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" };
+}
+
+interface SignedCall {
+  To?: unknown;
+  Selector?: unknown;
+  Calldata?: unknown;
+}
+
+function sameFelt(a: unknown, b: unknown): boolean {
+  try {
+    return BigInt(a as string) === BigInt(b as string);
+  } catch {
+    return false;
+  }
+}
+
+function isEmptyCall(call: SignedCall): boolean {
+  return sameFelt(call.To, "0x0") && sameFelt(call.Selector, "0x0") && Array.isArray(call.Calldata) && call.Calldata.length === 0;
+}
+
+export function typedDataMatchesCalls(
+  typedData: unknown,
+  calls: readonly { contractAddress: string; entrypoint: string; calldata: readonly string[] }[],
+): boolean {
+  const signed = (typedData as { message?: { Calls?: unknown } } | null)?.message?.Calls;
+  if (!Array.isArray(signed)) return false;
+  const trailingFeeCall = signed.length === calls.length + 1 && isEmptyCall(signed[calls.length] as SignedCall);
+  if (signed.length !== calls.length && !trailingFeeCall) return false;
+  return calls.every((call, i) => {
+    const s = signed[i] as SignedCall;
+    return (
+      sameFelt(s.To, call.contractAddress) &&
+      sameFelt(s.Selector, hash.getSelectorFromName(call.entrypoint)) &&
+      Array.isArray(s.Calldata) &&
+      s.Calldata.length === call.calldata.length &&
+      s.Calldata.every((value, j) => sameFelt(value, call.calldata[j]))
+    );
+  });
 }
 
 function txHashOf(result: unknown): string {

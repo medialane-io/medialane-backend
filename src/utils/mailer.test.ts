@@ -4,7 +4,24 @@ import {
   buildGuardianEscapeTriggeredEmailHtml,
   buildGuardianSetEmailHtml,
   buildGuardianEscapeCompletedEmailHtml,
+  sanitizeFromName,
 } from "./mailer";
+
+test("sanitizeFromName keeps an ordinary brand name", () => {
+  expect(sanitizeFromName("Acme Studios")).toBe("Acme Studios");
+  expect(sanitizeFromName("Café & Co.")).toBe("Café & Co.");
+});
+
+test("sanitizeFromName strips markup, quotes and line breaks and caps the length", () => {
+  expect(sanitizeFromName('Bank <security@x.com>\r\nBcc: a@b.c')).not.toMatch(/[<>@:\r\n]/);
+  expect(sanitizeFromName("x".repeat(100)).length).toBeLessThanOrEqual(40);
+});
+
+test("sanitizeFromName falls back to Medialane when nothing usable is left", () => {
+  expect(sanitizeFromName(null)).toBe("Medialane");
+  expect(sanitizeFromName("   ")).toBe("Medialane");
+  expect(sanitizeFromName("<<>>")).toBe("Medialane");
+});
 
 const ADDRESS = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 

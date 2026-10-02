@@ -150,6 +150,33 @@ describe("crediting a specific transaction on request", () => {
     expect(credited).toBe(28);
   });
 
+  test("a reverted or not yet finalized transaction credits nothing", async () => {
+    for (const receipt of [
+      { execution_status: "REVERTED", finality_status: "ACCEPTED_ON_L2" },
+      { execution_status: "SUCCEEDED", finality_status: "RECEIVED" },
+    ]) {
+      let called = false;
+      const res = await creditFromTransaction(
+        "0xabc",
+        deps({ creditAccount: async () => { called = true; } }),
+        async () => ({ ...receipt, events: [strkTransfer] }),
+      );
+      expect(res.credited).toBe(0);
+      expect(called).toBe(false);
+    }
+  });
+
+  test("a succeeded, finalized transaction is credited", async () => {
+    let called = false;
+    const res = await creditFromTransaction(
+      "0xabc",
+      deps({ creditAccount: async () => { called = true; } }),
+      async () => ({ execution_status: "SUCCEEDED", finality_status: "ACCEPTED_ON_L2", events: [strkTransfer] }),
+    );
+    expect(res.credited).toBe(1);
+    expect(called).toBe(true);
+  });
+
   test("a transaction that sent nothing to the treasury credits nothing", async () => {
     let called = false;
     const res = await creditFromTransaction(

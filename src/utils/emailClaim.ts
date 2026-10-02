@@ -1,6 +1,6 @@
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
-import { IDENTITY_SCHEME } from "./identity.js";
+import { IDENTITY_SCHEME, emailValues } from "./identity.js";
 
 const log = createLogger("utils:email-claim");
 
@@ -18,8 +18,12 @@ export function claimOutcome(identity: ClaimableIdentity | null): "none" | "own"
 }
 
 export async function releaseAbandonedEmail(email: string, clientId: string): Promise<boolean> {
-  const identity = await prisma.identity.findUnique({
-    where: { clientId_scheme_value: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+  const identity = await prisma.identity.findFirst({
+    where: {
+      clientId,
+      scheme: IDENTITY_SCHEME.EMAIL,
+      value: { in: emailValues(email) },
+    },
     select: {
       id: true,
       accountId: true,

@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
@@ -46,6 +47,8 @@ import { rewards } from "./routes/rewards.js";
 import sponsorship from "./routes/sponsorship.js";
 import { x402Discovery } from "./routes/x402.js";
 
+const tooLarge = (c: Context) => c.json({ error: "Payload too large" }, 413);
+
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -56,6 +59,15 @@ export function createApp(): Hono<AppEnv> {
   app.route("/health", health);
 
   app.route("/", x402Discovery);
+
+  app.use("/v1/metadata/upload-file", bodyLimit({ maxSize: 11 * 1024 * 1024, onError: tooLarge }));
+  app.use("/v1/metadata/upload-directory", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: tooLarge }));
+  app.use("/v1/metadata/upload", bodyLimit({ maxSize: 512 * 1024, onError: tooLarge }));
+
+  app.use("/v1/*", async (c, next) => {
+    if (c.req.path.startsWith("/v1/metadata/upload")) return next();
+    return bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge })(c, next);
+  });
 
   app.use("/v1/*", apiKeyGate);
 

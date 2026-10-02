@@ -4,7 +4,8 @@ import type { AppEnv } from "../../types/hono.js";
 
 export const requestIdMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
 
-  const id = (c.req.header("x-request-id") ?? randomUUID()) as string;
+  const supplied = c.req.header("x-request-id");
+  const id = supplied && /^[\w.-]{1,128}$/.test(supplied) ? supplied : randomUUID();
   c.set("requestId", id);
   c.header("X-Request-Id", id);
   await next();

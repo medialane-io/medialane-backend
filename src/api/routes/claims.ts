@@ -162,6 +162,15 @@ claims.post(
       return c.json({ verified: false, reason: "signature_verification_failed" });
     }
 
+    try {
+      const onChainOwner = await getCollectionOwner(chain, normContract);
+      if (onChainOwner === normalizeAddress(chain, "0x0") || onChainOwner !== normWallet) {
+        return c.json({ verified: false, reason: "owner_mismatch" });
+      }
+    } catch {
+      return c.json({ verified: false, reason: "owner_check_failed" });
+    }
+
     await prisma.claimChallenge.delete({ where: { challenge } });
 
     const existingCollection = await prisma.collection.findUnique({

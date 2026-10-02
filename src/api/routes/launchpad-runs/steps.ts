@@ -175,12 +175,16 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
       if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
       if (!step.open(loaded.active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
 
+      const calls = await prepare(c, step, loaded.active, index, body.data.userAddress);
+      if (calls instanceof Response) return calls;
+
       return executeStep(ctx, c, {
         runId: loaded.active.run.id,
         apiClientId: loaded.active.apiClientId,
         path: step.path(index),
         credits: await step.credits(loaded.active, index),
         label: step.label,
+        calls,
         ...body.data,
       });
     });

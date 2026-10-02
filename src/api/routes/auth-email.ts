@@ -8,7 +8,7 @@ import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { createLogger } from "../../utils/logger.js";
-import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
+import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerClientId } from "../../utils/caller.js";
 
@@ -30,8 +30,8 @@ interface StoredCode {
 export interface AuthEmailDeps {
   findLatestCode: (email: string) => Promise<StoredCode | null>;
   createCode: (email: string, codeHash: string, expiresAt: Date) => Promise<void>;
-  incrementAttempts: (id: string) => Promise<void>;
-  consumeCode: (id: string) => Promise<void>;
+  claimAttempt: (id: string) => Promise<boolean>;
+  consumeCode: (id: string) => Promise<boolean>;
   sendCode: (to: string, code: string, clientId: string | null) => Promise<void>;
   checkEmailExists: (email: string, clientId: string) => Promise<boolean>;
   createAccountWithEmail: (email: string, clientId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
@@ -83,6 +83,10 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       return c.json({ error: "Too many attempts — request a new code" }, 429);
     }
 
+    if (!(await deps.claimAttempt(stored.id))) {
+      return c.json({ error: "Too many attempts — request a new code" }, 429);
+    }
+
     const provided = hashCode(code);
     const expected = stored.codeHash;
     const matches =
@@ -90,11 +94,12 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       timingSafeEqual(Buffer.from(provided, "hex"), Buffer.from(expected, "hex"));
 
     if (!matches) {
-      await deps.incrementAttempts(stored.id);
       return c.json({ error: "Incorrect code" }, 400);
     }
 
-    await deps.consumeCode(stored.id);
+    if (!(await deps.consumeCode(stored.id))) {
+      return c.json({ error: "Invalid or expired code" }, 400);
+    }
 
     await deps.releaseAbandonedEmail(email, clientId);
 
@@ -134,20 +139,33 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
 const productionDeps: AuthEmailDeps = {
   findLatestCode: (email) =>
-    prisma.emailVerificationCode.findFirst({ where: { email }, orderBy: { createdAt: "desc" } }),
+    prisma.emailVerificationCode.findFirst({
+      where: { email: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email) },
+      orderBy: { createdAt: "desc" },
+    }),
   createCode: async (email, codeHash, expiresAt) => {
-    await prisma.emailVerificationCode.create({ data: { email, codeHash, expiresAt } });
+    await prisma.emailVerificationCode.create({
+      data: { email: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), codeHash, expiresAt },
+    });
   },
-  incrementAttempts: async (id) => {
-    await prisma.emailVerificationCode.update({ where: { id }, data: { attempts: { increment: 1 } } });
+  claimAttempt: async (id) => {
+    const { count } = await prisma.emailVerificationCode.updateMany({
+      where: { id, attempts: { lt: MAX_ATTEMPTS }, consumedAt: null },
+      data: { attempts: { increment: 1 } },
+    });
+    return count === 1;
   },
   consumeCode: async (id) => {
-    await prisma.emailVerificationCode.update({ where: { id }, data: { consumedAt: new Date() } });
+    const { count } = await prisma.emailVerificationCode.updateMany({
+      where: { id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    return count === 1;
   },
   sendCode: sendVerificationCode,
   checkEmailExists: async (email, clientId) => {
-    const identity = await prisma.identity.findUnique({
-      where: { clientId_scheme_value: { clientId: clientId, scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+    const identity = await prisma.identity.findFirst({
+      where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
       select: { id: true },
     });
     return identity !== null;
@@ -158,7 +176,10 @@ const productionDeps: AuthEmailDeps = {
     return { accountId, alreadyExisted: !created };
   },
   activateAccount: async (accountId) => {
-    await prisma.account.updateMany({ where: { id: accountId, status: "PENDING" }, data: { status: "ACTIVE" } });
+    await prisma.account.updateMany({
+      where: { id: accountId, status: "PENDING" },
+      data: { status: "ACTIVE", sessionsValidFrom: new Date() },
+    });
   },
   releaseAbandonedEmail,
   createVerifiedAccount: async (email, clientId) => {
@@ -173,7 +194,7 @@ const productionDeps: AuthEmailDeps = {
     await prisma.identity.updateMany({
       where: {
         scheme: IDENTITY_SCHEME.EMAIL,
-        value: { in: [email, normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email)] },
+        value: { in: emailValues(email) },
         clientId: clientId,
         verifiedAt: null,
       },
@@ -181,8 +202,8 @@ const productionDeps: AuthEmailDeps = {
     });
   },
   findAccountIdByEmail: async (email, clientId) => {
-    const identity = await prisma.identity.findUnique({
-      where: { clientId_scheme_value: { clientId: clientId, scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+    const identity = await prisma.identity.findFirst({
+      where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
       select: { accountId: true },
     });
     return identity?.accountId ?? null;
