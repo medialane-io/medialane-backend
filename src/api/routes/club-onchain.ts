@@ -40,10 +40,6 @@ export function parseMembershipResult(raw: {
   };
 }
 
-/**
- * Membership tiers are numbered 1..n with no gaps, and the contract has no count, so find n by doubling
- * until a tier is missing, then halving between the last hit and the miss.
- */
 export async function countMemberships(exists: (id: number) => Promise<boolean>): Promise<number> {
   const has = (id: number) => exists(id).catch(() => false);
   if (!(await has(1))) return 0;
@@ -64,7 +60,6 @@ export async function countMemberships(exists: (id: number) => Promise<boolean>)
 
 const club = new Hono<AppEnv>();
 
-// Not cached: apps read the count to pick the next tier id right before creating it.
 club.get("/:contract/count", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const col = new Contract({ abi: IPClubCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });

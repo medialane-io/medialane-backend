@@ -93,7 +93,6 @@ export async function executeSponsoredDeploy(
   return txHashOf(result);
 }
 
-/** Sponsored transaction signed by a key the backend holds. */
 export async function executeOwnSponsoredInvoke(
   input: { userAddress: string; calls: Call[]; sign: (typedData: unknown) => string[] },
   clientFactory: () => PaymasterClient = defaultClient,
@@ -168,7 +167,6 @@ export type DeploymentBuildOutcome =
   | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
   | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string } };
 
-/** Builds the sponsored deployment of a Media Wallet owned by the given key, without charging anyone. */
 export async function buildDeployment(
   deps: { clientFactory: () => PaymasterClient },
   body: { ownerPubkey: string; ownerAddress: string; salt?: string },

@@ -8,7 +8,6 @@ export interface IpTicketingProgress {
   artwork?: Pinned;
   tokenUri?: Pinned;
   tier?: { tx?: StepState; ticketId?: string };
-  /** Guest email to the wallet address it resolves to, or a reservation while that wallet is being deployed. */
   wallets: Record<string, Pinned>;
   batches: Record<string, StepState>;
 }

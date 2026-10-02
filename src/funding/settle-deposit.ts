@@ -15,10 +15,6 @@ export interface SettledDeposit {
   apiClientId: string;
 }
 
-/**
- * Settles the oldest open top-up of the paying wallet with a scanned treasury deposit, crediting what
- * the deposit is worth. A deposit that matches no top-up returns null and is left to the caller.
- */
 export function intentSettler(deps: IntentSettlerDeps) {
   return async (deposit: DepositEvent, nonce: string): Promise<SettledDeposit | null> => {
     const open = await deps.store.openForPayer(deposit.payer, new Date());
@@ -42,7 +38,6 @@ export function intentSettler(deps: IntentSettlerDeps) {
       return result.ok ? { paymentId: result.paymentId, apiClientId: candidate.apiClientId } : null;
     }
 
-    // Retry the scan rather than let a deposit we could not price be credited by the legacy path.
     if (unpriced) throw new Error("No USD price to value a treasury deposit, retrying rather than crediting wrongly");
     return null;
   };

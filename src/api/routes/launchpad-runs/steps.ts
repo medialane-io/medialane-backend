@@ -60,13 +60,6 @@ const indexed = (route: string) => route.includes(":index");
 
 const EXTRA_ROUTE_METHODS = ["get", "post", "put", "patch", "delete"] as const;
 
-/**
- * Every service's `extra()` registers its own routes directly onto one shared Hono app, with no
- * per-service path prefix — Hono matches a method+path to whichever handler was registered first,
- * so two services registering the same path (e.g. both calling `app.post("/metadata", ...)`)
- * silently shadow one another instead of erroring. This wrapper fails fast at startup instead,
- * before any request can hit the shadowed handler.
- */
 function guardAgainstRouteCollisions(app: Hono<AppEnv>, service: AnyService, claimed: Map<string, string>): Hono<AppEnv> {
   const guarded = Object.create(app) as Hono<AppEnv>;
   for (const method of EXTRA_ROUTE_METHODS) {

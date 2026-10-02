@@ -20,7 +20,6 @@ export interface StoredRun {
   updatedAt: Date;
 }
 
-/** A reserved step older than this, with no transaction behind it, is taken to have been abandoned. */
 export const STALE_PENDING_MS = 10 * 60 * 1000;
 
 export type CheckoutOutcome = "paid" | "insufficient" | "not-draft";
@@ -50,7 +49,6 @@ export interface RunStore {
     retryReverted?: boolean;
   }): Promise<boolean>;
   record(id: string, apiClientId: string, path: string[], value: unknown): Promise<void>;
-  /** Releases reserved steps older than `olderThanMs` that never reached the chain; returns how many were released. */
   sweepStale(input: { id: string; apiClientId: string; paths: string[][]; olderThanMs: number }): Promise<number>;
   release(input: { id: string; apiClientId: string; credits: number; path: string[] }): Promise<void>;
   ownsWallet(accountId: string, address: string): Promise<boolean>;

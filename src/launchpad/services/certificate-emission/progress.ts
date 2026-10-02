@@ -7,7 +7,6 @@ export interface CertificateEmissionProgress {
   collection?: { baseUri?: string; tx?: StepState; address?: string };
   artwork?: Pinned;
   tokenUri?: Pinned;
-  /** Guest email to the wallet address it resolves to, or a reservation while that wallet is being deployed. */
   wallets: Record<string, Pinned>;
   batches: Record<string, StepState>;
 }

@@ -97,7 +97,6 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
 
     if (await deps.store.cancel(intent.id, intent.apiClientId)) return c.json({ data: { status: "EXPIRED" } });
 
-    // Someone else closed it first. Report what it is now; a settlement that won the race is a conflict.
     const now = await deps.store.get(intent.id, intent.apiClientId);
     if (now?.status === "SETTLED") return c.json({ error: "This top-up is already paid" }, 409);
     return c.json({ data: { status: now?.status ?? "EXPIRED" } });

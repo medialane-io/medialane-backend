@@ -106,8 +106,6 @@ export const prismaFundingStore: FundingStore = {
         return { outcome: "settled", paymentId: payment.id } as const;
       });
     } catch (err) {
-      // The transfer was already credited (proofNonce is unique): the whole transaction rolls back,
-      // so the intent stays PENDING and nothing is counted twice.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         return { outcome: "duplicate" };
       }

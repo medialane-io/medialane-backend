@@ -2,11 +2,6 @@ import { x402Config } from "../config/x402.js";
 import type { FundingIntentRecord, FundingStore, VerifiedPayment } from "./types.js";
 
 export const INTENT_TTL_MS = 24 * 60 * 60 * 1000;
-/**
- * How long after its authorization deadline an authorized intent can still match a transfer.
- * Bounded so an abandoned intent cannot capture a transfer the payer makes months later
- * for something else.
- */
 export const PAYMENT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class FundingError extends Error {
@@ -40,11 +35,6 @@ export type SettleResult =
   | { ok: true; credited: number; paymentId: string }
   | { ok: false; reason: "not-open" | "duplicate" };
 
-/**
- * Credits the intent's account for a verified payment. A payment made before an intent's
- * window closed is still credited afterwards: the money is real, so expiry only limits
- * how long an intent can be authorized, never whether a made transfer counts.
- */
 export async function settleIntent(
   deps: SettleDeps,
   intent: FundingIntentRecord,

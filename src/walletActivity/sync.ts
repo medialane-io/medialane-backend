@@ -139,9 +139,6 @@ const productionDeps: SyncDeps = {
   },
   notifyGuardianEvent: async (chain, accountAddress, type) => {
     try {
-      // A trigger can be cancelled or can complete before we get here; skip if it's no
-      // longer live rather than send a stale alert. SET and COMPLETE have no such
-      // "resolved" state to check against — once true, they stay true.
       const readyAt = type === "GUARDIAN_TRIGGER_ESCAPE" ? await getEscapeReadyAt(chain, accountAddress) : null;
       if (type === "GUARDIAN_TRIGGER_ESCAPE" && !readyAt) return;
 

@@ -42,7 +42,6 @@ export interface ExecutionDeps {
   registry(): string;
 }
 
-/** The payment id of the caller's own settled funding intent, or null when there is none. */
 export type IntentPayment = (intentId: string, apiClientId: string) => Promise<string | null>;
 
 export interface RunRouteDeps {

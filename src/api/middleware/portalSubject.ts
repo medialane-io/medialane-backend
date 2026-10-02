@@ -44,11 +44,6 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   });
 
   if (!wallet || !wallet.account.apiClient) {
-    // The token already proves wallet ownership, so a first-time portal
-    // visitor (no wallet row yet) or an account still missing its
-    // ApiClient (credit wallet) is provisioned here rather than 404ing
-    // and relying on a client-side registration call that may never
-    // fire before this request.
     await ensureAccountForWallet({ chain: identity.chain, address, clientId });
     wallet = await prisma.identity.findUnique({
       where: { clientId_chain_address: { clientId, chain: identity.chain, address } },

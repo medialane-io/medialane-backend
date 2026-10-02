@@ -15,9 +15,7 @@ import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningK
 import { bill } from "../../payments/usage.js";
 
 export interface BusinessProvisioningDeps {
-  /** The account with this email, and its wallet if it has one. */
   findIoAccount: (email: string) => Promise<{ accountId: string; walletAddress: string | null } | null>;
-  /** Creates the account for this email. */
   createIoAccount: (email: string) => Promise<string>;
   keyFor: (accountId: string) => ProvisioningKey;
   isDeployed: (walletAddress: string) => Promise<boolean>;
@@ -38,7 +36,6 @@ export type RegisterResult =
   | { status: 200 | 201; walletAddress: string; reused: boolean }
   | { status: 502; message: string };
 
-/** Returns the email's account wallet, deploying one if the account has none. */
 export async function registerProvisioning(deps: BusinessProvisioningDeps, input: RegisterInput): Promise<RegisterResult> {
   const { chain } = input;
   const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, input.email);

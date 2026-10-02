@@ -11,7 +11,6 @@ export interface FundingIntentRecord {
 }
 
 export interface VerifiedPayment {
-  /** What the payment is worth in USDC atomic units (6 decimals). The method computes it from the chain. */
   valueUsdcAtomic: bigint;
   asset: string;
   payer?: string;

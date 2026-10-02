@@ -9,7 +9,6 @@ export interface RecipientWallet {
   walletAddress: string | null;
 }
 
-/** The wallet of the io account with each email; `null` for an email with no account or no wallet. */
 export async function resolveRecipientWallets(chain: Chain, emails: string[]): Promise<RecipientWallet[]> {
   if (emails.length === 0) return [];
   const identities = await prisma.identity.findMany({

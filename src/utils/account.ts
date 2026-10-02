@@ -13,7 +13,6 @@ async function ensureApiClient(accountId: string): Promise<void> {
 
 const WALLET_ORDER = [{ isPrimary: "desc" as const }, { createdAt: "asc" as const }];
 
-/** The wallet an account uses: its primary wallet, else its oldest. */
 export async function accountWallet(accountId: string, chain: Chain = "STARKNET"): Promise<string | null> {
   const wallet = await prisma.identity.findFirst({
     where: { accountId, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
@@ -23,7 +22,6 @@ export async function accountWallet(accountId: string, chain: Chain = "STARKNET"
   return wallet?.address ?? null;
 }
 
-/** The wallet each of these accounts uses, by account id. */
 export async function accountWallets(accountIds: string[], chain: Chain = "STARKNET"): Promise<Map<string, string>> {
   const wallets = await prisma.identity.findMany({
     where: { accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },

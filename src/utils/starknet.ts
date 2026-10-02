@@ -16,7 +16,6 @@ export function createProvider(): RpcProvider {
 
 const CONTRACT_NOT_FOUND = 20;
 
-/** Whether an RPC error says no contract is deployed at the address; any other error is a failed read. */
 export function isContractNotFound(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === CONTRACT_NOT_FOUND;
 }

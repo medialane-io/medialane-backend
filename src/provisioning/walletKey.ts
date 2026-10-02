@@ -16,7 +16,6 @@ export interface OwnerAliveProof {
 export interface WalletKeyDeps {
   emailVerified(accountId: string): Promise<boolean>;
   walletOf(accountId: string): Promise<string | null>;
-  /** The wallet's owner guids, read on-chain. */
   ownerGuidsOf(walletAddress: string): Promise<string[]>;
   keyFor(accountId: string): ProvisioningKey;
   execute(input: { walletAddress: string; calls: Call[]; privateKey: string }): Promise<string>;
@@ -31,7 +30,6 @@ const sameFelt = (a: string, b: string) => BigInt(a) === BigInt(b);
 
 const ownsWallet = (owners: string[], pubkey: string) => owners.some((g) => sameFelt(g, computeOwnerGuid(pubkey)));
 
-/** Whether the backend key still owns the wallet, read on-chain. */
 export async function needsKeySetup(
   deps: Pick<WalletKeyDeps, "ownerGuidsOf" | "keyFor">,
   accountId: string,
@@ -46,7 +44,6 @@ export async function needsKeySetup(
   return ownsWallet(await deps.ownerGuidsOf(walletAddress), key.publicKey);
 }
 
-/** Makes the passkey the only owner of the account's wallet. */
 export async function setupWalletKey(
   deps: WalletKeyDeps,
   accountId: string,
