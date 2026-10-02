@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { certificateEmission } from "./definition.js";
-import { batchGuests, nextStep, readProgress } from "./progress.js";
+import { batchGuests, certificateMetadata, nextStep, readProgress } from "./progress.js";
 
 const base = {
   collection: { kind: "existing", collectionId: "1", contractAddress: "0x1" },
+  terms: {
+    licenseType: "CC BY-SA", commercialUse: "Yes", derivatives: "Share-Alike",
+    attribution: "Required", territory: "Worldwide", aiPolicy: "Not Allowed", royalty: 0,
+  },
   name: "Course completion",
   guests: ["a@x.com", "b@x.com"],
 };
@@ -49,5 +53,17 @@ describe("the next step of a Certificate Emission run", () => {
       batches: { "0": { status: "SUCCEEDED", txHash: "0x9" } },
     });
     expect(nextStep(spec, done)).toEqual({ kind: "done" });
+  });
+});
+
+describe("a certificate's metadata", () => {
+  test("carries the content-licensing terms, but never a royalty trait", () => {
+    const spec = parse();
+    const metadata = certificateMetadata(spec, progress(), "0xcreator");
+    const traitTypes = metadata.attributes.map((a) => a.trait_type);
+    expect(traitTypes).toContain("License");
+    expect(traitTypes).toContain("AI Policy");
+    expect(traitTypes).toContain("Territory");
+    expect(traitTypes).not.toContain("Royalty");
   });
 });

@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { GAS, MAX_RUN_ITEMS, batchSizes, type CostTable, type PlannedStep } from "../../steps.js";
-import { fileRef, collection, type RunServiceDefinition } from "../shared-spec.js";
+import { fileRef, collection, terms, type RunServiceDefinition } from "../shared-spec.js";
 import { nextStep, readProgress, runInFlight } from "./progress.js";
 
 const spec = z.object({
   collection,
+  terms,
   name: z.string().min(1).max(120),
   description: z.string().max(2000).default(""),
   artwork: fileRef.optional(),
