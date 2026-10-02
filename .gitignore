@@ -49,3 +49,4 @@ bun.lockb
 
 # Internal planning/spec documents must never be committed to a public repo.
 docs/
+.claude/worktrees/
