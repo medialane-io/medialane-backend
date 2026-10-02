@@ -210,17 +210,15 @@ users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
 const walletKeySchema = z.object({
   accountToken: z.string().min(1),
   newOwnerPubkey: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/),
-  signature: z.array(z.string()).length(2),
-  expiration: z.number().int().positive(),
 });
 
 users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
-  const { accountToken, newOwnerPubkey, signature, expiration } = c.req.valid("json");
+  const { accountToken, newOwnerPubkey } = c.req.valid("json");
   const accountId = verifyAccountSessionToken(accountToken);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
-  const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey, { signature, expiration });
+  const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey);
   if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
-  return c.json({ walletAddress: outcome.walletAddress });
+  return c.json({ walletAddress: outcome.walletAddress, removeOwnerGuid: outcome.removeOwnerGuid });
 });
 
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {

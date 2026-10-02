@@ -1,17 +1,12 @@
 import type { Call } from "starknet";
 import { typedData as starknetTypedData } from "starknet";
-import { buildChangeOwnersCall, computeOwnerGuid, getOwners, signWithPrivateKey } from "@medialane/sdk/starknet";
+import { buildAddOwnerCall, computeOwnerGuid, getOwners, signWithPrivateKey } from "@medialane/sdk/starknet";
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { accountWallet } from "../utils/account.js";
 import { createProvider } from "../utils/starknet.js";
 import { provisioningKey, type ProvisioningKey } from "../utils/provisioningKey.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
-
-export interface OwnerAliveProof {
-  signature: string[];
-  expiration: number;
-}
 
 export interface WalletKeyDeps {
   emailVerified(accountId: string): Promise<boolean>;
@@ -23,7 +18,7 @@ export interface WalletKeyDeps {
 }
 
 export type WalletKeyOutcome =
-  | { status: 200; walletAddress: string }
+  | { status: 200; walletAddress: string; removeOwnerGuid: string | null }
   | { status: 403 | 404 | 409 | 502; error: string };
 
 const sameFelt = (a: string, b: string) => BigInt(a) === BigInt(b);
@@ -48,39 +43,39 @@ export async function setupWalletKey(
   deps: WalletKeyDeps,
   accountId: string,
   newOwnerPubkey: string,
-  proof: OwnerAliveProof,
 ): Promise<WalletKeyOutcome> {
   if (!(await deps.emailVerified(accountId))) return { status: 403, error: "Verify your email first" };
 
   const walletAddress = await deps.walletOf(accountId);
   if (!walletAddress) return { status: 404, error: "This account has no wallet" };
 
-  const owners = await deps.ownerGuidsOf(walletAddress);
-  if (ownsWallet(owners, newOwnerPubkey)) return { status: 200, walletAddress };
-
   const key = deps.keyFor(accountId);
-  if (!ownsWallet(owners, key.publicKey)) {
-    return { status: 409, error: "This wallet is already set up with its owner's keys" };
-  }
+  const removeOwnerGuid = computeOwnerGuid(key.publicKey);
+  const owners = await deps.ownerGuidsOf(walletAddress);
 
-  const calls = [
-    buildChangeOwnersCall(walletAddress, key.publicKey, newOwnerPubkey, {
-      newOwnerPubkey,
-      signature: proof.signature,
-      expiration: proof.expiration,
-    }),
-  ];
+  if (!ownsWallet(owners, key.publicKey)) {
+    return ownsWallet(owners, newOwnerPubkey)
+      ? { status: 200, walletAddress, removeOwnerGuid: null }
+      : { status: 409, error: "This wallet is already set up with its owner's keys" };
+  }
+  if (ownsWallet(owners, newOwnerPubkey)) return { status: 200, walletAddress, removeOwnerGuid };
+
   try {
-    await deps.waitFor(await deps.execute({ walletAddress, calls, privateKey: key.privateKey }));
+    await deps.waitFor(
+      await deps.execute({
+        walletAddress,
+        calls: [buildAddOwnerCall(walletAddress, newOwnerPubkey)],
+        privateKey: key.privateKey,
+      }),
+    );
   } catch (err) {
     return { status: 502, error: err instanceof Error ? err.message : "The wallet key could not be set up" };
   }
 
-  const after = await deps.ownerGuidsOf(walletAddress);
-  if (after.length !== 1 || !ownsWallet(after, newOwnerPubkey)) {
+  if (!ownsWallet(await deps.ownerGuidsOf(walletAddress), newOwnerPubkey)) {
     return { status: 502, error: "The wallet key could not be set up" };
   }
-  return { status: 200, walletAddress };
+  return { status: 200, walletAddress, removeOwnerGuid };
 }
 
 export const productionWalletKeyDeps: WalletKeyDeps = {
