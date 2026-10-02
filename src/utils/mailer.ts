@@ -19,13 +19,25 @@ function createTransporter() {
 
 const from = (name: string = DEFAULT_FROM_NAME) => ({ name, address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
 
+const MAX_FROM_NAME_LENGTH = 40;
+
+export function sanitizeFromName(name: string | null | undefined): string {
+  const cleaned = (name ?? "")
+    .replace(/[^\p{L}\p{N} .&'’-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_FROM_NAME_LENGTH)
+    .trim();
+  return cleaned || DEFAULT_FROM_NAME;
+}
+
 export async function fromNameForClient(clientId: string | null): Promise<string> {
   if (!clientId) return DEFAULT_FROM_NAME;
   const client = await prisma.apiClient.findUnique({
     where: { id: clientId },
     select: { account: { select: { profile: { select: { name: true } } } } },
   });
-  return client?.account.profile?.name || DEFAULT_FROM_NAME;
+  return sanitizeFromName(client?.account.profile?.name);
 }
 
 const shortAddress = (address: string): string => `${address.slice(0, 6)}…${address.slice(-4)}`;

@@ -8,8 +8,8 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
 import { callerClientId } from "../../utils/caller.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
-import { verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
+import { currentAccountIdFromSession } from "../../utils/accountSession.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
@@ -104,7 +104,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   }
 
   const linkToAccountId = parsed.data.accountToken
-    ? (verifyAccountSessionToken(parsed.data.accountToken) ?? undefined)
+    ? ((await currentAccountIdFromSession(parsed.data.accountToken)) ?? undefined)
     : undefined;
 
   const { accountId } = await ensureAccountForWallet({
@@ -116,13 +116,11 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   });
 
   if (parsed.data.email) {
-    const existing = await prisma.identity.findUnique({
+    const existing = await prisma.identity.findFirst({
       where: {
-        clientId_scheme_value: {
-          clientId: clientId,
-          scheme: IDENTITY_SCHEME.EMAIL,
-          value: parsed.data.email,
-        },
+        clientId,
+        scheme: IDENTITY_SCHEME.EMAIL,
+        value: { in: emailValues(parsed.data.email) },
       },
       select: { id: true },
     });
@@ -131,7 +129,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
         data: {
           accountId,
           scheme: IDENTITY_SCHEME.EMAIL,
-          value: parsed.data.email,
+          value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.data.email),
           email: parsed.data.email,
           clientId: clientId,
           verifiedAt: null,
@@ -195,7 +193,7 @@ const accountWalletSchema = z.object({ accountToken: z.string().min(1) });
 
 users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
   const { accountToken } = c.req.valid("json");
-  const accountId = verifyAccountSessionToken(accountToken);
+  const accountId = await currentAccountIdFromSession(accountToken);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
 
   const walletAddress = await accountWallet(accountId);
@@ -214,7 +212,7 @@ const walletKeySchema = z.object({
 
 users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
   const { accountToken, newOwnerPubkey } = c.req.valid("json");
-  const accountId = verifyAccountSessionToken(accountToken);
+  const accountId = await currentAccountIdFromSession(accountToken);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
   const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey);
   if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
@@ -263,10 +261,8 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
   if (!identity) return c.json({ error: "User not found" }, 404);
   const accountId = identity.accountId;
 
-  const existingOwner = await prisma.identity.findUnique({
-    where: {
-      clientId_scheme_value: { clientId: clientId, scheme: IDENTITY_SCHEME.EMAIL, value: email },
-    },
+  const existingOwner = await prisma.identity.findFirst({
+    where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
     select: { accountId: true, verifiedAt: true },
   });
   const decision = canClaimEmail(accountId, existingOwner);
@@ -279,12 +275,12 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
 
   await prisma.$transaction([
     prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, clientId: clientId } }),
-    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: email, clientId: clientId } }),
+    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) }, clientId: clientId } }),
     prisma.identity.create({
       data: {
         accountId,
         scheme: IDENTITY_SCHEME.EMAIL,
-        value: email,
+        value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email),
         email,
         clientId: clientId,
         verifiedAt: null,

@@ -115,7 +115,8 @@ siws.post(
       return c.json({ error: "invalid_signature" }, 401);
     }
 
-    await prisma.siwsNonce.delete({ where: { nonce } });
+    const { count } = await prisma.siwsNonce.deleteMany({ where: { nonce } });
+    if (count === 0) return c.json({ error: "nonce_expired" }, 400);
 
     const token = issueToken(chain, wallet);
     const clientId = callerClientId(c);

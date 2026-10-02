@@ -3,13 +3,14 @@ import { normalizeAddress } from "@medialane/sdk";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
-import { accountSessionIssuedAt, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { accountSessionIssuedAt, isSessionCurrent, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { callerClientId } from "../../utils/caller.js";
 
 const accountSelect = {
   id: true,
   status: true,
+  sessionsValidFrom: true,
   apiClient: { select: { id: true, accountId: true, plan: true, creditBalance: true } },
 } as const;
 
@@ -25,6 +26,9 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: accountSelect });
     if (!account?.apiClient) return c.json({ error: "No account for this session" }, 404);
     if (account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
+    if (!isSessionCurrent(accountSessionIssuedAt(raw), account.sessionsValidFrom)) {
+      return c.json({ error: "Invalid or expired token" }, 401);
+    }
 
     c.set("subjectTokenIssuedAt", accountSessionIssuedAt(raw) ?? undefined);
     c.set("account", { id: account.id, status: account.status });

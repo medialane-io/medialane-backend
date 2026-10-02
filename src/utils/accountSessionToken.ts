@@ -12,6 +12,12 @@ export function verifyAccountSessionToken(raw: string): string | null {
   return verifyShared(env.SIWS_SECRET, raw);
 }
 
+export function isSessionCurrent(issuedAt: number | null, validFrom: Date | null): boolean {
+  if (!validFrom) return true;
+  if (issuedAt === null) return false;
+  return issuedAt >= Math.floor(validFrom.getTime() / 1000);
+}
+
 const ACCOUNT_SESSION_PREFIX = "account_session_";
 
 export function accountSessionIssuedAt(raw: string): number | null {
