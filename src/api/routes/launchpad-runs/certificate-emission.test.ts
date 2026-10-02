@@ -93,6 +93,10 @@ type World = ReturnType<typeof world>;
 
 const spec = {
   collection: { kind: "existing", collectionId: "1", contractAddress: GROUP },
+  terms: {
+    licenseType: "CC BY-SA", commercialUse: "Yes", derivatives: "Share-Alike",
+    attribution: "Required", territory: "Worldwide", aiPolicy: "Not Allowed", royalty: 0,
+  },
   name: "Course completion",
   artwork: { name: "a.png", size: 3, type: "image/png" },
   guests: ["ana@x.com", "bruno@x.com"],

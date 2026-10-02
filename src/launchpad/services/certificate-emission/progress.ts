@@ -58,6 +58,12 @@ export function certificateMetadata(spec: CertificateEmissionSpec, progress: Cer
     imageUri,
     creator,
     ipType: "Other",
+    licenseType: spec.terms.licenseType,
+    commercialUse: spec.terms.commercialUse,
+    derivatives: spec.terms.derivatives,
+    attribution: spec.terms.attribution,
+    geographicScope: spec.terms.territory,
+    aiPolicy: spec.terms.aiPolicy,
   });
 }
 
