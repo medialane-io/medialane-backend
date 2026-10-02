@@ -51,8 +51,8 @@ const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
   offerer: z.string().optional(),
-  minPrice: z.string().optional(),
-  maxPrice: z.string().optional(),
+  minPrice: z.string().regex(/^\d+$/).optional(),
+  maxPrice: z.string().regex(/^\d+$/).optional(),
 }).refine(
   (data) => {
     if (data.minPrice !== undefined && data.maxPrice !== undefined) {
@@ -199,7 +199,7 @@ orders.get("/received/:address", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const normalizedAddress = normalizeAddress(chain, address);
   const offset = (page - 1) * limit;
 

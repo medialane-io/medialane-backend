@@ -12,6 +12,7 @@ import {
   settleUnattributedPayment as defaultSettleUnattributed,
 } from "../../payments/credits.js";
 import { x402Config } from "../../config/x402.js";
+import { FINALIZED_STATUSES } from "../../payments/schemes/starknet.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import { parseDepositEvents, depositNonce, type DepositEvent } from "../../funding/deposits.js";
 import { intentSettler } from "../../funding/settle-deposit.js";
@@ -20,6 +21,12 @@ import { prismaFundingStore } from "../../funding/store.js";
 export { parseDepositEvents, depositNonce, type DepositEvent };
 
 const log = createLogger("mirror:treasury-deposit");
+
+interface DepositReceipt {
+  events?: RawStarknetEvent[];
+  execution_status?: string;
+  finality_status?: string;
+}
 
 export interface CreditedPayment {
   paymentId: string;
@@ -190,11 +197,13 @@ export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise
 export async function creditFromTransaction(
   txHash: string,
   deps: DepositDeps = productionDeps,
-  fetchReceipt: (hash: string) => Promise<{ events?: RawStarknetEvent[] }> = defaultFetchReceipt,
+  fetchReceipt: (hash: string) => Promise<DepositReceipt> = defaultFetchReceipt,
 ): Promise<{ credited: number; payments: CreditedPayment[] }> {
   if (!x402Config.treasury) return { credited: 0, payments: [] };
 
   const receipt = await fetchReceipt(normalizeHash(txHash));
+  if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") return { credited: 0, payments: [] };
+  if (receipt.finality_status && !FINALIZED_STATUSES.has(receipt.finality_status)) return { credited: 0, payments: [] };
   const deposits = parseDepositEvents(receipt.events ?? [], x402Config.treasury);
 
   let credited = 0;
@@ -207,9 +216,8 @@ export async function creditFromTransaction(
   return { credited, payments };
 }
 
-async function defaultFetchReceipt(hash: string): Promise<{ events?: RawStarknetEvent[] }> {
+async function defaultFetchReceipt(hash: string): Promise<DepositReceipt> {
   return callRpc((provider) =>
-    (provider as { getTransactionReceipt: (h: string) => Promise<{ events?: RawStarknetEvent[] }> })
-      .getTransactionReceipt(hash),
+    (provider as { getTransactionReceipt: (h: string) => Promise<DepositReceipt> }).getTransactionReceipt(hash),
   );
 }

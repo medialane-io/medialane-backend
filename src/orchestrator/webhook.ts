@@ -139,16 +139,32 @@ export async function startWebhookDeliveryLoop(): Promise<void> {
   }
 }
 
-async function drainPendingDeliveries(): Promise<void> {
-  const pending = await prisma.webhookDelivery.findMany({
-    where: {
-      isTerminal: false,
-      deliveredAt: null,
-      attemptCount: { lt: 5 },
-    },
-    take: 20,
-  });
-  for (const delivery of pending) {
-    await processDelivery(delivery.id);
+export interface DrainDeps {
+  findPending(): Promise<{ id: string }[]>;
+  process(deliveryId: string): Promise<void>;
+}
+
+const drainDeps: DrainDeps = {
+  findPending: () =>
+    prisma.webhookDelivery.findMany({
+      where: {
+        isTerminal: false,
+        deliveredAt: null,
+        attemptCount: { lt: MAX_DELIVERY_ATTEMPTS },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+      take: 20,
+    }),
+  process: processDelivery,
+};
+
+export async function drainPendingDeliveries(deps: DrainDeps = drainDeps): Promise<void> {
+  for (const delivery of await deps.findPending()) {
+    try {
+      await deps.process(delivery.id);
+    } catch (err) {
+      log.warn({ err, deliveryId: delivery.id }, "Webhook delivery failed — continuing with the rest");
+    }
   }
 }
