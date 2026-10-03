@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { sweepReminders, type NoticeStore, type ReminderCandidate, type SweepDeps } from "./sweep";
+import {
+  sweepReminders,
+  sweepWelcomes,
+  welcomeAccount,
+  type NoticeStore,
+  type ReminderCandidate,
+  type SweepDeps,
+  type WelcomeCandidate,
+} from "./sweep";
 import type { EmailMessage } from "../utils/mailer";
 
 const DAY = 86_400_000;
@@ -33,7 +41,7 @@ function memoryStore() {
   return { store, held };
 }
 
-function setup(candidates: ReminderCandidate[], overrides: Partial<SweepDeps> = {}) {
+function setup(candidates: ReminderCandidate[], overrides: Partial<SweepDeps> = {}, welcomes: WelcomeCandidate[] = []) {
   const sent: EmailMessage[] = [];
   const { store, held } = memoryStore();
   const limits: number[] = [];
@@ -43,6 +51,9 @@ function setup(candidates: ReminderCandidate[], overrides: Partial<SweepDeps> = 
       return candidates;
     },
     stillUnverified: async () => true,
+    findWelcomeCandidates: async () => welcomes,
+    loadWelcomeCandidate: async (id) => welcomes.find((w) => w.accountId === id) ?? null,
+    settingsUrl: "https://www.medialane.io/settings/recovery",
     store,
     send: async (message) => {
       sent.push(message);
@@ -131,5 +142,82 @@ describe("sending the verification reminder", () => {
     const { deps, limits } = setup([], { batchLimit: 50 });
     await sweepReminders(deps);
     expect(limits).toEqual([50]);
+  });
+});
+
+const WALLET = "0x01575d29b83d7828cd1d833ef785083b809adeb187b6ac14aab21db568f2bf02";
+const welcomeCandidate = (id: string, over: Partial<WelcomeCandidate["facts"]> = {}): WelcomeCandidate => ({
+  accountId: id,
+  email: `${id}@example.com`,
+  walletAddress: WALLET,
+  createdAt: new Date(NOW.getTime() - 0.01 * DAY),
+  facts: {
+    status: "PENDING",
+    createdAt: new Date(NOW.getTime() - 0.01 * DAY),
+    isIo: true,
+    hasEmail: true,
+    emailVerified: false,
+    hasWallet: true,
+    ...over,
+  },
+});
+
+describe("sending the welcome email", () => {
+  test("a first-try signup is welcomed with the confirm link and the deadline, and the wallet address", async () => {
+    const { deps, sent } = setup([], {}, [welcomeCandidate("a")]);
+    const result = await sweepWelcomes(deps);
+    expect(result).toMatchObject({ due: 1, sent: 1 });
+    expect(sent[0]!.to).toBe("a@example.com");
+    expect(sent[0]!.subject).toBe("Welcome to Medialane — confirm your email");
+    expect(sent[0]!.text).toContain("confirm-email?token=a.");
+    expect(sent[0]!.text).toContain(WALLET);
+    expect(sent[0]!.text).toContain("https://www.medialane.io/settings/recovery");
+  });
+
+  test("someone who came back with a code gets the plain welcome, with no confirm link", async () => {
+    const { deps, sent } = setup([], {}, [welcomeCandidate("b", { status: "ACTIVE", emailVerified: true })]);
+    await sweepWelcomes(deps);
+    expect(sent[0]!.subject).toBe("Welcome to Medialane");
+    expect(sent[0]!.text).not.toContain("confirm-email");
+    expect(sent[0]!.text).toContain(WALLET);
+  });
+
+  test("a provisioned account that has not signed in yet is not welcomed", async () => {
+    const { deps, sent } = setup([], {}, [welcomeCandidate("p", { status: "ACTIVE", emailVerified: false })]);
+    const result = await sweepWelcomes(deps);
+    expect(result).toMatchObject({ due: 0, sent: 0, skipped: 1 });
+    expect(sent).toHaveLength(0);
+  });
+
+  test("an account is welcomed once, however many sweeps or immediate sends happen", async () => {
+    const { deps, sent } = setup([], {}, [welcomeCandidate("a")]);
+    await sweepWelcomes(deps);
+    await sweepWelcomes(deps);
+    await welcomeAccount(deps, "a");
+    await Promise.all([welcomeAccount(deps, "a"), sweepWelcomes(deps)]);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("the immediate send for one account welcomes it right away", async () => {
+    const { deps, sent } = setup([], {}, [welcomeCandidate("a")]);
+    const result = await welcomeAccount(deps, "a");
+    expect(result).toMatchObject({ sent: 1 });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("the immediate send for an account that does not qualify, or does not exist, sends nothing", async () => {
+    const { deps, sent } = setup([], {}, [welcomeCandidate("closed", { status: "INACTIVE" })]);
+    expect(await welcomeAccount(deps, "closed")).toMatchObject({ sent: 0 });
+    expect(await welcomeAccount(deps, "nobody")).toMatchObject({ sent: 0, due: 0 });
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a failed send is released and the next sweep welcomes them (the outage retry)", async () => {
+    let up = false;
+    const { deps, sent } = setup([], { send: async (m) => (up ? (sent.push(m), true) : false) }, [welcomeCandidate("a")]);
+    expect(await sweepWelcomes(deps)).toMatchObject({ sent: 0, released: 1 });
+    up = true;
+    expect(await sweepWelcomes(deps)).toMatchObject({ sent: 1 });
+    expect(sent).toHaveLength(1);
   });
 });

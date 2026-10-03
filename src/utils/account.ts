@@ -89,7 +89,7 @@ export async function ensureAccountForWallet(params: {
   clientId: string;
   email?: string;
   linkToAccountId?: string;
-}): Promise<{ accountId: string; created: boolean; walletLinked: boolean }> {
+}): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
@@ -103,7 +103,7 @@ export async function ensureAccountForWallet(params: {
       await prisma.identity.update({ where: { id: existing.id }, data: { provider } });
     }
     await ensureApiClient(existing.accountId);
-    return { accountId: existing.accountId, created: false, walletLinked: false };
+    return { accountId: existing.accountId, created: false };
   }
 
   if (params.linkToAccountId) {
@@ -124,7 +124,7 @@ export async function ensureAccountForWallet(params: {
       },
     });
     await ensureApiClient(params.linkToAccountId);
-    return { accountId: params.linkToAccountId, created: false, walletLinked: true };
+    return { accountId: params.linkToAccountId, created: false };
   }
 
   const accountId = await prisma.$transaction(async (tx) => {
@@ -161,7 +161,7 @@ export async function ensureAccountForWallet(params: {
     return account.id;
   });
 
-  return { accountId, created: true, walletLinked: true };
+  return { accountId, created: true };
 }
 
 export async function ensureAccountForIdentity(

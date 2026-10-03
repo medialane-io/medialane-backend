@@ -14,7 +14,8 @@ import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
-import { sendWelcomeIfDue, productionWelcomeDeps } from "../../utils/welcome.js";
+import { welcomeAccount } from "../../notices/sweep.js";
+import { productionSweepDeps } from "../../notices/prismaDeps.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
 
 const log = createLogger("routes:users");
@@ -108,7 +109,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     ? ((await currentAccountIdFromSession(parsed.data.accountToken)) ?? undefined)
     : undefined;
 
-  const { accountId, walletLinked } = await ensureAccountForWallet({
+  const { accountId } = await ensureAccountForWallet({
     chain,
     address: walletAddress,
     provider,
@@ -143,7 +144,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
 
   }
 
-  sendWelcomeIfDue(productionWelcomeDeps(), { accountId, clientId, walletAddress, walletLinked }).catch((err: unknown) => {
+  welcomeAccount(productionSweepDeps(), accountId).catch((err: unknown) => {
     log.error({ err, accountId }, "Failed to send the welcome email");
   });
 
