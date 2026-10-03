@@ -44,7 +44,7 @@ export async function sendWelcomeIfDue(
 
   const email = buildWelcomeEmail({
     walletAddress: input.walletAddress,
-    settingsUrl: `${deps.appUrl}/settings`,
+    settingsUrl: `${deps.appUrl}/settings/recovery`,
     confirm,
   });
   return deps.send({ to: account.email, ...email });

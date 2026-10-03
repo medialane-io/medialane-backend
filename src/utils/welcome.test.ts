@@ -46,6 +46,13 @@ test("the confirm link covers exactly that account and email, until the deadline
   expect(claims?.expiresAt.getTime()).toBe(verificationDeadline(NOW).getTime());
 });
 
+test("the email sends the user to the recovery settings page to secure the account", async () => {
+  const { deps, sent, input } = setup();
+  await sendWelcomeIfDue(deps, input);
+  expect(sent[0]!.text).toContain("https://www.medialane.io/settings/recovery");
+  expect(sent[0]!.html).toContain('href="https://www.medialane.io/settings/recovery"');
+});
+
 test("finishing onboarding after coming back with a code still welcomes the user, without a confirm link", async () => {
   const { deps, sent, input } = setup(cameBackWithCode);
   expect(await sendWelcomeIfDue(deps, input)).toBe(true);
