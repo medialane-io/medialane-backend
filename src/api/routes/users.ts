@@ -14,6 +14,7 @@ import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
+import { emailDeadlineFor } from "../../utils/emailDeadline.js";
 import { sendWelcomeIfDue, productionWelcomeDeps } from "../../utils/welcome.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
 
@@ -228,16 +229,23 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const identity = await prisma.identity.findUnique({
     where: { clientId_chain_address: { clientId: callerClientId(c) ?? "", chain: "STARKNET", address: walletAddress } },
-    select: { address: true, accountId: true, account: { select: { publicId: true } } },
+    select: { address: true, accountId: true, account: { select: { publicId: true, status: true, createdAt: true } } },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);
   const emailIdentity = await getCurrentEmailIdentity(identity.accountId);
+  const emailDeadline = emailDeadlineFor({
+    status: identity.account.status,
+    createdAt: identity.account.createdAt,
+    hasEmail: emailIdentity !== null,
+    emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
+  });
   return c.json({
     walletAddress: identity.address,
     accountId: identity.accountId,
     publicId: identity.account.publicId,
     email: emailIdentity?.email ?? null,
     emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
+    emailDeadline: emailDeadline?.toISOString() ?? null,
   });
 });
 
