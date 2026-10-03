@@ -2,6 +2,8 @@ import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import { createAuthEmailRoutes, type AuthEmailDeps } from "./auth-email";
 import type { AppEnv } from "../../types/hono.js";
+import { env } from "../../config/env.js";
+import { issueConfirmToken } from "../../utils/emailConfirmToken.js";
 
 function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "client_IO") {
   const fullDeps: AuthEmailDeps = {
@@ -17,6 +19,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
     createVerifiedAccount: async () => "acc_NEW",
     markEmailVerified: async () => {},
     activateAccount: async () => {},
+    accountStatus: async () => "PENDING",
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -447,4 +450,73 @@ test("POST /verify-code lets a correct code sign in only once", async () => {
   const res = await verify(app);
   expect(res.status).toBe(400);
   expect(created).toBe(0);
+});
+
+const tokenFor = (over: Partial<{ accountId: string; email: string; expiresAt: Date }> = {}) =>
+  issueConfirmToken(env.SIWS_SECRET, {
+    accountId: "acc_TEST",
+    email: "alice@example.com",
+    expiresAt: new Date(Date.now() + 86_400_000),
+    ...over,
+  });
+
+const confirm = (app: ReturnType<typeof appWith>, token: string) =>
+  app.request("/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+
+test("POST /confirm with a good link verifies the email and activates the account, and signs no one in", async () => {
+  const calls: string[] = [];
+  const app = appWith({
+    findAccountIdByEmail: async () => "acc_TEST",
+    markEmailVerified: async (email) => void calls.push(`verified:${email}`),
+    activateAccount: async (id) => void calls.push(`activated:${id}`),
+  });
+  const res = await confirm(app, tokenFor());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true, email: "alice@example.com" });
+  expect(calls).toEqual(["verified:alice@example.com", "activated:acc_TEST"]);
+});
+
+test("POST /confirm twice is harmless", async () => {
+  const app = appWith({ findAccountIdByEmail: async () => "acc_TEST" });
+  const token = tokenFor();
+  expect((await confirm(app, token)).status).toBe(200);
+  expect((await confirm(app, token)).status).toBe(200);
+});
+
+test("POST /confirm refuses an expired link and changes nothing", async () => {
+  const calls: string[] = [];
+  const app = appWith({
+    findAccountIdByEmail: async () => "acc_TEST",
+    markEmailVerified: async () => void calls.push("verified"),
+  });
+  const res = await confirm(app, tokenFor({ expiresAt: new Date(Date.now() - 1000) }));
+  expect(res.status).toBe(400);
+  expect(((await res.json()) as { error: string }).error).toBe("invalid_or_expired");
+  expect(calls).toEqual([]);
+});
+
+test("POST /confirm refuses a link for an account that has already been closed", async () => {
+  const app = appWith({ findAccountIdByEmail: async () => "acc_TEST", accountStatus: async () => "INACTIVE" });
+  expect((await confirm(app, tokenFor())).status).toBe(400);
+});
+
+test("POST /confirm refuses a link whose email is no longer on the account", async () => {
+  const gone = appWith({ findAccountIdByEmail: async () => null });
+  expect((await confirm(gone, tokenFor())).status).toBe(400);
+  const other = appWith({ findAccountIdByEmail: async () => "acc_SOMEONE_ELSE" });
+  expect((await confirm(other, tokenFor())).status).toBe(400);
+});
+
+test("POST /confirm refuses a token that is not a confirm token", async () => {
+  const app = appWith({ findAccountIdByEmail: async () => "acc_TEST" });
+  expect((await confirm(app, "not-a-token")).status).toBe(400);
+});
+
+test("POST /confirm needs a client like the other email routes", async () => {
+  const app = appWith({}, null);
+  expect((await confirm(app, tokenFor())).status).toBe(400);
 });

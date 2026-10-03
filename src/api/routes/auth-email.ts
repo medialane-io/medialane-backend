@@ -7,6 +7,8 @@ import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
+import { verifyConfirmToken } from "../../utils/emailConfirmToken.js";
+import { verifyAndActivate } from "../../utils/confirmEmail.js";
 import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -40,6 +42,7 @@ export interface AuthEmailDeps {
   createVerifiedAccount: (email: string, clientId: string) => Promise<string>;
   markEmailVerified: (email: string, clientId: string) => Promise<void>;
   activateAccount: (accountId: string) => Promise<void>;
+  accountStatus: (accountId: string) => Promise<"PENDING" | "ACTIVE" | "INACTIVE" | null>;
 }
 
 const CODE_HASH_DOMAIN = "otp-code-v1";
@@ -52,6 +55,9 @@ const requestCodeSchema = z.object({ email: z.string().email() });
 const verifyCodeSchema = z.object({ email: z.string().email(), code: z.string().length(6) });
 const existsQuerySchema = z.object({ email: z.string().email() });
 const registerAccountSchema = z.object({ email: z.string().email() });
+const confirmSchema = z.object({ token: z.string().min(1).max(2048) });
+
+const INVALID_LINK = { error: "invalid_or_expired", message: "This link is invalid or has expired." } as const;
 
 
 
@@ -105,8 +111,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     let accountId = await deps.findAccountIdByEmail(email, clientId);
     if (accountId) {
-      await deps.markEmailVerified(email, clientId);
-      await deps.activateAccount(accountId);
+      await verifyAndActivate(deps, accountId, email, clientId);
     } else {
       accountId = await deps.createVerifiedAccount(email, clientId);
     }
@@ -132,6 +137,21 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
     }
     return c.json({ accountToken: issueAccountSessionToken(accountId) });
+  });
+
+  app.post("/confirm", zValidator("json", confirmSchema), async (c) => {
+    const clientId = callerClientId(c);
+    if (!clientId) return c.json(NO_CLIENT, 400);
+
+    const claims = verifyConfirmToken(env.SIWS_SECRET, c.req.valid("json").token);
+    if (!claims) return c.json(INVALID_LINK, 400);
+
+    const status = await deps.accountStatus(claims.accountId);
+    const owner = await deps.findAccountIdByEmail(claims.email, clientId);
+    if (!status || status === "INACTIVE" || owner !== claims.accountId) return c.json(INVALID_LINK, 400);
+
+    await verifyAndActivate(deps, claims.accountId, claims.email, clientId);
+    return c.json({ ok: true, email: claims.email });
   });
 
   return app;
@@ -180,6 +200,10 @@ const productionDeps: AuthEmailDeps = {
       where: { id: accountId, status: "PENDING" },
       data: { status: "ACTIVE", sessionsValidFrom: new Date() },
     });
+  },
+  accountStatus: async (accountId) => {
+    const account = await prisma.account.findUnique({ where: { id: accountId }, select: { status: true } });
+    return account?.status ?? null;
   },
   releaseAbandonedEmail,
   createVerifiedAccount: async (email, clientId) => {
