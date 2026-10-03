@@ -71,7 +71,7 @@ async function findReminderCandidates(now: Date, limit: number): Promise<Reminde
   });
 }
 
-export function productionSweepDeps(mode: "dry-run" | "live"): SweepDeps {
+export function productionSweepDeps(): SweepDeps {
   return {
     findReminderCandidates,
     stillUnverified: async (accountId) => {
@@ -87,7 +87,6 @@ export function productionSweepDeps(mode: "dry-run" | "live"): SweepDeps {
       return `${env.IO_APP_URL}/confirm-email?token=${encodeURIComponent(token)}`;
     },
     now: () => new Date(),
-    mode,
     batchLimit: 200,
   };
 }
