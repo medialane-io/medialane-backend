@@ -1,13 +1,3 @@
-/**
- * Replay a collection's historical Transfer events (replacement for the removed
- * admin POST /collections/:contract/backfill-transfers).
- *
- * Usage: bun run src/scripts/backfill-collection.ts <contractAddress> <fromBlock> [toBlock]
- *
- * Idempotent: already-indexed transfers hit the unique constraint and are skipped.
- * Tokens are left metadataStatus=PENDING; the worker re-queues them on startup
- * (recoverPendingWork), so no jobs are enqueued here.
- */
 import { num } from "starknet";
 import prisma from "../db/client.js";
 import { pollContractEvents, getLatestBlock } from "../mirror/poller.js";
@@ -15,6 +5,8 @@ import { parseEvents } from "../mirror/parser.js";
 import { dispatchTransfer } from "../mirror/handlers/transfer.js";
 import { TRANSFER_SELECTOR, TRANSFER_SINGLE_SELECTOR, TRANSFER_BATCH_SELECTOR } from "../config/constants.js";
 import { normalizeAddress } from "../utils/starknet.js";
+import { handleStatsUpdate } from "../orchestrator/stats.js";
+import { handleCollectionMetadataFetch } from "../orchestrator/collectionMetadata.js";
 
 const [address, from, to] = process.argv.slice(2);
 if (!address || !from) {
@@ -61,4 +53,19 @@ for (const event of events) {
 }
 
 console.log(`backfill done: rawEvents=${raw.length} applied=${applied} skipped=${skipped}`);
+
+const target = { chain: "STARKNET", contractAddress };
+for (const [label, run] of [
+  ["stats", () => handleStatsUpdate(target)],
+  ["collection metadata", () => handleCollectionMetadataFetch(target)],
+  ["stats", () => handleStatsUpdate(target)],
+] as const) {
+  try {
+    await run();
+    console.log(`backfill: ${label} ok`);
+  } catch (err) {
+    console.warn(`backfill: ${label} failed`, err);
+  }
+}
 await prisma.$disconnect();
+process.exit(0);
