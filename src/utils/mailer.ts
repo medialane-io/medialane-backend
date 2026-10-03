@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
+import { htmlToText } from "./emailText.js";
 import prisma from "../db/client.js";
 
 const log = createLogger("mailer");
@@ -59,14 +60,15 @@ function buildGuardianAlertEmailHtml(headline: string, bodyHtml: string): string
   `;
 }
 
-async function sendGuardianAlertEmail(to: string, subject: string, html: string, logLabel: string): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn(`SMTP not configured — skipping ${logLabel} email`); return; }
-  try {
-    await transporter.sendMail({ from: from(), to, subject, html });
-  } catch (err) {
-    log.error({ err }, `Failed to send ${logLabel} email`);
-  }
+async function sendGuardianAlertEmail(
+  to: string,
+  subject: string,
+  html: string,
+  logLabel: string,
+  send: (message: EmailMessage) => Promise<boolean>,
+): Promise<void> {
+  const delivered = await send({ to, subject, html, text: htmlToText(html) });
+  if (!delivered) log.warn(`Could not send the ${logLabel} email`);
 }
 
 export function buildGuardianEscapeTriggeredEmailHtml(walletAddress: string, readyAt: Date): string {
@@ -82,12 +84,18 @@ export function buildGuardianEscapeTriggeredEmailHtml(walletAddress: string, rea
   );
 }
 
-export async function sendGuardianEscapeTriggeredEmail(to: string, walletAddress: string, readyAt: Date): Promise<void> {
+export async function sendGuardianEscapeTriggeredEmail(
+  to: string,
+  walletAddress: string,
+  readyAt: Date,
+  send: (message: EmailMessage) => Promise<boolean> = sendEmail,
+): Promise<void> {
   await sendGuardianAlertEmail(
     to,
     "Security alert: a guardian started recovering your Medialane wallet",
     buildGuardianEscapeTriggeredEmailHtml(walletAddress, readyAt),
     "guardian escape alert",
+    send,
   );
 }
 
@@ -103,12 +111,17 @@ export function buildGuardianSetEmailHtml(walletAddress: string): string {
   );
 }
 
-export async function sendGuardianSetEmail(to: string, walletAddress: string): Promise<void> {
+export async function sendGuardianSetEmail(
+  to: string,
+  walletAddress: string,
+  send: (message: EmailMessage) => Promise<boolean> = sendEmail,
+): Promise<void> {
   await sendGuardianAlertEmail(
     to,
     "A guardian was added to your Medialane wallet",
     buildGuardianSetEmailHtml(walletAddress),
     "guardian added alert",
+    send,
   );
 }
 
@@ -124,12 +137,17 @@ export function buildGuardianEscapeCompletedEmailHtml(walletAddress: string): st
   );
 }
 
-export async function sendGuardianEscapeCompletedEmail(to: string, walletAddress: string): Promise<void> {
+export async function sendGuardianEscapeCompletedEmail(
+  to: string,
+  walletAddress: string,
+  send: (message: EmailMessage) => Promise<boolean> = sendEmail,
+): Promise<void> {
   await sendGuardianAlertEmail(
     to,
     "Security alert: your Medialane wallet's owner key was replaced",
     buildGuardianEscapeCompletedEmailHtml(walletAddress),
     "guardian escape completed alert",
+    send,
   );
 }
 
@@ -151,38 +169,31 @@ export function buildVerificationCodeEmailHtml(code: string): string {
   `;
 }
 
-async function sendViaRelay(to: string, code: string, fromName: string): Promise<boolean> {
-  if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
-  const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-verification-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
-    body: JSON.stringify({ to, code, fromName }),
-  });
-  if (!res.ok) throw new Error(`relay responded ${res.status}: ${await res.text().catch(() => "")}`);
-  return true;
+export function buildVerificationCodeEmail(code: string): { subject: string; html: string; text: string } {
+  const text = [
+    `Your verification code is ${code}.`,
+    "",
+    "This code expires in 10 minutes.",
+    "",
+    "If you didn't request this, you can safely ignore this email.",
+  ].join("\n");
+  return { subject: "Your verification code", html: buildVerificationCodeEmailHtml(code), text };
 }
 
-export async function sendVerificationCode(to: string, code: string, clientId: string | null = null): Promise<void> {
-  const fromName = await fromNameForClient(clientId);
+export interface VerificationMailDeps {
+  send: (message: EmailMessage) => Promise<boolean>;
+  fromNameFor: (clientId: string | null) => Promise<string>;
+}
 
-  try {
-    if (await sendViaRelay(to, code, fromName)) return;
-  } catch (err) {
-    log.error({ err }, "Mail relay failed sending verification code — falling back to direct SMTP");
-  }
-
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(fromName),
-      to,
-      subject: "Your verification code",
-      html: buildVerificationCodeEmailHtml(code),
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send verification code email");
-  }
+export async function sendVerificationCode(
+  to: string,
+  code: string,
+  clientId: string | null = null,
+  deps: VerificationMailDeps = { send: sendEmail, fromNameFor: fromNameForClient },
+): Promise<void> {
+  const fromName = await deps.fromNameFor(clientId);
+  const delivered = await deps.send({ to, fromName, ...buildVerificationCodeEmail(code) });
+  if (!delivered) log.warn("Could not send the verification code email");
 }
 
 export interface EmailMessage {
