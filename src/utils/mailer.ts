@@ -184,3 +184,52 @@ export async function sendVerificationCode(to: string, code: string, clientId: s
     log.error({ err }, "Failed to send verification code email");
   }
 }
+
+export interface EmailMessage {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  fromName?: string;
+}
+
+export type EmailChannel = (message: EmailMessage) => Promise<boolean>;
+
+const relayChannel: EmailChannel = async (message) => {
+  if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
+  const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
+    body: JSON.stringify({ ...message, fromName: message.fromName ?? DEFAULT_FROM_NAME }),
+  });
+  if (!res.ok) throw new Error(`relay responded ${res.status}: ${await res.text().catch(() => "")}`);
+  return true;
+};
+
+const smtpChannel: EmailChannel = async (message) => {
+  const transporter = createTransporter();
+  if (!transporter) return false;
+  await transporter.sendMail({
+    from: from(message.fromName),
+    to: message.to,
+    subject: message.subject,
+    html: message.html,
+    text: message.text,
+  });
+  return true;
+};
+
+export async function sendEmail(
+  message: EmailMessage,
+  channels: EmailChannel[] = [relayChannel, smtpChannel],
+): Promise<boolean> {
+  for (const channel of channels) {
+    try {
+      if (await channel(message)) return true;
+    } catch (err) {
+      log.error({ err }, "Email channel failed, trying the next one");
+    }
+  }
+  log.warn({ subject: message.subject }, "No email channel delivered the message");
+  return false;
+}

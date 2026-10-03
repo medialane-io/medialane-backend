@@ -5,6 +5,9 @@ import {
   buildGuardianSetEmailHtml,
   buildGuardianEscapeCompletedEmailHtml,
   sanitizeFromName,
+  sendEmail,
+  type EmailChannel,
+  type EmailMessage,
 } from "./mailer";
 
 test("sanitizeFromName keeps an ordinary brand name", () => {
@@ -60,4 +63,27 @@ test("buildGuardianEscapeCompletedEmailHtml shows a shortened address, not the f
 test("an email not tied to an app, like a guardian alert, is sent as Medialane", async () => {
   const { fromNameForClient } = await import("./mailer");
   expect(await fromNameForClient(null)).toBe("Medialane");
+});
+
+const message: EmailMessage = { to: "a@b.co", subject: "s", html: "<p>h</p>", text: "t" };
+const delivers: EmailChannel = async () => true;
+const notConfigured: EmailChannel = async () => false;
+const fails: EmailChannel = async () => { throw new Error("down"); };
+
+test("sendEmail stops at the first channel that delivers", async () => {
+  const seen: string[] = [];
+  const first: EmailChannel = async () => { seen.push("first"); return true; };
+  const second: EmailChannel = async () => { seen.push("second"); return true; };
+  expect(await sendEmail(message, [first, second])).toBe(true);
+  expect(seen).toEqual(["first"]);
+});
+
+test("sendEmail moves on when a channel is not configured or fails", async () => {
+  expect(await sendEmail(message, [notConfigured, delivers])).toBe(true);
+  expect(await sendEmail(message, [fails, delivers])).toBe(true);
+});
+
+test("sendEmail reports false, and does not throw, when nothing delivered", async () => {
+  expect(await sendEmail(message, [notConfigured, fails])).toBe(false);
+  expect(await sendEmail(message, [])).toBe(false);
 });
