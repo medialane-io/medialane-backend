@@ -178,7 +178,7 @@ export function productionSweepDeps(): SweepDeps {
     send: sendEmail,
     confirmUrl: (accountId, email, deadline) => {
       const token = issueConfirmToken(env.SIWS_SECRET, { accountId, email, expiresAt: deadline });
-      return `${env.IO_APP_URL}/confirm-email?token=${encodeURIComponent(token)}`;
+      return `${env.IO_APP_URL}/confirm-email#token=${encodeURIComponent(token)}`;
     },
     now: () => new Date(),
     batchLimit: 200,

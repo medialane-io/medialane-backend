@@ -60,7 +60,7 @@ function setup(candidates: ReminderCandidate[], overrides: Partial<SweepDeps> = 
       sent.push(message);
       return true;
     },
-    confirmUrl: (id, _email, deadline) => `https://www.medialane.io/confirm-email?token=${id}.${deadline.getTime()}`,
+    confirmUrl: (id, _email, deadline) => `https://www.medialane.io/confirm-email#token=${id}.${deadline.getTime()}`,
     now: () => NOW,
     batchLimit: 200,
     ...overrides,
@@ -75,7 +75,7 @@ describe("sending the verification reminder", () => {
     expect(result).toMatchObject({ due: 1, sent: 1, released: 0 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.to).toBe("a@example.com");
-    expect(sent[0]!.text).toContain("confirm-email?token=a.");
+    expect(sent[0]!.text).toContain("confirm-email#token=a.");
     expect(sent[0]!.subject).toContain("Confirm your email by");
   });
 
@@ -170,7 +170,7 @@ describe("sending the welcome email", () => {
     expect(result).toMatchObject({ due: 1, sent: 1 });
     expect(sent[0]!.to).toBe("a@example.com");
     expect(sent[0]!.subject).toBe("Welcome to Medialane — confirm your email");
-    expect(sent[0]!.text).toContain("confirm-email?token=a.");
+    expect(sent[0]!.text).toContain("confirm-email#token=a.");
     expect(sent[0]!.text).toContain(WALLET);
     expect(sent[0]!.text).toContain("https://www.medialane.io/settings/recovery");
   });

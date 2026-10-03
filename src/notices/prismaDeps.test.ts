@@ -24,8 +24,8 @@ describe("the confirm link in the notice emails", () => {
   test("opens for exactly that account and email, until the account's deadline", () => {
     const deadline = new Date("2026-10-10T12:00:00Z");
     const url = productionSweepDeps().confirmUrl("acc_1", "a@b.co", deadline);
-    expect(url.startsWith(`${env.IO_APP_URL}/confirm-email?token=`)).toBe(true);
-    const token = decodeURIComponent(url.split("token=")[1]!);
+    expect(url.startsWith(`${env.IO_APP_URL}/confirm-email#token=`)).toBe(true);
+    const token = decodeURIComponent(url.split("#token=")[1]!);
     const claims = verifyConfirmToken(env.SIWS_SECRET, token, new Date("2026-10-04T00:00:00Z"));
     expect(claims?.accountId).toBe("acc_1");
     expect(claims?.email).toBe("a@b.co");

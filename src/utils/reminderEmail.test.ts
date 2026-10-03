@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildReminderEmail } from "./reminderEmail";
 
 const input = {
-  confirmUrl: "https://www.medialane.io/confirm-email?token=abc.def&x=1",
+  confirmUrl: "https://www.medialane.io/confirm-email#token=abc.def&x=1",
   deadline: new Date("2026-10-10T12:00:00Z"),
 };
 

@@ -3,7 +3,7 @@ import { buildWelcomeEmail, formatDeadline } from "./welcomeEmail";
 
 const ADDRESS = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const confirm = {
-  url: "https://www.medialane.io/confirm-email?token=abc.def&x=1",
+  url: "https://www.medialane.io/confirm-email#token=abc.def&x=1",
   deadline: new Date("2026-10-10T12:00:00Z"),
 };
 const base = { walletAddress: ADDRESS, settingsUrl: "https://www.medialane.io/settings" };
