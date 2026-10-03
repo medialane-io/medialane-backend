@@ -40,7 +40,7 @@ function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
     ...client,
   };
   const app = new Hono<AppEnv>();
-  app.route("/", paymaster(() => stub));
+  app.route("/", paymaster(() => stub, (_c, next) => next()));
   return app;
 }
 
@@ -241,7 +241,7 @@ describe("sponsored calls are never refused for volume", () => {
       c.set("account", { id: "acct-app", status: "ACTIVE" } as never);
       await next();
     });
-    app.route("/", paymaster(() => stub));
+    app.route("/", paymaster(() => stub, (_c, next) => next()));
     for (let i = 0; i < 61; i++) {
       const res = await app.request("/invoke/build", {
         method: "POST",

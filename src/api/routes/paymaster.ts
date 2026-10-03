@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
+import { requireSession } from "../middleware/sessionGuard.js";
 import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
@@ -252,8 +253,12 @@ export async function buildDeployment(
   }
 }
 
-export default function paymaster(clientFactory: () => PaymasterClient = defaultClient): Hono<AppEnv> {
+export default function paymaster(
+  clientFactory: () => PaymasterClient = defaultClient,
+  guard: MiddlewareHandler<AppEnv> = requireSession,
+): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  app.use("*", guard);
 
   app.post("/invoke/build", async (c) => {
     const body = (await c.req.json().catch(() => null)) as

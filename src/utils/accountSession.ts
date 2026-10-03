@@ -4,7 +4,10 @@ import { accountSessionIssuedAt, isSessionCurrent, verifyAccountSessionToken } f
 export async function currentAccountIdFromSession(raw: string): Promise<string | null> {
   const accountId = verifyAccountSessionToken(raw);
   if (!accountId) return null;
-  const account = await prisma.account.findUnique({ where: { id: accountId }, select: { sessionsValidFrom: true } });
-  if (!account) return null;
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { status: true, sessionsValidFrom: true },
+  });
+  if (!account || account.status === "INACTIVE") return null;
   return isSessionCurrent(accountSessionIssuedAt(raw), account.sessionsValidFrom) ? accountId : null;
 }
