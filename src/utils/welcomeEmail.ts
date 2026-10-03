@@ -1,8 +1,7 @@
 export interface WelcomeEmailInput {
-  confirmUrl: string;
   walletAddress: string;
-  deadline: Date;
   settingsUrl: string;
+  confirm: { url: string; deadline: Date } | null;
 }
 
 const HIGHLIGHTS = [
@@ -22,17 +21,16 @@ export function formatDeadline(date: Date): string {
 }
 
 export function buildWelcomeEmail(input: WelcomeEmailInput): { subject: string; html: string; text: string } {
-  const deadline = formatDeadline(input.deadline);
-  const closing = `If you don't confirm by ${deadline}, your account will be closed and this email address will be released.`;
+  const closing = input.confirm
+    ? `If you don't confirm by ${formatDeadline(input.confirm.deadline)}, your account will be closed and this email address will be released.`
+    : "";
 
   const text = [
     "Welcome to Medialane.",
     "",
     "Medialane is where creators protect, mint and share their work.",
     "",
-    `Confirm your email: ${input.confirmUrl}`,
-    closing,
-    "",
+    ...(input.confirm ? [`Confirm your email: ${input.confirm.url}`, closing, ""] : []),
     "Your Medialane wallet address (yours to save and share):",
     input.walletAddress,
     "",
@@ -43,6 +41,13 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): { subject: string; 
     "If you didn't sign up, you can ignore this email. Medialane will never ask you for your recovery key.",
   ].join("\n");
 
+  const confirmBlock = input.confirm
+    ? `<div style="background:#f6f7f9;border-radius:16px;padding:24px;text-align:center;">
+        <a href="${esc(input.confirm.url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:10px;">Confirm my email</a>
+        <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">${esc(closing)}</p>
+      </div>`
+    : "";
+
   const html = `
     <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#111827;">
       <div style="text-align:center;padding-bottom:28px;">
@@ -50,10 +55,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): { subject: string; 
       </div>
       <h1 style="margin:0 0 8px;font-size:22px;">Welcome to Medialane</h1>
       <p style="margin:0 0 24px;font-size:15px;color:#4b5563;">Where creators protect, mint and share their work.</p>
-      <div style="background:#f6f7f9;border-radius:16px;padding:24px;text-align:center;">
-        <a href="${esc(input.confirmUrl)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:10px;">Confirm my email</a>
-        <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">${esc(closing)}</p>
-      </div>
+      ${confirmBlock}
       <p style="margin:28px 0 6px;font-size:14px;font-weight:600;">Your Medialane wallet address</p>
       <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Yours to save and share.</p>
       <p style="margin:0;padding:12px;background:#f6f7f9;border-radius:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;">${esc(input.walletAddress)}</p>
@@ -70,5 +72,6 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): { subject: string; 
     </div>
   `;
 
-  return { subject: "Welcome to Medialane — confirm your email", html, text };
+  const subject = input.confirm ? "Welcome to Medialane — confirm your email" : "Welcome to Medialane";
+  return { subject, html, text };
 }

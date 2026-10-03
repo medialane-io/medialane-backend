@@ -7,9 +7,12 @@ const SECRET = "s".repeat(40);
 const NOW = new Date("2026-10-03T12:00:00Z");
 const ADDRESS = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-const pending: WelcomeAccount = { status: "PENDING", createdAt: NOW, email: "alice@example.com", emailVerified: false };
+const firstTry: WelcomeAccount = {
+  status: "PENDING", createdAt: NOW, email: "alice@example.com", emailVerified: false, walletCount: 1,
+};
+const cameBackWithCode: WelcomeAccount = { ...firstTry, status: "ACTIVE", emailVerified: true };
 
-function setup(account: WelcomeAccount | null = pending, overrides: Partial<WelcomeDeps> = {}) {
+function setup(account: WelcomeAccount | null = firstTry, overrides: Partial<WelcomeDeps> = {}) {
   const sent: Array<{ to: string; subject: string; html: string; text: string }> = [];
   const deps: WelcomeDeps = {
     loadAccount: async () => account,
@@ -24,15 +27,16 @@ function setup(account: WelcomeAccount | null = pending, overrides: Partial<Welc
   return { deps, sent, input };
 }
 
-test("a newly linked wallet on a pending, unverified io account gets the welcome email once", async () => {
+test("finishing onboarding on the first try welcomes the user and asks them to confirm", async () => {
   const { deps, sent, input } = setup();
   expect(await sendWelcomeIfDue(deps, input)).toBe(true);
   expect(sent).toHaveLength(1);
   expect(sent[0]!.to).toBe("alice@example.com");
   expect(sent[0]!.text).toContain(ADDRESS);
+  expect(sent[0]!.text).toContain("confirm-email?token=");
 });
 
-test("the link in the email confirms exactly that account and email, until the deadline", async () => {
+test("the confirm link covers exactly that account and email, until the deadline", async () => {
   const { deps, sent, input } = setup();
   await sendWelcomeIfDue(deps, input);
   const url = sent[0]!.text.match(/https:\/\/www\.medialane\.io\/confirm-email\?token=(\S+)/)!;
@@ -40,6 +44,20 @@ test("the link in the email confirms exactly that account and email, until the d
   expect(claims?.accountId).toBe("acc_1");
   expect(claims?.email).toBe("alice@example.com");
   expect(claims?.expiresAt.getTime()).toBe(verificationDeadline(NOW).getTime());
+});
+
+test("finishing onboarding after coming back with a code still welcomes the user, without a confirm link", async () => {
+  const { deps, sent, input } = setup(cameBackWithCode);
+  expect(await sendWelcomeIfDue(deps, input)).toBe(true);
+  expect(sent[0]!.subject).toBe("Welcome to Medialane");
+  expect(sent[0]!.text).toContain(ADDRESS);
+  expect(sent[0]!.text).not.toContain("confirm-email");
+});
+
+test("an existing user linking a second wallet is not welcomed again", async () => {
+  const { deps, sent, input } = setup({ ...cameBackWithCode, walletCount: 2 });
+  expect(await sendWelcomeIfDue(deps, input)).toBe(false);
+  expect(sent).toHaveLength(0);
 });
 
 test("no email when the wallet was not newly linked", async () => {
@@ -51,32 +69,26 @@ test("no email when the wallet was not newly linked", async () => {
 test("no email for another client, or when no io client is configured", async () => {
   const a = setup();
   expect(await sendWelcomeIfDue(a.deps, { ...a.input, clientId: "client_OTHER" })).toBe(false);
-  const b = setup(pending, { ioClientId: "" });
+  const b = setup(firstTry, { ioClientId: "" });
   expect(await sendWelcomeIfDue(b.deps, { ...b.input, clientId: "" })).toBe(false);
   expect(a.sent.length + b.sent.length).toBe(0);
 });
 
-test("no email for an account that is active, verified, without an email, or missing", async () => {
-  for (const account of [
-    { ...pending, status: "ACTIVE" as const },
-    { ...pending, emailVerified: true },
-    { ...pending, email: null },
-    null,
-  ]) {
+test("no email for a closed account, one without an email, or a missing one", async () => {
+  for (const account of [{ ...firstTry, status: "INACTIVE" as const }, { ...firstTry, email: null }, null]) {
     const { deps, sent, input } = setup(account);
     expect(await sendWelcomeIfDue(deps, input)).toBe(false);
     expect(sent).toHaveLength(0);
   }
 });
 
-test("no email when the deadline has already passed", async () => {
-  const old = { ...pending, createdAt: new Date("2026-09-20T12:00:00Z") };
-  const { deps, sent, input } = setup(old);
+test("an unverified account past its deadline is not sent a link that is already dead", async () => {
+  const { deps, sent, input } = setup({ ...firstTry, createdAt: new Date("2026-09-20T12:00:00Z") });
   expect(await sendWelcomeIfDue(deps, input)).toBe(false);
   expect(sent).toHaveLength(0);
 });
 
 test("a send that fails is reported as false and does not throw", async () => {
-  const { deps, input } = setup(pending, { send: async () => false });
+  const { deps, input } = setup(firstTry, { send: async () => false });
   expect(await sendWelcomeIfDue(deps, input)).toBe(false);
 });
