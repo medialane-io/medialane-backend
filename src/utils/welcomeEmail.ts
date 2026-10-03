@@ -1,3 +1,5 @@
+import { emailLayout, escapeHtml as esc } from "./emailLayout.js";
+
 export interface WelcomeEmailInput {
   walletAddress: string;
   settingsUrl: string;
@@ -13,8 +15,6 @@ const HIGHLIGHTS = [
   "Take part in our airdrop campaign.",
 ];
 
-const esc = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export function formatDeadline(date: Date): string {
   return date.toLocaleDateString("en-GB", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" });
@@ -48,11 +48,8 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): { subject: string; 
       </div>`
     : "";
 
-  const html = `
-    <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#111827;">
-      <div style="text-align:center;padding-bottom:28px;">
-        <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
-      </div>
+  const html = emailLayout({
+    content: `
       <h1 style="margin:0 0 8px;font-size:22px;">Welcome to Medialane</h1>
       <p style="margin:0 0 24px;font-size:15px;color:#4b5563;">Where creators protect, mint and share their work.</p>
       ${confirmBlock}
@@ -66,11 +63,9 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): { subject: string; 
         <strong>Secure your account.</strong> Add a second device or a guardian in
         <a href="${esc(input.settingsUrl)}" style="color:#111827;">Settings &rsaquo; Security &amp; Recovery</a>.
       </p>
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:28px;">
-        If you didn't sign up, you can ignore this email. Medialane will never ask you for your recovery key.
-      </p>
-    </div>
-  `;
+    `,
+    footer: "If you didn't sign up, you can ignore this email. Medialane will never ask you for your recovery key.",
+  });
 
   const subject = input.confirm ? "Welcome to Medialane — confirm your email" : "Welcome to Medialane";
   return { subject, html, text };

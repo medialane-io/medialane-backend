@@ -4,14 +4,20 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("orchestrator:unverified-accounts");
 
 const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
+import { DAY_MS, IO_VERIFICATION_DAYS } from "../utils/accountLifecycle.js";
+import { env } from "../config/env.js";
+import { IDENTITY_SCHEME } from "../utils/identity.js";
 
-export const IO_VERIFICATION_DAYS = 7;
+export { IO_VERIFICATION_DAYS, verificationDeadline } from "../utils/accountLifecycle.js";
 
 interface AccountUpdater {
   account: {
     updateMany(args: {
-      where: { status: "PENDING"; createdAt: { lt: Date } };
+      where: {
+        status: "PENDING";
+        createdAt: { lt: Date };
+        identities: { some: { scheme: string; clientId: string } };
+      };
       data: { status: "INACTIVE" };
     }): Promise<{ count: number }>;
   };
@@ -21,17 +27,22 @@ export function isExpired(createdAt: Date, now: Date = new Date(), days: number 
   return now.getTime() - createdAt.getTime() > days * DAY_MS;
 }
 
-export function verificationDeadline(createdAt: Date, days: number = IO_VERIFICATION_DAYS): Date {
-  return new Date(createdAt.getTime() + days * DAY_MS);
-}
-
 export async function deactivateExpiredPending(
   now: Date = new Date(),
   db: AccountUpdater = prisma as unknown as AccountUpdater,
+  ioClientId: string = env.IO_CLIENT_ID,
 ): Promise<number> {
+  if (!ioClientId) {
+    log.warn("IO_CLIENT_ID is not set, so no pending account is closed");
+    return 0;
+  }
   const cutoff = new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS);
   const { count } = await db.account.updateMany({
-    where: { status: "PENDING", createdAt: { lt: cutoff } },
+    where: {
+      status: "PENDING",
+      createdAt: { lt: cutoff },
+      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId } },
+    },
     data: { status: "INACTIVE" },
   });
   if (count > 0) log.info({ count }, "Pending io signups that never verified their email are now inactive");

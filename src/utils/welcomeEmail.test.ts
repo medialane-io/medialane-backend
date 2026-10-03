@@ -55,6 +55,14 @@ test("it never mentions the chain, and links only to confirm (when needed) and s
   expect(links(without.html)).toEqual([base.settingsUrl]);
 });
 
+test("the footer says to ignore the email if the person did not sign up, and that the recovery key is never asked for", () => {
+  for (const input of [unverified, verified]) {
+    const { html } = buildWelcomeEmail(input);
+    expect(html).toContain("If you didn&#39;t sign up".replace("&#39;", "'"));
+    expect(html).toContain("Medialane will never ask you for your recovery key");
+  }
+});
+
 test("anything that goes into the page is escaped", () => {
   const { html } = buildWelcomeEmail({ ...verified, walletAddress: `0x1"><script>x</script>` });
   expect(html).not.toContain("<script>");
