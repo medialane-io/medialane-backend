@@ -9,6 +9,7 @@
     "dev:worker": "bun run --watch src/worker.ts",
     "start:worker": "bun run src/worker.ts",
     "typecheck": "tsc --noEmit",
+    "test:db": "bash scripts/test-db.sh",
     "postinstall": "bunx prisma generate",
     "db:migrate": "bunx prisma migrate dev",
     "db:generate": "bunx prisma generate",

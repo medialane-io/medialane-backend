@@ -53,6 +53,9 @@ interface Pipeline<C extends { accountId: string; email: string }> {
   message(candidate: C): Omit<EmailMessage, "to">;
 }
 
+export const needsAttention = (result: SweepResult): boolean =>
+  result.released > 0 || (result.due > 0 && result.sent === 0);
+
 const emptyResult = (): SweepResult => ({ due: 0, sent: 0, released: 0, skipped: 0 });
 
 async function run<C extends { accountId: string; email: string }>(

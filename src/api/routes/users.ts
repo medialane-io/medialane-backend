@@ -15,7 +15,7 @@ import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerific
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { emailDeadlineFor } from "../../utils/emailDeadline.js";
-import { welcomeAccount } from "../../notices/sweep.js";
+import { needsAttention, welcomeAccount } from "../../notices/sweep.js";
 import { productionSweepDeps } from "../../notices/prismaDeps.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
 
@@ -145,9 +145,13 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
 
   }
 
-  welcomeAccount(productionSweepDeps(), accountId).catch((err: unknown) => {
-    log.error({ err, accountId }, "Failed to send the welcome email");
-  });
+  welcomeAccount(productionSweepDeps(), accountId)
+    .then((result) => {
+      if (needsAttention(result)) log.warn({ accountId, ...result }, "The welcome email was due but not sent");
+    })
+    .catch((err: unknown) => {
+      log.error({ err, accountId }, "Failed to send the welcome email");
+    });
 
   return c.json({ walletAddress });
 });

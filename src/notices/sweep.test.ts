@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  needsAttention,
   sweepReminders,
   sweepWelcomes,
   welcomeAccount,
@@ -219,5 +220,19 @@ describe("sending the welcome email", () => {
     up = true;
     expect(await sweepWelcomes(deps)).toMatchObject({ sent: 1 });
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe("when a result is worth a warning in the log", () => {
+  test("a notice that was due but not sent is, and so is one that had to be given back", () => {
+    expect(needsAttention({ due: 1, sent: 0, released: 0, skipped: 0 })).toBe(true);
+    expect(needsAttention({ due: 1, sent: 0, released: 1, skipped: 0 })).toBe(true);
+    expect(needsAttention({ due: 2, sent: 1, released: 1, skipped: 0 })).toBe(true);
+  });
+
+  test("a notice that was sent, or was never due, is not", () => {
+    expect(needsAttention({ due: 1, sent: 1, released: 0, skipped: 0 })).toBe(false);
+    expect(needsAttention({ due: 0, sent: 0, released: 0, skipped: 3 })).toBe(false);
+    expect(needsAttention({ due: 0, sent: 0, released: 0, skipped: 0 })).toBe(false);
   });
 });
