@@ -120,26 +120,30 @@ export function toWelcomeCandidate(account: WelcomeAccountRow, ioClientId: strin
   };
 }
 
+export const welcomeAccountWhere = (accountId: string) => ({ id: accountId });
+
+export const welcomeSweepWhere = (now: Date, ioClientId: string) => ({
+  status: { not: "INACTIVE" as const },
+  createdAt: { gt: new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS) },
+  notices: { none: { kind: "welcome" } },
+  AND: [
+    { identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId } } },
+    { identities: { some: { scheme: IDENTITY_SCHEME.WALLET } } },
+    {
+      OR: [
+        { status: "PENDING" as const },
+        { identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId, verifiedAt: { not: null } } } },
+      ],
+    },
+  ],
+});
+
 async function findWelcomeCandidates(now: Date, limit: number): Promise<WelcomeCandidate[]> {
   const ioClientId = env.IO_CLIENT_ID;
   if (!ioClientId) return [];
 
   const accounts = await prisma.account.findMany({
-    where: {
-      status: { not: "INACTIVE" },
-      createdAt: { gt: new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS) },
-      notices: { none: { kind: "welcome" } },
-      AND: [
-        { identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId } } },
-        { identities: { some: { scheme: IDENTITY_SCHEME.WALLET } } },
-        {
-          OR: [
-            { status: "PENDING" },
-            { identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId, verifiedAt: { not: null } } } },
-          ],
-        },
-      ],
-    },
+    where: welcomeSweepWhere(now, ioClientId),
     select: welcomeSelect,
     orderBy: { createdAt: "asc" },
     take: limit,
@@ -152,7 +156,7 @@ async function loadWelcomeCandidate(accountId: string): Promise<WelcomeCandidate
   const ioClientId = env.IO_CLIENT_ID;
   if (!ioClientId) return null;
   const account = await prisma.account.findFirst({
-    where: { id: accountId, notices: { none: { kind: "welcome" } } },
+    where: welcomeAccountWhere(accountId),
     select: welcomeSelect,
   });
   return account ? toWelcomeCandidate(account as WelcomeAccountRow, ioClientId) : null;

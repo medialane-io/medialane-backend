@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { env } from "../config/env";
 import { verifyConfirmToken } from "../utils/emailConfirmToken";
-import { productionSweepDeps, toWelcomeCandidate } from "./prismaDeps";
+import { productionSweepDeps, toWelcomeCandidate, welcomeAccountWhere, welcomeSweepWhere } from "./prismaDeps";
 
 const IO = "client_IO";
 const created = new Date("2026-10-03T12:00:00Z");
@@ -68,5 +68,27 @@ describe("reading an account into a welcome candidate", () => {
     expect(toWelcomeCandidate(account([wallet]), IO)).toBeNull();
     expect(toWelcomeCandidate(account([identity({ email: "a@b.co", clientId: "client_OTHER" }), wallet]), IO)).toBeNull();
     expect(toWelcomeCandidate(account([identity({ email: "a@b.co" })]), IO)).toBeNull();
+  });
+});
+
+describe("which accounts the welcome queries look at", () => {
+  const now = new Date("2026-10-03T12:00:00Z");
+
+  test("looking at one account to re-check it ignores whether it was welcomed, because the notice has just been claimed for it", () => {
+    expect(welcomeAccountWhere("acc_1")).toEqual({ id: "acc_1" });
+    expect(JSON.stringify(welcomeAccountWhere("acc_1"))).not.toContain("notices");
+  });
+
+  test("the sweep only picks accounts that have not been welcomed, are open, and are less than a week old", () => {
+    const where = welcomeSweepWhere(now, IO) as { status: unknown; createdAt: { gt: Date }; notices: unknown };
+    expect(where.notices).toEqual({ none: { kind: "welcome" } });
+    expect(where.status).toEqual({ not: "INACTIVE" });
+    expect(where.createdAt.gt.toISOString()).toBe("2026-09-26T12:00:00.000Z");
+  });
+
+  test("the sweep only picks accounts with an io email and a wallet", () => {
+    const text = JSON.stringify(welcomeSweepWhere(now, IO));
+    expect(text).toContain(IO);
+    expect(text).toContain('"scheme":"wallet"');
   });
 });
