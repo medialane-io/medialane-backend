@@ -167,7 +167,6 @@ export function productionSweepDeps(): SweepDeps {
     findReminderCandidates,
     findWelcomeCandidates,
     loadWelcomeCandidate,
-    settingsUrl: `${env.IO_APP_URL}/settings/recovery`,
     stillUnverified: async (accountId) => {
       const count = await prisma.identity.count({
         where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, verifiedAt: null },
@@ -176,10 +175,8 @@ export function productionSweepDeps(): SweepDeps {
     },
     store: prismaNoticeStore,
     send: sendEmail,
-    confirmUrl: (accountId, email, deadline) => {
-      const token = issueConfirmToken(env.SIWS_SECRET, { accountId, email, expiresAt: deadline });
-      return `${env.IO_APP_URL}/confirm-email#token=${encodeURIComponent(token)}`;
-    },
+    confirmToken: (accountId, email, deadline) =>
+      issueConfirmToken(env.SIWS_SECRET, { accountId, email, expiresAt: deadline }),
     now: () => new Date(),
     batchLimit: 200,
   };

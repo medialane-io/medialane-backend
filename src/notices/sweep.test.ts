@@ -54,13 +54,12 @@ function setup(candidates: ReminderCandidate[], overrides: Partial<SweepDeps> = 
     stillUnverified: async () => true,
     findWelcomeCandidates: async () => welcomes,
     loadWelcomeCandidate: async (id) => welcomes.find((w) => w.accountId === id) ?? null,
-    settingsUrl: "https://www.medialane.io/settings/recovery",
     store,
     send: async (message) => {
       sent.push(message);
       return true;
     },
-    confirmUrl: (id, _email, deadline) => `https://www.medialane.io/confirm-email#token=${id}.${deadline.getTime()}`,
+    confirmToken: (id, _email, deadline) => `${id}.${deadline.getTime()}`,
     now: () => NOW,
     batchLimit: 200,
     ...overrides,
@@ -75,8 +74,10 @@ describe("sending the verification reminder", () => {
     expect(result).toMatchObject({ due: 1, sent: 1, released: 0 });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.to).toBe("a@example.com");
-    expect(sent[0]!.text).toContain("confirm-email#token=a.");
-    expect(sent[0]!.subject).toContain("Confirm your email by");
+    expect(sent[0]).toMatchObject({ template: "verification-reminder" });
+    const data = (sent[0] as Extract<EmailMessage, { template: "verification-reminder" }>).data;
+    expect(data.confirmToken).toBe(`a.${data.deadline.getTime()}`);
+    expect(data.deadline.getTime()).toBe(NOW.getTime() + 2 * DAY);
   });
 
   test("a second sweep does not send it again", async () => {
@@ -169,18 +170,16 @@ describe("sending the welcome email", () => {
     const result = await sweepWelcomes(deps);
     expect(result).toMatchObject({ due: 1, sent: 1 });
     expect(sent[0]!.to).toBe("a@example.com");
-    expect(sent[0]!.subject).toBe("Welcome to Medialane — confirm your email");
-    expect(sent[0]!.text).toContain("confirm-email#token=a.");
-    expect(sent[0]!.text).toContain(WALLET);
-    expect(sent[0]!.text).toContain("https://www.medialane.io/settings/recovery");
+    expect(sent[0]).toMatchObject({ template: "welcome", data: { walletAddress: WALLET } });
+    const confirm = (sent[0] as Extract<EmailMessage, { template: "welcome" }>).data.confirm;
+    expect(confirm?.token.startsWith("a.")).toBe(true);
+    expect(confirm!.deadline.getTime()).toBeGreaterThan(NOW.getTime());
   });
 
   test("someone who came back with a code gets the plain welcome, with no confirm link", async () => {
     const { deps, sent } = setup([], {}, [welcomeCandidate("b", { status: "ACTIVE", emailVerified: true })]);
     await sweepWelcomes(deps);
-    expect(sent[0]!.subject).toBe("Welcome to Medialane");
-    expect(sent[0]!.text).not.toContain("confirm-email");
-    expect(sent[0]!.text).toContain(WALLET);
+    expect(sent[0]).toMatchObject({ template: "welcome", data: { walletAddress: WALLET, confirm: null } });
   });
 
   test("a provisioned account that has not signed in yet is not welcomed", async () => {

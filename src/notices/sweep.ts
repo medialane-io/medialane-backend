@@ -1,6 +1,4 @@
-import type { EmailMessage } from "../utils/mailer.js";
-import { buildReminderEmail } from "../utils/reminderEmail.js";
-import { buildWelcomeEmail } from "../utils/welcomeEmail.js";
+import type { EmailMessage, EmailTemplate } from "../utils/mailer.js";
 import { verificationDeadline } from "../utils/accountLifecycle.js";
 import { reminderDue, welcomeDue, type ReminderFacts, type WelcomeFacts } from "./rules.js";
 
@@ -33,8 +31,7 @@ export interface SweepDeps {
   loadWelcomeCandidate(accountId: string): Promise<WelcomeCandidate | null>;
   store: NoticeStore;
   send(message: EmailMessage): Promise<boolean>;
-  confirmUrl(accountId: string, email: string, deadline: Date): string;
-  settingsUrl: string;
+  confirmToken(accountId: string, email: string, deadline: Date): string;
   now(): Date;
   batchLimit: number;
 }
@@ -50,7 +47,7 @@ interface Pipeline<C extends { accountId: string; email: string }> {
   kind: NoticeKind;
   due(candidate: C, now: Date): boolean;
   recheck(candidate: C): Promise<boolean>;
-  message(candidate: C): Omit<EmailMessage, "to">;
+  message(candidate: C): EmailTemplate;
 }
 
 export const needsAttention = (result: SweepResult): boolean =>
@@ -86,7 +83,7 @@ async function run<C extends { accountId: string; email: string }>(
 
     let delivered = false;
     try {
-      delivered = await deps.send({ to: candidate.email, ...pipeline.message(candidate) });
+      delivered = await deps.send({ ...pipeline.message(candidate), to: candidate.email });
     } catch {
       delivered = false;
     }
@@ -108,7 +105,10 @@ const reminderPipeline = (deps: SweepDeps): Pipeline<ReminderCandidate> => ({
   recheck: (candidate) => deps.stillUnverified(candidate.accountId),
   message: (candidate) => {
     const deadline = verificationDeadline(candidate.createdAt);
-    return buildReminderEmail({ confirmUrl: deps.confirmUrl(candidate.accountId, candidate.email, deadline), deadline });
+    return {
+      template: "verification-reminder",
+      data: { confirmToken: deps.confirmToken(candidate.accountId, candidate.email, deadline), deadline },
+    };
   },
 });
 
@@ -123,8 +123,8 @@ const welcomePipeline = (deps: SweepDeps): Pipeline<WelcomeCandidate> => ({
     const deadline = verificationDeadline(candidate.createdAt);
     const confirm = candidate.facts.emailVerified
       ? null
-      : { url: deps.confirmUrl(candidate.accountId, candidate.email, deadline), deadline };
-    return buildWelcomeEmail({ walletAddress: candidate.walletAddress, settingsUrl: deps.settingsUrl, confirm });
+      : { token: deps.confirmToken(candidate.accountId, candidate.email, deadline), deadline };
+    return { template: "welcome", data: { walletAddress: candidate.walletAddress, confirm } };
   },
 });
 
