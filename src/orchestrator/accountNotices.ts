@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { createLogger } from "../utils/logger.js";
 import { productionSweepDeps } from "../notices/prismaDeps.js";
-import { sweepReminders } from "../notices/sweep.js";
+import { sweepReminders, sweepWelcomes } from "../notices/sweep.js";
 
 const log = createLogger("orchestrator:account-notices");
 
@@ -15,8 +15,12 @@ export async function startAccountNoticesLoop(): Promise<void> {
 
   for (;;) {
     try {
-      const result = await sweepReminders(productionSweepDeps());
-      if (result.due > 0 || result.released > 0) log.info(result, "Account notices sweep");
+      const deps = productionSweepDeps();
+      const reminders = await sweepReminders(deps);
+      const welcomes = await sweepWelcomes(deps);
+      if (reminders.due + welcomes.due + reminders.released + welcomes.released > 0) {
+        log.info({ reminders, welcomes }, "Account notices sweep");
+      }
     } catch (err) {
       log.error({ err }, "Account notices sweep failed");
     }
