@@ -21,6 +21,10 @@ export function isExpired(createdAt: Date, now: Date = new Date(), days: number 
   return now.getTime() - createdAt.getTime() > days * DAY_MS;
 }
 
+export function verificationDeadline(createdAt: Date, days: number = IO_VERIFICATION_DAYS): Date {
+  return new Date(createdAt.getTime() + days * DAY_MS);
+}
+
 export async function deactivateExpiredPending(
   now: Date = new Date(),
   db: AccountUpdater = prisma as unknown as AccountUpdater,

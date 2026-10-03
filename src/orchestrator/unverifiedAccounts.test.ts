@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { deactivateExpiredPending, isExpired, IO_VERIFICATION_DAYS } from "./unverifiedAccounts.js";
+import { deactivateExpiredPending, isExpired, IO_VERIFICATION_DAYS, verificationDeadline } from "./unverifiedAccounts.js";
 
 const NOW = new Date("2026-10-01T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -33,4 +33,8 @@ test("only pending accounts past the window become inactive; no other account is
       data: { status: "INACTIVE" },
     },
   ]);
+});
+
+test("the deadline is exactly seven days after the account was made", () => {
+  expect(verificationDeadline(new Date("2026-10-03T12:00:00Z")).toISOString()).toBe("2026-10-10T12:00:00.000Z");
 });
