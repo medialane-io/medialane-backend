@@ -24,7 +24,6 @@ export interface SweepDeps {
   send(message: EmailMessage): Promise<boolean>;
   confirmUrl(accountId: string, email: string, deadline: Date): string;
   now(): Date;
-  mode: "dry-run" | "live";
   batchLimit: number;
 }
 
@@ -33,14 +32,13 @@ export interface SweepResult {
   sent: number;
   released: number;
   skipped: number;
-  wouldSend: string[];
 }
 
 const KIND: NoticeKind = "verification-reminder";
 
 export async function sweepReminders(deps: SweepDeps): Promise<SweepResult> {
   const now = deps.now();
-  const result: SweepResult = { due: 0, sent: 0, released: 0, skipped: 0, wouldSend: [] };
+  const result: SweepResult = { due: 0, sent: 0, released: 0, skipped: 0 };
 
   for (const candidate of await deps.findReminderCandidates(now, deps.batchLimit)) {
     if (!reminderDue(candidate.facts, now)) {
@@ -48,11 +46,6 @@ export async function sweepReminders(deps: SweepDeps): Promise<SweepResult> {
       continue;
     }
     result.due += 1;
-
-    if (deps.mode === "dry-run") {
-      result.wouldSend.push(candidate.accountId);
-      continue;
-    }
 
     if (!(await deps.store.claim(candidate.accountId, KIND))) {
       result.skipped += 1;

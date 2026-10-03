@@ -50,7 +50,6 @@ function setup(candidates: ReminderCandidate[], overrides: Partial<SweepDeps> = 
     },
     confirmUrl: (id, _email, deadline) => `https://www.medialane.io/confirm-email?token=${id}.${deadline.getTime()}`,
     now: () => NOW,
-    mode: "live",
     batchLimit: 200,
     ...overrides,
   };
@@ -132,16 +131,5 @@ describe("sending the verification reminder", () => {
     const { deps, limits } = setup([], { batchLimit: 50 });
     await sweepReminders(deps);
     expect(limits).toEqual([50]);
-  });
-});
-
-describe("the dry run", () => {
-  test("lists who would be emailed and sends and claims nothing", async () => {
-    const { deps, sent, held } = setup([candidate("a"), candidate("b")], { mode: "dry-run" });
-    const result = await sweepReminders(deps);
-    expect(result.wouldSend).toEqual(["a", "b"]);
-    expect(result).toMatchObject({ due: 2, sent: 0 });
-    expect(sent).toHaveLength(0);
-    expect(held.size).toBe(0);
   });
 });
