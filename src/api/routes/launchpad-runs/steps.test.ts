@@ -94,10 +94,11 @@ describe("run steps live on one set of paths, whichever service the run belongs 
     expect((await send("/run1/files/upload-url", { name: "other.png" })).status).toBe(400);
   });
 
-  test("the old /ticketing path still answers while clients move over", async () => {
+  test("the old /ticketing prefix is gone", async () => {
     const { send } = await world();
-    expect((await send("/run1/ticketing/wallets/resolve", {})).status).toBe(200);
-    expect((await send("/run1/ticketing/tier/build")).status).not.toBe(404);
+    expect((await send("/run1/ticketing/wallets/resolve", {})).status).toBe(404);
+    expect((await send("/run1/ticketing/tier/build")).status).toBe(404);
+    expect((await send("/run1/wallets/resolve", {})).status).toBe(200);
   });
 });
 
