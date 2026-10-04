@@ -92,7 +92,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         if (!baseUri) {
           baseUri = await ex().pinJson({ name: choice.name, external_link: "https://medialane.io" });
           active.progress.collection = { ...active.progress.collection, baseUri };
-          await record(active, ["collection", "baseUri"], baseUri);
+          await record(active, ["collection"], active.progress.collection);
         }
         return chain().collectionCalls({ owner, name: choice.name, symbol: choice.symbol, baseUri });
       },

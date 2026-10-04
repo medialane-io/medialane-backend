@@ -57,7 +57,7 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         if (!baseUri) {
           baseUri = await ex().pinJson({ name: choice.name, external_link: "https://medialane.io" });
           active.progress.collection = { ...active.progress.collection, baseUri };
-          await record(active, ["collection", "baseUri"], baseUri);
+          await record(active, ["collection"], active.progress.collection);
         }
         return [
           {
