@@ -8,7 +8,7 @@
         "@avnu/avnu-sdk": "^4.2.0",
         "@hono/node-server": "^2.1.1",
         "@hono/zod-validator": "^0.7.6",
-        "@medialane/sdk": "0.145.0",
+        "@medialane/sdk": "0.152.0",
         "@noble/curves": "^2.2.0",
         "@noble/hashes": "^2.2.0",
         "@prisma/client": "^6.19.3",
@@ -37,7 +37,7 @@
 
     "@hono/zod-validator": ["@hono/zod-validator@0.7.6", "", { "peerDependencies": { "hono": ">=3.9.0", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw=="],
 
-    "@medialane/sdk": ["@medialane/sdk@0.145.0", "", { "dependencies": { "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "zod": "^3.23.8" }, "peerDependencies": { "@solana/web3.js": ">=1.90.0", "@stellar/stellar-sdk": ">=13.0.0", "starknet": ">=6.0.0", "viem": ">=2.0.0" }, "optionalPeers": ["@solana/web3.js", "@stellar/stellar-sdk", "starknet", "viem"] }, "sha512-oVUECGujB2V+p2rd/tNGz1WYRm36mkJDTh1c0wxk5xAx/uV8F1oekYmAN2KRvYQ7Wns+gEx7KT9kjoTSQh2FRQ=="],
+    "@medialane/sdk": ["@medialane/sdk@0.152.0", "", { "dependencies": { "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "zod": "^3.23.8" }, "peerDependencies": { "@solana/web3.js": ">=1.90.0", "@stellar/stellar-sdk": ">=13.0.0", "starknet": ">=6.0.0", "viem": ">=2.0.0" }, "optionalPeers": ["@solana/web3.js", "@stellar/stellar-sdk", "starknet", "viem"] }, "sha512-8KcZlTyYngqrf0UuD/4hUBHOej5HShJcCRosNIVPtx0cXizkb6S72rky5tSQUqJcV31H07naUeuqXsjfh4FuTw=="],
 
     "@noble/curves": ["@noble/curves@2.2.0", "", { "dependencies": { "@noble/hashes": "2.2.0" } }, "sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ=="],
 
