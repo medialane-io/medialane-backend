@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
-import { publicCache } from "../middleware/publicCache.js";
 import { parseSingleChain, chainWhere, parseChainFilter } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -177,7 +176,7 @@ export function buildActivityWhere(params: {
   return { transferWhere, orderWhere };
 }
 
-activities.get("/", publicCache(15), async (c) => {
+activities.get("/", async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const type = c.req.query("type");
@@ -281,7 +280,7 @@ activities.get("/", publicCache(15), async (c) => {
   return c.json({ data: enrichedFeed, meta: { page, limit, total: transferCount + orderCount } });
 });
 
-activities.get("/:address", publicCache(15), async (c) => {
+activities.get("/:address", async (c) => {
   const { address } = c.req.param();
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);

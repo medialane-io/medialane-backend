@@ -15,7 +15,6 @@ export function atomicFromUsdc(amount: string): bigint {
 
 const paramsSchema = z.object({
   chain: z.literal("STARKNET").default("STARKNET"),
-  /** Only a suggestion for how much to send. Whatever arrives is credited at its value. */
   amountUsdc: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).optional(),
   asset: z.string().min(1).max(12).optional(),
 });
@@ -23,7 +22,6 @@ const challengeSchema = z.object({ payer: z.string().min(3) });
 const authorizeSchema = z.object({ payer: z.string().min(3), signature: z.array(z.string()).min(1) });
 const submitSchema = z.object({ txHash: z.string().min(3) });
 
-/** The challenge proves the payer owns the wallet, for this one top-up. */
 export function fundingTypedData(input: { intentId: string; payer: string }) {
   return {
     domain: { name: "Medialane", version: "1", chainId: "SN_MAIN", revision: "1" },
@@ -63,10 +61,6 @@ export type DepositMatch =
   | { ok: true; valueUsdcAtomic: bigint }
   | { ok: false; reason: "mismatch" | "unpriced" | "dust" };
 
-/**
- * What a deposit is worth to a top-up: any supported token sent by its payer is credited at its dollar
- * value. The only limit is that it must be worth at least one credit, or there is nothing to credit.
- */
 export async function depositValueFor(
   deposit: DepositEvent,
   intent: FundingIntentRecord,
@@ -203,7 +197,6 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
         return { ok: false, reason: "transaction not yet finalized" };
       }
 
-      // Receipts list events without their transaction hash, so stamp it on before parsing.
       const events = (receipt.events ?? []).map((ev) => ({ ...ev, transaction_hash: hash, block_number: 0 }));
       let unpriced = false;
       let dust = false;

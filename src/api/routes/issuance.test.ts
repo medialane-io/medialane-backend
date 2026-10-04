@@ -6,7 +6,6 @@ import {
   chunk,
   dedupeRecipients,
   serviceCanMint,
-  normalizeRecipientValue,
   type IssuanceDeps,
   type Call,
 } from "./issuance.js";
@@ -24,8 +23,8 @@ function makeApp(deps: IssuanceDeps) {
 
 function fakeDeps(overrides: Partial<IssuanceDeps> = {}): IssuanceDeps {
   return {
-    resolveWallets: async (_chain, _scheme, values) =>
-      values.map((value, i) => ({ recipientValue: value, walletAddress: `0x${i + 1}` })),
+    resolveWallets: async (_chain, emails) =>
+      emails.map((email, i) => ({ email, walletAddress: `0x${i + 1}` })),
     buildMintCalls: async (input) => [
       { contractAddress: "0xcol", entrypoint: "mint", calldata: [input.recipient, input.tokenUri ?? ""] },
     ],
@@ -69,27 +68,23 @@ describe("chunk", () => {
 
 describe("recipients", () => {
   test("emails are compared case-insensitively", () => {
-    expect(normalizeRecipientValue("email", " A@Example.COM ")).toBe("a@example.com");
+    expect(dedupeRecipients([" A@Example.COM "])).toEqual(["a@example.com"]);
   });
 
   test("a repeated recipient is issued to once", () => {
-    expect(dedupeRecipients("email", ["a@x.com", "A@X.com", "b@x.com"])).toEqual(["a@x.com", "b@x.com"]);
+    expect(dedupeRecipients(["a@x.com", "A@X.com", "b@x.com"])).toEqual(["a@x.com", "b@x.com"]);
   });
 
   test("blank entries are dropped", () => {
-    expect(dedupeRecipients("email", ["a@x.com", "   ", ""])).toEqual(["a@x.com"]);
+    expect(dedupeRecipients(["a@x.com", "   ", ""])).toEqual(["a@x.com"]);
   });
 
   test("order of the submitted list is preserved", () => {
-    expect(dedupeRecipients("email", ["c@x.com", "a@x.com", "b@x.com"])).toEqual([
+    expect(dedupeRecipients(["c@x.com", "a@x.com", "b@x.com"])).toEqual([
       "c@x.com",
       "a@x.com",
       "b@x.com",
     ]);
-  });
-
-  test("non-email schemes keep their original case", () => {
-    expect(normalizeRecipientValue("wallet", " 0xAbC ")).toBe("0xAbC");
   });
 });
 
@@ -148,8 +143,8 @@ describe("emission", () => {
 
   test("stops when a recipient has no wallet yet", async () => {
     const deps = fakeDeps({
-      resolveWallets: async (_chain, _scheme, values) =>
-        values.map((value, i) => ({ recipientValue: value, walletAddress: i === 0 ? "0x1" : null })),
+      resolveWallets: async (_chain, emails) =>
+        emails.map((email, i) => ({ email, walletAddress: i === 0 ? "0x1" : null })),
     });
     const res = await post(makeApp(deps), baseBody);
     expect(res.status).toBe(409);
@@ -160,8 +155,8 @@ describe("emission", () => {
 
   test("issues nothing when no recipient is provisioned", async () => {
     const deps = fakeDeps({
-      resolveWallets: async (_chain, _scheme, values) =>
-        values.map((value) => ({ recipientValue: value, walletAddress: null })),
+      resolveWallets: async (_chain, emails) =>
+        emails.map((email) => ({ email, walletAddress: null })),
     });
     const res = await post(makeApp(deps), baseBody);
     expect(res.status).toBe(409);

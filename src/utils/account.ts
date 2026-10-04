@@ -1,7 +1,7 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
-import type { Chain, AccountType, AccountRole } from "@prisma/client";
+import type { Chain } from "@prisma/client";
 
 async function ensureApiClient(accountId: string): Promise<void> {
   await prisma.apiClient.upsert({
@@ -11,16 +11,50 @@ async function ensureApiClient(accountId: string): Promise<void> {
   });
 }
 
+const WALLET_ORDER = [{ isPrimary: "desc" as const }, { createdAt: "asc" as const }];
+
+export async function accountWallet(accountId: string, chain: Chain = "STARKNET"): Promise<string | null> {
+  const wallet = await prisma.identity.findFirst({
+    where: { accountId, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+    orderBy: WALLET_ORDER,
+    select: { address: true },
+  });
+  return wallet?.address ?? null;
+}
+
+export async function accountWallets(accountIds: string[], chain: Chain = "STARKNET"): Promise<Map<string, string>> {
+  const wallets = await prisma.identity.findMany({
+    where: { accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+    orderBy: WALLET_ORDER,
+    select: { accountId: true, address: true },
+  });
+  const byAccount = new Map<string, string>();
+  for (const w of wallets) {
+    if (!byAccount.has(w.accountId)) byAccount.set(w.accountId, w.address!);
+  }
+  return byAccount;
+}
+
 export async function resolveAccountIdFromWallet(
+  clientId: string,
   chain: Chain,
   address: string,
 ): Promise<string | null> {
   const normalized = normalizeAddress(chain, address);
   const identity = await prisma.identity.findUnique({
-    where: { chain_address: { chain, address: normalized } },
+    where: { clientId_chain_address: { clientId, chain, address: normalized } },
     select: { accountId: true },
   });
   return identity?.accountId ?? null;
+}
+
+export async function accountIdsHoldingWallet(chain: Chain, address: string): Promise<string[]> {
+  const normalized = normalizeAddress(chain, address);
+  const rows = await prisma.identity.findMany({
+    where: { chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
+    select: { accountId: true },
+  });
+  return [...new Set(rows.map((row) => row.accountId))];
 }
 
 export async function isWalletLinkedToAccount(
@@ -29,11 +63,11 @@ export async function isWalletLinkedToAccount(
   address: string,
 ): Promise<boolean> {
   const normalized = normalizeAddress(chain, address);
-  const identity = await prisma.identity.findUnique({
-    where: { chain_address: { chain, address: normalized } },
-    select: { accountId: true, scheme: true },
+  const identity = await prisma.identity.findFirst({
+    where: { accountId, chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
+    select: { id: true },
   });
-  return identity?.scheme === IDENTITY_SCHEME.WALLET && identity.accountId === accountId;
+  return identity !== null;
 }
 
 export function generateAccountPublicId(): string {
@@ -44,70 +78,23 @@ export function generateAccountPublicId(): string {
   return out;
 }
 
-export async function addAccountRole(
-  accountId: string,
-  role: "CREATOR" | "COLLECTOR" | "ORGANIZATION" | "AGENT" | "PARTNER",
-): Promise<void> {
-  await prisma.$executeRaw`
-    UPDATE "Account"
-    SET roles = array_append(roles, ${role}::"AccountRole")
-    WHERE id = ${accountId}
-      AND NOT (roles @> ARRAY[${role}::"AccountRole"])
-  `;
-}
-
-export class AccountRequiresEmailError extends Error {
-  constructor() {
-    super(
-      "This app requires a wallet to be linked to an already-registered account. " +
-      "No valid accountToken was provided, so a new account cannot be created for it directly.",
-    );
-    this.name = "AccountRequiresEmailError";
-  }
-}
-
-export function shouldRejectNewAccountForWallet(params: {
-  linkToAccountId?: string;
-  requireExistingAccountLink?: boolean;
-}): boolean {
-  return Boolean(params.requireExistingAccountLink) && !params.linkToAccountId;
-}
-
 export function shouldBePrimaryWallet(accountHasPrimaryWallet: boolean): boolean {
   return !accountHasPrimaryWallet;
-}
-
-export function defaultRolesForType(type: AccountType): AccountRole[] {
-  switch (type) {
-    case "AGENT":
-      return ["AGENT"];
-    case "ORGANIZATION":
-      return ["ORGANIZATION"];
-    case "PARTNER":
-      return ["PARTNER"];
-    default:
-      return [];
-  }
 }
 
 export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
   provider?: string;
-  tenantId: string;
+  clientId: string;
   email?: string;
-  accountType?: AccountType;
-
   linkToAccountId?: string;
-
-  requireExistingAccountLink?: boolean;
 }): Promise<{ accountId: string; created: boolean }> {
-  const accountType: AccountType = params.accountType ?? "PERSON";
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
   const existing = await prisma.identity.findUnique({
-    where: { chain_address: { chain: params.chain, address } },
+    where: { clientId_chain_address: { clientId: params.clientId, chain: params.chain, address } },
     select: { id: true, accountId: true, provider: true },
   });
 
@@ -131,7 +118,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        tenantId: params.tenantId,
+        clientId: params.clientId,
         isPrimary: shouldBePrimaryWallet(hasPrimary !== null),
         email: params.email ?? null,
       },
@@ -140,21 +127,13 @@ export async function ensureAccountForWallet(params: {
     return { accountId: params.linkToAccountId, created: false };
   }
 
-  if (shouldRejectNewAccountForWallet(params)) {
-    throw new AccountRequiresEmailError();
-  }
-
   const accountId = await prisma.$transaction(async (tx) => {
     let account: { id: string } | null = null;
     let lastErr: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         account = await tx.account.create({
-          data: {
-            publicId: generateAccountPublicId(),
-            type: accountType,
-            roles: defaultRolesForType(accountType),
-          },
+          data: { publicId: generateAccountPublicId() },
           select: { id: true },
         });
         break;
@@ -171,7 +150,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        tenantId: params.tenantId,
+        clientId: params.clientId,
         isPrimary: true,
         email: params.email ?? null,
       },
@@ -188,14 +167,13 @@ export async function ensureAccountForWallet(params: {
 export async function ensureAccountForIdentity(
   scheme: string,
   rawValue: string,
-  tenantId: string,
-  accountType: AccountType = "PERSON",
+  clientId: string,
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
-      where: { scheme_value_tenantId: { scheme, value, tenantId } },
+      where: { clientId_scheme_value: { clientId, scheme, value } },
       select: { accountId: true },
     });
     if (existing) return { accountId: existing.accountId, created: false };
@@ -203,11 +181,7 @@ export async function ensureAccountForIdentity(
     try {
       const accountId = await prisma.$transaction(async (tx) => {
         const account = await tx.account.create({
-          data: {
-            publicId: generateAccountPublicId(),
-            type: accountType,
-            roles: defaultRolesForType(accountType),
-          },
+          data: { publicId: generateAccountPublicId() },
           select: { id: true },
         });
         await tx.identity.create({
@@ -216,7 +190,7 @@ export async function ensureAccountForIdentity(
             scheme,
             value,
             email: isEmail ? value : null,
-            tenantId,
+            clientId,
             verifiedAt: null,
           },
         });

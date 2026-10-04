@@ -1,37 +1,25 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { createHmac, timingSafeEqual, randomInt } from "crypto";
 import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
-import { issueEmailVerifiedToken } from "../../utils/emailVerificationToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { DEFAULT_GRACE_DAYS } from "../../utils/emailVerification.js";
 import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
-import { InMemoryRateLimitStore, type RateLimitStore } from "../middleware/rateLimit.js";
-import { createRedisStore } from "../middleware/redisRateLimit.js";
+import { verifyConfirmToken } from "../../utils/emailConfirmToken.js";
+import { verifyAndActivate } from "../../utils/confirmEmail.js";
 import { createLogger } from "../../utils/logger.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
-import { clientIp } from "../../utils/clientIp.js";
+import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
+import { callerClientId } from "../../utils/caller.js";
 
 import { ensureAccountForIdentity } from "../../utils/account.js";
 
 const log = createLogger("routes:auth-email");
 
 const CODE_TTL_MS = 10 * 60 * 1000;
-const UNVERIFIED_SESSION_TTL_SECONDS = DEFAULT_GRACE_DAYS * 24 * 60 * 60;
 const MAX_ATTEMPTS = 5;
-const EMAIL_REQUEST_LIMIT = 3;
-const IP_REQUEST_LIMIT = 10;
-const CLIENT_REQUEST_LIMIT = 300;
-const CLIENT_ACCOUNT_CREATE_LIMIT = 300;
-const RATE_WINDOW_MS = 15 * 60 * 1000;
-
-const rateLimitStore: RateLimitStore = env.REDIS_URL
-  ? createRedisStore(env.REDIS_URL)
-  : new InMemoryRateLimitStore();
 
 interface StoredCode {
   id: string;
@@ -44,16 +32,17 @@ interface StoredCode {
 export interface AuthEmailDeps {
   findLatestCode: (email: string) => Promise<StoredCode | null>;
   createCode: (email: string, codeHash: string, expiresAt: Date) => Promise<void>;
-  incrementAttempts: (id: string) => Promise<void>;
-  consumeCode: (id: string) => Promise<void>;
-  sendCode: (to: string, code: string, tenant: string | null) => Promise<void>;
-  checkRateLimit: (email: string, ip: string, apiClientId: string | null) => Promise<boolean>;
-  checkEmailExists: (email: string, tenant: string) => Promise<boolean>;
-  createAccountWithEmail: (email: string, tenant: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
-  checkAccountCreateRateLimit: (ip: string, apiClientId: string | null) => Promise<boolean>;
-  checkEmailExistsRateLimit: (ip: string) => Promise<boolean>;
-  findAccountIdByEmail: (email: string, tenant: string) => Promise<string | null>;
-  releaseAbandonedEmail: (email: string, tenant: string) => Promise<boolean>;
+  claimAttempt: (id: string) => Promise<boolean>;
+  consumeCode: (id: string) => Promise<boolean>;
+  sendCode: (to: string, code: string, clientId: string | null) => Promise<void>;
+  checkEmailExists: (email: string, clientId: string) => Promise<boolean>;
+  createAccountWithEmail: (email: string, clientId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
+  findAccountIdByEmail: (email: string, clientId: string) => Promise<string | null>;
+  releaseAbandonedEmail: (email: string, clientId: string) => Promise<boolean>;
+  createVerifiedAccount: (email: string, clientId: string) => Promise<string>;
+  markEmailVerified: (email: string, clientId: string) => Promise<void>;
+  activateAccount: (accountId: string) => Promise<void>;
+  accountStatus: (accountId: string) => Promise<"PENDING" | "ACTIVE" | "INACTIVE" | null>;
 }
 
 const CODE_HASH_DOMAIN = "otp-code-v1";
@@ -66,18 +55,15 @@ const requestCodeSchema = z.object({ email: z.string().email() });
 const verifyCodeSchema = z.object({ email: z.string().email(), code: z.string().length(6) });
 const existsQuerySchema = z.object({ email: z.string().email() });
 const registerAccountSchema = z.object({ email: z.string().email() });
+const confirmSchema = z.object({ token: z.string().min(1).max(2048) });
 
-function tenantOf(c: Context<AppEnv>): string | null {
-  return c.get("apiKey")?.tenantId ?? null;
-}
+const INVALID_LINK = { error: "invalid_or_expired", message: "This link is invalid or has expired." } as const;
 
-function apiClientOf(c: Context<AppEnv>): string | null {
-  return c.get("apiClient")?.id ?? null;
-}
 
-const NO_TENANT = {
-  error: "unknown_app",
-  message: "This API key is not attached to an app, so an account cannot be resolved for it.",
+
+const NO_CLIENT = {
+  error: "unknown_client",
+  message: "This API key has no client, so an account cannot be resolved for it.",
 } as const;
 
 export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
@@ -85,18 +71,13 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
   app.post("/request-code", zValidator("json", requestCodeSchema), async (c) => {
     const { email } = c.req.valid("json");
-    const ip = clientIp(c.req.raw);
-    const tenant = tenantOf(c);
-
-    const result = await issueVerificationCodeWithDeps(deps, email, ip, tenant, apiClientOf(c));
-    if (!result.ok) return c.json({ error: result.error }, 429);
-
+    await issueVerificationCodeWithDeps(deps, email, callerClientId(c));
     return c.json({ ok: true });
   });
 
   app.post("/verify-code", zValidator("json", verifyCodeSchema), async (c) => {
-    const tenant = tenantOf(c);
-    if (!tenant) return c.json(NO_TENANT, 400);
+    const clientId = callerClientId(c);
+    if (!clientId) return c.json(NO_CLIENT, 400);
 
     const { email, code } = c.req.valid("json");
     const stored = await deps.findLatestCode(email);
@@ -108,6 +89,10 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       return c.json({ error: "Too many attempts — request a new code" }, 429);
     }
 
+    if (!(await deps.claimAttempt(stored.id))) {
+      return c.json({ error: "Too many attempts — request a new code" }, 429);
+    }
+
     const provided = hashCode(code);
     const expected = stored.codeHash;
     const matches =
@@ -115,50 +100,58 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       timingSafeEqual(Buffer.from(provided, "hex"), Buffer.from(expected, "hex"));
 
     if (!matches) {
-      await deps.incrementAttempts(stored.id);
       return c.json({ error: "Incorrect code" }, 400);
     }
 
-    await deps.consumeCode(stored.id);
-    const token = issueEmailVerifiedToken(email);
+    if (!(await deps.consumeCode(stored.id))) {
+      return c.json({ error: "Invalid or expired code" }, 400);
+    }
 
-    await deps.releaseAbandonedEmail(email, tenant);
+    await deps.releaseAbandonedEmail(email, clientId);
 
-    const accountId = await deps.findAccountIdByEmail(email, tenant);
-    return c.json({
-      token,
-      ...(accountId ? { accountToken: issueAccountSessionToken(accountId) } : {}),
-    });
+    let accountId = await deps.findAccountIdByEmail(email, clientId);
+    if (accountId) {
+      await verifyAndActivate(deps, accountId, email, clientId);
+    } else {
+      accountId = await deps.createVerifiedAccount(email, clientId);
+    }
+    return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
-    const ip = clientIp(c.req.raw);
-    const allowed = await deps.checkEmailExistsRateLimit(ip);
-    if (!allowed) return c.json({ error: "Too many requests" }, 429);
-
-    const tenant = tenantOf(c);
-    if (!tenant) return c.json(NO_TENANT, 400);
+    const clientId = callerClientId(c);
+    if (!clientId) return c.json(NO_CLIENT, 400);
 
     const { email } = c.req.valid("query");
-    const exists = await deps.checkEmailExists(email, tenant);
+    const exists = await deps.checkEmailExists(email, clientId);
     return c.json({ exists });
   });
 
   app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
     const { email } = c.req.valid("json");
-    const ip = clientIp(c.req.raw);
+    const clientId = callerClientId(c);
+    if (!clientId) return c.json(NO_CLIENT, 400);
 
-    const allowed = await deps.checkAccountCreateRateLimit(ip, apiClientOf(c));
-    if (!allowed) return c.json({ error: "Too many requests" }, 429);
-
-    const tenant = tenantOf(c);
-    if (!tenant) return c.json(NO_TENANT, 400);
-
-    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email, tenant);
+    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email, clientId);
     if (alreadyExisted) {
       return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
     }
-    return c.json({ accountToken: issueAccountSessionToken(accountId, UNVERIFIED_SESSION_TTL_SECONDS) });
+    return c.json({ accountToken: issueAccountSessionToken(accountId) });
+  });
+
+  app.post("/confirm", zValidator("json", confirmSchema), async (c) => {
+    const clientId = callerClientId(c);
+    if (!clientId) return c.json(NO_CLIENT, 400);
+
+    const claims = verifyConfirmToken(env.SIWS_SECRET, c.req.valid("json").token);
+    if (!claims) return c.json(INVALID_LINK, 400);
+
+    const status = await deps.accountStatus(claims.accountId);
+    const owner = await deps.findAccountIdByEmail(claims.email, clientId);
+    if (!status || status === "INACTIVE" || owner !== claims.accountId) return c.json(INVALID_LINK, 400);
+
+    await verifyAndActivate(deps, claims.accountId, claims.email, clientId);
+    return c.json({ ok: true, email: claims.email });
   });
 
   return app;
@@ -166,75 +159,75 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
 const productionDeps: AuthEmailDeps = {
   findLatestCode: (email) =>
-    prisma.emailVerificationCode.findFirst({ where: { email }, orderBy: { createdAt: "desc" } }),
+    prisma.emailVerificationCode.findFirst({
+      where: { email: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email) },
+      orderBy: { createdAt: "desc" },
+    }),
   createCode: async (email, codeHash, expiresAt) => {
-    await prisma.emailVerificationCode.create({ data: { email, codeHash, expiresAt } });
+    await prisma.emailVerificationCode.create({
+      data: { email: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), codeHash, expiresAt },
+    });
   },
-  incrementAttempts: async (id) => {
-    await prisma.emailVerificationCode.update({ where: { id }, data: { attempts: { increment: 1 } } });
+  claimAttempt: async (id) => {
+    const { count } = await prisma.emailVerificationCode.updateMany({
+      where: { id, attempts: { lt: MAX_ATTEMPTS }, consumedAt: null },
+      data: { attempts: { increment: 1 } },
+    });
+    return count === 1;
   },
   consumeCode: async (id) => {
-    await prisma.emailVerificationCode.update({ where: { id }, data: { consumedAt: new Date() } });
+    const { count } = await prisma.emailVerificationCode.updateMany({
+      where: { id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    return count === 1;
   },
   sendCode: sendVerificationCode,
-  checkRateLimit: async (email, ip, apiClientId) => {
-    const emailResult = await rateLimitStore.increment(`ratelimit:email-code:${email}`, RATE_WINDOW_MS);
-    if (emailResult.count > EMAIL_REQUEST_LIMIT) {
-      log.warn({ email }, "email-code rate limit hit (per-email)");
-      return false;
-    }
-    const ipResult = await rateLimitStore.increment(`ratelimit:email-code-ip:${ip}`, RATE_WINDOW_MS);
-    if (ipResult.count > IP_REQUEST_LIMIT) {
-      log.warn({ ip }, "email-code rate limit hit (per-IP)");
-      return false;
-    }
-    if (apiClientId) {
-      const clientResult = await rateLimitStore.increment(`ratelimit:email-code-client:${apiClientId}`, RATE_WINDOW_MS);
-      if (clientResult.count > CLIENT_REQUEST_LIMIT) {
-        log.error({ apiClientId }, "email-code rate limit hit (per-API-client)");
-        return false;
-      }
-    }
-    return true;
-  },
-  checkEmailExists: async (email, tenant) => {
-    const identity = await prisma.identity.findUnique({
-      where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } },
+  checkEmailExists: async (email, clientId) => {
+    const identity = await prisma.identity.findFirst({
+      where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
       select: { id: true },
     });
     return identity !== null;
   },
-  createAccountWithEmail: async (email, tenant) => {
-    const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, tenant);
+  createAccountWithEmail: async (email, clientId) => {
+    const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, clientId);
+    if (created) await prisma.account.update({ where: { id: accountId }, data: { status: "PENDING" } });
     return { accountId, alreadyExisted: !created };
   },
-  checkAccountCreateRateLimit: async (ip, apiClientId) => {
-    const result = await rateLimitStore.increment(`ratelimit:account-create-ip:${ip}`, 60 * 60 * 1000);
-    if (result.count > 10) {
-      log.warn({ ip }, "account-creation rate limit hit (per-IP)");
-      return false;
-    }
-    if (apiClientId) {
-      const clientResult = await rateLimitStore.increment(`ratelimit:account-create-client:${apiClientId}`, 60 * 60 * 1000);
-      if (clientResult.count > CLIENT_ACCOUNT_CREATE_LIMIT) {
-        log.error({ apiClientId }, "account-creation rate limit hit (per-API-client)");
-        return false;
-      }
-    }
-    return true;
+  activateAccount: async (accountId) => {
+    await prisma.account.updateMany({
+      where: { id: accountId, status: "PENDING" },
+      data: { status: "ACTIVE", sessionsValidFrom: new Date() },
+    });
   },
-  checkEmailExistsRateLimit: async (ip) => {
-    const result = await rateLimitStore.increment(`ratelimit:email-exists-ip:${ip}`, 60 * 60 * 1000);
-    if (result.count > 60) {
-      log.warn({ ip }, "email-existence lookup rate limit hit (per-IP)");
-      return false;
-    }
-    return true;
+  accountStatus: async (accountId) => {
+    const account = await prisma.account.findUnique({ where: { id: accountId }, select: { status: true } });
+    return account?.status ?? null;
   },
   releaseAbandonedEmail,
-  findAccountIdByEmail: async (email, tenant) => {
-    const identity = await prisma.identity.findUnique({
-      where: { scheme_value_tenantId: { scheme: IDENTITY_SCHEME.EMAIL, value: email, tenantId: tenant } },
+  createVerifiedAccount: async (email, clientId) => {
+    const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, clientId);
+    await prisma.identity.updateMany({
+      where: { scheme: IDENTITY_SCHEME.EMAIL, value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), clientId: clientId },
+      data: { verifiedAt: new Date() },
+    });
+    return accountId;
+  },
+  markEmailVerified: async (email, clientId) => {
+    await prisma.identity.updateMany({
+      where: {
+        scheme: IDENTITY_SCHEME.EMAIL,
+        value: { in: emailValues(email) },
+        clientId: clientId,
+        verifiedAt: null,
+      },
+      data: { verifiedAt: new Date() },
+    });
+  },
+  findAccountIdByEmail: async (email, clientId) => {
+    const identity = await prisma.identity.findFirst({
+      where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
       select: { accountId: true },
     });
     return identity?.accountId ?? null;
@@ -244,28 +237,17 @@ const productionDeps: AuthEmailDeps = {
 export async function issueVerificationCodeWithDeps(
   deps: AuthEmailDeps,
   email: string,
-  ip: string,
-  tenant: string | null = null,
-  apiClientId: string | null = null,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const allowed = await deps.checkRateLimit(email, ip, apiClientId);
-  if (!allowed) return { ok: false, error: "Too many requests" };
-
+  clientId: string | null = null,
+): Promise<void> {
   const code = String(randomInt(100_000, 1_000_000));
   await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
-  deps.sendCode(email, code, tenant).catch((err: unknown) => {
+  deps.sendCode(email, code, clientId).catch((err: unknown) => {
     log.error({ err, email }, "Failed to send verification code");
   });
-  return { ok: true };
 }
 
-export function issueVerificationCode(
-  email: string,
-  ip: string,
-  tenant: string | null = null,
-  apiClientId: string | null = null,
-) {
-  return issueVerificationCodeWithDeps(productionDeps, email, ip, tenant, apiClientId);
+export function issueVerificationCode(email: string, clientId: string | null = null): Promise<void> {
+  return issueVerificationCodeWithDeps(productionDeps, email, clientId);
 }
 
 export const authEmail = createAuthEmailRoutes(productionDeps);

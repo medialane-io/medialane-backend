@@ -355,33 +355,6 @@ model ClaimChallenge {
   @@index([walletAddress, contractAddress])
 }
 
-enum ProvisioningStatus {
-  DEPLOYED
-  REUSED
-  HANDOFF
-  TRANSFERRED
-}
-
-model BusinessProvisioning {
-  id                 String             @id @default(cuid())
-  apiClientId        String
-  chain              Chain              @default(STARKNET)
-  walletAddress      String
-  recipientScheme    String
-  recipientValue     String
-  interimOwnerPubkey String?
-  newOwnerPubkey     String?
-  derivationSalt     String?
-  status             ProvisioningStatus @default(DEPLOYED)
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-
-  apiClient ApiClient @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
-
-  @@unique([chain, walletAddress])
-  @@index([apiClientId, status])
-}
-
 enum WalletActivityType {
   SEND
   RECEIVE
@@ -647,8 +620,6 @@ model ApiKey {
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
-  tenantId    String?
-  tenant      Tenant?      @relation(fields: [tenantId], references: [id])
   status      ApiKeyStatus @default(ACTIVE)
   lastUsedAt  DateTime?
   createdAt   DateTime     @default(now())
@@ -656,7 +627,6 @@ model ApiKey {
 
   @@index([apiClientId])
   @@index([status])
-  @@index([tenantId])
 }
 
 model WebhookEndpoint {
@@ -752,29 +722,6 @@ model DropClaimConditions {
   @@unique([chain, collectionAddress])
 }
 
-enum AppSource {
-  MEDIALANE_STARKNET
-  MEDIALANE_IO
-  MEDIALANE_PORTAL
-  MEDIALANE_DAO
-  MEDIALANE_SDK
-}
-
-enum AccountType {
-  PERSON
-  AGENT
-  ORGANIZATION
-  PARTNER
-}
-
-enum AccountRole {
-  CREATOR
-  COLLECTOR
-  ORGANIZATION
-  AGENT
-  PARTNER
-}
-
 enum Plan {
   FREE
   PREMIUM
@@ -782,26 +729,39 @@ enum Plan {
 
 enum AccountStatus {
   ACTIVE
-  SUSPENDED
+  PENDING
+  INACTIVE
 }
 
 model Account {
   id        String        @id @default(cuid())
   publicId  String        @unique
-  type      AccountType   @default(PERSON)
-  roles     AccountRole[] @default([])
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
   status AccountStatus @default(ACTIVE)
 
+  sessionsValidFrom DateTime?
+
   identities Identity[]
   profile    AccountProfile?
+  notices    AccountNotice[]
 
   apiClient ApiClient?
 
-  @@index([type])
   @@index([createdAt])
+}
+
+model AccountNotice {
+  id        String   @id @default(cuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  kind      String
+  createdAt DateTime @default(now())
+
+  @@unique([accountId, kind])
+  @@index([kind, createdAt])
 }
 
 model ApiClient {
@@ -813,11 +773,11 @@ model ApiClient {
   creditBalance Int  @default(0)
 
   apiKeys              ApiKey[]
+  identities           Identity[]
   webhooks             WebhookEndpoint[]
   payments             Payment[]
   fundingIntents       FundingIntent[]
   usage                UsageEvent[]
-  businessProvisioning BusinessProvisioning[]
   launchpadRuns        LaunchpadRun[]
 
   createdAt DateTime @default(now())
@@ -840,31 +800,20 @@ model Identity {
   value String?
   email String?
 
-  tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  clientId   String
+  client     ApiClient @relation(fields: [clientId], references: [id])
   isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
-  @@unique([chain, address])
-  @@unique([scheme, value, tenantId])
+  @@unique([clientId, chain, address])
+  @@unique([clientId, scheme, value])
+  @@index([clientId])
   @@index([accountId])
   @@index([address])
   @@index([email])
-  @@index([tenantId])
 }
 
-model Tenant {
-  id        String   @id @default(cuid())
-  slug      String   @unique
-  name      String
-  createdAt DateTime @default(now())
-
-  identities Identity[]
-  apiKeys    ApiKey[]
-
-  @@index([slug])
-}
 
 model EmailVerificationCode {
   id         String    @id @default(cuid())

@@ -1,12 +1,19 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
-import { identityAuth } from "./identityAuth";
+import { createIdentityAuth } from "./identityAuth";
 import { issueToken } from "../../utils/siwsToken.js";
 import type { AppEnv } from "../../types/hono.js";
 
-function appWith() {
+function appWith(
+  isInactive: (clientId: string | null, chain: string, address: string) => Promise<boolean> = async () => false,
+  clientId: string | null = "client-A",
+) {
   const app = new Hono<AppEnv>();
-  app.use("*", identityAuth);
+  app.use("*", async (c, next) => {
+    if (clientId) c.set("apiKey", { id: "k", status: "ACTIVE", apiClient: { id: clientId } } as never);
+    await next();
+  });
+  app.use("*", createIdentityAuth({ isInactive }));
   app.get("/", (c) => c.json({ walletAddress: c.get("walletAddress") }));
   return app;
 }
@@ -37,4 +44,35 @@ test("identityAuth rejects an invalid/expired SIWS token", async () => {
 test("identityAuth rejects a bearer token that isn't SIWS-shaped (no other auth path exists)", async () => {
   const res = await appWith().request("/", { headers: { Authorization: "Bearer eyJhbGciOiJSUzI1NiJ9.fake.jwt" } });
   expect(res.status).toBe(401);
+});
+
+test("identityAuth refuses a wallet whose account is inactive", async () => {
+  const token = issueToken("STARKNET", "0x0123");
+  const res = await appWith(async () => true).request("/", { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status).toBe(403);
+});
+
+test("identityAuth lets a pending account's wallet through", async () => {
+  const seen: string[] = [];
+  const token = issueToken("STARKNET", "0x0123");
+  const res = await appWith(async (_client, _chain, address) => {
+    seen.push(address);
+    return false;
+  }).request("/", { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status).toBe(200);
+  expect(seen).toHaveLength(1);
+});
+
+test("identityAuth checks the wallet's account in the caller's client only", async () => {
+  const token = issueToken("STARKNET", "0x0123");
+  const asked: Array<string | null> = [];
+  const inactiveOnlyInB = async (clientId: string | null) => {
+    asked.push(clientId);
+    return clientId === "client-B";
+  };
+  const onA = await appWith(inactiveOnlyInB, "client-A").request("/", { headers: { Authorization: `Bearer ${token}` } });
+  const onB = await appWith(inactiveOnlyInB, "client-B").request("/", { headers: { Authorization: `Bearer ${token}` } });
+  expect(onA.status).toBe(200);
+  expect(onB.status).toBe(403);
+  expect(asked).toEqual(["client-A", "client-B"]);
 });

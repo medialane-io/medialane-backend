@@ -11,8 +11,6 @@ import { confirmStep, executeStep } from "./sponsored-step.js";
 
 const log = createLogger("routes:launchpad-runs:steps");
 
-export const MAX_UPLOAD_URLS_PER_FILE = 3;
-
 const fileNameBody = z.object({ name: z.string().min(1).max(255) });
 const uploadedBody = z.object({ name: z.string().min(1).max(255), cid: z.string().min(10).max(120) });
 
@@ -38,8 +36,6 @@ export interface RunFiles<A> {
   expected(active: A, name: string): { size: number; type: string } | null;
   uri(active: A, name: string): string | null;
   path(name: string): string[];
-  urlCount(active: A, name: string): number;
-  urlCountPath(name: string): string[];
   credits(): Promise<number>;
 }
 
@@ -61,6 +57,27 @@ export interface RunServiceSteps<A extends ActiveBase> {
 type AnyService = RunServiceSteps<any>;
 
 const indexed = (route: string) => route.includes(":index");
+
+const EXTRA_ROUTE_METHODS = ["get", "post", "put", "patch", "delete"] as const;
+
+function guardAgainstRouteCollisions(app: Hono<AppEnv>, service: AnyService, claimed: Map<string, string>): Hono<AppEnv> {
+  const guarded = Object.create(app) as Hono<AppEnv>;
+  for (const method of EXTRA_ROUTE_METHODS) {
+    (guarded as unknown as Record<string, unknown>)[method] = (path: string, ...rest: unknown[]) => {
+      const key = `${method.toUpperCase()} ${path}`;
+      const owner = claimed.get(key);
+      if (owner && owner !== service.service) {
+        throw new Error(
+          `Route collision: "${service.service}" and "${owner}" both register ${key} on the shared launchpad-run app. ` +
+            `Give one of them its own path — see ip-ticketing vs certificate-emission for the convention.`,
+        );
+      }
+      claimed.set(key, service.service);
+      return (app as unknown as Record<string, (...args: unknown[]) => unknown>)[method](path, ...rest);
+    };
+  }
+  return guarded;
+}
 
 export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -86,8 +103,9 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     return { service, active: service.load(run) };
   };
 
+  const claimedExtraRoutes = new Map<string, string>();
   for (const service of services) {
-    service.extra?.(app, {
+    service.extra?.(guardAgainstRouteCollisions(app, service, claimedExtraRoutes), {
       ctx,
       record,
       notReady,
@@ -166,8 +184,8 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
         path: step.path(index),
         credits: await step.credits(loaded.active, index),
         label: step.label,
-        ...body.data,
         calls,
+        ...body.data,
       });
     });
 
@@ -202,12 +220,6 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     const expected = service.files.expected(active, name);
     if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
     if (service.files.uri(active, name)) return c.json({ error: `${name} is already uploaded` }, 409);
-
-    const issued = service.files.urlCount(active, name);
-    if (issued >= MAX_UPLOAD_URLS_PER_FILE) {
-      return c.json({ error: `${name} has had too many upload attempts. Contact support to continue.` }, 429);
-    }
-    await record(active, service.files.urlCountPath(name), issued + 1);
 
     try {
       const url = await ex().signedUpload({

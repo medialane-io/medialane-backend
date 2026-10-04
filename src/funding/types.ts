@@ -11,7 +11,6 @@ export interface FundingIntentRecord {
 }
 
 export interface VerifiedPayment {
-  /** What the payment is worth in USDC atomic units (6 decimals). The method computes it from the chain. */
   valueUsdcAtomic: bigint;
   asset: string;
   payer?: string;
@@ -34,7 +33,6 @@ export type SettleOutcome =
   | { outcome: "duplicate" };
 
 export interface FundingStore {
-  countOpen(apiClientId: string, now: Date): Promise<number>;
   create(input: {
     apiClientId: string;
     method: string;

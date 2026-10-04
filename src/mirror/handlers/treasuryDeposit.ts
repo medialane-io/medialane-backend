@@ -1,4 +1,5 @@
 import prisma from "../../db/client.js";
+import { accountIdsHoldingWallet } from "../../utils/account.js";
 import { Prisma } from "@prisma/client";
 import { createLogger } from "../../utils/logger.js";
 import { callRpc, normalizeAddress, normalizeHash } from "../../utils/starknet.js";
@@ -11,7 +12,7 @@ import {
   settleUnattributedPayment as defaultSettleUnattributed,
 } from "../../payments/credits.js";
 import { x402Config } from "../../config/x402.js";
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { FINALIZED_STATUSES } from "../../payments/schemes/starknet.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import { parseDepositEvents, depositNonce, type DepositEvent } from "../../funding/deposits.js";
 import { intentSettler } from "../../funding/settle-deposit.js";
@@ -20,6 +21,12 @@ import { prismaFundingStore } from "../../funding/store.js";
 export { parseDepositEvents, depositNonce, type DepositEvent };
 
 const log = createLogger("mirror:treasury-deposit");
+
+interface DepositReceipt {
+  events?: RawStarknetEvent[];
+  execution_status?: string;
+  finality_status?: string;
+}
 
 export interface CreditedPayment {
   paymentId: string;
@@ -134,15 +141,16 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   return asCredited(await deps.existingPayment(nonce));
 }
 
+export function payingAccount(accountIds: string[]): string | null {
+  return accountIds.length === 1 ? accountIds[0]! : null;
+}
+
 const productionDeps: DepositDeps = {
   resolveApiClient: async (payer) => {
-    const identity = await prisma.identity.findUnique({
-      where: { chain_address: { chain: "STARKNET", address: payer } },
-      select: { accountId: true, scheme: true },
-    });
-    if (!identity || identity.scheme !== IDENTITY_SCHEME.WALLET) return null;
+    const accountId = payingAccount(await accountIdsHoldingWallet("STARKNET", payer));
+    if (!accountId) return null;
     const apiClient = await prisma.apiClient.findUnique({
-      where: { accountId: identity.accountId },
+      where: { accountId },
       select: { id: true, accountId: true },
     });
     return apiClient ?? null;
@@ -189,11 +197,13 @@ export async function applyTreasuryDeposits(events: RawStarknetEvent[]): Promise
 export async function creditFromTransaction(
   txHash: string,
   deps: DepositDeps = productionDeps,
-  fetchReceipt: (hash: string) => Promise<{ events?: RawStarknetEvent[] }> = defaultFetchReceipt,
+  fetchReceipt: (hash: string) => Promise<DepositReceipt> = defaultFetchReceipt,
 ): Promise<{ credited: number; payments: CreditedPayment[] }> {
   if (!x402Config.treasury) return { credited: 0, payments: [] };
 
   const receipt = await fetchReceipt(normalizeHash(txHash));
+  if (receipt.execution_status && receipt.execution_status !== "SUCCEEDED") return { credited: 0, payments: [] };
+  if (receipt.finality_status && !FINALIZED_STATUSES.has(receipt.finality_status)) return { credited: 0, payments: [] };
   const deposits = parseDepositEvents(receipt.events ?? [], x402Config.treasury);
 
   let credited = 0;
@@ -206,9 +216,8 @@ export async function creditFromTransaction(
   return { credited, payments };
 }
 
-async function defaultFetchReceipt(hash: string): Promise<{ events?: RawStarknetEvent[] }> {
+async function defaultFetchReceipt(hash: string): Promise<DepositReceipt> {
   return callRpc((provider) =>
-    (provider as { getTransactionReceipt: (h: string) => Promise<{ events?: RawStarknetEvent[] }> })
-      .getTransactionReceipt(hash),
+    (provider as { getTransactionReceipt: (h: string) => Promise<DepositReceipt> }).getTransactionReceipt(hash),
   );
 }

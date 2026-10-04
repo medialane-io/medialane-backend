@@ -5,7 +5,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { resolveAccountIdFromWallet } from "../../utils/account.js";
-import { requiresEmailVerification } from "../../utils/emailVerification.js";
+import { callerClientId } from "../../utils/caller.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
 
@@ -45,14 +45,10 @@ usernameClaims.post(
     const validationError = validateUsername(slug);
     if (validationError) return c.json({ error: validationError }, 400);
 
-    const callerAccountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
+    const callerAccountId = await resolveAccountIdFromWallet(callerClientId(c) ?? "", "STARKNET", jwtWallet);
 
     if (!callerAccountId) {
       return c.json({ error: "Register an account before claiming a username." }, 403);
-    }
-
-    if (await requiresEmailVerification(callerAccountId)) {
-      return c.json({ error: "Verify your email to claim a username." }, 403);
     }
 
     const profile = await prisma.accountProfile.findUnique({
@@ -95,7 +91,7 @@ usernameClaims.get(
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;
 
-    const accountId = await resolveAccountIdFromWallet("STARKNET", jwtWallet);
+    const accountId = await resolveAccountIdFromWallet(callerClientId(c) ?? "", "STARKNET", jwtWallet);
     const [profile, latestClaim] = await Promise.all([
       accountId
         ? prisma.accountProfile.findUnique({

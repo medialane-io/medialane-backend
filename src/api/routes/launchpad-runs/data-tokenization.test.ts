@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import type { AppEnv } from "../../../types/hono.js";
 import { createRunRoutes } from "./index.js";
-import { MAX_UPLOAD_URLS_PER_FILE } from "./steps.js";
 import type { ExecutionDeps, ReceiptEvent, ReceiptStatus } from "./context.js";
 import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
 import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
@@ -21,6 +20,7 @@ function world() {
   const issued: string[] = [];
   const pins = new Map<string, { size: number; keyvalues: Record<string, string> }>();
   const executed: unknown[] = [];
+  let executeError: Error | null = null;
 
   const execution: ExecutionDeps = {
     signedUpload: async ({ name }) => (issued.push(name), `https://uploads.test/${name}`),
@@ -30,7 +30,6 @@ function world() {
     registry: () => REGISTRY,
     receipt: async () => ({ status: receipt, events }),
     sponsored: {
-      addressChecker: { isEligible: async () => true },
       clientFactory: () => ({
         buildTransaction: async (req) => {
           const calls = (req as { invoke: { calls: { contractAddress: string; entrypoint: string; calldata: string[] }[] } }).invoke.calls;
@@ -46,7 +45,11 @@ function world() {
             },
           };
         },
-        executeTransaction: async (req) => (executed.push(req), { transaction_hash: `0xtx${executed.length}` }),
+        executeTransaction: async (req) => {
+          if (executeError) throw executeError;
+          executed.push(req);
+          return { transaction_hash: `0xtx${executed.length}` };
+        },
       }),
     },
   };
@@ -61,6 +64,9 @@ function world() {
 
   return {
     app, runs, balances, refunds, pinned, issued, pins, executed,
+    failExecute: (err: Error | null) => {
+      executeError = err;
+    },
     setReceipt: (status: ReceiptStatus, next: ReceiptEvent[] = []) => {
       receipt = status;
       events = next;
@@ -160,12 +166,11 @@ describe("uploading a paid run's files", () => {
     expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-other-file" })).status).toBe(409);
   });
 
-  test("each file gets a limited number of upload URLs", async () => {
+  test("a file can be retried as often as the upload needs, with no lock on the run", async () => {
     const w = await paidRun();
-    for (let i = 0; i < MAX_UPLOAD_URLS_PER_FILE; i++) {
+    for (let i = 0; i < 6; i++) {
       expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" })).status).toBe(201);
     }
-    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" })).status).toBe(429);
   });
 });
 
@@ -293,5 +298,47 @@ describe("a run that creates its own collection", () => {
     await json(w.app, "POST", "/run1/collection/confirm");
     expect(w.runs[0]!.creditsSpent).toBe(spent - 6);
     expect((await json(w.app, "POST", "/run1/collection/execute", { userAddress: OWNER, typedData, signature: ["0x1"] })).status).toBe(200);
+  });
+});
+
+describe("a sponsored step only carries its own calls", () => {
+  test("a signature over other calls is refused and nothing is reserved or sent", async () => {
+    const w = await readyBatch();
+    const spent = w.runs[0]!.creditsSpent;
+    const other = {
+      message: { Calls: [{ To: "0xdead", Selector: "0x1", Calldata: ["0x1"] }] },
+    };
+    const res = await json(w.app, "POST", "/run1/batches/0/execute", { userAddress: OWNER, typedData: other, signature: ["0x1"] });
+    expect(res.status).toBe(400);
+    expect(w.executed).toHaveLength(0);
+    expect(w.runs[0]!.creditsSpent).toBe(spent);
+  });
+
+  test("a signature with the step's calls but altered calldata is refused", async () => {
+    const w = await readyBatch();
+    const built = await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER });
+    const { typedData } = (await built.json()) as { typedData: { message: { Calls: { Calldata: string[] }[] } } };
+    typedData.message.Calls[0]!.Calldata[0] = "0x999";
+    const res = await json(w.app, "POST", "/run1/batches/0/execute", { userAddress: OWNER, typedData, signature: ["0x1"] });
+    expect(res.status).toBe(400);
+    expect(w.executed).toHaveLength(0);
+  });
+
+  test("a step that may have been broadcast keeps its credits and cannot be sent again", async () => {
+    const w = await readyBatch();
+    const built = await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER });
+    const { typedData } = (await built.json()) as { typedData: unknown };
+    w.failExecute(new Error("socket hang up"));
+    const first = await json(w.app, "POST", "/run1/batches/0/execute", { userAddress: OWNER, typedData, signature: ["0x1"] });
+    expect(first.status).toBe(502);
+    expect(((await first.json()) as { code: string }).code).toBe("may_have_broadcast");
+    const spent = w.runs[0]!.creditsSpent;
+    expect(spent).toBeGreaterThan(0);
+
+    w.failExecute(null);
+    const retry = await json(w.app, "POST", "/run1/batches/0/execute", { userAddress: OWNER, typedData, signature: ["0x1"] });
+    expect(retry.status).toBe(409);
+    expect(w.executed).toHaveLength(0);
+    expect(w.runs[0]!.creditsSpent).toBe(spent);
   });
 });

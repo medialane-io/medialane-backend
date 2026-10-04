@@ -16,7 +16,6 @@ export interface CollectionProgress {
 
 export interface DataTokenizationProgress {
   files: Record<string, Pinned>;
-  uploadUrls: Record<string, number>;
   tokenUris: Record<string, Pinned>;
   batches: Record<string, StepState>;
   collection?: CollectionProgress;
@@ -32,14 +31,13 @@ export type NextStep =
   | { kind: "done" };
 
 export function emptyProgress(): DataTokenizationProgress {
-  return { files: {}, uploadUrls: {}, tokenUris: {}, batches: {} };
+  return { files: {}, tokenUris: {}, batches: {} };
 }
 
 export function readProgress(raw: unknown): DataTokenizationProgress {
   const p = (raw ?? {}) as Partial<DataTokenizationProgress>;
   return {
     files: p.files ?? {},
-    uploadUrls: p.uploadUrls ?? {},
     tokenUris: p.tokenUris ?? {},
     batches: p.batches ?? {},
     collection: p.collection,

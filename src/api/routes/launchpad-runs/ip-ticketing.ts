@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { createLogger } from "../../../utils/logger.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
-import { IDENTITY_SCHEME } from "../../../utils/identity.js";
 import { COLLECTION_DEPLOYED_SELECTOR } from "../../../config/constants.js";
 import type { StoredRun } from "../../../launchpad/run-store.js";
 import { parseRunSpec, stepCredits } from "../../../launchpad/services/index.js";
@@ -16,7 +15,6 @@ import {
   type IpTicketingProgress,
 } from "../../../launchpad/services/ip-ticketing/progress.js";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
-import { buildDeployment } from "../paymaster.js";
 import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 
@@ -24,13 +22,7 @@ const log = createLogger("routes:launchpad-runs:ip-ticketing");
 
 const SERVICE = "ip-ticketing";
 
-const walletBuildRequest = z.object({ ownerPubkey: z.string().min(3), ownerAddress: z.string().min(3) });
-const walletRequest = z.object({
-  recipient: z.string().email(),
-  interimOwnerPubkey: z.string(),
-  derivationSalt: z.string().min(16).max(128),
-  deployment: z.object({ typedData: z.unknown(), signature: z.array(z.string()).min(1), deployment: z.unknown() }),
-});
+const walletRequest = z.object({ recipient: z.string().email() });
 
 interface ActiveRun extends ActiveBase {
   spec: IpTicketingSpec;
@@ -200,8 +192,6 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
       expected: (active, name) => (active.spec.artwork?.name === name ? active.spec.artwork : null),
       uri: (active) => pinnedValue(active.progress.artwork),
       path: () => ["artwork"],
-      urlCount: (active) => active.progress.uploadUrls ?? 0,
-      urlCountPath: () => ["uploadUrls"],
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {
@@ -243,28 +233,11 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         const waiting = active.spec.guests.filter((guest) => active.progress.wallets[guest] === undefined);
         const resolved = waiting.length > 0 ? await chain().resolveWallets(waiting) : [];
         const pending: string[] = [];
-        for (const { recipientValue, walletAddress } of resolved) {
-          if (walletAddress) await record(active, ["wallets", recipientValue], walletAddress);
-          else pending.push(recipientValue);
+        for (const { email, walletAddress } of resolved) {
+          if (walletAddress) await record(active, ["wallets", email], walletAddress);
+          else pending.push(email);
         }
         return c.json({ data: { pending } });
-      });
-
-      app.post("/wallets/build", async (c) => {
-        const active = await loadActive(c);
-        if (active instanceof Response) return active;
-
-        const body = walletBuildRequest.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "ownerPubkey and ownerAddress are required" }, 400);
-
-        const builds = active.progress.walletBuilds ?? 0;
-        if (builds >= active.spec.guests.length * 2) {
-          return c.json({ error: "Too many wallet attempts for this run. Contact support to continue." }, 429);
-        }
-        await record(active, ["walletBuilds"], builds + 1);
-
-        const outcome = await buildDeployment({ clientFactory: ex().sponsored.clientFactory }, body.data);
-        return c.json(outcome.body, outcome.status);
       });
 
       app.post("/wallets", async (c) => {
@@ -272,7 +245,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         if (active instanceof Response) return active;
 
         const body = walletRequest.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "recipient, interimOwnerPubkey, derivationSalt and deployment are required" }, 400);
+        if (!body.success) return c.json({ error: "recipient is required" }, 400);
         const recipient = body.data.recipient.trim().toLowerCase();
         if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
 
@@ -282,13 +255,9 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
           return c.json({ error: `${recipient} already has a wallet on the way` }, 409);
         }
 
-        const apiClient = c.get("apiClient");
         let result;
         try {
-          result = await chain().registerWallet(
-            { id: apiClient.id, accountId: apiClient.accountId },
-            { chain: "STARKNET", recipientScheme: IDENTITY_SCHEME.EMAIL, recipientValue: recipient, ...body.data },
-          );
+          result = await chain().registerWallet({ chain: "STARKNET", email: recipient });
         } catch (err) {
           log.warn({ err, run: active.run.id }, "run wallet provisioning failed");
           result = null;
@@ -298,8 +267,8 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
           return c.json({ error: `Could not prepare a wallet for ${recipient}. Try again.` }, 502);
         }
 
-        await record(active, path, result.record.walletAddress);
-        return c.json({ data: { recipient, walletAddress: result.record.walletAddress } }, 201);
+        await record(active, path, result.walletAddress);
+        return c.json({ data: { recipient, walletAddress: result.walletAddress } }, 201);
       });
     },
   };

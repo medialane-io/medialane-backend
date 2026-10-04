@@ -4,7 +4,6 @@ import { Hono } from "hono";
 import { Contract } from "starknet";
 import { DropCollectionABI } from "@medialane/sdk/starknet";
 import { createProvider, normalizeAddress } from "../../utils/starknet.js";
-import { publicCache } from "../middleware/publicCache.js";
 import type { AppEnv } from "../../types/hono.js";
 
 export interface DropOnchainState {
@@ -53,7 +52,7 @@ export function parseDropOnchainState(raw: {
 
 const drop = new Hono<AppEnv>();
 
-drop.get("/:contract/state", publicCache(30), async (c) => {
+drop.get("/:contract/state", async (c) => {
   const contract = normalizeAddress("STARKNET", c.req.param("contract"));
   const col = new Contract({ abi: DropCollectionABI as never, address: contract, providerOrAccount: createProvider() as never });
   const [cond, minted, max, allow, paused] = await Promise.all([

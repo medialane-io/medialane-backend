@@ -21,7 +21,7 @@ const deposit = (over: Partial<DepositEvent> = {}): DepositEvent => ({
 function store(open: FundingIntentRecord[]) {
   const settled: SettleInput[] = [];
   const s: FundingStore = {
-    countOpen: async () => 0, create: async () => open[0]!, get: async () => null, setPayer: async () => true,
+    create: async () => open[0]!, get: async () => null, setPayer: async () => true,
     openForPayer: async () => open,
     cancel: async () => true,
     settle: async (input) => { settled.push(input); return { outcome: "settled", paymentId: `pay-${input.intent.id}` }; },

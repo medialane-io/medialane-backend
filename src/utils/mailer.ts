@@ -1,238 +1,106 @@
-import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
 import prisma from "../db/client.js";
 
 const log = createLogger("mailer");
 
-const DEFAULT_FROM_NAME = "Medialane.io";
+const DEFAULT_FROM_NAME = "Medialane";
+const MAX_FROM_NAME_LENGTH = 40;
 
-function createTransporter() {
-  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null;
-  return nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+export function sanitizeFromName(name: string | null | undefined): string {
+  const cleaned = (name ?? "")
+    .replace(/[^\p{L}\p{N} .&'’-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_FROM_NAME_LENGTH)
+    .trim();
+  return cleaned || DEFAULT_FROM_NAME;
+}
+
+export async function fromNameForClient(clientId: string | null): Promise<string> {
+  if (!clientId) return DEFAULT_FROM_NAME;
+  const client = await prisma.apiClient.findUnique({
+    where: { id: clientId },
+    select: { account: { select: { profile: { select: { name: true } } } } },
   });
+  return sanitizeFromName(client?.account.profile?.name);
 }
 
-const from = (name: string = DEFAULT_FROM_NAME) => ({ name, address: env.CONTACT_FROM_EMAIL || env.SMTP_USER });
+export type EmailTemplate =
+  | { template: "verification-code"; data: { code: string } }
+  | { template: "welcome"; data: { walletAddress: string; confirm: { token: string; deadline: Date } | null } }
+  | { template: "verification-reminder"; data: { confirmToken: string; deadline: Date } }
+  | { template: "guardian-set"; data: { walletAddress: string } }
+  | { template: "guardian-escape-triggered"; data: { walletAddress: string; readyAt: Date } }
+  | { template: "guardian-escape-completed"; data: { walletAddress: string } };
 
-async function fromNameForTenant(tenant: string | null): Promise<string> {
-  if (!tenant) return DEFAULT_FROM_NAME;
-  const row = await prisma.tenant.findUnique({ where: { id: tenant }, select: { name: true } });
-  return row?.name ?? DEFAULT_FROM_NAME;
-}
+export type EmailMessage = EmailTemplate & { to: string; fromName?: string };
 
-export async function sendUsernameClaimApproved(to: string, username: string): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping approval email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: `@${username} is yours on Medialane!`,
-      html: `
-        <p>Hi there,</p>
-        <p>Your username claim for <strong>@${username}</strong> has been <strong>approved</strong> by the Medialane DAO team.</p>
-        <p>Your public creator profile is now live at:<br>
-        <a href="https://medialane.io/creator/${username}">medialane.io/creator/${username}</a></p>
-        <p>— The Medialane Team</p>
-      `,
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send approval email");
-  }
-}
+export type EmailChannel = (message: EmailMessage) => Promise<boolean>;
 
-export async function sendUsernameClaimRejected(to: string, username: string, adminNotes: string | null): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping rejection email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: `Username claim for @${username} — update`,
-      html: `
-        <p>Hi there,</p>
-        <p>Your username claim for <strong>@${username}</strong> was not approved at this time.</p>
-        ${adminNotes ? `<p>Reason: <em>${adminNotes}</em></p>` : ""}
-        <p>You can submit a new claim from your <a href="https://medialane.io/portfolio/settings">profile settings</a>.</p>
-        <p>— The Medialane Team</p>
-      `,
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send rejection email");
-  }
-}
-
-export function buildProvisioningClaimEmailHtml(claimUrl: string): string {
-  return `
-    <p>Hi there,</p>
-    <p>An account has been set up for you, with your assets already in it.</p>
-    <p>Claim it as your own — this takes a minute and confirms it belongs to you:<br>
-    <a href="${claimUrl}">${claimUrl}</a></p>
-    <p>— The Medialane Team</p>
-  `;
-}
-
-export async function sendProvisioningClaimEmail(to: string, claimUrl: string): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping provisioning claim email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(),
-      to,
-      subject: "An account is ready for you on Medialane",
-      html: buildProvisioningClaimEmailHtml(claimUrl),
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send provisioning claim email");
-  }
-}
-
-const shortAddress = (address: string): string => `${address.slice(0, 6)}…${address.slice(-4)}`;
-
-function buildGuardianAlertEmailHtml(headline: string, bodyHtml: string): string {
-  return `
-    <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-      <div style="text-align:center;padding-bottom:28px;">
-        <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
-      </div>
-      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:16px;padding:32px 24px;">
-        <p style="margin:0 0 8px;color:#991b1b;font-size:15px;font-weight:700;">${headline}</p>
-        ${bodyHtml}
-      </div>
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
-        Medialane will never ask you for your recovery key. Treat any message requesting it as an attempt to take your assets.
-      </p>
-    </div>
-  `;
-}
-
-async function sendGuardianAlertEmail(to: string, subject: string, html: string, logLabel: string): Promise<void> {
-  const transporter = createTransporter();
-  if (!transporter) { log.warn(`SMTP not configured — skipping ${logLabel} email`); return; }
-  try {
-    await transporter.sendMail({ from: from(), to, subject, html });
-  } catch (err) {
-    log.error({ err }, `Failed to send ${logLabel} email`);
-  }
-}
-
-export function buildGuardianEscapeTriggeredEmailHtml(walletAddress: string, readyAt: Date): string {
-  const short = shortAddress(walletAddress);
-  return buildGuardianAlertEmailHtml(
-    "A guardian started replacing your wallet's owner key",
-    `
-    <p style="margin:0 0 12px;color:#111827;font-size:14px;">Wallet ${short} can get a new owner key on or after
-      <strong>${readyAt.toUTCString()}</strong> unless you cancel it first.</p>
-    <p style="margin:0;color:#111827;font-size:14px;">If this was you (recovering with a guardian), no action is needed.
-      If it wasn't, open Medialane, go to Settings → Security &amp; Recovery, and cancel it now.</p>
-    `,
-  );
-}
-
-export async function sendGuardianEscapeTriggeredEmail(to: string, walletAddress: string, readyAt: Date): Promise<void> {
-  await sendGuardianAlertEmail(
-    to,
-    "Security alert: a guardian started recovering your Medialane wallet",
-    buildGuardianEscapeTriggeredEmailHtml(walletAddress, readyAt),
-    "guardian escape alert",
-  );
-}
-
-export function buildGuardianSetEmailHtml(walletAddress: string): string {
-  const short = shortAddress(walletAddress);
-  return buildGuardianAlertEmailHtml(
-    "A guardian was added to your wallet",
-    `
-    <p style="margin:0;color:#111827;font-size:14px;">A guardian can now help recover wallet ${short} if you lose every
-      device, but can never move your funds directly. If you set this up yourself, no action is needed.
-      If you didn't, open Medialane and check Settings → Security &amp; Recovery.</p>
-    `,
-  );
-}
-
-export async function sendGuardianSetEmail(to: string, walletAddress: string): Promise<void> {
-  await sendGuardianAlertEmail(
-    to,
-    "A guardian was added to your Medialane wallet",
-    buildGuardianSetEmailHtml(walletAddress),
-    "guardian added alert",
-  );
-}
-
-export function buildGuardianEscapeCompletedEmailHtml(walletAddress: string): string {
-  const short = shortAddress(walletAddress);
-  return buildGuardianAlertEmailHtml(
-    "Your wallet's owner key was just replaced by a guardian",
-    `
-    <p style="margin:0;color:#111827;font-size:14px;">Wallet ${short} now has a new owner key, set by its guardian.
-      If this was you completing a recovery, no action is needed. If it wasn't, your old device's key no longer
-      controls this wallet — contact support right away.</p>
-    `,
-  );
-}
-
-export async function sendGuardianEscapeCompletedEmail(to: string, walletAddress: string): Promise<void> {
-  await sendGuardianAlertEmail(
-    to,
-    "Security alert: your Medialane wallet's owner key was replaced",
-    buildGuardianEscapeCompletedEmailHtml(walletAddress),
-    "guardian escape completed alert",
-  );
-}
-
-export function buildVerificationCodeEmailHtml(code: string): string {
-  return `
-    <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-      <div style="text-align:center;padding-bottom:28px;">
-        <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
-      </div>
-      <div style="background:#f6f7f9;border-radius:16px;padding:32px 24px;text-align:center;">
-        <p style="margin:0 0 4px;color:#111827;font-size:15px;">Your verification code</p>
-        <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#111827;margin:16px 0;">${code}</div>
-        <p style="margin:0;color:#6b7280;font-size:13px;">This code expires in 10 minutes.</p>
-      </div>
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
-        If you didn't request this, you can safely ignore this email.
-      </p>
-    </div>
-  `;
-}
-
-async function sendViaRelay(to: string, code: string, fromName: string): Promise<boolean> {
+export const relayChannel: EmailChannel = async (message) => {
   if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
-  const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-verification-email`, {
+  const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
-    body: JSON.stringify({ to, code, fromName }),
+    body: JSON.stringify({ ...message, fromName: message.fromName ?? DEFAULT_FROM_NAME }),
   });
   if (!res.ok) throw new Error(`relay responded ${res.status}: ${await res.text().catch(() => "")}`);
   return true;
+};
+
+export async function sendEmail(message: EmailMessage, channels: EmailChannel[] = [relayChannel]): Promise<boolean> {
+  for (const channel of channels) {
+    try {
+      if (await channel(message)) return true;
+    } catch (err) {
+      log.error({ err }, "Email channel failed, trying the next one");
+    }
+  }
+  log.warn({ template: message.template }, "No email channel delivered the message");
+  return false;
 }
 
-export async function sendVerificationCode(to: string, code: string, tenant: string | null = null): Promise<void> {
-  const fromName = await fromNameForTenant(tenant);
+type Send = (message: EmailMessage) => Promise<boolean>;
 
-  try {
-    if (await sendViaRelay(to, code, fromName)) return;
-  } catch (err) {
-    log.error({ err }, "Mail relay failed sending verification code — falling back to direct SMTP");
-  }
-
-  const transporter = createTransporter();
-  if (!transporter) { log.warn("SMTP not configured — skipping verification code email"); return; }
-  try {
-    await transporter.sendMail({
-      from: from(fromName),
-      to,
-      subject: "Your verification code",
-      html: buildVerificationCodeEmailHtml(code),
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to send verification code email");
-  }
+export interface VerificationMailDeps {
+  send: Send;
+  fromNameFor: (clientId: string | null) => Promise<string>;
 }
+
+export async function sendVerificationCode(
+  to: string,
+  code: string,
+  clientId: string | null = null,
+  deps: VerificationMailDeps = { send: sendEmail, fromNameFor: fromNameForClient },
+): Promise<void> {
+  const fromName = await deps.fromNameFor(clientId);
+  const delivered = await deps.send({ to, fromName, template: "verification-code", data: { code } });
+  if (!delivered) log.warn("Could not send the verification code email");
+}
+
+async function sendGuardianAlert(message: EmailMessage, logLabel: string, send: Send): Promise<void> {
+  if (!(await send(message))) log.warn(`Could not send the ${logLabel} email`);
+}
+
+export const sendGuardianSetEmail = (to: string, walletAddress: string, send: Send = sendEmail): Promise<void> =>
+  sendGuardianAlert({ to, template: "guardian-set", data: { walletAddress } }, "guardian added alert", send);
+
+export const sendGuardianEscapeTriggeredEmail = (
+  to: string,
+  walletAddress: string,
+  readyAt: Date,
+  send: Send = sendEmail,
+): Promise<void> =>
+  sendGuardianAlert(
+    { to, template: "guardian-escape-triggered", data: { walletAddress, readyAt } },
+    "guardian escape alert",
+    send,
+  );
+
+export const sendGuardianEscapeCompletedEmail = (to: string, walletAddress: string, send: Send = sendEmail): Promise<void> =>
+  sendGuardianAlert(
+    { to, template: "guardian-escape-completed", data: { walletAddress } },
+    "guardian escape completed alert",
+    send,
+  );

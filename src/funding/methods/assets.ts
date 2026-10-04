@@ -3,7 +3,6 @@ import type { UsdPrices } from "../../utils/usdPrices.js";
 
 export type PriceReader = () => Promise<UsdPrices | null>;
 
-/** The tokens an account can be funded with: exactly the ones the platform already supports and prices. */
 export function acceptedSymbols(): string[] {
   return acceptedTokens().map((t) => t.symbol);
 }
@@ -13,7 +12,6 @@ export function tokenBySymbol(symbol: string): ValuedToken | undefined {
   return acceptedTokens().find((t) => t.symbol.toUpperCase() === wanted);
 }
 
-/** What an amount of a token is worth in USDC atomic units (6 decimals), or null when it cannot be priced. */
 export async function usdValueOf(
   token: ValuedToken,
   amountAtomic: bigint,
@@ -25,7 +23,6 @@ export async function usdValueOf(
   return usdcEquivalentAtomic(amountAtomic, token.decimals, price);
 }
 
-/** How much of a token is the given USDC atomic value, rounded up so it is never worth less; null without a price. */
 export async function tokenAmountFor(
   token: ValuedToken,
   usdAtomic: bigint,

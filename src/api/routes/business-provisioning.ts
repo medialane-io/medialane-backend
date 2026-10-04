@@ -1,290 +1,120 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
+import { typedData as starknetTypedData } from "starknet";
+import type { Chain } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
-import { computeAccountAddress, buildAddOwnerCall, buildRemoveOwnerCall } from "@medialane/sdk/starknet";
-import { executeSponsoredDeploy } from "./paymaster.js";
-import { ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
-import { requireTenant } from "../../utils/tenant.js";
-import { normalizeAddress } from "../../utils/starknet.js";
-import { isAccountOwner as realIsAccountOwner } from "../../chainRead/index.js";
-import crypto from "crypto";
-import type { Chain, ProvisioningStatus } from "@prisma/client";
+import { signWithPrivateKey } from "@medialane/sdk/starknet";
+import { buildDeployment as buildSponsoredDeployment, defaultClient, executeSponsoredDeploy } from "./paymaster.js";
+import { accountWallet, ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
+import { createProvider, isContractNotFound, normalizeAddress } from "../../utils/starknet.js";
+import { ioClientId } from "../../utils/caller.js";
+import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningKey.js";
 import { bill } from "../../payments/usage.js";
 
-export interface ProvisioningRecord {
-  id: string;
-  apiClientId: string;
-  chain: Chain;
-  walletAddress: string;
-  recipientScheme: string;
-  recipientValue: string;
-  interimOwnerPubkey: string | null;
-  newOwnerPubkey: string | null;
-  status: ProvisioningStatus;
-}
-
 export interface BusinessProvisioningDeps {
-  isAccountOwner: (chain: Chain, walletAddress: string, ownerPubkey: string) => Promise<boolean>;
-  deriveWalletAddress: (ownerPubkey: string) => string;
+  findIoAccount: (email: string) => Promise<{ accountId: string; walletAddress: string | null } | null>;
+  createIoAccount: (email: string) => Promise<string>;
+  keyFor: (accountId: string) => ProvisioningKey;
+  isDeployed: (walletAddress: string) => Promise<boolean>;
+  buildDeployment: (owner: { ownerPubkey: string; ownerAddress: string }) => Promise<{ typedData: unknown; deployment: unknown }>;
+  signTypedData: (privateKey: string, typedData: unknown, address: string) => string[];
   deployWallet: (input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown }) => Promise<string>;
-  ensureRecipientAccount: (recipientScheme: string, recipientValue: string) => Promise<string | null>;
-  findExistingWalletForRecipient: (
-    chain: Chain,
-    recipientScheme: string,
-    recipientValue: string,
-  ) => Promise<{ accountId: string; walletAddress: string } | null>;
-  linkWalletToAccount: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
-  createProvisioning: (input: {
-    apiClientId: string; accountId: string; chain: Chain; walletAddress: string; recipientScheme: string; recipientValue: string; interimOwnerPubkey: string | null; derivationSalt: string; status?: ProvisioningStatus;
-  }) => Promise<ProvisioningRecord>;
-  listProvisioning: (apiClientId: string, status?: ProvisioningStatus) => Promise<ProvisioningRecord[]>;
-  getProvisioningById: (id: string, apiClientId: string) => Promise<ProvisioningRecord | null>;
-  getProvisioningByIdUnscoped: (id: string) => Promise<ProvisioningRecord | null>;
-  markTransferred: (id: string) => Promise<ProvisioningRecord>;
-  recordNewOwnerPubkey: (id: string, newOwnerPubkey: string) => Promise<ProvisioningRecord>;
-  getProvisioningByRecipient: (input: {
-    chain: Chain;
-    recipientScheme: string;
-    recipientValue: string;
-    apiClientId: string;
-  }) => Promise<ProvisioningRecord | null>;
+  linkWallet: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
 }
-
-const FELT = /^0x[0-9a-fA-F]{1,64}$/;
-
-const handoffSchema = z.object({
-  chain: z.enum(["STARKNET"]).default("STARKNET"),
-  recipientScheme: z.string().min(1),
-  recipientValue: z.string().min(1),
-  newOwnerPubkey: z.string().regex(FELT),
-});
 
 const registerSchema = z.object({
   chain: z.enum(["STARKNET"]).default("STARKNET"),
-  recipientScheme: z.string().min(1),
-  recipientValue: z.string().min(1),
-  interimOwnerPubkey: z.string(),
-  derivationSalt: z.string().min(16).max(128),
-  deployment: z.object({
-    typedData: z.unknown(),
-    signature: z.array(z.string()).min(1),
-    deployment: z.unknown(),
-  }),
+  email: z.string().email(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export type RegisterResult =
-  | { status: 200 | 201; record: ProvisioningRecord; reused: boolean }
+  | { status: 200 | 201; walletAddress: string; reused: boolean }
   | { status: 502; message: string };
 
-/** Gives a recipient a wallet: reuses the one they already have, or deploys a fresh one owned by an interim key. */
-export async function registerProvisioning(
-  deps: BusinessProvisioningDeps,
-  apiClient: { id: string; accountId: string },
-  input: RegisterInput,
-): Promise<RegisterResult> {
-  const { chain, recipientScheme, recipientValue, interimOwnerPubkey, derivationSalt, deployment } = input;
-  const normPubkey = normalizeAddress(chain, interimOwnerPubkey);
-  const normWallet = normalizeAddress(chain, deps.deriveWalletAddress(normPubkey));
+export async function registerProvisioning(deps: BusinessProvisioningDeps, input: RegisterInput): Promise<RegisterResult> {
+  const { chain } = input;
+  const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, input.email);
 
-  const existing = await deps.findExistingWalletForRecipient(chain, recipientScheme, recipientValue);
-  if (existing) {
-    const record = await deps.createProvisioning({
-      apiClientId: apiClient.id,
-      accountId: apiClient.accountId,
-      chain,
-      walletAddress: existing.walletAddress,
-      recipientScheme,
-      recipientValue,
-      interimOwnerPubkey: null,
-      derivationSalt,
-      status: "REUSED",
-    });
-    return { status: 200, record, reused: true };
+  const account = await deps.findIoAccount(email);
+  if (account?.walletAddress) {
+    return { status: 200, walletAddress: normalizeAddress(chain, account.walletAddress), reused: true };
   }
 
-  const recipientAccountId = await deps.ensureRecipientAccount(recipientScheme, recipientValue);
+  const accountId = account?.accountId ?? (await deps.createIoAccount(email));
+  const key = deps.keyFor(accountId);
+  const walletAddress = normalizeAddress(chain, key.walletAddress);
 
   try {
-    await deps.deployWallet({
-      ownerAddress: normWallet,
-      typedData: deployment.typedData,
-      signature: deployment.signature,
-      deployment: deployment.deployment,
-    });
+    if (!(await deps.isDeployed(walletAddress))) {
+      const built = await deps.buildDeployment({ ownerPubkey: key.publicKey, ownerAddress: walletAddress });
+      await deps.deployWallet({
+        ownerAddress: walletAddress,
+        typedData: built.typedData,
+        signature: deps.signTypedData(key.privateKey, built.typedData, walletAddress),
+        deployment: built.deployment,
+      });
+    }
   } catch (err) {
     return { status: 502, message: err instanceof Error ? err.message : "deploy_failed" };
   }
 
-  if (recipientAccountId) {
-    await deps.linkWalletToAccount({ chain, walletAddress: normWallet, accountId: recipientAccountId });
-  }
-
-  const record = await deps.createProvisioning({
-    apiClientId: apiClient.id,
-    accountId: apiClient.accountId,
-    chain,
-    walletAddress: normWallet,
-    recipientScheme,
-    recipientValue,
-    interimOwnerPubkey: normPubkey,
-    derivationSalt,
-  });
-  return { status: 201, record, reused: false };
+  await deps.linkWallet({ chain, walletAddress, accountId });
+  return { status: 201, walletAddress, reused: false };
 }
 
 export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.post("/", zValidator("json", registerSchema), async (c) => {
-    const result = await registerProvisioning(deps, c.get("apiClient"), c.req.valid("json"));
+    const input = c.req.valid("json");
+    const result = await registerProvisioning(deps, input);
     if (result.status === 502) return c.json({ error: "deploy_failed", message: result.message }, 502);
+    const data = { chain: input.chain, walletAddress: result.walletAddress };
     if (result.reused) {
       bill(c, 0);
-      return c.json({ data: result.record, reusedExistingWallet: true }, 200);
+      return c.json({ data, reusedExistingWallet: true }, 200);
     }
-    return c.json({ data: result.record }, 201);
-  });
-
-  app.get("/", async (c) => {
-    const apiClient = c.get("apiClient");
-    const status = c.req.query("status") as ProvisioningStatus | undefined;
-    const rows = await deps.listProvisioning(apiClient.id, status);
-    return c.json({ data: rows });
-  });
-
-  app.post("/handoff", zValidator("json", handoffSchema), async (c) => {
-    const { chain, recipientScheme, recipientValue, newOwnerPubkey } = c.req.valid("json");
-    const apiClient = c.get("apiClient");
-
-    const record = await deps.getProvisioningByRecipient({
-      chain,
-      recipientScheme,
-      recipientValue,
-      apiClientId: apiClient.id,
-    });
-    if (!record) return c.json({ error: "not_found" }, 404);
-    if (record.status === "REUSED") return c.json({ error: "wallet_not_provisioned_by_caller" }, 409);
-    if (record.status === "TRANSFERRED") return c.json({ error: "already_transferred" }, 409);
-
-    const updated = await deps.recordNewOwnerPubkey(record.id, normalizeAddress(chain, newOwnerPubkey));
-    return c.json({ data: updated });
-  });
-
-  app.get("/:id/handoff-calls", async (c) => {
-    const id = c.req.param("id");
-    const apiClient = c.get("apiClient");
-    const record = await deps.getProvisioningById(id, apiClient.id);
-    if (!record) return c.json({ error: "not_found" }, 404);
-    if (record.status === "REUSED" || !record.interimOwnerPubkey) {
-      return c.json({ error: "wallet_not_provisioned_by_caller" }, 409);
-    }
-    if (!record.newOwnerPubkey) return c.json({ error: "no_recipient_key_yet" }, 409);
-
-    return c.json({
-      data: {
-        addRecipient: buildAddOwnerCall(record.walletAddress, record.newOwnerPubkey),
-        removeInterim: buildRemoveOwnerCall(record.walletAddress, record.interimOwnerPubkey),
-      },
-    });
-  });
-
-  app.post("/:id/complete", async (c) => {
-    const id = c.req.param("id");
-    const apiClient = c.get("apiClient");
-    const record = await deps.getProvisioningById(id, apiClient.id);
-    if (!record) return c.json({ error: "not_found" }, 404);
-    if (record.status === "REUSED" || !record.interimOwnerPubkey) {
-      return c.json({ error: "wallet_not_provisioned_by_caller" }, 409);
-    }
-    if (!record.newOwnerPubkey) return c.json({ error: "not_claimed_yet" }, 409);
-
-    const [newOwnerConfirmed, interimStillOwner] = await Promise.all([
-      deps.isAccountOwner(record.chain, record.walletAddress, record.newOwnerPubkey),
-      deps.isAccountOwner(record.chain, record.walletAddress, record.interimOwnerPubkey),
-    ]);
-    if (!newOwnerConfirmed || interimStillOwner) return c.json({ error: "handoff_not_confirmed_onchain" }, 409);
-
-    const updated = await deps.markTransferred(id);
-    return c.json({ data: updated });
+    return c.json({ data }, 201);
   });
 
   return app;
 }
 
-function assertLinked<T extends { apiClientId: string | null }>(row: T): T & { apiClientId: string } {
-  if (row.apiClientId === null) {
-    throw new Error(`BusinessProvisioning ${(row as { id?: string }).id ?? "?"} has no apiClientId — backfill gap`);
-  }
-  return row as T & { apiClientId: string };
-}
-
 export const productionProvisioningDeps: BusinessProvisioningDeps = {
-  isAccountOwner: realIsAccountOwner,
-  deriveWalletAddress: (ownerPubkey) => computeAccountAddress(ownerPubkey, 0),
-  deployWallet: (input) => executeSponsoredDeploy(input),
-
-  createProvisioning: async (input) => assertLinked(await prisma.businessProvisioning.create({ data: input })),
-  listProvisioning: async (apiClientId, status) =>
-    (await prisma.businessProvisioning.findMany({ where: { apiClientId, ...(status ? { status } : {}) } })).map(assertLinked),
-  getProvisioningById: async (id, apiClientId) => {
-    const row = await prisma.businessProvisioning.findUnique({ where: { id } });
-    return row && row.apiClientId === apiClientId ? assertLinked(row) : null;
-  },
-  getProvisioningByIdUnscoped: async (id) => {
-    const row = await prisma.businessProvisioning.findUnique({ where: { id } });
-    return row ? assertLinked(row) : null;
-  },
-  findExistingWalletForRecipient: async (chain, recipientScheme, recipientValue) => {
-    const identities = await prisma.identity.findMany({
-      where: {
-        scheme: recipientScheme,
-        value: normalizeIdentityValue(recipientScheme, recipientValue),
-      },
+  findIoAccount: async (email) => {
+    const identity = await prisma.identity.findUnique({
+      where: { clientId_scheme_value: { clientId: ioClientId(), scheme: IDENTITY_SCHEME.EMAIL, value: email } },
       select: { accountId: true },
     });
-    if (identities.length === 0) return null;
-
-    const accountIds = [...new Set(identities.map((i) => i.accountId))];
-    const wallet = await prisma.identity.findFirst({
-      where: { accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
-      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-      select: { accountId: true, address: true },
-    });
-    if (!wallet?.address) return null;
-    return { accountId: wallet.accountId, walletAddress: wallet.address };
+    if (!identity) return null;
+    return { accountId: identity.accountId, walletAddress: await accountWallet(identity.accountId) };
   },
-  ensureRecipientAccount: async (recipientScheme, recipientValue) => {
-    const tenantId = await requireTenant("MEDIALANE_SDK");
-    const { accountId } = await ensureAccountForIdentity(recipientScheme, recipientValue, tenantId);
-    return accountId;
+  createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, ioClientId())).accountId,
+  keyFor: provisioningKey,
+  isDeployed: async (walletAddress) => {
+    try {
+      await createProvider().getClassHashAt(walletAddress);
+      return true;
+    } catch (err) {
+      if (isContractNotFound(err)) return false;
+      throw err;
+    }
   },
-  linkWalletToAccount: async ({ chain, walletAddress, accountId }) => {
-    await ensureAccountForWallet({
-      chain,
-      address: walletAddress,
-      provider: "mediawallet",
-      tenantId: await requireTenant("MEDIALANE_SDK"),
-      linkToAccountId: accountId,
-    });
+  buildDeployment: async (owner) => {
+    const outcome = await buildSponsoredDeployment({ clientFactory: defaultClient }, owner);
+    if (outcome.status !== 200) throw new Error(outcome.body.error);
+    return { typedData: outcome.body.typedData, deployment: outcome.body.deployment };
   },
-  markTransferred: async (id) => assertLinked(await prisma.businessProvisioning.update({ where: { id }, data: { status: "TRANSFERRED" } })),
-  recordNewOwnerPubkey: async (id, newOwnerPubkey) =>
-    assertLinked(
-      await prisma.businessProvisioning.update({
-        where: { id },
-        data: { newOwnerPubkey, status: "HANDOFF" },
-      }),
-    ),
-  getProvisioningByRecipient: async ({ chain, recipientScheme, recipientValue, apiClientId }) => {
-    const row = await prisma.businessProvisioning.findFirst({
-      where: { chain, recipientScheme, recipientValue, apiClientId },
-    });
-    return row ? assertLinked(row) : null;
+  signTypedData: (privateKey, typedData, address) =>
+    signWithPrivateKey(privateKey, starknetTypedData.getMessageHash(typedData as never, address)),
+  deployWallet: (input) => executeSponsoredDeploy(input),
+  linkWallet: async ({ chain, walletAddress, accountId }) => {
+    await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", clientId: ioClientId(), linkToAccountId: accountId });
   },
 };
 

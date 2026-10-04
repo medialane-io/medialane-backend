@@ -29,18 +29,6 @@ const toRecord = (row: Row): FundingIntentRecord => ({
 });
 
 export const prismaFundingStore: FundingStore = {
-  countOpen(apiClientId, now) {
-    return prisma.fundingIntent.count({
-      where: {
-        apiClientId,
-        status: "PENDING",
-        OR: [
-          { payer: null, expiresAt: { gt: now } },
-          { payer: { not: null }, expiresAt: { gt: new Date(now.getTime() - PAYMENT_GRACE_MS) } },
-        ],
-      },
-    });
-  },
 
   async create(input) {
     const row = await prisma.fundingIntent.create({
@@ -118,8 +106,6 @@ export const prismaFundingStore: FundingStore = {
         return { outcome: "settled", paymentId: payment.id } as const;
       });
     } catch (err) {
-      // The transfer was already credited (proofNonce is unique): the whole transaction rolls back,
-      // so the intent stays PENDING and nothing is counted twice.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         return { outcome: "duplicate" };
       }

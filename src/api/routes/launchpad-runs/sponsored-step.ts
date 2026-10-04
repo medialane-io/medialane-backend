@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types/hono.js";
 import type { StepState } from "../../../launchpad/services/data-tokenization/progress.js";
-import { executeSponsoredInvoke } from "../paymaster.js";
+import type { Call } from "../../../launchpad/services/ip-ticketing/chain.js";
+import { executeSponsoredInvoke, typedDataMatchesCalls } from "../paymaster.js";
 import type { RunContext, RunReceipt } from "./context.js";
 
 export interface StepTarget {
@@ -15,9 +16,12 @@ export interface StepTarget {
 export async function executeStep(
   ctx: RunContext,
   c: Context<AppEnv>,
-  target: StepTarget & { userAddress: string; typedData?: unknown; signature: string[]; calls: unknown[] },
+  target: StepTarget & { userAddress: string; typedData?: unknown; signature: string[]; calls: Call[] },
 ): Promise<Response> {
   const { runId: id, apiClientId, credits, path } = target;
+  if (!typedDataMatchesCalls(target.typedData, target.calls)) {
+    return c.json({ error: "That signature is not for this step", code: "invalid_request" }, 400);
+  }
   if (!(await ctx.store.reserve({ id, apiClientId, credits, path, retryReverted: true }))) {
     return c.json({ error: `${target.label} is already on its way` }, 409);
   }
@@ -26,10 +30,9 @@ export async function executeStep(
     userAddress: target.userAddress,
     typedData: target.typedData,
     signature: target.signature,
-    calls: target.calls,
   });
   if (outcome.status !== 200) {
-    await ctx.store.release({ id, apiClientId, credits, path });
+    if (outcome.body.code !== "may_have_broadcast") await ctx.store.release({ id, apiClientId, credits, path });
     return c.json(outcome.body, outcome.status);
   }
 

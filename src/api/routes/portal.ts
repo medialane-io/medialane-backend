@@ -9,7 +9,6 @@ import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { generateApiKey } from "../../utils/apiKey.js";
-import { TENANT_SLUG_INPUT, requireTenant, tenantSlugForId } from "../../utils/tenant.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -139,7 +138,6 @@ portal.get("/keys", async (c) => {
       id: true,
       prefix: true,
       label: true,
-      tenantId: true,
       status: true,
       lastUsedAt: true,
       createdAt: true,
@@ -152,7 +150,6 @@ portal.get("/keys", async (c) => {
 const createKeySchema = z.object({
   label: z.string().max(64).optional(),
 
-  appSource: z.enum(TENANT_SLUG_INPUT).optional(),
 });
 
 portal.post("/keys", freshSignature, async (c) => {
@@ -163,38 +160,18 @@ portal.post("/keys", freshSignature, async (c) => {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
-  let plaintext: string;
-  let key;
-  try {
-    key = await prisma.$transaction(async (tx) => {
-      const keyCount = await tx.apiKey.count({
-        where: { apiClientId: apiClient.id, status: "ACTIVE" },
-      });
-      if (keyCount >= 5) {
-        throw Object.assign(new Error("Max 5 active API keys per account"), { code: "KEY_LIMIT" });
-      }
-      const generated = generateApiKey();
-      plaintext = generated.plaintext;
-      return tx.apiKey.create({
-        data: {
-          apiClientId: apiClient.id,
-          prefix: generated.prefix,
-          keyHash: generated.keyHash,
-          label: parsed.data.label ?? undefined,
+  const generated = generateApiKey();
+  const key = await prisma.apiKey.create({
+    data: {
+      apiClientId: apiClient.id,
+      prefix: generated.prefix,
+      keyHash: generated.keyHash,
+      label: parsed.data.label ?? undefined,
+    },
+  });
 
-          tenantId: parsed.data.appSource
-            ? await requireTenant(parsed.data.appSource)
-            : "MEDIALANE_SDK",
-        },
-      });
-    });
-  } catch (err: any) {
-    if (err.code === "KEY_LIMIT") return c.json({ error: "Max 5 active API keys per account" }, 409);
-    throw err;
-  }
-
-  log.info({ keyId: key.id, apiClientId: apiClient.id, tenantId: key.tenantId }, "Self-service API key created");
-  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, appSource: key.tenantId ? await tenantSlugForId(key.tenantId) : null, plaintext: plaintext! } }, 201);
+  log.info({ keyId: key.id, apiClientId: apiClient.id }, "Self-service API key created");
+  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: generated.plaintext } }, 201);
 });
 
 portal.delete("/keys/:id", freshSignature, async (c) => {

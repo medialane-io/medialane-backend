@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { parseDepositEvents, creditDeposit, creditFromTransaction, depositNonce, type DepositDeps, type DepositEvent } from "./treasuryDeposit.js";
+import { parseDepositEvents, creditDeposit, creditFromTransaction, depositNonce, type DepositDeps, type DepositEvent, payingAccount } from "./treasuryDeposit.js";
 import { acceptedTokens } from "../../payments/token-value.js";
 
 const TRANSFER_KEY = "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9";
@@ -148,6 +148,33 @@ describe("crediting a specific transaction on request", () => {
     );
     expect(res.credited).toBe(1);
     expect(credited).toBe(28);
+  });
+
+  test("a reverted or not yet finalized transaction credits nothing", async () => {
+    for (const receipt of [
+      { execution_status: "REVERTED", finality_status: "ACCEPTED_ON_L2" },
+      { execution_status: "SUCCEEDED", finality_status: "RECEIVED" },
+    ]) {
+      let called = false;
+      const res = await creditFromTransaction(
+        "0xabc",
+        deps({ creditAccount: async () => { called = true; } }),
+        async () => ({ ...receipt, events: [strkTransfer] }),
+      );
+      expect(res.credited).toBe(0);
+      expect(called).toBe(false);
+    }
+  });
+
+  test("a succeeded, finalized transaction is credited", async () => {
+    let called = false;
+    const res = await creditFromTransaction(
+      "0xabc",
+      deps({ creditAccount: async () => { called = true; } }),
+      async () => ({ execution_status: "SUCCEEDED", finality_status: "ACCEPTED_ON_L2", events: [strkTransfer] }),
+    );
+    expect(res.credited).toBe(1);
+    expect(called).toBe(true);
   });
 
   test("a transaction that sent nothing to the treasury credits nothing", async () => {
@@ -350,5 +377,19 @@ describe("a deposit that matches an open intent", () => {
     let credited = 0;
     await creditDeposit(deposit, deps({ creditAccount: async (i) => { credited = i.creditedAmount; } }));
     expect(credited).toBeGreaterThan(0);
+  });
+});
+
+describe("which account a paying wallet credits", () => {
+  test("the one account holding the wallet", () => {
+    expect(payingAccount(["acct-1"])).toBe("acct-1");
+  });
+
+  test("nobody, when no account holds it", () => {
+    expect(payingAccount([])).toBeNull();
+  });
+
+  test("nobody, when accounts in several clients hold it, so a deposit is never guessed", () => {
+    expect(payingAccount(["acct-1", "acct-2"])).toBeNull();
   });
 });

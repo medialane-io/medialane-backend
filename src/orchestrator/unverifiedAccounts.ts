@@ -1,74 +1,60 @@
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
-import { DEFAULT_GRACE_DAYS } from "../utils/emailVerification.js";
 
 const log = createLogger("orchestrator:unverified-accounts");
 
 const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+import { DAY_MS, IO_VERIFICATION_DAYS } from "../utils/accountLifecycle.js";
+import { env } from "../config/env.js";
+import { IDENTITY_SCHEME } from "../utils/identity.js";
 
-export const RULE_STARTS_AT = new Date("2026-09-13T00:00:00.000Z");
+export { IO_VERIFICATION_DAYS, verificationDeadline } from "../utils/accountLifecycle.js";
 
-export function deadlineFor(registeredAt: Date, graceDays: number = DEFAULT_GRACE_DAYS): Date {
-  return new Date(registeredAt.getTime() + graceDays * 24 * 60 * 60 * 1000);
+interface AccountUpdater {
+  account: {
+    updateMany(args: {
+      where: {
+        status: "PENDING";
+        createdAt: { lt: Date };
+        identities: { some: { scheme: string; clientId: string } };
+      };
+      data: { status: "INACTIVE" };
+    }): Promise<{ count: number }>;
+  };
 }
 
-export function isPastDue(
-  registeredAt: Date,
+export function isExpired(createdAt: Date, now: Date = new Date(), days: number = IO_VERIFICATION_DAYS): boolean {
+  return now.getTime() - createdAt.getTime() > days * DAY_MS;
+}
+
+export async function deactivateExpiredPending(
   now: Date = new Date(),
-  graceDays: number = DEFAULT_GRACE_DAYS,
-  ruleStartsAt: Date = RULE_STARTS_AT,
-): boolean {
-  if (registeredAt < ruleStartsAt) return false;
-  return now > deadlineFor(registeredAt, graceDays);
-}
-
-export function graceCutoff(now: Date = new Date(), graceDays: number = DEFAULT_GRACE_DAYS): Date {
-  return new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
-}
-
-export async function suspendUnverifiedAccounts(now: Date = new Date()): Promise<number> {
-  const cutoff = graceCutoff(now);
-
-  const candidates = await prisma.identity.findMany({
+  db: AccountUpdater = prisma as unknown as AccountUpdater,
+  ioClientId: string = env.IO_CLIENT_ID,
+): Promise<number> {
+  if (!ioClientId) {
+    log.warn("IO_CLIENT_ID is not set, so no pending account is closed");
+    return 0;
+  }
+  const cutoff = new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS);
+  const { count } = await db.account.updateMany({
     where: {
-      scheme: IDENTITY_SCHEME.EMAIL,
-      verifiedAt: null,
+      status: "PENDING",
       createdAt: { lt: cutoff },
-      account: { status: "ACTIVE" },
+      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId } },
     },
-    select: { accountId: true, createdAt: true },
+    data: { status: "INACTIVE" },
   });
-  const stale = candidates.filter((row) => isPastDue(row.createdAt, now));
-  if (stale.length === 0) return 0;
-
-  const verified = await prisma.identity.findMany({
-    where: {
-      accountId: { in: stale.map((row) => row.accountId) },
-      scheme: IDENTITY_SCHEME.EMAIL,
-      verifiedAt: { not: null },
-    },
-    select: { accountId: true },
-  });
-  const keep = new Set(verified.map((row) => row.accountId));
-  const toSuspend = [...new Set(stale.map((row) => row.accountId))].filter((id) => !keep.has(id));
-  if (toSuspend.length === 0) return 0;
-
-  const { count } = await prisma.account.updateMany({
-    where: { id: { in: toSuspend }, status: "ACTIVE" },
-    data: { status: "SUSPENDED" },
-  });
-
-  log.info({ count, graceDays: DEFAULT_GRACE_DAYS }, "Suspended accounts whose email was never verified");
+  if (count > 0) log.info({ count }, "Pending io signups that never verified their email are now inactive");
   return count;
 }
 
 export async function startUnverifiedAccountsLoop(): Promise<void> {
   for (;;) {
     try {
-      await suspendUnverifiedAccounts();
+      await deactivateExpiredPending();
     } catch (err) {
-      log.error({ err }, "Suspending unverified accounts failed");
+      log.error({ err }, "Deactivating expired pending accounts failed");
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }

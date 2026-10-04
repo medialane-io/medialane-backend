@@ -1,10 +1,9 @@
 import { Hono } from "hono";
-import { publicCache } from "../middleware/publicCache.js";
 import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
-import type { Coin } from "@prisma/client";
+import type { Chain, Coin } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress, callRpc } from "../../utils/starknet.js";
 import { STARKNET_CREATOR_COIN_FACTORY_CONTRACT } from "../../config/constants.js";
@@ -28,6 +27,22 @@ function decodeShortStr(felt: string): string | null {
   try {
     const s = shortString.decodeShortString(felt);
     return s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function verifiedCreator(
+  chain: Chain,
+  coinAddress: string,
+  claimedOwner: string | undefined,
+  readOwner: typeof getCollectionOwner = getCollectionOwner,
+): Promise<string | null> {
+  if (!claimedOwner) return null;
+  try {
+    const wallet = normalizeAddress(chain, claimedOwner);
+    const owner = await readOwner(chain, coinAddress);
+    return owner !== normalizeAddress(chain, "0x0") && owner === wallet ? wallet : null;
   } catch {
     return null;
   }
@@ -79,7 +94,7 @@ coins.post("/sync", async (c) => {
       chain,
       contractAddress: coinAddress,
       ...resolved.coin,
-      creator: parsed.data.owner ? normalizeAddress(chain, parsed.data.owner) : null,
+      creator: await verifiedCreator(chain, coinAddress, parsed.data.owner),
       startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
@@ -94,7 +109,7 @@ coins.post("/sync", async (c) => {
   }
 });
 
-coins.get("/", publicCache(30), async (c) => {
+coins.get("/", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
@@ -185,16 +200,27 @@ coins.get("/claims", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
-  const status = c.req.query("status") ?? "PENDING";
+  const status = z.enum(["PENDING", "AUTO_APPROVED", "APPROVED", "REJECTED"]).safeParse(c.req.query("status") ?? "PENDING");
+  if (!status.success) return c.json({ error: "Invalid status" }, 400);
   const claims = await prisma.collectionClaim.findMany({
-    where: { status: status as never },
+    where: { status: status.data },
     orderBy: { createdAt: "desc" },
     take: 100,
+    select: {
+      id: true,
+      contractAddress: true,
+      chain: true,
+      claimantAddress: true,
+      status: true,
+      verificationMethod: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
   return c.json({ data: claims });
 });
 
-coins.get("/prices", publicCache(30), async (c) => {
+coins.get("/prices", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
@@ -212,7 +238,7 @@ coins.get("/prices", publicCache(30), async (c) => {
   return c.json({ data: prices });
 });
 
-coins.get("/:contract", publicCache(30), async (c) => {
+coins.get("/:contract", async (c) => {
   const chain = parseSingleChain(c.req.query("chain"));
   if (!chain) return c.json({ error: "Invalid chain" }, 400);
   const contract = normalizeAddress(chain, c.req.param("contract"));

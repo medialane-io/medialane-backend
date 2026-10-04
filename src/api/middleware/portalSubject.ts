@@ -3,13 +3,14 @@ import { normalizeAddress } from "@medialane/sdk";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
-import { accountSessionIssuedAt, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { accountSessionIssuedAt, isSessionCurrent, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
-import { requireTenant } from "../../utils/tenant.js";
+import { callerClientId } from "../../utils/caller.js";
 
 const accountSelect = {
   id: true,
   status: true,
+  sessionsValidFrom: true,
   apiClient: { select: { id: true, accountId: true, plan: true, creditBalance: true } },
 } as const;
 
@@ -24,7 +25,10 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (accountId) {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: accountSelect });
     if (!account?.apiClient) return c.json({ error: "No account for this session" }, 404);
-    if (account.status !== "ACTIVE") return c.json({ error: "Account is not active" }, 403);
+    if (account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
+    if (!isSessionCurrent(accountSessionIssuedAt(raw), account.sessionsValidFrom)) {
+      return c.json({ error: "Invalid or expired token" }, 401);
+    }
 
     c.set("subjectTokenIssuedAt", accountSessionIssuedAt(raw) ?? undefined);
     c.set("account", { id: account.id, status: account.status });
@@ -36,28 +40,35 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!identity) return c.json({ error: "Invalid or expired token" }, 401);
 
   const address = normalizeAddress(identity.chain, identity.address);
+  const clientId = callerClientId(c);
+  if (!clientId) return c.json({ error: "This API key has no client" }, 400);
   let wallet = await prisma.identity.findUnique({
-    where: { chain_address: { chain: identity.chain, address } },
+    where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
     select: { account: { select: accountSelect } },
   });
 
   if (!wallet || !wallet.account.apiClient) {
-    // The token already proves wallet ownership, so a first-time portal
-    // visitor (no wallet row yet) or an account still missing its
-    // ApiClient (credit wallet) is provisioned here rather than 404ing
-    // and relying on a client-side registration call that may never
-    // fire before this request.
-    const tenantId = await requireTenant("MEDIALANE_PORTAL");
-    await ensureAccountForWallet({ chain: identity.chain, address, tenantId });
+    const keyAccountId = c.get("apiKey")?.apiClient?.accountId;
+    const own = keyAccountId
+      ? await prisma.identity.findFirst({
+          where: { accountId: keyAccountId, chain: identity.chain, address },
+          select: { account: { select: accountSelect } },
+        })
+      : null;
+    if (own?.account.apiClient) wallet = own;
+  }
+
+  if (!wallet || !wallet.account.apiClient) {
+    await ensureAccountForWallet({ chain: identity.chain, address, clientId });
     wallet = await prisma.identity.findUnique({
-      where: { chain_address: { chain: identity.chain, address } },
+      where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
       select: { account: { select: accountSelect } },
     });
   }
 
   const apiClient = wallet?.account.apiClient;
   if (!wallet || !apiClient) return c.json({ error: "No account for this wallet" }, 404);
-  if (wallet.account.status !== "ACTIVE") return c.json({ error: "Account is not active" }, 403);
+  if (wallet.account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
 
   c.set("walletAddress", address);
   c.set("subjectTokenIssuedAt", tokenIssuedAt(raw) ?? undefined);

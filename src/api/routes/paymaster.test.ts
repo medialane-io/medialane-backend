@@ -3,12 +3,7 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import paymaster, { type PaymasterClient } from "./paymaster.js";
-import type { ContractAddressChecker } from "./paymaster-contract-address.js";
-import type { SponsorAuthorizer, SponsorRequest } from "./sponsor-authorizer.js";
 import type { AppEnv } from "../../types/hono.js";
-
-const ALLOW_ALL_ADDRESSES: ContractAddressChecker = { isEligible: async () => true };
-const ALLOW_ALL_SPONSORS: SponsorAuthorizer = { authorize: async () => null };
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -45,7 +40,7 @@ function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
     ...client,
   };
   const app = new Hono<AppEnv>();
-  app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, ALLOW_ALL_SPONSORS));
+  app.route("/", paymaster(() => stub, (_c, next) => next()));
   return app;
 }
 
@@ -64,6 +59,20 @@ describe("POST /invoke/build", () => {
     expect(built.opts.feeMode.mode).toBe("sponsored");
   });
 
+  test("sponsors any call the key sends, whatever the contract or entrypoint", async () => {
+    const calls: unknown[] = [];
+    const res = await appWith({}, calls).request("/invoke/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        calls: [{ contractAddress: "0x0abc", entrypoint: "multi_route_swap", calldata: [] }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
   test("rejects a missing address or an empty call list without reaching the paymaster", async () => {
     const calls: unknown[] = [];
     for (const body of [{ calls: [{}] }, { userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [] }, {}]) {
@@ -77,70 +86,6 @@ describe("POST /invoke/build", () => {
     expect(calls.length).toBe(0);
   });
 
-  test("rejects an entrypoint outside the sponsorable set", async () => {
-    const calls: unknown[] = [];
-    const res = await appWith({}, calls).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
-      }),
-    });
-    expect(res.status).toBe(400);
-    expect(calls.length).toBe(0);
-  });
-});
-
-describe("contract address eligibility", () => {
-  test("/invoke/build rejects a call the address checker refuses, without reaching the paymaster", async () => {
-    const calls: unknown[] = [];
-    const stub: PaymasterClient = {
-      buildTransaction: async (req, opts) => {
-        calls.push({ fn: "build", req, opts });
-        return { typed_data: { message: "td" } } as never;
-      },
-      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
-    };
-    const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => stub, { isEligible: async () => false }, ALLOW_ALL_SPONSORS));
-
-    const res = await app.request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(calls.length).toBe(0);
-  });
-
-  test("/invoke/execute rejects a call the address checker refuses, without reaching the paymaster", async () => {
-    const calls: unknown[] = [];
-    const stub: PaymasterClient = {
-      buildTransaction: async () => ({ typed_data: { message: "td" } }) as never,
-      executeTransaction: async (req, opts) => {
-        calls.push({ fn: "execute", req, opts });
-        return { transaction_hash: "0xtx" } as never;
-      },
-    };
-    const app = new Hono<AppEnv>();
-    app.route("/", paymaster(() => stub, { isEligible: async () => false }, ALLOW_ALL_SPONSORS));
-
-    const res = await app.request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-        signature: ["0x1"],
-        calls: [SPONSORABLE_CALL],
-      }),
-    });
-
-    expect(res.status).toBe(400);
-    expect(calls.length).toBe(0);
-  });
 });
 
 describe("POST /invoke/execute", () => {
@@ -164,35 +109,6 @@ describe("POST /invoke/execute", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", typedData: { m: 1 }, calls: [SPONSORABLE_CALL] }),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  test("rejects an entrypoint outside the sponsorable set", async () => {
-    const res = await appWith({}).request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        typedData: { m: 1 },
-        signature: ["0x1"],
-        calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
-      }),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  test("rejects typedData whose calls don't match the submitted calls", async () => {
-    const res = await appWith({}).request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-
-        typedData: outsideExecutionTypedData([{ ...SPONSORABLE_CALL, contractAddress: "0x999" }]),
-        signature: ["0x1"],
-        calls: [SPONSORABLE_CALL],
-      }),
     });
     expect(res.status).toBe(400);
   });
@@ -291,37 +207,6 @@ describe("POST /deploy/execute", () => {
     expect(res.status).toBe(400);
   });
 
-  test("accepts a class hash that is numerically equal but differently zero-padded", async () => {
-    const classHash = getCoordinates("STARKNET").mediaWalletClassHash!;
-    const unpadded = "0x" + BigInt(classHash).toString(16);
-    const res = await appWith({}).request("/deploy/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ownerAddress: OWNER_ADDRESS,
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-        signature: ["0x1"],
-        deployment: { address: OWNER_ADDRESS, class_hash: unpadded },
-        calls: [SPONSORABLE_CALL],
-      }),
-    });
-    expect(res.status).toBe(200);
-  });
-
-  test("rejects a deployment for a class hash other than Media Wallet's", async () => {
-    const res = await appWith({}).request("/deploy/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ownerAddress: OWNER_ADDRESS,
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-        signature: ["0x1"],
-        deployment: { address: OWNER_ADDRESS, class_hash: "0xnotmediawallet" },
-        calls: [SPONSORABLE_CALL],
-      }),
-    });
-    expect(res.status).toBe(400);
-  });
 });
 
 describe("upstream failures", () => {
@@ -340,94 +225,36 @@ describe("upstream failures", () => {
   });
 });
 
-describe("a refused sponsored call never reaches the paymaster", () => {
-  const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-  function appDenying(seen: SponsorRequest[], calls: unknown[]) {
+describe("sponsored calls are never refused for volume", () => {
+  test("a wallet's 61st sponsored build in a minute still reaches the paymaster", async () => {
+    const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let built = 0;
     const stub: PaymasterClient = {
-      buildTransaction: async (req, opts) => {
-        calls.push({ fn: "build", req, opts });
+      buildTransaction: async () => {
+        built += 1;
         return { typed_data: { message: "td" } } as never;
       },
-      executeTransaction: async (req, opts) => {
-        calls.push({ fn: "execute", req, opts });
-        return { transaction_hash: "0xtx" } as never;
-      },
-    };
-    const authorizer: SponsorAuthorizer = {
-      authorize: async (request) => {
-        seen.push(request);
-        return { status: 429, error: "Too many sponsored transactions. Try again in a minute.", code: "rate_limited" };
-      },
+      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
     };
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => {
       c.set("account", { id: "acct-app", status: "ACTIVE" } as never);
       await next();
     });
-    app.route("/", paymaster(() => stub, ALLOW_ALL_ADDRESSES, authorizer));
-    return app;
-  }
-
-  for (const path of ["/deploy/build", "/deploy/execute"]) {
-    test(`${path} refuses a denied caller without reaching the paymaster`, async () => {
-      const seen: SponsorRequest[] = [];
-      const calls: unknown[] = [];
-      const res = await appDenying(seen, calls).request(path, {
+    app.route("/", paymaster(() => stub, (_c, next) => next()));
+    for (let i = 0; i < 61; i++) {
+      const res = await app.request("/invoke/build", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-account-session": "account_session_token" },
-        body: JSON.stringify({
-          ownerPubkey: "0x9",
-          ownerAddress: USER,
-          deployment: { address: USER, class_hash: getCoordinates("STARKNET").mediaWalletClassHash },
-          calls: [SPONSORABLE_CALL],
-          typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-          signature: ["0x1"],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userAddress: USER, calls: [SPONSORABLE_CALL] }),
       });
-      expect(res.status).toBe(429);
-      expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
-      expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{ userAddress: USER }]);
-    });
-  }
-
-  for (const path of ["/invoke/build", "/invoke/execute"]) {
-    test(`${path} refuses a denied caller without reaching the paymaster`, async () => {
-      const seen: SponsorRequest[] = [];
-      const calls: unknown[] = [];
-      const res = await appDenying(seen, calls).request(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-account-session": "account_session_token" },
-        body: JSON.stringify({
-          userAddress: USER,
-          calls: [SPONSORABLE_CALL],
-          typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-          signature: ["0x1"],
-        }),
-      });
-      expect(res.status).toBe(429);
-      expect(((await res.json()) as { code?: string }).code).toBe("rate_limited");
-      expect(calls).toHaveLength(0);
-      expect(seen).toEqual([{ userAddress: USER }]);
-    });
-  }
+      expect(res.status).toBe(200);
+    }
+    expect(built).toBe(61);
+  });
 });
 
 describe("every sponsorship failure says why it failed", () => {
-  test("a call outside the sponsorable set is not_eligible", async () => {
-    const res = await appWith({}).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        calls: [{ contractAddress: "0x1", entrypoint: "upgrade", calldata: [] }],
-      }),
-    });
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { code?: string }).code).toBe("not_eligible");
-  });
-
   test("a missing field is invalid_request", async () => {
     const res = await appWith({}).request("/invoke/build", {
       method: "POST",

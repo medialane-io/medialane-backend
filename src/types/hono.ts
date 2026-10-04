@@ -14,7 +14,6 @@ export type AuthedApiClient = {
 export type AuthedApiKey = {
   id: string;
   status: ApiKeyStatus;
-  tenantId: string | null;
   apiClient: AuthedApiClient & { account: AuthedAccount };
 };
 

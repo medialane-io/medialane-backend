@@ -4,8 +4,6 @@ import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { resolveAccountIdFromWallet } from "../../utils/account.js";
-import { requiresEmailVerification } from "../../utils/emailVerification.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
@@ -67,11 +65,6 @@ collectionSlugClaims.post(
       (collection.owner && normalizeAddress(chain, collection.owner) === jwtWallet) ||
       (collection.claimedBy && normalizeAddress(chain, collection.claimedBy) === jwtWallet);
     if (!isOwner) return c.json({ error: "Only the collection owner can claim a slug." }, 403);
-
-    const callerAccountId = await resolveAccountIdFromWallet(chain, jwtWallet);
-    if (callerAccountId && (await requiresEmailVerification(callerAccountId))) {
-      return c.json({ error: "Verify your email to claim a collection." }, 403);
-    }
 
     if (collection.profile?.slug) {
       return c.json({ error: "This collection already has an approved slug." }, 409);

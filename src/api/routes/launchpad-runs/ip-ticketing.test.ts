@@ -36,7 +36,6 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
     registry: () => "0x0789",
     receipt: async () => ({ status: receipt, events }),
     sponsored: {
-      addressChecker: { isEligible: async () => true },
       clientFactory: () => ({
         buildTransaction: async (req) => {
           builds.push(req as { type?: string });
@@ -66,17 +65,13 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
     mintCalls: async ({ collection, recipient, ticketId }) => [
       { contractAddress: collection, entrypoint: "mint", calldata: [recipient, ticketId] },
     ],
-    resolveWallets: async (guests) => guests.map((g) => ({ recipientValue: g, walletAddress: known[g] ?? null })),
-    registerWallet: async (_client, input) => {
+    resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: known[g] ?? null })),
+    registerWallet: async (input) => {
       if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
-      registered.push(input.recipientValue);
+      registered.push(input.email);
       const walletAddress = `0xa${registered.length}`;
-      known[input.recipientValue] = walletAddress;
-      return {
-        status: 201,
-        reused: false,
-        record: { walletAddress } as never,
-      };
+      known[input.email] = walletAddress;
+      return { status: 201, reused: false, walletAddress };
     },
   };
 
@@ -158,12 +153,7 @@ async function withTier() {
   return w;
 }
 
-const wallet = (recipient: string) => ({
-  recipient,
-  interimOwnerPubkey: "0x1",
-  derivationSalt: "s".repeat(16),
-  deployment: { typedData: {}, signature: ["0x1"], deployment: {} },
-});
+const wallet = (recipient: string) => ({ recipient });
 
 async function withWallets() {
   const w = await withTier();
@@ -213,11 +203,10 @@ describe("the artwork", () => {
     expect(w.runs[0]!.creditsSpent).toBe(PRICE);
   });
 
-  test("only the file named in the spec gets an upload URL, and only a few times", async () => {
+  test("only the file named in the spec gets an upload URL, as often as the upload needs", async () => {
     const w = await paid();
     expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "other.png" })).status).toBe(400);
-    for (let i = 0; i < 3; i++) expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(201);
-    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(429);
+    for (let i = 0; i < 6; i++) expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "a.png" })).status).toBe(201);
   });
 
   test("a run without artwork has nothing to upload", async () => {
@@ -331,57 +320,11 @@ describe("guest wallets", () => {
   });
 });
 
-describe("building a guest's wallet deployment", () => {
-  const owner = { ownerPubkey: "0x1234", ownerAddress: "0x5678" };
-  const build = (w: World) => json(w.app, "POST", "/run1/wallets/build", owner);
-
-  test("is built for a paid ticketing run, and the build itself spends nothing", async () => {
+describe("the browser-built wallet deployment is gone", () => {
+  test("POST /wallets/build is 404", async () => {
     const w = await paid();
-    const before = w.runs[0]!.creditsSpent;
-    const res = await build(w);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { typedData: unknown; deployment: unknown; calls: unknown[] };
-    expect(body.typedData).toBeDefined();
-    expect(body.calls).toHaveLength(1);
-    expect(w.builds.map((b) => b.type)).toEqual(["deploy_and_invoke"]);
-    expect(w.runs[0]!.creditsSpent).toBe(before);
-  });
-
-  test("waits for the run to be paid", async () => {
-    const w = world();
-    await json(w.app, "POST", "/", { service: "ip-ticketing", spec });
-    expect((await build(w)).status).toBe(409);
-    expect(w.builds).toEqual([]);
-  });
-
-  test("is refused for a run of another service", async () => {
-    const w = world();
-    await json(w.app, "POST", "/", {
-      service: "data-tokenization-erc721",
-      spec: {
-        collection: { kind: "existing", collectionId: "3", contractAddress: "0x1" },
-        terms,
-        items: [{ name: "R", ipType: "Documents", placement: "image", file: { name: "r.png", size: 5, type: "image/png" } }],
-      },
-    });
-    await json(w.app, "POST", "/run1/checkout", { method: "credits" });
-    expect((await build(w)).status).toBe(400);
-    expect(w.builds).toEqual([]);
-  });
-
-  test("needs an owner key and address", async () => {
-    const w = await paid();
-    expect((await json(w.app, "POST", "/run1/wallets/build", { ownerPubkey: "0x1234" })).status).toBe(400);
-    expect(w.builds).toEqual([]);
-  });
-
-  test("is limited to what the guest list could need, so it is not a free build endpoint", async () => {
-    const w = await paid();
-    const attempts = spec.guests.length * 2;
-    for (let i = 0; i < attempts; i++) expect((await build(w)).status).toBe(200);
-    expect((await build(w)).status).toBe(429);
-    expect(w.builds).toHaveLength(attempts);
-    expect((w.runs[0]!.progress as { walletBuilds: number }).walletBuilds).toBe(attempts);
+    const res = await json(w.app, "POST", "/run1/wallets/build", { ownerPubkey: "0x1234", ownerAddress: "0x5678" });
+    expect(res.status).toBe(404);
   });
 });
 

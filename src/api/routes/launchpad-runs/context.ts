@@ -13,8 +13,11 @@ import {
   type MintCallDeps,
 } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { productionTicketingDeps, type TicketingDeps } from "../../../launchpad/services/ip-ticketing/chain.js";
+import {
+  productionCertificateEmissionDeps,
+  type CertificateEmissionDeps,
+} from "../../../launchpad/services/certificate-emission/chain.js";
 import { defaultClient, type SponsoredInvokeDeps } from "../paymaster.js";
-import { createContractAddressChecker } from "../paymaster-contract-address.js";
 
 export type ReceiptStatus = "SUCCEEDED" | "REVERTED" | "PENDING";
 
@@ -39,7 +42,6 @@ export interface ExecutionDeps {
   registry(): string;
 }
 
-/** The payment id of the caller's own settled funding intent, or null when there is none. */
 export type IntentPayment = (intentId: string, apiClientId: string) => Promise<string | null>;
 
 export interface RunRouteDeps {
@@ -48,6 +50,7 @@ export interface RunRouteDeps {
   intentPayment?: IntentPayment;
   execution?: ExecutionDeps;
   ticketing?: TicketingDeps;
+  certificateEmission?: CertificateEmissionDeps;
 }
 
 export interface RunContext {
@@ -56,6 +59,7 @@ export interface RunContext {
   intentPayment: IntentPayment;
   execution(): ExecutionDeps;
   ticketing(): TicketingDeps;
+  certificateEmission(): CertificateEmissionDeps;
 }
 
 async function productionReceipt(txHash: string): Promise<RunReceipt> {
@@ -78,7 +82,7 @@ function productionExecution(): ExecutionDeps {
     pinnedFile: findPinnedFile,
     pinJson: uploadJson,
     mintCalls: productionMintCallDeps,
-    sponsored: { clientFactory: defaultClient, addressChecker: createContractAddressChecker(prisma) },
+    sponsored: { clientFactory: defaultClient },
     receipt: productionReceipt,
     registry: dataTokenizationRegistry,
   };
@@ -100,6 +104,7 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
       }),
     execution: () => (execution ??= productionExecution()),
     ticketing: () => deps.ticketing ?? productionTicketingDeps,
+    certificateEmission: () => deps.certificateEmission ?? productionCertificateEmissionDeps,
   };
 }
 

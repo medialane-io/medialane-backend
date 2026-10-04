@@ -1,174 +1,15 @@
-import { Hono } from "hono";
-import { CallData, PaymasterRpc, hash, uint256 } from "starknet";
+import { Hono, type MiddlewareHandler } from "hono";
+import { requireSession } from "../middleware/sessionGuard.js";
+import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
-import { createContractAddressChecker, type ContractAddressChecker } from "./paymaster-contract-address.js";
-import { createSponsorAuthorizer, type SponsorAuthorizer } from "./sponsor-authorizer.js";
-import prisma from "../../db/client.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
-
-export const ALLOWED_PAYMASTER_ENTRYPOINTS = new Set([
-  "approve",
-  "transfer",
-  "set_approval_for_all",
-  "register_order",
-  "fulfill_order",
-  "cancel_order",
-  "mint",
-  "mint_edition",
-  "create_collection",
-  "deploy_collection",
-  "create_drop",
-  "create_ticket",
-  "create_membership",
-  "create_offer",
-  "set_offer_open",
-  "place_bid",
-  "retract_bid",
-  "accept_bid",
-  "propose_sponsorship",
-  "withdraw_proposal",
-  "accept_proposal",
-  "reject_proposal",
-  "create_creator_coin",
-  "launch_on_ekubo",
-  "add_comment",
-  "claim",
-  "batch_add_to_allowlist",
-  "remove_from_allowlist",
-  "set_allowlist_enabled",
-  "withdraw_payments",
-  "transfer_collection_ownership",
-  "transfer_from",
-  "safe_transfer_from",
-  "mint_item",
-  "change_owners",
-]);
-
-interface SponsoredCall {
-  contractAddress: string;
-  entrypoint: string;
-  calldata: unknown;
-}
-
-function isSponsoredCall(value: unknown): value is SponsoredCall {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as SponsoredCall).contractAddress === "string" &&
-    typeof (value as SponsoredCall).entrypoint === "string"
-  );
-}
-
-function isZero(value: unknown): boolean {
-  try {
-    return BigInt(value as string) === 0n;
-  } catch {
-    return false;
-  }
-}
-
-function sameFelt(a: unknown, b: unknown): boolean {
-  try {
-    return BigInt(a as string) === BigInt(b as string);
-  } catch {
-    return false;
-  }
-}
-
-let selectorsByName: Map<string, string> | null = null;
-
-function entrypointForSelector(selector: unknown): string | null {
-  if (!selectorsByName) {
-    selectorsByName = new Map();
-    for (const name of ALLOWED_PAYMASTER_ENTRYPOINTS) {
-      selectorsByName.set(BigInt(hash.getSelectorFromName(name)).toString(), name);
-    }
-  }
-  try {
-    return selectorsByName.get(BigInt(selector as string).toString()) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export function signedCalls(typedData: unknown): Array<{ contractAddress: string; entrypoint: string }> {
-  const message = (typedData as { message?: Record<string, unknown> } | null)?.message;
-  const raw = message ? (("calls" in message ? message.calls : message.Calls) as unknown) : undefined;
-  if (!Array.isArray(raw)) return [];
-
-  const calls: Array<{ contractAddress: string; entrypoint: string }> = [];
-  for (const entry of raw) {
-    const call = entry as Record<string, unknown>;
-    const to = call.To ?? call.to;
-    const selector = call.Selector ?? call.selector;
-
-    if (isZero(to) && isZero(selector)) continue;
-
-    const entrypoint = entrypointForSelector(selector);
-    calls.push({
-      contractAddress: typeof to === "string" ? to : "",
-      entrypoint: entrypoint ?? `unknown selector ${String(selector)}`,
-    });
-  }
-  return calls;
-}
-
-export function disallowedEntrypoint(calls: unknown[]): string | null {
-  for (const call of calls) {
-    if (!isSponsoredCall(call)) return "invalid call";
-    if (!ALLOWED_PAYMASTER_ENTRYPOINTS.has(call.entrypoint)) return call.entrypoint;
-  }
-  return null;
-}
-
-export async function disallowedContractAddress(
-  checker: ContractAddressChecker,
-  calls: SponsoredCall[],
-): Promise<string | null> {
-  for (const call of calls) {
-    if (!(await checker.isEligible(call.contractAddress))) {
-      return call.contractAddress;
-    }
-  }
-  return null;
-}
-
-export function assertTypedDataMatchesCalls(typedData: unknown, calls: SponsoredCall[]): void {
-  const message = (typedData as { message?: Record<string, unknown> } | null)?.message;
-  const unsafeCalls = message ? (("calls" in message ? message.calls : message.Calls) as unknown) : undefined;
-  if (!Array.isArray(unsafeCalls) || unsafeCalls.length < calls.length) {
-    throw new Error(`typedData has ${Array.isArray(unsafeCalls) ? unsafeCalls.length : 0} calls, expected at least ${calls.length}`);
-  }
-
-  calls.forEach((call, i) => {
-    const unsafe = unsafeCalls[i] as Record<string, unknown>;
-    const to = unsafe.To ?? unsafe.to;
-    const selector = unsafe.Selector ?? unsafe.selector;
-    const calldata = (unsafe.Calldata ?? unsafe.calldata) as unknown[];
-
-    if (to === undefined || BigInt(to as string) !== BigInt(call.contractAddress)) {
-      throw new Error(`typedData call ${i}: contract address mismatch`);
-    }
-    if (selector === undefined || BigInt(selector as string) !== BigInt(hash.getSelectorFromName(call.entrypoint))) {
-      throw new Error(`typedData call ${i}: entrypoint mismatch`);
-    }
-    const expectedCalldata = CallData.toCalldata(call.calldata as never);
-    const calldataMatches =
-      Array.isArray(calldata) &&
-      calldata.length === expectedCalldata.length &&
-      calldata.every((v, j) => BigInt(v as string) === BigInt(expectedCalldata[j]!));
-    if (!calldataMatches) {
-      throw new Error(`typedData call ${i}: calldata mismatch`);
-    }
-  });
-}
 
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -190,7 +31,6 @@ export type SponsorshipFailureCode =
   | "account_not_deployed"
   | "not_executable"
   | "invalid_request"
-  | "not_eligible"
   | "invalid_request_auth"
   | "rate_limited"
   | "may_have_broadcast";
@@ -231,6 +71,44 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
   return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" };
 }
 
+interface SignedCall {
+  To?: unknown;
+  Selector?: unknown;
+  Calldata?: unknown;
+}
+
+function sameFelt(a: unknown, b: unknown): boolean {
+  try {
+    return BigInt(a as string) === BigInt(b as string);
+  } catch {
+    return false;
+  }
+}
+
+function isEmptyCall(call: SignedCall): boolean {
+  return sameFelt(call.To, "0x0") && sameFelt(call.Selector, "0x0") && Array.isArray(call.Calldata) && call.Calldata.length === 0;
+}
+
+export function typedDataMatchesCalls(
+  typedData: unknown,
+  calls: readonly { contractAddress: string; entrypoint: string; calldata: readonly string[] }[],
+): boolean {
+  const signed = (typedData as { message?: { Calls?: unknown } } | null)?.message?.Calls;
+  if (!Array.isArray(signed)) return false;
+  const trailingFeeCall = signed.length === calls.length + 1 && isEmptyCall(signed[calls.length] as SignedCall);
+  if (signed.length !== calls.length && !trailingFeeCall) return false;
+  return calls.every((call, i) => {
+    const s = signed[i] as SignedCall;
+    return (
+      sameFelt(s.To, call.contractAddress) &&
+      sameFelt(s.Selector, hash.getSelectorFromName(call.entrypoint)) &&
+      Array.isArray(s.Calldata) &&
+      s.Calldata.length === call.calldata.length &&
+      s.Calldata.every((value, j) => sameFelt(value, call.calldata[j]))
+    );
+  });
+}
+
 function txHashOf(result: unknown): string {
   return (result as { transaction_hash: string }).transaction_hash;
 }
@@ -239,11 +117,6 @@ export async function executeSponsoredDeploy(
   input: { ownerAddress: string; typedData: unknown; signature: string[]; deployment: unknown },
   clientFactory: () => PaymasterClient = defaultClient,
 ): Promise<string> {
-  const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
-  const deployment = input.deployment as { class_hash?: string; address?: string } | null;
-  if (!classHash || !sameFelt(deployment?.class_hash, classHash) || !sameFelt(deployment?.address, input.ownerAddress)) {
-    throw new Error("deployment does not match a sponsorable Media Wallet deployment");
-  }
   const result = await clientFactory().executeTransaction(
     {
       type: "deploy_and_invoke",
@@ -259,9 +132,27 @@ export async function executeSponsoredDeploy(
   return txHashOf(result);
 }
 
+export async function executeOwnSponsoredInvoke(
+  input: { userAddress: string; calls: Call[]; sign: (typedData: unknown) => string[] },
+  clientFactory: () => PaymasterClient = defaultClient,
+): Promise<string> {
+  const client = clientFactory();
+  const prepared = (await client.buildTransaction(
+    { type: "invoke", invoke: { userAddress: input.userAddress, calls: input.calls } },
+    SPONSORED,
+  )) as { typed_data: unknown };
+  const result = await client.executeTransaction(
+    {
+      type: "invoke",
+      invoke: { userAddress: input.userAddress, typedData: prepared.typed_data, signature: input.sign(prepared.typed_data) },
+    },
+    SPONSORED,
+  );
+  return txHashOf(result);
+}
+
 export interface SponsoredInvokeDeps {
   clientFactory: () => PaymasterClient;
-  addressChecker: ContractAddressChecker;
 }
 
 export type SponsoredOutcome =
@@ -275,23 +166,11 @@ export async function buildSponsoredInvoke(
   if (!body.userAddress || !body.calls?.length) {
     return { status: 400, body: { error: "userAddress and a non-empty calls array are required", code: "invalid_request" } };
   }
-  const disallowed = disallowedEntrypoint(body.calls);
-  if (disallowed) {
-    log.warn({ userAddress: body.userAddress, calls: body.calls, disallowed }, "sponsored invoke build: entrypoint not eligible");
-    return { status: 400, body: { error: `Entrypoint "${disallowed}" is not eligible for sponsored gas`, code: "not_eligible" } };
-  }
-  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, body.calls as SponsoredCall[]);
-  if (disallowedAddress) {
-    log.warn({ userAddress: body.userAddress, calls: body.calls, disallowedAddress }, "sponsored invoke build: contract not eligible");
-    return { status: 400, body: { error: `Contract "${disallowedAddress}" is not eligible for sponsored gas`, code: "not_eligible" } };
-  }
   try {
     const prepared = (await deps.clientFactory().buildTransaction(
       { type: "invoke", invoke: { userAddress: body.userAddress, calls: body.calls } },
       SPONSORED,
     )) as { typed_data: unknown };
-
-
     return { status: 200, body: { typedData: prepared.typed_data } };
   } catch (err) {
     const failure = classifyPaymasterError(err);
@@ -300,36 +179,13 @@ export async function buildSponsoredInvoke(
   }
 }
 
-
 export async function executeSponsoredInvoke(
   deps: SponsoredInvokeDeps,
-  body: { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] },
+  body: { userAddress?: string; typedData?: unknown; signature?: string[] },
 ): Promise<SponsoredOutcome> {
-  if (!body.userAddress || !body.typedData || !body.signature || !body.calls?.length) {
-    return { status: 400, body: { error: "userAddress, typedData, signature, and calls are required", code: "invalid_request" } };
+  if (!body.userAddress || !body.typedData || !body.signature) {
+    return { status: 400, body: { error: "userAddress, typedData and signature are required", code: "invalid_request" } };
   }
-  const signed = signedCalls(body.typedData);
-  if (signed.length === 0) {
-    return { status: 400, body: { error: "typedData has no calls", code: "invalid_request" } };
-  }
-
-  const disallowed = disallowedEntrypoint(signed);
-  if (disallowed) {
-    log.warn({ userAddress: body.userAddress, signed, disallowed }, "sponsored invoke execute: entrypoint not eligible");
-    return { status: 400, body: { error: `Entrypoint "${disallowed}" is not eligible for sponsored gas`, code: "not_eligible" } };
-  }
-  const disallowedAddress = await disallowedContractAddress(deps.addressChecker, signed as SponsoredCall[]);
-  if (disallowedAddress) {
-    log.warn({ userAddress: body.userAddress, signed, disallowedAddress }, "sponsored invoke execute: contract not eligible");
-    return { status: 400, body: { error: `Contract "${disallowedAddress}" is not eligible for sponsored gas`, code: "not_eligible" } };
-  }
-  try {
-    assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
-  } catch (err) {
-    log.warn({ err, userAddress: body.userAddress }, "sponsored invoke execute: typedData does not match submitted calls");
-    return { status: 400, body: { error: "typedData does not match the submitted calls", code: "invalid_request" } };
-  }
-
   try {
     const result = await deps.clientFactory().executeTransaction(
       {
@@ -350,7 +206,6 @@ export type DeploymentBuildOutcome =
   | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
   | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string } };
 
-/** Builds the sponsored deployment of a Media Wallet owned by the given key, without charging anyone. */
 export async function buildDeployment(
   deps: { clientFactory: () => PaymasterClient },
   body: { ownerPubkey: string; ownerAddress: string; salt?: string },
@@ -400,28 +255,24 @@ export async function buildDeployment(
 
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
-  addressChecker: ContractAddressChecker = createContractAddressChecker(prisma),
-  authorizer: SponsorAuthorizer = createSponsorAuthorizer(prisma),
+  guard: MiddlewareHandler<AppEnv> = requireSession,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+  app.use("*", guard);
 
   app.post("/invoke/build", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
       | { userAddress?: string; calls?: unknown[] }
       | null;
-    const denied = await authorizer.authorize({ userAddress: body?.userAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
-    const outcome = await buildSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
+    const outcome = await buildSponsoredInvoke({ clientFactory }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
 
   app.post("/invoke/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; typedData?: unknown; signature?: string[]; calls?: unknown[] }
+      | { userAddress?: string; typedData?: unknown; signature?: string[] }
       | null;
-    const denied = await authorizer.authorize({ userAddress: body?.userAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
-    const outcome = await executeSponsoredInvoke({ clientFactory, addressChecker }, body ?? {});
+    const outcome = await executeSponsoredInvoke({ clientFactory }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
 
@@ -432,8 +283,6 @@ export default function paymaster(
     if (!body?.ownerPubkey || !body.ownerAddress) {
       return c.json({ error: "ownerPubkey and ownerAddress are required", code: "invalid_request" }, 400);
     }
-    const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
 
     const outcome = await buildDeployment({ clientFactory }, {
       ownerPubkey: body.ownerPubkey,
@@ -445,33 +294,10 @@ export default function paymaster(
 
   app.post("/deploy/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown; calls?: unknown[] }
+      | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown }
       | null;
-    if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment || !body.calls?.length) {
-      return c.json({ error: "ownerAddress, typedData, signature, deployment, and calls are required", code: "invalid_request" }, 400);
-    }
-    const denied = await authorizer.authorize({ userAddress: body.ownerAddress });
-    if (denied) return c.json({ error: denied.error, code: denied.code }, denied.status);
-
-    const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
-    const deployment = body.deployment as { class_hash?: string; address?: string } | null;
-    if (!classHash || !sameFelt(deployment?.class_hash, classHash) || !sameFelt(deployment?.address, body.ownerAddress)) {
-      return c.json({ error: "deployment does not match a sponsorable Media Wallet deployment", code: "not_eligible" }, 400);
-    }
-
-    const disallowed = disallowedEntrypoint(body.calls);
-    if (disallowed) {
-      return c.json({ error: `Entrypoint "${disallowed}" is not eligible for sponsored gas`, code: "not_eligible" }, 400);
-    }
-    const disallowedAddress = await disallowedContractAddress(addressChecker, body.calls as SponsoredCall[]);
-    if (disallowedAddress) {
-      return c.json({ error: `Contract "${disallowedAddress}" is not eligible for sponsored gas`, code: "not_eligible" }, 400);
-    }
-    try {
-      assertTypedDataMatchesCalls(body.typedData, body.calls as SponsoredCall[]);
-    } catch (err) {
-      log.warn({ err, ownerAddress: body.ownerAddress }, "sponsored deploy execute: typedData does not match submitted calls");
-      return c.json({ error: "typedData does not match the submitted calls", code: "invalid_request" }, 400);
+    if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment) {
+      return c.json({ error: "ownerAddress, typedData, signature and deployment are required", code: "invalid_request" }, 400);
     }
     try {
       const result = await clientFactory().executeTransaction(

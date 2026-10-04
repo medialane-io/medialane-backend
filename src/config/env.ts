@@ -34,6 +34,9 @@ const envSchema = z.object({
 
   HMAC_KEY: z.string().min(32, "HMAC_KEY must be at least 32 characters"),
   SIWS_SECRET: z.string().min(32),
+  PROVISIONING_SECRET: z.string().default(""),
+  IO_CLIENT_ID: z.string().default(""),
+  IO_APP_URL: z.string().default("https://www.medialane.io"),
   CORS_ORIGINS: z
     .string()
     .default("https://medialane.io,https://www.medialane.io,https://starknet.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
@@ -46,12 +49,6 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
-  REDIS_URL: z.string().url().optional(),
-  SMTP_HOST: z.string().default(""),
-  SMTP_PORT: z.coerce.number().default(587),
-  SMTP_USER: z.string().default(""),
-  SMTP_PASS: z.string().default(""),
-  CONTACT_FROM_EMAIL: z.string().default("Medialane <noreply@medialane.io>"),
   MAIL_RELAY_URL: z.string().default(""),
   MAIL_RELAY_SECRET: z.string().default(""),
 });
