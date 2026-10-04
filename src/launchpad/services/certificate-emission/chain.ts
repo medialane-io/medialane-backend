@@ -17,7 +17,7 @@ export interface Call {
 
 export interface CertificateEmissionDeps {
   collectionCalls(input: { owner: string; name: string; symbol: string; baseUri: string }): Promise<Call[]>;
-  mintCalls(input: { owner: string; recipient: string; collection: string }): Promise<Call[]>;
+  mintCalls(input: { owner: string; recipient: string; collection: string; tokenUri: string }): Promise<Call[]>;
   resolveWallets(guests: string[]): Promise<RecipientWallet[]>;
   registerWallet(input: RegisterInput): Promise<RegisterResult>;
   factory(): string;
@@ -34,8 +34,8 @@ export const productionCertificateEmissionDeps: CertificateEmissionDeps = {
       claimEndTimestamp: 0,
       eventType: "Course",
     } as never)).calls as Call[],
-  mintCalls: async ({ owner, recipient, collection }) =>
-    (await buildMintIntent({ owner, recipient, collectionContract: collection, customUri: "" } as never)).calls as Call[],
+  mintCalls: async ({ owner, recipient, collection, tokenUri }) =>
+    (await buildMintIntent({ owner, recipient, collectionContract: collection, customUri: tokenUri } as never)).calls as Call[],
   resolveWallets: (guests) => resolveRecipientWallets("STARKNET", guests),
   registerWallet: (input) => registerProvisioning(productionProvisioningDeps, input),
   factory: () => normalizeAddress("STARKNET", STARKNET_POP_FACTORY_CONTRACT),
