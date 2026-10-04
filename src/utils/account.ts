@@ -93,6 +93,14 @@ export async function ensureAccountForWallet(params: {
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
+  if (!params.linkToAccountId) {
+    const own = await prisma.identity.findFirst({
+      where: { chain: params.chain, address, scheme: IDENTITY_SCHEME.WALLET, account: { apiClient: { id: params.clientId } } },
+      select: { accountId: true },
+    });
+    if (own) return { accountId: own.accountId, created: false };
+  }
+
   const existing = await prisma.identity.findUnique({
     where: { clientId_chain_address: { clientId: params.clientId, chain: params.chain, address } },
     select: { id: true, accountId: true, provider: true },

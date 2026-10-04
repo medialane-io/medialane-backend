@@ -20,10 +20,19 @@ const createdAccount = {
   apiClient: { id: "client-new", accountId: "acct-new", plan: "FREE", creditBalance: 0 },
 };
 
-async function signIn(options: { ownWallet: boolean }) {
+const strayAccount = {
+  id: "acct-stray",
+  status: "ACTIVE",
+  sessionsValidFrom: null,
+  apiClient: { id: "client-stray", accountId: "acct-stray", plan: "FREE", creditBalance: 0 },
+};
+
+async function signIn(options: { ownWallet: boolean; stray?: boolean }) {
   const ensure = mock(() => Promise.resolve({ accountId: "acct-new", created: true }));
   let ensured = false;
-  const findUnique = mock(() => Promise.resolve(ensured ? { account: createdAccount } : null));
+  const findUnique = mock(() =>
+    Promise.resolve(options.stray ? { account: strayAccount } : ensured ? { account: createdAccount } : null),
+  );
   const findFirst = mock(() => Promise.resolve(options.ownWallet ? { account: keyAccount } : null));
   mock.module("../../db/client.js", () => ({ default: { identity: { findUnique, findFirst } } }));
   mock.module("../../utils/account.js", () => ({
@@ -65,5 +74,12 @@ describe("a key's own wallet", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ apiClient: "client-new", credits: 0 });
     expect(ensure).toHaveBeenCalledTimes(1);
+  });
+
+  test("wins over an empty account the same wallet already has under the key's client", async () => {
+    const { res, ensure } = await signIn({ ownWallet: true, stray: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ apiClient: "client-key", credits: 99996 });
+    expect(ensure).not.toHaveBeenCalled();
   });
 });
