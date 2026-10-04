@@ -36,7 +36,7 @@
     "@noble/hashes": "^2.2.0",
     "@prisma/client": "^6.19.3",
     "@scure/base": "^2.2.0",
-    "hono": "^4.13.4",
+    "hono": "^4.13.13",
     "pinata": "^2.5.6",
     "pino": "^9.14.0",
     "pino-pretty": "^11.3.0",
