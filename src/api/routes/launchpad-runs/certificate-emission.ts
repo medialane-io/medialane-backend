@@ -100,11 +100,13 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         const guests = batchGuests(active.spec, index);
         if (guests.length === 0) throw new NotReady("There is no such batch in this run");
         const collection = collectionOf(active);
+        const tokenUri = pinnedValue(active.progress.tokenUri);
+        if (!tokenUri) throw new NotReady("The certificate's metadata is not stored yet");
         const calls: Call[] = [];
         for (const guest of guests) {
           const recipient = pinnedValue(active.progress.wallets[guest]);
           if (!recipient) throw new NotReady("This batch is waiting for its guests' wallets");
-          calls.push(...(await chain().mintCalls({ owner, recipient, collection })));
+          calls.push(...(await chain().mintCalls({ owner, recipient, collection, tokenUri })));
         }
         return calls;
       },

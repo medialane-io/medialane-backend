@@ -26,6 +26,7 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   const pinned: unknown[] = [];
   const executed: unknown[] = [];
   const registered: string[] = [];
+  const mintedWith: string[] = [];
 
   const execution: ExecutionDeps = {
     signedUpload: async ({ name }) => (issued.push(name), `https://uploads.test/${name}`),
@@ -59,9 +60,10 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   const certificateEmission: CertificateEmissionDeps = {
     factory: () => FACTORY,
     collectionCalls: async () => [{ contractAddress: FACTORY, entrypoint: "create_collection", calldata: ["0x1"] }],
-    mintCalls: async ({ collection, recipient }) => [
-      { contractAddress: collection, entrypoint: "admin_mint", calldata: [recipient, ""] },
-    ],
+    mintCalls: async ({ collection, recipient, tokenUri }) => {
+      mintedWith.push(tokenUri);
+      return [{ contractAddress: collection, entrypoint: "admin_mint", calldata: [recipient, ""] }];
+    },
     resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: known[g] ?? null })),
     registerWallet: async (input) => {
       if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
@@ -81,7 +83,7 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   app.route("/", createRunRoutes({ store, priceOf: async () => PRICE, execution, certificateEmission }));
 
   return {
-    app, runs, balances, refunds, pins, pinned, issued, executed, registered,
+    app, runs, balances, refunds, pins, pinned, issued, executed, registered, mintedWith,
     setReceipt: (status: ReceiptStatus, next: ReceiptEvent[] = []) => {
       receipt = status;
       events = next;
@@ -278,6 +280,8 @@ describe("issuing the certificates", () => {
     expect(submitted.status).toBe(200);
     const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } };
     expect(request.invoke.typedData.message.Calls.map((c) => c.Calldata)).toEqual([["0xa1", ""], ["0xa2", ""]]);
+    expect(w.mintedWith.length).toBeGreaterThan(0);
+    expect(new Set(w.mintedWith)).toEqual(new Set(["ipfs://meta-1"]));
 
     expect((await json(w.app, "POST", "/run1/batches/0/confirm")).status).toBe(202);
     w.setReceipt("SUCCEEDED");
