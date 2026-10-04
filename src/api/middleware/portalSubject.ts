@@ -48,6 +48,17 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   });
 
   if (!wallet || !wallet.account.apiClient) {
+    const keyAccountId = c.get("apiKey")?.apiClient?.accountId;
+    const own = keyAccountId
+      ? await prisma.identity.findFirst({
+          where: { accountId: keyAccountId, chain: identity.chain, address },
+          select: { account: { select: accountSelect } },
+        })
+      : null;
+    if (own?.account.apiClient) wallet = own;
+  }
+
+  if (!wallet || !wallet.account.apiClient) {
     await ensureAccountForWallet({ chain: identity.chain, address, clientId });
     wallet = await prisma.identity.findUnique({
       where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
