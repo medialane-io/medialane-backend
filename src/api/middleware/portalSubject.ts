@@ -42,20 +42,19 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const address = normalizeAddress(identity.chain, identity.address);
   const clientId = callerClientId(c);
   if (!clientId) return c.json({ error: "This API key has no client" }, 400);
-  let wallet = await prisma.identity.findUnique({
-    where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
-    select: { account: { select: accountSelect } },
-  });
+  const keyAccountId = c.get("apiKey")?.apiClient?.accountId;
+  let wallet = keyAccountId
+    ? await prisma.identity.findFirst({
+        where: { accountId: keyAccountId, chain: identity.chain, address },
+        select: { account: { select: accountSelect } },
+      })
+    : null;
 
-  if (!wallet || !wallet.account.apiClient) {
-    const keyAccountId = c.get("apiKey")?.apiClient?.accountId;
-    const own = keyAccountId
-      ? await prisma.identity.findFirst({
-          where: { accountId: keyAccountId, chain: identity.chain, address },
-          select: { account: { select: accountSelect } },
-        })
-      : null;
-    if (own?.account.apiClient) wallet = own;
+  if (!wallet?.account.apiClient) {
+    wallet = await prisma.identity.findUnique({
+      where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
+      select: { account: { select: accountSelect } },
+    });
   }
 
   if (!wallet || !wallet.account.apiClient) {
