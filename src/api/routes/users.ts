@@ -9,6 +9,7 @@ import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
 import { callerClientId } from "../../utils/caller.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
+import { appNameForClient } from "../../apps/resolve.js";
 import { currentAccountIdFromSession } from "../../utils/accountSession.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
@@ -131,6 +132,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
       await prisma.identity.create({
         data: {
           accountId,
+          app: await appNameForClient(clientId),
           scheme: IDENTITY_SCHEME.EMAIL,
           value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.data.email),
           email: parsed.data.email,
@@ -187,6 +189,7 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
     prisma.identity.create({
       data: {
         accountId: existing.accountId,
+        app: await appNameForClient(clientId),
         scheme: IDENTITY_SCHEME.WALLET,
         provider: "unknown",
         chain: newWalletId.chain,
@@ -297,6 +300,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     prisma.identity.create({
       data: {
         accountId,
+        app: await appNameForClient(clientId),
         scheme: IDENTITY_SCHEME.EMAIL,
         value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email),
         email,

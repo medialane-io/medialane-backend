@@ -1,6 +1,7 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
+import { appNameForClient } from "../apps/resolve.js";
 import type { Chain } from "@prisma/client";
 
 async function ensureApiClient(accountId: string): Promise<void> {
@@ -119,9 +120,11 @@ export async function ensureAccountForWallet(params: {
       where: { accountId: params.linkToAccountId, scheme: IDENTITY_SCHEME.WALLET, isPrimary: true },
       select: { id: true },
     });
+    const app = await appNameForClient(params.clientId);
     await prisma.identity.create({
       data: {
         accountId: params.linkToAccountId,
+        app,
         scheme: IDENTITY_SCHEME.WALLET,
         provider,
         chain: params.chain,
@@ -135,6 +138,7 @@ export async function ensureAccountForWallet(params: {
     return { accountId: params.linkToAccountId, created: false };
   }
 
+  const app = await appNameForClient(params.clientId);
   const accountId = await prisma.$transaction(async (tx) => {
     let account: { id: string } | null = null;
     let lastErr: unknown;
@@ -154,6 +158,7 @@ export async function ensureAccountForWallet(params: {
     await tx.identity.create({
       data: {
         accountId: account.id,
+        app,
         scheme: IDENTITY_SCHEME.WALLET,
         provider,
         chain: params.chain,
@@ -179,6 +184,7 @@ export async function ensureAccountForIdentity(
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
+  const app = await appNameForClient(clientId);
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
       where: { clientId_scheme_value: { clientId, scheme, value } },
@@ -195,6 +201,7 @@ export async function ensureAccountForIdentity(
         await tx.identity.create({
           data: {
             accountId: account.id,
+            app,
             scheme,
             value,
             email: isEmail ? value : null,
