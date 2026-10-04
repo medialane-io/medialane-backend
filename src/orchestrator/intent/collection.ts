@@ -1,6 +1,6 @@
 
 
-import { cairo, Contract, CairoOption, CairoOptionVariant } from "starknet";
+import { cairo, Contract, CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
 import { callRpc, normalizeAddress, createProvider } from "../../utils/starknet.js";
 import {
   STARKNET_COLLECTION_1155_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, STARKNET_IP_CLUB_FACTORY_CONTRACT,
@@ -181,7 +181,7 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
       body.symbol,
       baseUri,
       body.claimEndTimestamp,
-      { [body.eventType as PopEventType]: {} },
+      new CairoCustomEnum({ [body.eventType as PopEventType]: {} }),
     ]);
     return { calls: [call] };
   }
