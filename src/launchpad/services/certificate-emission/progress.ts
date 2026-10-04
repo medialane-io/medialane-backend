@@ -4,7 +4,7 @@ import { canSubmit, isInFlight, pinnedValue, type Pinned, type StepState } from 
 import type { CertificateEmissionSpec } from "./definition.js";
 
 export interface CertificateEmissionProgress {
-  collection?: { baseUri?: string; tx?: StepState; address?: string };
+  collection?: { baseUri?: string; tx?: StepState; collectionId?: string };
   artwork?: Pinned;
   tokenUri?: Pinned;
   wallets: Record<string, Pinned>;
@@ -34,9 +34,9 @@ export function runInFlight(progress: CertificateEmissionProgress): boolean {
   );
 }
 
-export function collectionAddressOf(spec: CertificateEmissionSpec, progress: CertificateEmissionProgress): string | null {
-  if (spec.collection.kind === "existing") return spec.collection.contractAddress;
-  return progress.collection?.address ?? null;
+export function collectionIdOf(spec: CertificateEmissionSpec, progress: CertificateEmissionProgress): string | null {
+  if (spec.collection.kind === "existing") return spec.collection.collectionId;
+  return progress.collection?.collectionId ?? null;
 }
 
 export function batchCount(spec: CertificateEmissionSpec): number {
@@ -67,7 +67,7 @@ export function certificateMetadata(spec: CertificateEmissionSpec, progress: Cer
 }
 
 export function nextStep(spec: CertificateEmissionSpec, progress: CertificateEmissionProgress): NextStep {
-  if (spec.collection.kind === "new" && !progress.collection?.address) {
+  if (spec.collection.kind === "new" && !progress.collection?.collectionId) {
     return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };
   }
   if (spec.artwork && !pinnedValue(progress.artwork)) return { kind: "upload", files: [spec.artwork.name] };

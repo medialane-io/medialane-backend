@@ -23,9 +23,12 @@ export function royaltyBps(royaltyPercent: number): number {
   return Math.round(royaltyPercent * 100);
 }
 
+const recipientOf = (input: { recipients?: string[] }, index: number, owner: string) =>
+  input.recipients ? normalizeAddress("STARKNET", input.recipients[index]!) : owner;
+
 export async function registryMintCalls(
   deps: MintCallDeps,
-  input: { registry: string; collectionId: string; owner: string; tokenUris: string[]; royaltyPercent: number },
+  input: { registry: string; collectionId: string; owner: string; tokenUris: string[]; royaltyPercent: number; recipients?: string[] },
 ): Promise<RegistryCall[]> {
   const owner = normalizeAddress("STARKNET", input.owner);
   if (!(await deps.isCollectionOwner(input.registry, input.collectionId, owner))) {
@@ -33,10 +36,10 @@ export async function registryMintCalls(
   }
   const id = cairo.uint256(input.collectionId);
   const bps = String(royaltyBps(input.royaltyPercent));
-  return input.tokenUris.map((tokenUri) => ({
+  return input.tokenUris.map((tokenUri, index) => ({
     contractAddress: input.registry,
     entrypoint: "mint",
-    calldata: [id.low.toString(), id.high.toString(), owner, ...encodeByteArray(tokenUri), bps],
+    calldata: [id.low.toString(), id.high.toString(), recipientOf(input, index, owner), ...encodeByteArray(tokenUri), bps],
   }));
 }
 

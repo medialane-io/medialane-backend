@@ -4,13 +4,18 @@ import { hash, num } from "starknet";
 import type { AppEnv } from "../../../types/hono.js";
 import { createRunRoutes } from "./index.js";
 import type { ExecutionDeps, ReceiptEvent, ReceiptStatus } from "./context.js";
-import { COLLECTION_DEPLOYED_SELECTOR } from "../../../config/constants.js";
+import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
+import { encodeByteArray } from "../../../orchestrator/intent/shared.js";
 import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
-import type { Call, CertificateEmissionDeps } from "../../../launchpad/services/certificate-emission/chain.js";
+import type { CertificateEmissionDeps } from "../../../launchpad/services/certificate-emission/chain.js";
 
 const OWNER = "0x0123";
-const FACTORY = "0x0f00";
-const NEW_COLLECTION = "0x0c011";
+const REGISTRY = "0x0789";
+interface Call {
+  contractAddress: string;
+  entrypoint: string;
+  calldata: string[];
+}
 const GROUP = "0x0abc";
 const PRICE = 2;
 
@@ -26,14 +31,13 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   const pinned: unknown[] = [];
   const executed: unknown[] = [];
   const registered: string[] = [];
-  const mintedWith: string[] = [];
 
   const execution: ExecutionDeps = {
     signedUpload: async ({ name }) => (issued.push(name), `https://uploads.test/${name}`),
     pinnedFile: async (cid) => pins.get(cid) ?? null,
     pinJson: async (data) => (pinned.push(data), `ipfs://meta-${pinned.length}`),
     mintCalls: { isCollectionOwner: async () => true },
-    registry: () => "0x0789",
+    registry: () => REGISTRY,
     receipt: async () => ({ status: receipt, events }),
     sponsored: {
       clientFactory: () => ({
@@ -58,12 +62,6 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   };
 
   const certificateEmission: CertificateEmissionDeps = {
-    factory: () => FACTORY,
-    collectionCalls: async () => [{ contractAddress: FACTORY, entrypoint: "create_collection", calldata: ["0x1"] }],
-    mintCalls: async ({ collection, recipient, tokenUri }) => {
-      mintedWith.push(tokenUri);
-      return [{ contractAddress: collection, entrypoint: "admin_mint", calldata: [recipient, ""] }];
-    },
     resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: known[g] ?? null })),
     registerWallet: async (input) => {
       if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
@@ -83,7 +81,7 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   app.route("/", createRunRoutes({ store, priceOf: async () => PRICE, execution, certificateEmission }));
 
   return {
-    app, runs, balances, refunds, pins, pinned, issued, executed, registered, mintedWith,
+    app, runs, balances, refunds, pins, pinned, issued, executed, registered,
     setReceipt: (status: ReceiptStatus, next: ReceiptEvent[] = []) => {
       receipt = status;
       events = next;
@@ -104,7 +102,7 @@ const spec = {
   guests: ["ana@x.com", "bruno@x.com"],
 };
 
-/** file + metadata + two wallets + one emission batch of two — no tier step, PoP collections are flat */
+/** file + metadata + two wallets + one emission batch of two — no tier step */
 const HELD = PRICE * (1 + 1 + 3 * 2) + PRICE * (1 * 2 + 2);
 
 const json = (app: Hono<AppEnv>, method: string, path: string, body?: unknown) =>
@@ -278,10 +276,14 @@ describe("issuing the certificates", () => {
     expect((await nextOf(w)).kind).toBe("batch");
     const submitted = await sponsor(w, "batches/0");
     expect(submitted.status).toBe(200);
-    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } };
-    expect(request.invoke.typedData.message.Calls.map((c) => c.Calldata)).toEqual([["0xa1", ""], ["0xa2", ""]]);
-    expect(w.mintedWith.length).toBeGreaterThan(0);
-    expect(new Set(w.mintedWith)).toEqual(new Set(["ipfs://meta-1"]));
+    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Calldata: string[] }[] } } } };
+    const mints = request.invoke.typedData.message.Calls;
+    expect(mints).toHaveLength(2);
+    mints.forEach((mint, i) => {
+      expect(BigInt(mint.To)).toBe(BigInt(REGISTRY));
+      expect(BigInt(mint.Calldata[2]!)).toBe(BigInt(`0xa${i + 1}`));
+      expect(mint.Calldata.slice(3, -1).map((felt) => BigInt(felt))).toEqual(encodeByteArray("ipfs://meta-1").map((felt) => BigInt(felt)));
+    });
 
     expect((await json(w.app, "POST", "/run1/batches/0/confirm")).status).toBe(202);
     w.setReceipt("SUCCEEDED");
@@ -323,7 +325,7 @@ describe("cancelling", () => {
 });
 
 describe("a run that creates its own collection", () => {
-  const created: ReceiptEvent = { from_address: FACTORY, keys: [COLLECTION_DEPLOYED_SELECTOR, NEW_COLLECTION, OWNER] };
+  const created: ReceiptEvent = { from_address: REGISTRY, keys: [COLLECTION_CREATED_SELECTOR, "0x2a", "0x0"], data: [OWNER] };
 
   async function newCollectionRun() {
     const w = world();
@@ -335,7 +337,7 @@ describe("a run that creates its own collection", () => {
     return w;
   }
 
-  test("the collection comes first, and its address from the factory's event unlocks the rest", async () => {
+  test("the collection comes first, and its id from the registry's event unlocks the rest", async () => {
     const w = await newCollectionRun();
     expect((await nextOf(w)).kind).toBe("collection");
     expect((await sponsor(w, "wallets")).status).toBe(404);
@@ -346,8 +348,8 @@ describe("a run that creates its own collection", () => {
 
     w.setReceipt("SUCCEEDED", [created]);
     const confirmed = await json(w.app, "POST", "/run1/collection/confirm");
-    const { data } = (await confirmed.json()) as { data: { collectionAddress: string } };
-    expect(BigInt(data.collectionAddress)).toBe(BigInt(NEW_COLLECTION));
+    const { data } = (await confirmed.json()) as { data: { collectionId: string } };
+    expect(data.collectionId).toBe("42");
     expect((await nextOf(w)).kind).toBe("upload");
   });
 
@@ -360,8 +362,8 @@ describe("a run that creates its own collection", () => {
     await metadata(w);
     for (const guest of spec.guests) await json(w.app, "POST", "/run1/recipients", wallet(guest));
     await sponsor(w, "batches/0");
-    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string }[] } } } };
-    expect(BigInt(request.invoke.typedData.message.Calls[0]!.To)).toBe(BigInt(NEW_COLLECTION));
+    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } };
+    expect(BigInt(request.invoke.typedData.message.Calls[0]!.Calldata[0]!)).toBe(42n);
   });
 
   test("a run on an existing collection has no collection step", async () => {
