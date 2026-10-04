@@ -9,9 +9,9 @@ const getPath = (obj: unknown, path: Path): unknown =>
   );
 
 const setPath = (obj: Record<string, unknown>, path: Path, value: unknown) => {
-  let node = obj;
-  for (const key of path.slice(0, -1)) node = (node[key] ??= {}) as Record<string, unknown>;
-  node[path[path.length - 1]!] = value;
+  const parent = getPath(obj, path.slice(0, -1));
+  if (!parent || typeof parent !== "object") return;
+  (parent as Record<string, unknown>)[path[path.length - 1]!] = value;
 };
 
 const deletePath = (obj: Record<string, unknown>, path: Path) => {
