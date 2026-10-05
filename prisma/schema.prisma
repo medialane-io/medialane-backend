@@ -625,7 +625,7 @@ model ApiKey {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  @@index([apiClientId])
+  @@unique([apiClientId])
   @@index([status])
 }
 
@@ -772,7 +772,7 @@ model ApiClient {
   plan          Plan @default(FREE)
   creditBalance Int  @default(0)
 
-  apiKeys              ApiKey[]
+  apiKey               ApiKey?
   identities           Identity[]
   webhooks             WebhookEndpoint[]
   payments             Payment[]
