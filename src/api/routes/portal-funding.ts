@@ -30,7 +30,7 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     if (!params.ok) return c.json({ error: params.error }, 400);
 
     const intent = await createIntent(deps.store, {
-      apiClientId: c.get("apiClient").id,
+      apiCreditsId: c.get("apiCredits").id,
       method: method.id,
       params: params.params,
     });
@@ -38,7 +38,7 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
   });
 
   const load = async (c: Context<AppEnv>) => {
-    const intent = await deps.store.get(c.req.param("id") ?? "", c.get("apiClient").id);
+    const intent = await deps.store.get(c.req.param("id") ?? "", c.get("apiCredits").id);
     const method = intent ? methodFor(intent.method) : undefined;
     return intent && method ? { intent, method } : null;
   };
@@ -67,7 +67,7 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     const result = await found.method.authorize(found.intent, await c.req.json().catch(() => null));
     if (!result.ok) return c.json({ error: result.error }, 400);
 
-    const stored = await deps.store.setPayer(found.intent.id, found.intent.apiClientId, result.payer, new Date());
+    const stored = await deps.store.setPayer(found.intent.id, found.intent.apiCreditsId, result.payer, new Date());
     if (!stored) return c.json({ error: "This top-up can no longer be authorized" }, 409);
     return c.json({ data: { instructions: result.instructions } });
   });
@@ -95,9 +95,9 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     if (intent.status === "SETTLED") return c.json({ error: "This top-up is already paid" }, 409);
     if (intent.status !== "PENDING") return c.json({ data: { status: intent.status } });
 
-    if (await deps.store.cancel(intent.id, intent.apiClientId)) return c.json({ data: { status: "EXPIRED" } });
+    if (await deps.store.cancel(intent.id, intent.apiCreditsId)) return c.json({ data: { status: "EXPIRED" } });
 
-    const now = await deps.store.get(intent.id, intent.apiClientId);
+    const now = await deps.store.get(intent.id, intent.apiCreditsId);
     if (now?.status === "SETTLED") return c.json({ error: "This top-up is already paid" }, 409);
     return c.json({ data: { status: now?.status ?? "EXPIRED" } });
   });

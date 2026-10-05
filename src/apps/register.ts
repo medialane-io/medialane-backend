@@ -7,7 +7,7 @@ export interface RegisterAppDb {
       data: { name: string; displayName: string; clientId: string; emailConfirmDays: number | null };
     }): Promise<unknown>;
   };
-  apiClient: { findUnique(args: { where: { id: string }; select: { id: true } }): Promise<{ id: string } | null> };
+  apiCredits: { findUnique(args: { where: { id: string }; select: { id: true } }): Promise<{ id: string } | null> };
   identity: {
     updateMany(args: { where: { clientId: string; app: null }; data: { app: string } }): Promise<{ count: number }>;
   };
@@ -35,7 +35,7 @@ export async function registerApp(
   if (await db.app.findUnique({ where: { name: input.name }, select: { name: true } })) {
     throw new Error(`${input.name} is already registered`);
   }
-  if (!(await db.apiClient.findUnique({ where: { id: input.clientId }, select: { id: true } }))) {
+  if (!(await db.apiCredits.findUnique({ where: { id: input.clientId }, select: { id: true } }))) {
     throw new Error(`There is no client ${input.clientId}`);
   }
   const bound = await db.app.findUnique({ where: { clientId: input.clientId }, select: { name: true } });

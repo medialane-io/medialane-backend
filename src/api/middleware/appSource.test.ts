@@ -9,7 +9,7 @@ function appWith(opts: { derived: string | null; clientId?: string | null }) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     if (opts.clientId !== null) {
-      c.set("apiKey", { id: "k1", status: "ACTIVE" as const, apiClient: { id: opts.clientId ?? "client-1" } } as never);
+      c.set("apiKey", { id: "k1", status: "ACTIVE" as const, apiCredits: { id: opts.clientId ?? "client-1" } } as never);
     }
     return next();
   });
@@ -57,7 +57,7 @@ describe("x-app-source in shadow mode", () => {
     const warn = mock((_data: Record<string, unknown>, _message: string) => undefined);
     const app = new Hono<AppEnv>();
     app.use("*", async (c, next) => {
-      c.set("apiKey", { id: "k1", status: "ACTIVE" as const, apiClient: { id: "client-1" } } as never);
+      c.set("apiKey", { id: "k1", status: "ACTIVE" as const, apiCredits: { id: "client-1" } } as never);
       return next();
     });
     app.use("*", createAppSourceCheck({ appFor: async () => { throw new Error("db down"); }, warn }));

@@ -18,7 +18,7 @@ export class NotReady extends Error {}
 
 export interface ActiveBase {
   run: StoredRun;
-  apiClientId: string;
+  apiCreditsId: string;
 }
 
 export interface SponsoredStep<A> {
@@ -89,11 +89,11 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
   };
 
   const record = (active: ActiveBase, path: string[], value: unknown) =>
-    ctx.store.record(active.run.id, active.apiClientId, path, value);
+    ctx.store.record(active.run.id, active.apiCreditsId, path, value);
 
   const loadAny = async (c: Context<AppEnv>): Promise<{ service: AnyService; active: ActiveBase } | Response> => {
-    const apiClientId = c.get("apiClient").id;
-    const run = await ctx.store.get(c.req.param("id") ?? "", apiClientId);
+    const apiCreditsId = c.get("apiCredits").id;
+    const run = await ctx.store.get(c.req.param("id") ?? "", apiCreditsId);
     if (!run) return c.json({ error: "Run not found" }, 404);
     if (run.status !== "PAID" && run.status !== "RUNNING") {
       return c.json({ error: "This run is not ready to execute" }, 409);
@@ -180,7 +180,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
 
       return executeStep(ctx, c, {
         runId: loaded.active.run.id,
-        apiClientId: loaded.active.apiClientId,
+        apiCreditsId: loaded.active.apiCreditsId,
         path: step.path(index),
         credits: await step.credits(loaded.active, index),
         label: step.label,
@@ -198,7 +198,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
 
       return confirmStep(ctx, c, {
         runId: loaded.active.run.id,
-        apiClientId: loaded.active.apiClientId,
+        apiCreditsId: loaded.active.apiCreditsId,
         path: step.path(index),
         credits: await step.credits(loaded.active, index),
         label: step.label,
@@ -253,7 +253,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
 
     const credits = await service.files.credits();
     const path = service.files.path(name);
-    if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
+    if (!(await ctx.store.reserve({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path }))) {
       return c.json({ error: `${name} is already uploaded` }, 409);
     }
     const uri = `ipfs://${cid}`;

@@ -72,7 +72,7 @@ export interface SettlementTarget {
 
 export async function settlePayment(
   scheme: PaymentScheme,
-  apiClient: SettlementTarget,
+  apiCredits: SettlementTarget,
   payload: X402Payload,
   deps: SettleDeps = {
     creditAccount: defaultCreditAccount,
@@ -86,7 +86,7 @@ export async function settlePayment(
     return { ok: false, reason: v.reason ?? "payment verification failed" };
   }
 
-  if (!v.payer || !(await deps.isWalletLinkedToAccount(apiClient.accountId, "STARKNET", v.payer))) {
+  if (!v.payer || !(await deps.isWalletLinkedToAccount(apiCredits.accountId, "STARKNET", v.payer))) {
     return {
       ok: false,
       reason: "payer wallet is not linked to this account — link it via POST /v1/users/me, then fund from that wallet",
@@ -105,8 +105,8 @@ export async function settlePayment(
 
   try {
     await deps.creditAccount({
-      apiClientId: apiClient.id,
-      accountId: apiClient.accountId,
+      apiCreditsId: apiCredits.id,
+      accountId: apiCredits.accountId,
       amountAtomic: valued,
       creditedAmount,
       mdlnMultiplier: multiplier,

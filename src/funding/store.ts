@@ -5,7 +5,7 @@ import type { FundingIntentRecord, FundingStore, SettleInput, SettleOutcome } fr
 
 const select = {
   id: true,
-  apiClientId: true,
+  apiCreditsId: true,
   method: true,
   status: true,
   payer: true,
@@ -15,7 +15,7 @@ const select = {
 
 type Row = {
   id: string;
-  apiClientId: string;
+  apiCreditsId: string;
   method: string;
   status: FundingIntentRecord["status"];
   payer: string | null;
@@ -33,7 +33,7 @@ export const prismaFundingStore: FundingStore = {
   async create(input) {
     const row = await prisma.fundingIntent.create({
       data: {
-        apiClientId: input.apiClientId,
+        apiCreditsId: input.apiCreditsId,
         method: input.method,
         params: input.params as Prisma.InputJsonValue,
         expiresAt: input.expiresAt,
@@ -43,14 +43,14 @@ export const prismaFundingStore: FundingStore = {
     return toRecord(row);
   },
 
-  async get(id, apiClientId) {
-    const row = await prisma.fundingIntent.findFirst({ where: { id, apiClientId }, select });
+  async get(id, apiCreditsId) {
+    const row = await prisma.fundingIntent.findFirst({ where: { id, apiCreditsId }, select });
     return row ? toRecord(row) : null;
   },
 
-  async setPayer(id, apiClientId, payer, now) {
+  async setPayer(id, apiCreditsId, payer, now) {
     const res = await prisma.fundingIntent.updateMany({
-      where: { id, apiClientId, status: "PENDING", payer: null, expiresAt: { gt: now } },
+      where: { id, apiCreditsId, status: "PENDING", payer: null, expiresAt: { gt: now } },
       data: { payer },
     });
     return res.count === 1;
@@ -65,9 +65,9 @@ export const prismaFundingStore: FundingStore = {
     return rows.map(toRecord);
   },
 
-  async cancel(id, apiClientId) {
+  async cancel(id, apiCreditsId) {
     const res = await prisma.fundingIntent.updateMany({
-      where: { id, apiClientId, status: "PENDING" },
+      where: { id, apiCreditsId, status: "PENDING" },
       data: { status: "EXPIRED" },
     });
     return res.count === 1;
@@ -84,7 +84,7 @@ export const prismaFundingStore: FundingStore = {
 
         const payment = await tx.payment.create({
           data: {
-            apiClientId: intent.apiClientId,
+            apiCreditsId: intent.apiCreditsId,
             fundingIntentId: intent.id,
             payer: verified.payer,
             scheme: verified.scheme,
@@ -99,8 +99,8 @@ export const prismaFundingStore: FundingStore = {
           },
           select: { id: true },
         });
-        await tx.apiClient.update({
-          where: { id: intent.apiClientId },
+        await tx.apiCredits.update({
+          where: { id: intent.apiCreditsId },
           data: { creditBalance: { increment: credited } },
         });
         return { outcome: "settled", paymentId: payment.id } as const;

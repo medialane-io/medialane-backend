@@ -10,7 +10,7 @@ const prices = async () => ({ USDC: 1, USDT: 1, ETH: 2000, STRK: 0.05 });
 const noPrices = async () => null;
 
 const intent = (id: string, over: Partial<FundingIntentRecord> = {}): FundingIntentRecord => ({
-  id, apiClientId: `client-${id}`, method: "chain-transfer", status: "PENDING", payer: "0x0c9",
+  id, apiCreditsId: `client-${id}`, method: "chain-transfer", status: "PENDING", payer: "0x0c9",
   params: { chain: "STARKNET", asset: "USDC" }, expiresAt: new Date(), ...over,
 });
 
@@ -34,7 +34,7 @@ const settler = (s: FundingStore, readUsdPrices: PriceReader = prices) => intent
 describe("settling a scanned deposit against open top-ups", () => {
   test("credits the top-up's account, not the payer's own, for whatever amount arrived", async () => {
     const { s, settled } = store([intent("a")]);
-    expect(await settler(s)(deposit(), "0xabc")).toEqual({ paymentId: "pay-a", apiClientId: "client-a" });
+    expect(await settler(s)(deposit(), "0xabc")).toEqual({ paymentId: "pay-a", apiCreditsId: "client-a" });
     expect(settled[0]!.credited).toBe(500);
   });
 

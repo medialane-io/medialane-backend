@@ -20,7 +20,7 @@ export function creditsForUsdcAtomic(valueUsdcAtomic: bigint, multiplier: number
 
 export async function createIntent(
   store: FundingStore,
-  input: { apiClientId: string; method: string; params: Record<string, unknown> },
+  input: { apiCreditsId: string; method: string; params: Record<string, unknown> },
   now: Date = new Date(),
 ): Promise<FundingIntentRecord> {
   return store.create({ ...input, expiresAt: new Date(now.getTime() + INTENT_TTL_MS) });

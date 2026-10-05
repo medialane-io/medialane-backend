@@ -12,7 +12,7 @@ export interface IntentSettlerDeps {
 
 export interface SettledDeposit {
   paymentId: string;
-  apiClientId: string;
+  apiCreditsId: string;
 }
 
 export function intentSettler(deps: IntentSettlerDeps) {
@@ -35,7 +35,7 @@ export function intentSettler(deps: IntentSettlerDeps) {
         network: "starknet",
         txHash: deposit.txHash,
       });
-      return result.ok ? { paymentId: result.paymentId, apiClientId: candidate.apiClientId } : null;
+      return result.ok ? { paymentId: result.paymentId, apiCreditsId: candidate.apiCreditsId } : null;
     }
 
     if (unpriced) throw new Error("No USD price to value a treasury deposit, retrying rather than crediting wrongly");

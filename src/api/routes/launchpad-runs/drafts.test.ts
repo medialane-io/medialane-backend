@@ -5,11 +5,11 @@ import { createRunRoutes } from "./index.js";
 import type { IntentPayment } from "./context.js";
 import { createMemoryRunStore, type MemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
 
-function appFor(store: MemoryRunStore, apiClientId = "ac1", intentPayment?: IntentPayment) {
+function appFor(store: MemoryRunStore, apiCreditsId = "ac1", intentPayment?: IntentPayment) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    c.set("account", { id: `acct-${apiClientId}`, status: "ACTIVE" });
-    c.set("apiClient", { id: apiClientId, accountId: `acct-${apiClientId}`, plan: "FREE", creditBalance: 0 });
+    c.set("account", { id: `acct-${apiCreditsId}`, status: "ACTIVE" });
+    c.set("apiCredits", { id: apiCreditsId, accountId: `acct-${apiCreditsId}`, plan: "FREE", creditBalance: 0 });
     await next();
   });
   app.route("/", createRunRoutes({ store, priceOf: async () => 2, intentPayment }));
@@ -138,8 +138,8 @@ describe("checkout", () => {
 
   test("paying from a settled top-up pays the run from it", async () => {
     const store = createMemoryRunStore({ balances: { ac1: 20 } });
-    const app = appFor(store, "ac1", async (intentId, apiClientId) =>
-      intentId === "fi1" && apiClientId === "ac1" ? "pay-1" : null,
+    const app = appFor(store, "ac1", async (intentId, apiCreditsId) =>
+      intentId === "fi1" && apiCreditsId === "ac1" ? "pay-1" : null,
     );
     await post(app, "/", { service: "data-tokenization-erc721", spec });
 
@@ -177,7 +177,7 @@ describe("a step that was abandoned part-way", () => {
     const app = appFor(store);
     await post(app, "/", { service: "data-tokenization-erc721", spec });
     await post(app, "/run1/checkout", { method: "credits" });
-    await store.reserve({ id: "run1", apiClientId: "ac1", credits: 4, path: ["batches", "0"] });
+    await store.reserve({ id: "run1", apiCreditsId: "ac1", credits: 4, path: ["batches", "0"] });
     return { store, app, later: (ms: number) => void (clock += ms) };
   }
 
@@ -216,3 +216,28 @@ describe("a step that was abandoned part-way", () => {
     expect((await post(app, "/run1/cancel", {})).status).toBe(409);
   });
 });
+
+describe("what a run response shows", () => {
+  const hasInternalId = (value: unknown) => JSON.stringify(value).includes("apiCreditsId");
+
+  test("a saved draft, the list, a single run and a cancelled draft never include the credits id", async () => {
+    const store = createMemoryRunStore();
+    const app = appFor(store);
+
+    const created = await post(app, "/", { service: "data-tokenization-erc721", spec });
+    const run = ((await created.json()) as { data: { id: string } }).data;
+    expect(hasInternalId(run)).toBe(false);
+
+    const list = await app.request("/");
+    expect(hasInternalId(await list.json())).toBe(false);
+    expect(((await (await app.request("/")).json()) as { data: unknown[] }).data).toHaveLength(1);
+
+    const one = await app.request(`/${run.id}`);
+    expect(hasInternalId(await one.json())).toBe(false);
+
+    const cancelled = await app.request(`/${run.id}/cancel`, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    expect(hasInternalId(await cancelled.json())).toBe(false);
+  });
+});
+

@@ -615,8 +615,8 @@ model TransactionIntent {
 
 model ApiKey {
   id          String       @id @default(cuid())
-  apiClientId String
-  apiClient   ApiClient    @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  apiCreditsId String
+  apiCredits   ApiCredits    @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
@@ -625,14 +625,14 @@ model ApiKey {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  @@unique([apiClientId])
+  @@unique([apiCreditsId])
   @@index([status])
 }
 
 model WebhookEndpoint {
   id          String                @id @default(cuid())
-  apiClientId String
-  apiClient   ApiClient             @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  apiCreditsId String
+  apiCredits   ApiCredits             @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
   url         String
   secret      String
   events      WebhookEventType[]
@@ -641,7 +641,7 @@ model WebhookEndpoint {
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
-  @@index([apiClientId])
+  @@index([apiCreditsId])
   @@index([status])
 }
 
@@ -747,7 +747,7 @@ model Account {
   profile    AccountProfile?
   notices    AccountNotice[]
 
-  apiClient ApiClient?
+  apiCredits ApiCredits?
 
   @@index([createdAt])
 }
@@ -764,7 +764,7 @@ model AccountNotice {
   @@index([kind, createdAt])
 }
 
-model ApiClient {
+model ApiCredits {
   id        String  @id @default(cuid())
   accountId String  @unique
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -802,7 +802,7 @@ model Identity {
   email String?
 
   clientId   String
-  client     ApiClient @relation(fields: [clientId], references: [id])
+  client     ApiCredits @relation(fields: [clientId], references: [id])
   app        String?
   appRecord  App?      @relation(fields: [app], references: [name], onDelete: Restrict)
   isPrimary  Boolean   @default(false)
@@ -824,7 +824,7 @@ model App {
   displayName      String
   emailConfirmDays Int?
   clientId         String?    @unique
-  client           ApiClient? @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  client           ApiCredits? @relation(fields: [clientId], references: [id], onDelete: Restrict)
   createdAt        DateTime   @default(now())
   identities       Identity[]
 }
@@ -1047,8 +1047,8 @@ model ServiceContract {
 
 model Payment {
   id             String        @id @default(cuid())
-  apiClientId    String?
-  apiClient      ApiClient?    @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  apiCreditsId    String?
+  apiCredits      ApiCredits?    @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
   payer          String?
   scheme         String
   network        String
@@ -1064,14 +1064,14 @@ model Payment {
   fundingIntentId String?        @unique
   fundingIntent   FundingIntent? @relation(fields: [fundingIntentId], references: [id], onDelete: SetNull)
 
-  @@index([apiClientId])
+  @@index([apiCreditsId])
   @@index([payer])
 }
 
 model UsageEvent {
   id          String    @id @default(cuid())
-  apiClientId String
-  apiClient   ApiClient @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  apiCreditsId String
+  apiCredits   ApiCredits @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
 
   actionKey   String
   chain       String
@@ -1086,7 +1086,7 @@ model UsageEvent {
 
   createdAt DateTime @default(now())
 
-  @@index([apiClientId, createdAt])
+  @@index([apiCreditsId, createdAt])
   @@index([actionKey])
 }
 
@@ -1105,8 +1105,8 @@ enum FundingIntentStatus {
 
 model FundingIntent {
   id          String              @id @default(cuid())
-  apiClientId String
-  apiClient   ApiClient           @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  apiCreditsId String
+  apiCredits   ApiCredits           @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
   method      String
   status      FundingIntentStatus @default(PENDING)
   payer       String?
@@ -1116,7 +1116,7 @@ model FundingIntent {
   createdAt   DateTime            @default(now())
   payment     Payment?
 
-  @@index([apiClientId, status])
+  @@index([apiCreditsId, status])
   @@index([payer, status])
   @@index([status, expiresAt])
 }
@@ -1139,8 +1139,8 @@ enum LaunchpadRunStatus {
 
 model LaunchpadRun {
   id           String             @id @default(cuid())
-  apiClientId  String
-  apiClient    ApiClient          @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  apiCreditsId  String
+  apiCredits    ApiCredits          @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
   service      String
   status       LaunchpadRunStatus @default(DRAFT)
   spec         Json
@@ -1152,5 +1152,5 @@ model LaunchpadRun {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  @@index([apiClientId, status])
+  @@index([apiCreditsId, status])
 }

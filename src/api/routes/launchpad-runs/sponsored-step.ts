@@ -7,7 +7,7 @@ import type { RunContext, RunReceipt } from "./context.js";
 
 export interface StepTarget {
   runId: string;
-  apiClientId: string;
+  apiCreditsId: string;
   path: string[];
   credits: number;
   label: string;
@@ -18,11 +18,11 @@ export async function executeStep(
   c: Context<AppEnv>,
   target: StepTarget & { userAddress: string; typedData?: unknown; signature: string[]; calls: Call[] },
 ): Promise<Response> {
-  const { runId: id, apiClientId, credits, path } = target;
+  const { runId: id, apiCreditsId, credits, path } = target;
   if (!typedDataMatchesCalls(target.typedData, target.calls)) {
     return c.json({ error: "That signature is not for this step", code: "invalid_request" }, 400);
   }
-  if (!(await ctx.store.reserve({ id, apiClientId, credits, path, retryReverted: true }))) {
+  if (!(await ctx.store.reserve({ id, apiCreditsId, credits, path, retryReverted: true }))) {
     return c.json({ error: `${target.label} is already on its way` }, 409);
   }
 
@@ -32,12 +32,12 @@ export async function executeStep(
     signature: target.signature,
   });
   if (outcome.status !== 200) {
-    if (outcome.body.code !== "may_have_broadcast") await ctx.store.release({ id, apiClientId, credits, path });
+    if (outcome.body.code !== "may_have_broadcast") await ctx.store.release({ id, apiCreditsId, credits, path });
     return c.json(outcome.body, outcome.status);
   }
 
   const txHash = String(outcome.body.transactionHash);
-  await ctx.store.record(id, apiClientId, path, { txHash, status: "SUBMITTED" });
+  await ctx.store.record(id, apiCreditsId, path, { txHash, status: "SUBMITTED" });
   return c.json({ transactionHash: txHash });
 }
 
@@ -50,7 +50,7 @@ export async function confirmStep(
     onSucceeded(receipt: RunReceipt, txHash: string): Promise<Response>;
   },
 ): Promise<Response> {
-  const { runId: id, apiClientId, credits, path, state } = target;
+  const { runId: id, apiCreditsId, credits, path, state } = target;
   if (!state || state.status !== "SUBMITTED") {
     return c.json({ error: `${target.label} has nothing waiting to confirm` }, 409);
   }
@@ -59,8 +59,8 @@ export async function confirmStep(
   if (receipt.status === "PENDING") return c.json({ data: { ...target.extra, status: receipt.status } }, 202);
 
   if (receipt.status === "REVERTED") {
-    await ctx.store.release({ id, apiClientId, credits, path });
-    await ctx.store.record(id, apiClientId, path, { txHash: state.txHash, status: "REVERTED" });
+    await ctx.store.release({ id, apiCreditsId, credits, path });
+    await ctx.store.record(id, apiCreditsId, path, { txHash: state.txHash, status: "REVERTED" });
     return c.json({ data: { ...target.extra, status: receipt.status } });
   }
 

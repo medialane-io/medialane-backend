@@ -4,14 +4,14 @@ import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
 import { accountSessionIssuedAt, isSessionCurrent, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { ensureAccountForWallet, ensureApiClient } from "../../utils/account.js";
+import { ensureAccountForWallet, ensureApiCredits } from "../../utils/account.js";
 import { callerClientId } from "../../utils/caller.js";
 
 const accountSelect = {
   id: true,
   status: true,
   sessionsValidFrom: true,
-  apiClient: { select: { id: true, accountId: true, plan: true, creditBalance: true } },
+  apiCredits: { select: { id: true, accountId: true, plan: true, creditBalance: true } },
 } as const;
 
 export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -32,7 +32,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
 
     c.set("subjectTokenIssuedAt", accountSessionIssuedAt(raw) ?? undefined);
     c.set("account", { id: account.id, status: account.status });
-    c.set("apiClient", account.apiClient ?? (await ensureApiClient(account.id)));
+    c.set("apiCredits", account.apiCredits ?? (await ensureApiCredits(account.id)));
     return next();
   }
 
@@ -42,7 +42,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const address = normalizeAddress(identity.chain, identity.address);
   const clientId = callerClientId(c);
   if (!clientId) return c.json({ error: "This API key has no client" }, 400);
-  const keyAccountId = c.get("apiKey")?.apiClient?.accountId;
+  const keyAccountId = c.get("apiKey")?.apiCredits?.accountId;
   let wallet = keyAccountId
     ? await prisma.identity.findFirst({
         where: { accountId: keyAccountId, chain: identity.chain, address },
@@ -67,11 +67,11 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   if (!wallet) return c.json({ error: "No account for this wallet" }, 404);
   if (wallet.account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
-  const apiClient = wallet.account.apiClient ?? (await ensureApiClient(wallet.account.id));
+  const apiCredits = wallet.account.apiCredits ?? (await ensureApiCredits(wallet.account.id));
 
   c.set("walletAddress", address);
   c.set("subjectTokenIssuedAt", tokenIssuedAt(raw) ?? undefined);
   c.set("account", { id: wallet.account.id, status: wallet.account.status });
-  c.set("apiClient", apiClient);
+  c.set("apiCredits", apiCredits);
   return next();
 };

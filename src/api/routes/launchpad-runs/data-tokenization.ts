@@ -56,7 +56,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
   const ex = () => ctx.execution();
 
   const record = (active: ActiveRun, path: string[], value: unknown) =>
-    ctx.store.record(active.run.id, active.apiClientId, path, value);
+    ctx.store.record(active.run.id, active.apiCreditsId, path, value);
 
   const batchCalls = async (active: ActiveRun, index: number, owner: string): Promise<RegistryCall[]> => {
     const collectionId = collectionIdOf(active.spec, active.progress);
@@ -127,7 +127,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
         }
         const closed = await ctx.store.complete({
           id: active.run.id,
-          apiClientId: active.apiClientId,
+          apiCreditsId: active.apiCreditsId,
           status: "COMPLETED",
           path: c.req.path,
         });
@@ -141,7 +141,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
     load(run: StoredRun) {
       const parsed = parseRunSpec(run.service, run.spec);
       if (parsed.service !== SERVICE) throw new Error("This run does not tokenize a catalog");
-      return { run, apiClientId: run.apiClientId, spec: parsed.spec, progress: readProgress(run.progress) };
+      return { run, apiCreditsId: run.apiCreditsId, spec: parsed.spec, progress: readProgress(run.progress) };
     },
     sponsored,
     files: {
@@ -171,7 +171,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
 
         const credits = await stepCredits(SERVICE, "metadata", 1, ctx.priceOf);
         const path = ["tokenUris", String(index)];
-        if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
+        if (!(await ctx.store.reserve({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path }))) {
           return c.json({ error: "This item's metadata is already stored" }, 409);
         }
         try {
@@ -179,7 +179,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
           await record(active, path, tokenUri);
           return c.json({ data: { index, tokenUri } }, 201);
         } catch (err) {
-          await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
+          await ctx.store.release({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path });
           log.warn({ err, run: active.run.id, index }, "run metadata pin failed");
           return c.json({ error: "Could not store this item's metadata. Try again." }, 502);
         }

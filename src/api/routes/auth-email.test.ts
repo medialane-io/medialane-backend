@@ -28,7 +28,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
       c.set("apiKey", {
         id: "key_TEST",
         status: "ACTIVE",
-        apiClient: {
+        apiCredits: {
           id: client,
           accountId: "acc_TEST",
           plan: "FREE",
@@ -36,7 +36,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
           account: { id: "acc_TEST", status: "ACTIVE" },
         },
       });
-      c.set("apiClient", { id: "client_TEST", accountId: "acc_TEST", plan: "FREE", creditBalance: 0 });
+      c.set("apiCredits", { id: "client_TEST", accountId: "acc_TEST", plan: "FREE", creditBalance: 0 });
     }
     return next();
   });

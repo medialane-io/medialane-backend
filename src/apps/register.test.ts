@@ -15,7 +15,7 @@ function fakeDb(opts: { existingApps?: string[]; clients?: string[]; boundClient
         return {};
       }),
     },
-    apiClient: { findUnique: mock(async ({ where }: { where: { id: string } }) => (opts.clients?.includes(where.id) ? { id: where.id } : null)) },
+    apiCredits: { findUnique: mock(async ({ where }: { where: { id: string } }) => (opts.clients?.includes(where.id) ? { id: where.id } : null)) },
     identity: {
       updateMany: mock(async (args: unknown) => {
         updated.push(args);

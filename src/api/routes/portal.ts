@@ -32,14 +32,14 @@ portal.route(
 
 portal.get("/me", async (c) => {
   const account = c.get("account");
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
   return c.json({
     data: {
-      id: apiClient.id,
-      accountId: apiClient.accountId,
-      plan: apiClient.plan,
+      id: apiCredits.id,
+      accountId: apiCredits.accountId,
+      plan: apiCredits.plan,
       status: account.status,
-      creditBalance: apiClient.creditBalance,
+      creditBalance: apiCredits.creditBalance,
     },
   });
 });
@@ -58,9 +58,9 @@ portal.post("/credits/check", async (c) => {
 });
 
 portal.get("/credits/history", async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
   const payments = await prisma.payment.findMany({
-    where: { apiClientId: apiClient.id },
+    where: { apiCreditsId: apiCredits.id },
     orderBy: { createdAt: "desc" },
     take: 20,
     select: {
@@ -78,11 +78,11 @@ portal.get("/credits/history", async (c) => {
 });
 
 portal.get("/credits/spend", async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
 
   const [recent, byAction, spentTotal, creditedTotal] = await Promise.all([
     prisma.usageEvent.findMany({
-      where: { apiClientId: apiClient.id, credits: { gt: 0 } },
+      where: { apiCreditsId: apiCredits.id, credits: { gt: 0 } },
       orderBy: { createdAt: "desc" },
       take: 50,
       select: {
@@ -96,16 +96,16 @@ portal.get("/credits/spend", async (c) => {
     }),
     prisma.usageEvent.groupBy({
       by: ["actionKey"],
-      where: { apiClientId: apiClient.id, credits: { gt: 0 } },
+      where: { apiCreditsId: apiCredits.id, credits: { gt: 0 } },
       _sum: { credits: true, units: true },
       orderBy: { _sum: { credits: "desc" } },
     }),
     prisma.usageEvent.aggregate({
-      where: { apiClientId: apiClient.id },
+      where: { apiCreditsId: apiCredits.id },
       _sum: { credits: true },
     }),
     prisma.payment.aggregate({
-      where: { apiClientId: apiClient.id, status: "SETTLED" },
+      where: { apiCreditsId: apiCredits.id, status: "SETTLED" },
       _sum: { creditedAmount: true },
     }),
   ]);
@@ -123,16 +123,16 @@ portal.get("/credits/spend", async (c) => {
       })),
       spent,
       credited,
-      drift: drift(credited, spent, apiClient.creditBalance),
+      drift: drift(credited, spent, apiCredits.creditBalance),
     },
   });
 });
 
 portal.get("/keys", async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
 
   const keys = await prisma.apiKey.findMany({
-    where: { apiClientId: apiClient.id },
+    where: { apiCreditsId: apiCredits.id },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -153,7 +153,7 @@ const createKeySchema = z.object({
 });
 
 portal.post("/keys", freshSignature, async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
   const body = await c.req.json().catch(() => ({}));
   const parsed = createKeySchema.safeParse(body);
   if (!parsed.success) {
@@ -162,10 +162,10 @@ portal.post("/keys", freshSignature, async (c) => {
 
   const generated = generateApiKey();
   const key = await prisma.$transaction(async (tx) => {
-    await tx.apiKey.deleteMany({ where: { apiClientId: apiClient.id } });
+    await tx.apiKey.deleteMany({ where: { apiCreditsId: apiCredits.id } });
     return tx.apiKey.create({
       data: {
-        apiClientId: apiClient.id,
+        apiCreditsId: apiCredits.id,
         prefix: generated.prefix,
         keyHash: generated.keyHash,
         label: parsed.data.label ?? undefined,
@@ -173,29 +173,29 @@ portal.post("/keys", freshSignature, async (c) => {
     });
   });
 
-  log.info({ keyId: key.id, apiClientId: apiClient.id }, "API key created, replacing any earlier key");
+  log.info({ keyId: key.id, apiCreditsId: apiCredits.id }, "API key created, replacing any earlier key");
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: generated.plaintext } }, 201);
 });
 
 portal.delete("/keys/:id", freshSignature, async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
   const { id } = c.req.param();
 
   const key = await prisma.apiKey.findFirst({
-    where: { id, apiClientId: apiClient.id },
+    where: { id, apiCreditsId: apiCredits.id },
   });
   if (!key) return c.json({ error: "API key not found" }, 404);
 
   await prisma.apiKey.delete({ where: { id } });
-  log.info({ keyId: id, apiClientId: apiClient.id }, "API key removed via portal");
+  log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key removed via portal");
   return c.json({ data: { id, status: "REVOKED" } });
 });
 
 portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
 
   const endpoints = await prisma.webhookEndpoint.findMany({
-    where: { apiClientId: apiClient.id },
+    where: { apiCreditsId: apiCredits.id },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -218,7 +218,7 @@ const createWebhookSchema = z.object({
 });
 
 portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
   const body = await c.req.json().catch(() => null);
   const parsed = createWebhookSchema.safeParse(body);
   if (!parsed.success) {
@@ -235,14 +235,14 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
 
   const endpoint = await prisma.webhookEndpoint.create({
     data: {
-      apiClientId: apiClient.id,
+      apiCreditsId: apiCredits.id,
       url,
       secret,
       events: events as any,
     },
   });
 
-  log.info({ endpointId: endpoint.id, apiClientId: apiClient.id }, "Webhook endpoint created");
+  log.info({ endpointId: endpoint.id, apiCreditsId: apiCredits.id }, "Webhook endpoint created");
 
   return c.json(
     {
@@ -260,11 +260,11 @@ portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
 });
 
 portal.delete("/webhooks/:id", requirePlan("PREMIUM"), async (c) => {
-  const apiClient = c.get("apiClient");
+  const apiCredits = c.get("apiCredits");
   const { id } = c.req.param();
 
   const endpoint = await prisma.webhookEndpoint.findFirst({
-    where: { id, apiClientId: apiClient.id },
+    where: { id, apiCreditsId: apiCredits.id },
   });
 
   if (!endpoint) {

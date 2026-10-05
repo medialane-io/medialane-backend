@@ -14,7 +14,7 @@ function fakeDb(opts: {
         return {};
       },
     },
-    apiClient: {
+    apiCredits: {
       findMany: async ({ where }) =>
         (opts.clientsByProfileName[where.account.profile.name] ?? []).map((id) => ({ id })),
     },
