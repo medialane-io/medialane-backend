@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appNameForClient, type AppLookupDb } from "./resolve.js";
+import { appNameForClient, clientIdForApp, type AppLookupDb } from "./resolve.js";
 
 function fakeDb(links: Record<string, string>): AppLookupDb {
   return {
@@ -16,5 +16,20 @@ describe("appNameForClient", () => {
 
   test("returns null for a client no app is bound to", async () => {
     expect(await appNameForClient("unbound-client", fakeDb({ c1: "MEDIALANE_IO" }))).toBeNull();
+  });
+});
+
+describe("clientIdForApp", () => {
+  const db = (rows: Record<string, string | null>) => ({
+    app: { findUnique: async ({ where }: { where: { name: string } }) => (where.name in rows ? { clientId: rows[where.name]! } : null) },
+  });
+
+  test("returns the client an app is bound to", async () => {
+    expect(await clientIdForApp("MEDIALANE_IO", db({ MEDIALANE_IO: "c-io" }))).toBe("c-io");
+  });
+
+  test("returns null for an app that is not bound or not registered", async () => {
+    expect(await clientIdForApp("MEDIALANE_IO", db({ MEDIALANE_IO: null as never }))).toBeNull();
+    expect(await clientIdForApp("UNKNOWN", db({}))).toBeNull();
   });
 });
