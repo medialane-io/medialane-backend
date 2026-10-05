@@ -39,7 +39,7 @@ function buildTypedData(wallet: string, nonce: string) {
     message: {
       wallet,
       nonce,
-      app: "medialane.io",
+      app: "medialane",
     },
   };
 }
