@@ -7,10 +7,8 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
-import { ensureAccountForWallet, ensureApiClient, resolveAccountIdFromWallet } from "../../utils/account.js";
-import { generateApiKey } from "../../utils/apiKey.js";
+import { ensureAccountForWallet } from "../../utils/account.js";
 import { callerClientId } from "../../utils/caller.js";
-import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
@@ -135,33 +133,5 @@ siws.post(
     });
   }
 );
-
-siws.post("/keys", identityAuth, async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-
-  const wallet = c.get("walletAddress") as string;
-  const clientId = callerClientId(c);
-  if (!clientId) return c.json({ error: "This API key has no client" }, 400);
-  const accountId = await resolveAccountIdFromWallet(clientId, chain, wallet);
-  if (!accountId) return c.json({ error: "Account not found — sign in first" }, 404);
-
-  const apiClient = await ensureApiClient(accountId);
-
-  await prisma.apiKey.updateMany({
-    where: { apiClientId: apiClient.id, label: "portal-session", status: "ACTIVE" },
-    data: { status: "REVOKED" },
-  });
-
-  const { plaintext, prefix, keyHash } = generateApiKey();
-  const key = await prisma.apiKey.create({
-
-    data: { apiClientId: apiClient.id, prefix, keyHash, label: "portal-session" },
-    select: { id: true, prefix: true, label: true },
-  });
-
-  log.info({ keyId: key.id, apiClientId: apiClient.id }, "Self-service session key minted via SIWS");
-  return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext } }, 201);
-});
 
 export default siws;
