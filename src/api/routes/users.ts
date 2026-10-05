@@ -141,7 +141,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           accountId,
           scheme: IDENTITY_SCHEME.EMAIL,
           value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.data.email),
-          email: parsed.data.email,
           clientId: clientId,
           verifiedAt: null,
         },
@@ -294,9 +293,8 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     prisma.identity.create({
       data: {
         accountId,
-            scheme: IDENTITY_SCHEME.EMAIL,
+        scheme: IDENTITY_SCHEME.EMAIL,
         value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email),
-        email,
         clientId: clientId,
         verifiedAt: null,
       },

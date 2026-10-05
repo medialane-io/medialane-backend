@@ -11,11 +11,12 @@ export interface CurrentEmailIdentity extends EmailIdentityInfo {
 }
 
 export async function getCurrentEmailIdentity(accountId: string): Promise<CurrentEmailIdentity | null> {
-  return prisma.identity.findFirst({
+  const identity = await prisma.identity.findFirst({
     where: { accountId, scheme: IDENTITY_SCHEME.EMAIL },
-    select: { email: true, verifiedAt: true, createdAt: true },
+    select: { value: true, verifiedAt: true, createdAt: true },
     orderBy: [{ verifiedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
   });
+  return identity && { email: identity.value, verifiedAt: identity.verifiedAt, createdAt: identity.createdAt };
 }
 
 export interface EmailClaimDecision {

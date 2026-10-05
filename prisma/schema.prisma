@@ -663,7 +663,7 @@ model Report {
   targetContract String?
   targetTokenId  String?
   targetAddress  String?
-  reporterWallet String
+  reporterWallet String           @default("")
   reviewedBy     String?
   categories     ReportCategory[]
   description    String?
@@ -791,11 +791,9 @@ model Identity {
   address String?
 
   value String?
-  email String?
 
   clientId   String
   client     ApiCredits @relation(fields: [clientId], references: [id])
-  isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
@@ -805,7 +803,6 @@ model Identity {
   @@index([clientId])
   @@index([accountId])
   @@index([address])
-  @@index([email])
 }
 
 model EmailVerificationCode {
@@ -872,7 +869,7 @@ model RewardLevel {
   badgeColor  String   @default("#6366f1")
   description String?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @default(now()) @updatedAt
 }
 
 model PricingRule {
@@ -896,7 +893,7 @@ model RewardAction {
   minValueUsdc Float?
   enabled      Boolean  @default(true)
   createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @default(now()) @updatedAt
 }
 
 model RewardMultiplier {
@@ -907,7 +904,7 @@ model RewardMultiplier {
   condition   String
   enabled     Boolean  @default(true)
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @default(now()) @updatedAt
 }
 
 model BadgeDefinition {
@@ -921,7 +918,7 @@ model BadgeDefinition {
   enabled     Boolean     @default(true)
   awards      UserBadge[]
   createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  updatedAt   DateTime    @default(now()) @updatedAt
 }
 
 model UserScore {
@@ -930,9 +927,9 @@ model UserScore {
   chain        Chain    @default(STARKNET)
   totalXp      Int      @default(0)
   currentLevel Int      @default(1)
-  breakdown    Json
+  breakdown    Json     @default("{}")
   computedAt   DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @default(now()) @updatedAt
 
   @@index([totalXp])
   @@index([currentLevel])

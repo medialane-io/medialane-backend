@@ -8,12 +8,10 @@ const created = new Date("2026-10-03T12:00:00Z");
 
 const identity = (over: Partial<Parameters<typeof toWelcomeCandidate>[0]["identities"][number]>) => ({
   scheme: "email",
-  email: null,
   value: null,
   clientId: IO,
   verifiedAt: null,
   address: null,
-  isPrimary: false,
   createdAt: created,
   ...over,
 });
@@ -32,36 +30,32 @@ describe("the confirm token in the notice emails", () => {
 });
 
 describe("reading an account into a welcome candidate", () => {
-  test("takes the io email, whether it is stored as the email or the value, and the wallet address", () => {
+  test("takes the io email from its value and the wallet address", () => {
     const a = toWelcomeCandidate(
-      account([identity({ email: "a@b.co" }), identity({ scheme: "wallet", address: "0xabc", clientId: IO })]),
+      account([identity({ value: "a@b.co" }), identity({ scheme: "wallet", address: "0xabc", clientId: IO })]),
       IO,
     );
     expect(a).toMatchObject({ accountId: "acc_1", email: "a@b.co", walletAddress: "0xabc" });
-    const b = toWelcomeCandidate(account([identity({ value: "c@d.co" }), identity({ scheme: "wallet", address: "0xabc" })]), IO);
-    expect(b?.email).toBe("c@d.co");
   });
 
   test("an account whose email is verified is marked so, and one that is not is marked unverified", () => {
     const wallet = identity({ scheme: "wallet", address: "0xabc" });
-    expect(toWelcomeCandidate(account([identity({ email: "a@b.co", verifiedAt: created }), wallet]), IO)?.facts.emailVerified).toBe(true);
-    expect(toWelcomeCandidate(account([identity({ email: "a@b.co" }), wallet]), IO)?.facts.emailVerified).toBe(false);
+    expect(toWelcomeCandidate(account([identity({ value: "a@b.co", verifiedAt: created }), wallet]), IO)?.facts.emailVerified).toBe(true);
+    expect(toWelcomeCandidate(account([identity({ value: "a@b.co" }), wallet]), IO)?.facts.emailVerified).toBe(false);
   });
 
-  test("shows the primary wallet, or else the oldest", () => {
-    const email = identity({ email: "a@b.co" });
+  test("shows the oldest wallet", () => {
+    const email = identity({ value: "a@b.co" });
     const older = identity({ scheme: "wallet", address: "0xold", createdAt: new Date("2026-10-01T00:00:00Z") });
     const newer = identity({ scheme: "wallet", address: "0xnew", createdAt: new Date("2026-10-02T00:00:00Z") });
-    const primary = identity({ scheme: "wallet", address: "0xprimary", isPrimary: true, createdAt: new Date("2026-10-03T00:00:00Z") });
     expect(toWelcomeCandidate(account([email, newer, older]), IO)?.walletAddress).toBe("0xold");
-    expect(toWelcomeCandidate(account([email, newer, older, primary]), IO)?.walletAddress).toBe("0xprimary");
   });
 
   test("an account with no io email or no wallet is not a candidate", () => {
     const wallet = identity({ scheme: "wallet", address: "0xabc" });
     expect(toWelcomeCandidate(account([wallet]), IO)).toBeNull();
-    expect(toWelcomeCandidate(account([identity({ email: "a@b.co", clientId: "client_OTHER" }), wallet]), IO)).toBeNull();
-    expect(toWelcomeCandidate(account([identity({ email: "a@b.co" })]), IO)).toBeNull();
+    expect(toWelcomeCandidate(account([identity({ value: "a@b.co", clientId: "client_OTHER" }), wallet]), IO)).toBeNull();
+    expect(toWelcomeCandidate(account([identity({ value: "a@b.co" })]), IO)).toBeNull();
   });
 });
 

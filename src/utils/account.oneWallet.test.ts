@@ -20,7 +20,7 @@ function setup(accountHasWallet: boolean) {
   mock.module("../db/client.js", () => ({
     default: {
       identity: {
-        findFirst: mock(async ({ where }: { where: { accountId?: string; isPrimary?: boolean } }) =>
+        findFirst: mock(async ({ where }: { where: { accountId?: string } }) =>
           accountHasWallet && where.accountId === "acct-1" ? { id: "w-old", address: "0xold" } : null),
         findUnique: mock(async () => null),
         create,
@@ -59,6 +59,6 @@ describe("replaceWallet", () => {
     expect(calls).toEqual(["delete", "create"]);
     expect(deleteMany).toHaveBeenCalledWith({ where: { accountId: "acct-1", scheme: "wallet" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
-    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, clientId: "c1", isPrimary: true });
+    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, clientId: "c1" });
   });
 });

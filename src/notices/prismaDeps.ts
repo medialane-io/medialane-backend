@@ -43,7 +43,7 @@ async function findReminderCandidates(now: Date, limit: number): Promise<Reminde
       id: true,
       status: true,
       createdAt: true,
-      identities: { select: { scheme: true, email: true, value: true, clientId: true, verifiedAt: true } },
+      identities: { select: { scheme: true, value: true, clientId: true, verifiedAt: true } },
     },
     orderBy: { createdAt: "asc" },
     take: limit,
@@ -51,7 +51,7 @@ async function findReminderCandidates(now: Date, limit: number): Promise<Reminde
 
   return accounts.flatMap((account) => {
     const emailIdentity = account.identities.find((i) => i.scheme === IDENTITY_SCHEME.EMAIL && i.clientId === ioClientId);
-    const email = emailIdentity?.email ?? emailIdentity?.value ?? null;
+    const email = emailIdentity?.value ?? null;
     if (!emailIdentity || !email) return [];
     return [
       {
@@ -76,7 +76,7 @@ const welcomeSelect = {
   status: true,
   createdAt: true,
   identities: {
-    select: { scheme: true, email: true, value: true, clientId: true, verifiedAt: true, address: true, isPrimary: true, createdAt: true },
+    select: { scheme: true, value: true, clientId: true, verifiedAt: true, address: true, createdAt: true },
   },
 } as const;
 
@@ -86,22 +86,20 @@ type WelcomeAccountRow = {
   createdAt: Date;
   identities: Array<{
     scheme: string;
-    email: string | null;
     value: string | null;
     clientId: string;
     verifiedAt: Date | null;
     address: string | null;
-    isPrimary: boolean;
     createdAt: Date;
   }>;
 };
 
 export function toWelcomeCandidate(account: WelcomeAccountRow, ioClientId: string): WelcomeCandidate | null {
   const emailIdentity = account.identities.find((i) => i.scheme === IDENTITY_SCHEME.EMAIL && i.clientId === ioClientId);
-  const email = emailIdentity?.email ?? emailIdentity?.value ?? null;
+  const email = emailIdentity?.value ?? null;
   const wallets = account.identities
     .filter((i) => i.scheme === IDENTITY_SCHEME.WALLET && i.address)
-    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt.getTime() - b.createdAt.getTime());
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const wallet = wallets[0]?.address ?? null;
   if (!emailIdentity || !email || !wallet) return null;
   return {

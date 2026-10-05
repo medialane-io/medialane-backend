@@ -12,7 +12,7 @@ export async function ensureApiCredits(accountId: string) {
   });
 }
 
-const WALLET_ORDER = [{ isPrimary: "desc" as const }, { createdAt: "asc" as const }];
+const WALLET_ORDER = [{ createdAt: "asc" as const }];
 
 export async function accountWallet(accountId: string, chain: Chain = "STARKNET"): Promise<string | null> {
   const wallet = await prisma.identity.findFirst({
@@ -103,7 +103,6 @@ export async function replaceWallet(params: {
         chain: params.chain,
         address,
         clientId: params.clientId,
-        isPrimary: true,
       },
     });
   });
@@ -114,7 +113,6 @@ export async function ensureAccountForWallet(params: {
   address: string;
   provider?: string;
   clientId: string;
-  email?: string;
   linkToAccountId?: string;
 }): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.chain, params.address);
@@ -154,8 +152,6 @@ export async function ensureAccountForWallet(params: {
         chain: params.chain,
         address,
         clientId: params.clientId,
-        isPrimary: true,
-        email: params.email ?? null,
       },
     });
     return { accountId: params.linkToAccountId, created: false };
@@ -185,8 +181,6 @@ export async function ensureAccountForWallet(params: {
         chain: params.chain,
         address,
         clientId: params.clientId,
-        isPrimary: true,
-        email: params.email ?? null,
       },
     });
 
@@ -203,7 +197,6 @@ export async function ensureAccountForIdentity(
   clientId: string,
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
-  const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
       where: { clientId_scheme_value: { clientId, scheme, value } },
@@ -220,9 +213,8 @@ export async function ensureAccountForIdentity(
         await tx.identity.create({
           data: {
             accountId: account.id,
-                scheme,
+            scheme,
             value,
-            email: isEmail ? value : null,
             clientId,
             verifiedAt: null,
           },
