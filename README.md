@@ -138,7 +138,7 @@ GET  /v1/metadata/resolve?uri=...         Resolve ipfs://, data:, https://
 GET    /v1/portal/me                      Account profile and credit balance
 GET    /v1/portal/keys                    API keys
 POST   /v1/portal/keys                    Create API key (plaintext shown once)
-DELETE /v1/portal/keys/:id                Revoke key
+DELETE /v1/portal/keys/:id                Delete key
 GET    /v1/portal/credits/history         Credit top-ups
 GET    /v1/portal/credits/spend           Credit spend by action
 ```
