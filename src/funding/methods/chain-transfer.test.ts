@@ -19,7 +19,7 @@ const noPrices = async () => null;
 function intent(over: Partial<FundingIntentRecord> = {}, params: Record<string, unknown> = {}): FundingIntentRecord {
   return {
     id: "fi1",
-    apiClientId: "ac1",
+    apiCreditsId: "ac1",
     method: "chain-transfer",
     status: "PENDING",
     payer: PAYER,

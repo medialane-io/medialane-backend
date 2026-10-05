@@ -50,7 +50,7 @@ describe("reading deposits from events", () => {
 
 function deps(over: Partial<DepositDeps> = {}): DepositDeps {
   return {
-    resolveApiClient: async () => ({ id: "client-1", accountId: "acct-1" }),
+    resolveApiCredits: async () => ({ id: "client-1", accountId: "acct-1" }),
     recordUnattributed: async () => {},
     existingPayment: async () => null,
     priceAt: async () => 0.028,
@@ -82,7 +82,7 @@ describe("crediting a deposit", () => {
   test("a deposit already in the ledger is not credited twice", async () => {
     let called = false;
     await creditDeposit(deposit, deps({
-      existingPayment: async () => ({ paymentId: "pay-0", apiClientId: "client-1" }),
+      existingPayment: async () => ({ paymentId: "pay-0", apiCreditsId: "client-1" }),
       creditAccount: async () => { called = true; },
     }));
     expect(called).toBe(false);
@@ -91,7 +91,7 @@ describe("crediting a deposit", () => {
   test("a wallet with no api client is left uncredited", async () => {
     let called = false;
     await creditDeposit(deposit, deps({
-      resolveApiClient: async () => null,
+      resolveApiCredits: async () => null,
       creditAccount: async () => { called = true; },
     }));
     expect(called).toBe(false);
@@ -214,18 +214,18 @@ describe("crediting a specific transaction on request", () => {
     const res = await creditFromTransaction(
       "0xabc",
       deps({
-        existingPayment: async () => (calls > 0 ? { paymentId: "pay-7", apiClientId: "client-1" } : null),
+        existingPayment: async () => (calls > 0 ? { paymentId: "pay-7", apiCreditsId: "client-1" } : null),
         creditAccount: async () => { calls += 1; },
       }),
       async () => ({ events: [strkTransfer] }),
     );
-    expect(res.payments).toEqual([{ paymentId: "pay-7", apiClientId: "client-1" }]);
+    expect(res.payments).toEqual([{ paymentId: "pay-7", apiCreditsId: "client-1" }]);
   });
 
   test("a deposit recorded without an account returns no payment to spend", async () => {
     const res = await creditFromTransaction(
       "0xabc",
-      deps({ existingPayment: async () => ({ paymentId: "pay-8", apiClientId: null }) }),
+      deps({ existingPayment: async () => ({ paymentId: "pay-8", apiCreditsId: null }) }),
       async () => ({ events: [strkTransfer] }),
     );
     expect(res.payments).toEqual([]);
@@ -234,7 +234,7 @@ describe("crediting a specific transaction on request", () => {
   test("asking twice credits once", async () => {
     let calls = 0;
     const shared = deps({
-      existingPayment: async () => (calls > 0 ? { paymentId: "pay-1", apiClientId: "client-1" } : null),
+      existingPayment: async () => (calls > 0 ? { paymentId: "pay-1", apiCreditsId: "client-1" } : null),
       creditAccount: async () => { calls += 1; },
     });
     await creditFromTransaction("0xabc", shared, async () => ({ events: [strkTransfer] }));
@@ -268,7 +268,7 @@ describe("a transfer we cannot attribute", () => {
   test("is recorded rather than only logged", async () => {
     let recorded: { payer?: string; txHash?: string } = {};
     await creditDeposit(deposit, deps({
-      resolveApiClient: async () => null,
+      resolveApiCredits: async () => null,
       recordUnattributed: async (i) => { recorded = i; },
     }));
     expect(recorded.txHash).toBe("0xabc");
@@ -278,7 +278,7 @@ describe("a transfer we cannot attribute", () => {
   test("is not credited to anyone", async () => {
     let credited = false;
     await creditDeposit(deposit, deps({
-      resolveApiClient: async () => null,
+      resolveApiCredits: async () => null,
       recordUnattributed: async () => {},
       creditAccount: async () => { credited = true; },
     }));
@@ -308,12 +308,12 @@ describe("two deposits in one transaction", () => {
 
   test("both are credited rather than the second being taken for the first", async () => {
     const credited: string[] = [];
-    const paid = new Map<string, { paymentId: string; apiClientId: string | null }>();
+    const paid = new Map<string, { paymentId: string; apiCreditsId: string | null }>();
     const d = deps({
       existingPayment: async (nonce) => paid.get(nonce) ?? null,
       creditAccount: async (input) => {
         credited.push(input.proofNonce);
-        paid.set(input.proofNonce, { paymentId: input.proofNonce, apiClientId: input.apiClientId });
+        paid.set(input.proofNonce, { paymentId: input.proofNonce, apiCreditsId: input.apiCreditsId });
       },
     });
 
@@ -328,10 +328,10 @@ describe("two deposits in one transaction", () => {
 
 describe("a deposit that arrived before its payer had an account", () => {
   test("is credited the next time it is seen", async () => {
-    const unattributed = { paymentId: "pay-1", apiClientId: null as string | null };
+    const unattributed = { paymentId: "pay-1", apiCreditsId: null as string | null };
     const settled: string[] = [];
     const d = deps({
-      existingPayment: async () => (settled.length === 0 ? unattributed : { paymentId: "pay-1", apiClientId: "client-1" }),
+      existingPayment: async () => (settled.length === 0 ? unattributed : { paymentId: "pay-1", apiCreditsId: "client-1" }),
       settleUnattributed: async (input) => {
         settled.push(input.proofNonce);
         return true;
@@ -344,20 +344,20 @@ describe("a deposit that arrived before its payer had an account", () => {
     const result = await creditDeposit(deposit, d);
 
     expect(settled).toEqual([deposit.txHash]);
-    expect(result).toEqual({ paymentId: "pay-1", apiClientId: "client-1" });
+    expect(result).toEqual({ paymentId: "pay-1", apiCreditsId: "client-1" });
   });
 
   test("an already settled deposit is never credited twice", async () => {
     const settled: string[] = [];
     const d = deps({
-      existingPayment: async () => ({ paymentId: "pay-1", apiClientId: "client-1" }),
+      existingPayment: async () => ({ paymentId: "pay-1", apiCreditsId: "client-1" }),
       settleUnattributed: async (input) => {
         settled.push(input.proofNonce);
         return true;
       },
     });
 
-    expect(await creditDeposit(deposit, d)).toEqual({ paymentId: "pay-1", apiClientId: "client-1" });
+    expect(await creditDeposit(deposit, d)).toEqual({ paymentId: "pay-1", apiCreditsId: "client-1" });
     expect(settled).toEqual([]);
   });
 });
@@ -366,10 +366,10 @@ describe("a deposit that matches an open intent", () => {
   test("is settled to the intent's account and the payer-based path never runs", async () => {
     let resolved = false;
     const result = await creditDeposit(deposit, deps({
-      settleForIntent: async () => ({ paymentId: "pay-i", apiClientId: "client-intent" }),
-      resolveApiClient: async () => { resolved = true; return { id: "client-1", accountId: "acct-1" }; },
+      settleForIntent: async () => ({ paymentId: "pay-i", apiCreditsId: "client-intent" }),
+      resolveApiCredits: async () => { resolved = true; return { id: "client-1", accountId: "acct-1" }; },
     }));
-    expect(result).toEqual({ paymentId: "pay-i", apiClientId: "client-intent" });
+    expect(result).toEqual({ paymentId: "pay-i", apiCreditsId: "client-intent" });
     expect(resolved).toBe(false);
   });
 

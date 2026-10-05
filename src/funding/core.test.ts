@@ -11,7 +11,7 @@ import type { FundingIntentRecord, FundingStore, SettleInput, SettleOutcome, Ver
 function intent(over: Partial<FundingIntentRecord> = {}): FundingIntentRecord {
   return {
     id: "fi1",
-    apiClientId: "ac1",
+    apiCreditsId: "ac1",
     method: "chain-transfer",
     status: "PENDING",
     payer: "0xabc",
@@ -25,7 +25,7 @@ function store(over: Partial<FundingStore> = {}): FundingStore & { settled: Sett
   const settled: SettleInput[] = [];
   return {
     settled,
-    create: async (i) => intent({ apiClientId: i.apiClientId, method: i.method, params: i.params, expiresAt: i.expiresAt, payer: null }),
+    create: async (i) => intent({ apiCreditsId: i.apiCreditsId, method: i.method, params: i.params, expiresAt: i.expiresAt, payer: null }),
     get: async () => null,
     setPayer: async () => true,
     openForPayer: async () => [],
@@ -65,13 +65,13 @@ describe("credits for a payment", () => {
 describe("creating an intent", () => {
   test("it expires in 24 hours", async () => {
     const now = new Date("2026-09-29T00:00:00Z");
-    const made = await createIntent(store(), { apiClientId: "ac1", method: "chain-transfer", params: {} }, now);
+    const made = await createIntent(store(), { apiCreditsId: "ac1", method: "chain-transfer", params: {} }, now);
     expect(made.expiresAt.getTime()).toBe(now.getTime() + INTENT_TTL_MS);
   });
 
   test("an account can open another top-up however many it has open", async () => {
     const s = store();
-    await expect(createIntent(s, { apiClientId: "ac1", method: "chain-transfer", params: {} })).resolves.toBeDefined();
+    await expect(createIntent(s, { apiCreditsId: "ac1", method: "chain-transfer", params: {} })).resolves.toBeDefined();
   });
 });
 
@@ -81,7 +81,7 @@ describe("settling an intent", () => {
     const result = await settleIntent({ store: s, mdlnMultiplier: async () => 1 }, intent(), payment());
     expect(result).toEqual({ ok: true, credited: 100, paymentId: "pay1" });
     expect(s.settled[0]!.credited).toBe(100);
-    expect(s.settled[0]!.intent.apiClientId).toBe("ac1");
+    expect(s.settled[0]!.intent.apiCreditsId).toBe("ac1");
   });
 
   test("the payer's MDLN holding raises the credits", async () => {

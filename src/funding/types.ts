@@ -2,7 +2,7 @@ export type FundingStatus = "PENDING" | "SETTLED" | "FAILED" | "EXPIRED";
 
 export interface FundingIntentRecord {
   id: string;
-  apiClientId: string;
+  apiCreditsId: string;
   method: string;
   status: FundingStatus;
   payer: string | null;
@@ -34,15 +34,15 @@ export type SettleOutcome =
 
 export interface FundingStore {
   create(input: {
-    apiClientId: string;
+    apiCreditsId: string;
     method: string;
     params: Record<string, unknown>;
     expiresAt: Date;
   }): Promise<FundingIntentRecord>;
-  get(id: string, apiClientId: string): Promise<FundingIntentRecord | null>;
-  setPayer(id: string, apiClientId: string, payer: string, now: Date): Promise<boolean>;
+  get(id: string, apiCreditsId: string): Promise<FundingIntentRecord | null>;
+  setPayer(id: string, apiCreditsId: string, payer: string, now: Date): Promise<boolean>;
   openForPayer(payer: string, now: Date): Promise<FundingIntentRecord[]>;
-  cancel(id: string, apiClientId: string): Promise<boolean>;
+  cancel(id: string, apiCreditsId: string): Promise<boolean>;
   settle(input: SettleInput): Promise<SettleOutcome>;
 }
 

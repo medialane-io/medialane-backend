@@ -42,7 +42,7 @@ export interface ExecutionDeps {
   registry(): string;
 }
 
-export type IntentPayment = (intentId: string, apiClientId: string) => Promise<string | null>;
+export type IntentPayment = (intentId: string, apiCreditsId: string) => Promise<string | null>;
 
 export interface RunRouteDeps {
   store: RunStore;
@@ -95,9 +95,9 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
     priceOf: deps.priceOf ?? ((action) => creditsForAction(action)),
     intentPayment:
       deps.intentPayment ??
-      (async (intentId, apiClientId) => {
+      (async (intentId, apiCreditsId) => {
         const payment = await prisma.payment.findFirst({
-          where: { fundingIntentId: intentId, apiClientId, status: "SETTLED" },
+          where: { fundingIntentId: intentId, apiCreditsId, status: "SETTLED" },
           select: { id: true },
         });
         return payment?.id ?? null;

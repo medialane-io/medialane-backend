@@ -4,7 +4,7 @@ import { IO_APP } from "../apps/registry.js";
 import { clientIdForApp } from "../apps/resolve.js";
 
 export function callerClientId(c: Context<AppEnv>): string | null {
-  return c.get("apiKey")?.apiClient?.id ?? null;
+  return c.get("apiKey")?.apiCredits?.id ?? null;
 }
 
 export async function ioClientId(): Promise<string> {

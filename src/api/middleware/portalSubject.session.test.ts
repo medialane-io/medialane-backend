@@ -7,7 +7,7 @@ function accountRow(sessionsValidFrom: Date | null) {
     id: "a1",
     status: "ACTIVE",
     sessionsValidFrom,
-    apiClient: { id: "ac1", accountId: "a1", plan: "FREE", creditBalance: 0 },
+    apiCredits: { id: "ac1", accountId: "a1", plan: "FREE", creditBalance: 0 },
   };
 }
 

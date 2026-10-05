@@ -30,19 +30,19 @@ interface DepositReceipt {
 
 export interface CreditedPayment {
   paymentId: string;
-  apiClientId: string;
+  apiCreditsId: string;
 }
 
 export interface ExistingPayment {
   paymentId: string;
-  apiClientId: string | null;
+  apiCreditsId: string | null;
 }
 
 const asCredited = (payment: ExistingPayment | null): CreditedPayment | null =>
-  payment?.apiClientId ? { paymentId: payment.paymentId, apiClientId: payment.apiClientId } : null;
+  payment?.apiCreditsId ? { paymentId: payment.paymentId, apiCreditsId: payment.apiCreditsId } : null;
 
 export interface DepositDeps {
-  resolveApiClient: (payer: string) => Promise<{ id: string; accountId: string } | null>;
+  resolveApiCredits: (payer: string) => Promise<{ id: string; accountId: string } | null>;
   recordUnattributed: (input: {
     payer: string;
     asset: string;
@@ -62,7 +62,7 @@ export interface DepositDeps {
 export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): Promise<CreditedPayment | null> {
   const nonce = depositNonce(deposit.txHash, deposit.depositIndex);
   const existing = await deps.existingPayment(nonce);
-  if (existing?.apiClientId) return asCredited(existing);
+  if (existing?.apiCreditsId) return asCredited(existing);
 
   const token = tokenByAddress(deposit.token);
   if (!token) return null;
@@ -70,8 +70,8 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   const viaIntent = await deps.settleForIntent(deposit, nonce);
   if (viaIntent) return viaIntent;
 
-  const apiClient = await deps.resolveApiClient(deposit.payer);
-  if (!apiClient) {
+  const apiCredits = await deps.resolveApiCredits(deposit.payer);
+  if (!apiCredits) {
     await deps.recordUnattributed({
       payer: deposit.payer,
       asset: deposit.token,
@@ -106,8 +106,8 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
 
   const credit = {
     payer: deposit.payer,
-    apiClientId: apiClient.id,
-    accountId: apiClient.accountId,
+    apiCreditsId: apiCredits.id,
+    accountId: apiCredits.accountId,
     amountAtomic: valued,
     creditedAmount,
     mdlnMultiplier: multiplier,
@@ -122,7 +122,7 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
     const settled = await deps.settleUnattributed(credit);
     if (settled) {
       log.info(
-        { txHash: deposit.txHash, apiClient: apiClient.id, creditedAmount, symbol: token.symbol },
+        { txHash: deposit.txHash, apiCredits: apiCredits.id, creditedAmount, symbol: token.symbol },
         "Treasury deposit credited once its payer had an account",
       );
     }
@@ -132,7 +132,7 @@ export async function creditDeposit(deposit: DepositEvent, deps: DepositDeps): P
   try {
     await deps.creditAccount(credit);
     log.info(
-      { txHash: deposit.txHash, apiClient: apiClient.id, creditedAmount, symbol: token.symbol },
+      { txHash: deposit.txHash, apiCredits: apiCredits.id, creditedAmount, symbol: token.symbol },
       "Treasury deposit credited",
     );
   } catch (err) {
@@ -146,14 +146,14 @@ export function payingAccount(accountIds: string[]): string | null {
 }
 
 const productionDeps: DepositDeps = {
-  resolveApiClient: async (payer) => {
+  resolveApiCredits: async (payer) => {
     const accountId = payingAccount(await accountIdsHoldingWallet("STARKNET", payer));
     if (!accountId) return null;
-    const apiClient = await prisma.apiClient.findUnique({
+    const apiCredits = await prisma.apiCredits.findUnique({
       where: { accountId },
       select: { id: true, accountId: true },
     });
-    return apiClient ?? null;
+    return apiCredits ?? null;
   },
   recordUnattributed: async (input) => {
     await prisma.payment
@@ -175,9 +175,9 @@ const productionDeps: DepositDeps = {
   existingPayment: async (nonce) => {
     const payment = await prisma.payment.findUnique({
       where: { proofNonce: nonce },
-      select: { id: true, apiClientId: true },
+      select: { id: true, apiCreditsId: true },
     });
-    return payment ? { paymentId: payment.id, apiClientId: payment.apiClientId } : null;
+    return payment ? { paymentId: payment.id, apiCreditsId: payment.apiCreditsId } : null;
   },
   priceAt: defaultPriceAt,
   blockTimestamp: defaultBlockTimestamp,

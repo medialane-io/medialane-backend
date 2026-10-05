@@ -9,13 +9,13 @@ const PLAN_RANK: Record<Plan, number> = {
 
 export function requirePlan(minPlan: Plan): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const apiClient = c.get("apiClient");
+    const apiCredits = c.get("apiCredits");
 
-    if (!apiClient) {
+    if (!apiCredits) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    if ((PLAN_RANK[apiClient.plan] ?? 0) < PLAN_RANK[minPlan]) {
+    if ((PLAN_RANK[apiCredits.plan] ?? 0) < PLAN_RANK[minPlan]) {
       return c.json(
         { error: "Upgrade required", requiredPlan: minPlan },
         403

@@ -23,11 +23,11 @@ function fakeMethod(over: Partial<FundingMethod> = {}): FundingMethod {
 function makeStore(intents: FundingIntentRecord[] = [], over: Partial<FundingStore> = {}): FundingStore {
   return {
     create: async (i) => {
-      const made: FundingIntentRecord = { id: "fi1", apiClientId: i.apiClientId, method: i.method, status: "PENDING", payer: null, params: i.params, expiresAt: i.expiresAt };
+      const made: FundingIntentRecord = { id: "fi1", apiCreditsId: i.apiCreditsId, method: i.method, status: "PENDING", payer: null, params: i.params, expiresAt: i.expiresAt };
       intents.push(made);
       return made;
     },
-    get: async (id, apiClientId) => intents.find((i) => i.id === id && i.apiClientId === apiClientId) ?? null,
+    get: async (id, apiCreditsId) => intents.find((i) => i.id === id && i.apiCreditsId === apiCreditsId) ?? null,
     setPayer: async (id, _c, payer) => {
       const found = intents.find((i) => i.id === id);
       if (!found || found.payer) return false;
@@ -41,11 +41,11 @@ function makeStore(intents: FundingIntentRecord[] = [], over: Partial<FundingSto
   };
 }
 
-function app(store: FundingStore, methods: FundingMethod[] = [fakeMethod()], apiClientId = "ac1") {
+function app(store: FundingStore, methods: FundingMethod[] = [fakeMethod()], apiCreditsId = "ac1") {
   const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "a1", status: "ACTIVE" });
-    c.set("apiClient", { id: apiClientId, accountId: "a1", plan: "FREE", creditBalance: 0 });
+    c.set("apiCredits", { id: apiCreditsId, accountId: "a1", plan: "FREE", creditBalance: 0 });
     await next();
   });
   a.route("/", createFundingRoutes({ store, methods, mdlnMultiplier: async () => 1 }));
@@ -68,7 +68,7 @@ describe("starting a top-up", () => {
     const intents: FundingIntentRecord[] = [];
     const res = await post(app(makeStore(intents)), "/", { method: "chain-transfer", params: { amountUsdc: "5" } });
     expect(res.status).toBe(201);
-    expect(intents[0]!.apiClientId).toBe("ac1");
+    expect(intents[0]!.apiCreditsId).toBe("ac1");
   });
 
   test("an unknown or unavailable method is a 404", async () => {
@@ -90,14 +90,14 @@ describe("starting a top-up", () => {
 
   test("the caller cannot name the account or an amount to credit", async () => {
     const intents: FundingIntentRecord[] = [];
-    await post(app(makeStore(intents)), "/", { method: "chain-transfer", params: { amountUsdc: "5" }, apiClientId: "victim", credits: 9999 });
-    expect(intents[0]!.apiClientId).toBe("ac1");
+    await post(app(makeStore(intents)), "/", { method: "chain-transfer", params: { amountUsdc: "5" }, apiCreditsId: "victim", credits: 9999 });
+    expect(intents[0]!.apiCreditsId).toBe("ac1");
   });
 });
 
 describe("authorizing and paying", () => {
   const open = (over: Partial<FundingIntentRecord> = {}): FundingIntentRecord => ({
-    id: "fi1", apiClientId: "ac1", method: "chain-transfer", status: "PENDING", payer: null, params: { amountAtomic: "1000000" }, expiresAt: new Date(Date.now() + 60_000), ...over,
+    id: "fi1", apiCreditsId: "ac1", method: "chain-transfer", status: "PENDING", payer: null, params: { amountAtomic: "1000000" }, expiresAt: new Date(Date.now() + 60_000), ...over,
   });
 
   test("challenge returns what to sign", async () => {
@@ -106,7 +106,7 @@ describe("authorizing and paying", () => {
   });
 
   test("another account's intent looks like it does not exist", async () => {
-    const res = await post(app(makeStore([open({ apiClientId: "other" })])), "/fi1/challenge", { payer: "0xpayer" });
+    const res = await post(app(makeStore([open({ apiCreditsId: "other" })])), "/fi1/challenge", { payer: "0xpayer" });
     expect(res.status).toBe(404);
   });
 
@@ -173,7 +173,7 @@ describe("authorizing and paying", () => {
 
 describe("cancelling a top-up", () => {
   const open = (over: Partial<FundingIntentRecord> = {}): FundingIntentRecord => ({
-    id: "fi1", apiClientId: "ac1", method: "chain-transfer", status: "PENDING", payer: "0xpayer", params: { amountAtomic: "1000000" }, expiresAt: new Date(Date.now() + 60_000), ...over,
+    id: "fi1", apiCreditsId: "ac1", method: "chain-transfer", status: "PENDING", payer: "0xpayer", params: { amountAtomic: "1000000" }, expiresAt: new Date(Date.now() + 60_000), ...over,
   });
 
   test("closes an open top-up so it stops counting and matching", async () => {
@@ -205,7 +205,7 @@ describe("cancelling a top-up", () => {
   });
 
   test("another account's top-up looks like it does not exist", async () => {
-    const res = await post(app(makeStore([open({ apiClientId: "other" })])), "/fi1/cancel", {});
+    const res = await post(app(makeStore([open({ apiCreditsId: "other" })])), "/fi1/cancel", {});
     expect(res.status).toBe(404);
   });
 });

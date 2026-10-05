@@ -4,17 +4,17 @@ import { assertWritable } from "../db/schema-fields.js";
 
 function stubDb(over: Partial<{ count: number }> = {}): {
   db: CreditsDb;
-  calls: { updateMany: number; paymentCreate: number; apiClientUpdate: number; txOps: number };
+  calls: { updateMany: number; paymentCreate: number; apiCreditsUpdate: number; txOps: number };
 } {
-  const calls = { updateMany: 0, paymentCreate: 0, apiClientUpdate: 0, txOps: 0 };
+  const calls = { updateMany: 0, paymentCreate: 0, apiCreditsUpdate: 0, txOps: 0 };
   const db: CreditsDb = {
-    apiClient: {
+    apiCredits: {
       async updateMany() {
         calls.updateMany++;
         return { count: over.count ?? 1 };
       },
       async update() {
-        calls.apiClientUpdate++;
+        calls.apiCreditsUpdate++;
         return {};
       },
     },
@@ -49,7 +49,7 @@ describe("creditAccount", () => {
     const { db, calls } = stubDb();
     await creditAccount(
       {
-        apiClientId: "ac1",
+        apiCreditsId: "ac1",
         accountId: "acc1",
         amountAtomic: 1_000_000n,
         creditedAmount: 1200,
@@ -63,7 +63,7 @@ describe("creditAccount", () => {
       db,
     );
     expect(calls.paymentCreate).toBe(1);
-    expect(calls.apiClientUpdate).toBe(1);
+    expect(calls.apiCreditsUpdate).toBe(1);
     expect(calls.txOps).toBe(2);
   });
 });
@@ -71,13 +71,13 @@ describe("creditAccount", () => {
 test("a credit writes only fields the Payment table has", async () => {
   let written: Record<string, unknown> = {};
   const db = {
-    apiClient: { updateMany: async () => ({ count: 1 }), update: async () => ({}) },
+    apiCredits: { updateMany: async () => ({ count: 1 }), update: async () => ({}) },
     payment: { create: async (args: { data: Record<string, unknown> }) => { written = args.data; return {}; } },
     $transaction: async (ops: unknown[]) => Promise.all(ops),
   } as unknown as CreditsDb;
 
   await creditAccount({
-    apiClientId: "c1",
+    apiCreditsId: "c1",
     accountId: "a1",
     amountAtomic: 1_000_000n,
     creditedAmount: 100,
@@ -90,5 +90,5 @@ test("a credit writes only fields the Payment table has", async () => {
   }, db);
 
   expect(() => assertWritable("Payment", written)).not.toThrow();
-  expect(written.apiClientId).toBe("c1");
+  expect(written.apiCreditsId).toBe("c1");
 });

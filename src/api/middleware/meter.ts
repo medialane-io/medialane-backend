@@ -36,15 +36,15 @@ export function meter(deps: MeterDeps = {
     if (charge === null) return next();
     const cost = charge.unitCredits * charge.units;
 
-    const apiClient = c.get("apiClient");
-    if (!apiClient) return c.json({ error: "Unauthorized" }, 401);
+    const apiCredits = c.get("apiCredits");
+    if (!apiCredits) return c.json({ error: "Unauthorized" }, 401);
 
     const header = c.req.header("x-payment");
     if (header) {
       const payload = decodePaymentHeader(header);
       const scheme = payload && SCHEMES.find((s) => s.scheme === payload.scheme && s.network === payload.network);
       if (payload && scheme) {
-        const settled = await settlePayment(scheme, apiClient, payload);
+        const settled = await settlePayment(scheme, apiCredits, payload);
         if (settled.ok) {
           c.header(
             "X-Payment-Response",
@@ -52,14 +52,14 @@ export function meter(deps: MeterDeps = {
           );
         } else {
           log.warn(
-            { apiClient: apiClient.id, reason: settled.reason, path: c.req.path },
+            { apiCredits: apiCredits.id, reason: settled.reason, path: c.req.path },
             "payment settlement failed — falling through to credit balance",
           );
         }
       }
     }
 
-    const paid = await debitCredits(apiClient.id, cost);
+    const paid = await debitCredits(apiCredits.id, cost);
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
@@ -68,13 +68,13 @@ export function meter(deps: MeterDeps = {
       );
     }
 
-    const remaining = Math.max(0, apiClient.creditBalance - cost);
+    const remaining = Math.max(0, apiCredits.creditBalance - cost);
     c.header("X-Credits-Remaining", String(remaining));
-    log.debug({ apiClient: apiClient.id, cost, path: c.req.path }, "metered");
+    log.debug({ apiCredits: apiCredits.id, cost, path: c.req.path }, "metered");
 
-    const crossed = thresholdCrossed(apiClient.creditBalance, remaining);
+    const crossed = thresholdCrossed(apiCredits.creditBalance, remaining);
     if (crossed !== null) {
-      const line = { apiClient: apiClient.id, remaining, threshold: crossed, path: c.req.path };
+      const line = { apiCredits: apiCredits.id, remaining, threshold: crossed, path: c.req.path };
       if (severityFor(crossed) === "error") {
         log.error(line, "Credit balance critical — requests will start returning 402");
       } else {
@@ -86,15 +86,15 @@ export function meter(deps: MeterDeps = {
       const kept = charge.unitCredits * units;
       const owed = cost - kept;
       if (owed > 0) {
-        await refundCredits(apiClient.id, owed).catch((refundErr) =>
-          log.error({ refundErr, apiClient: apiClient.id, owed, path: c.req.path }, "refund of unused hold failed"),
+        await refundCredits(apiCredits.id, owed).catch((refundErr) =>
+          log.error({ refundErr, apiCredits: apiCredits.id, owed, path: c.req.path }, "refund of unused hold failed"),
         );
       }
       if (kept > 0) {
-        c.header("X-Credits-Remaining", String(Math.max(0, apiClient.creditBalance - kept)));
+        c.header("X-Credits-Remaining", String(Math.max(0, apiCredits.creditBalance - kept)));
       }
       await recordUsage({
-        apiClientId: apiClient.id,
+        apiCreditsId: apiCredits.id,
         actionKey: charge.actionKey,
         chain: charge.chain,
         service: charge.service,
@@ -105,7 +105,7 @@ export function meter(deps: MeterDeps = {
         path: c.req.path,
         status,
       }).catch((usageErr) =>
-        log.error({ usageErr, apiClient: apiClient.id, kept, path: c.req.path }, "usage record failed"),
+        log.error({ usageErr, apiCredits: apiCredits.id, kept, path: c.req.path }, "usage record failed"),
       );
     };
 

@@ -10,7 +10,7 @@ function makeApp(deps: BusinessProvisioningDeps) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: "acc-biz", status: "ACTIVE" });
-    c.set("apiClient", { id: "biz-1", accountId: "acc-biz", plan: "FREE", creditBalance: 0 });
+    c.set("apiCredits", { id: "biz-1", accountId: "acc-biz", plan: "FREE", creditBalance: 0 });
     await next();
   });
   app.route("/v1/business/provisioning", createBusinessProvisioningRoutes(deps));

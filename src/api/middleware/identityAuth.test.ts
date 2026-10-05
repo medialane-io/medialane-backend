@@ -10,7 +10,7 @@ function appWith(
 ) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    if (clientId) c.set("apiKey", { id: "k", status: "ACTIVE", apiClient: { id: clientId } } as never);
+    if (clientId) c.set("apiKey", { id: "k", status: "ACTIVE", apiCredits: { id: clientId } } as never);
     await next();
   });
   app.use("*", createIdentityAuth({ isInactive }));

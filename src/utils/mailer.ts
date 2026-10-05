@@ -19,7 +19,7 @@ export function sanitizeFromName(name: string | null | undefined): string {
 
 export async function fromNameForClient(clientId: string | null): Promise<string> {
   if (!clientId) return DEFAULT_FROM_NAME;
-  const client = await prisma.apiClient.findUnique({
+  const client = await prisma.apiCredits.findUnique({
     where: { id: clientId },
     select: { account: { select: { profile: { select: { name: true } } } } },
   });

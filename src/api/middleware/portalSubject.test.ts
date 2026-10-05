@@ -7,11 +7,11 @@ function appWithSubject() {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: "acct-key", status: "ACTIVE" });
-    c.set("apiClient", { id: "client-key", accountId: "acct-key", plan: "FREE", creditBalance: 10 });
+    c.set("apiCredits", { id: "client-key", accountId: "acct-key", plan: "FREE", creditBalance: 10 });
     return next();
   });
   app.use("*", portalSubject);
-  app.get("/me", (c) => c.json({ apiClient: c.get("apiClient").id }));
+  app.get("/me", (c) => c.json({ apiCredits: c.get("apiCredits").id }));
   return app;
 }
 

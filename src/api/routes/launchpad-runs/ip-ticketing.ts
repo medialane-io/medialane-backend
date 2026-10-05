@@ -64,7 +64,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
   const chain = () => ctx.ticketing();
 
   const record = (active: ActiveRun, path: string[], value: unknown) =>
-    ctx.store.record(active.run.id, active.apiClientId, path, value);
+    ctx.store.record(active.run.id, active.apiCreditsId, path, value);
 
   const collectionOf = (active: ActiveRun) => {
     const address = collectionAddressOf(active.spec, active.progress);
@@ -171,7 +171,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         if (remaining) return c.json({ data: { index, status: "SUCCEEDED", completed: false } });
         const closed = await ctx.store.complete({
           id: active.run.id,
-          apiClientId: active.apiClientId,
+          apiCreditsId: active.apiCreditsId,
           status: "COMPLETED",
           path: c.req.path,
         });
@@ -185,7 +185,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
     load(run: StoredRun) {
       const parsed = parseRunSpec(run.service, run.spec);
       if (parsed.service !== SERVICE) throw new Error("This run does not issue tickets");
-      return { run, apiClientId: run.apiClientId, spec: parsed.spec, progress: readProgress(run.progress) };
+      return { run, apiCreditsId: run.apiCreditsId, spec: parsed.spec, progress: readProgress(run.progress) };
     },
     sponsored,
     files: {
@@ -212,7 +212,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
 
         const credits = await stepCredits(SERVICE, "metadata", 1, ctx.priceOf);
         const path = ["tokenUri"];
-        if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
+        if (!(await ctx.store.reserve({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path }))) {
           return c.json({ error: "The ticket's metadata is already stored" }, 409);
         }
         try {
@@ -220,7 +220,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
           await record(active, path, tokenUri);
           return c.json({ data: { tokenUri } }, 201);
         } catch (err) {
-          await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
+          await ctx.store.release({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path });
           log.warn({ err, run: active.run.id }, "run metadata pin failed");
           return c.json({ error: "Could not store the ticket's metadata. Try again." }, 502);
         }
@@ -251,7 +251,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
 
         const credits = await stepCredits(SERVICE, "wallet", 1, ctx.priceOf);
         const path = ["wallets", recipient];
-        if (!(await ctx.store.reserve({ id: active.run.id, apiClientId: active.apiClientId, credits, path }))) {
+        if (!(await ctx.store.reserve({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path }))) {
           return c.json({ error: `${recipient} already has a wallet on the way` }, 409);
         }
 
@@ -263,7 +263,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
           result = null;
         }
         if (!result || result.status === 502) {
-          await ctx.store.release({ id: active.run.id, apiClientId: active.apiClientId, credits, path });
+          await ctx.store.release({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path });
           return c.json({ error: `Could not prepare a wallet for ${recipient}. Try again.` }, 502);
         }
 

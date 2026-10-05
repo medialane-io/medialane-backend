@@ -5,7 +5,7 @@ export type AuthedAccount = {
   status: AccountStatus;
 };
 
-export type AuthedApiClient = {
+export type AuthedApiCredits = {
   id: string;
   accountId: string;
   plan: Plan;
@@ -14,7 +14,7 @@ export type AuthedApiClient = {
 export type AuthedApiKey = {
   id: string;
   status: ApiKeyStatus;
-  apiClient: AuthedApiClient & { account: AuthedAccount };
+  apiCredits: AuthedApiCredits & { account: AuthedAccount };
 };
 
 export type AppVariables = {
@@ -22,7 +22,7 @@ export type AppVariables = {
 
   account: AuthedAccount;
 
-  apiClient: AuthedApiClient;
+  apiCredits: AuthedApiCredits;
   apiKey: AuthedApiKey;
   walletAddress?: string;
 

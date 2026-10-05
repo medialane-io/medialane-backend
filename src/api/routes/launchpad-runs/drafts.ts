@@ -26,14 +26,21 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     if (paths.length === 0) return run;
     const released = await ctx.store.sweepStale({
       id: run.id,
-      apiClientId: run.apiClientId,
+      apiCreditsId: run.apiCreditsId,
       paths,
       olderThanMs: STALE_PENDING_MS,
     });
-    return released > 0 ? ((await ctx.store.get(run.id, run.apiClientId)) ?? run) : run;
+    return released > 0 ? ((await ctx.store.get(run.id, run.apiCreditsId)) ?? run) : run;
   };
 
-  const present = async (run: StoredRun) => {
+  const withoutCreditsId = <T extends { apiCreditsId: string }>(run: T): Omit<T, "apiCreditsId"> => {
+    const { apiCreditsId: _internal, ...rest } = run;
+    return rest;
+  };
+
+  const present = async (run: StoredRun) => withoutCreditsId(await presentWithQuote(run));
+
+  const presentWithQuote = async (run: StoredRun) => {
     if (run.status === "DRAFT") {
       try {
         return { ...run, quote: await quoteFor(run) };
@@ -59,7 +66,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
       return c.json(specError(err), 400);
     }
     const run = await ctx.store.create({
-      apiClientId: c.get("apiClient").id,
+      apiCreditsId: c.get("apiCredits").id,
       service: body.data.service,
       spec: body.data.spec,
     });
@@ -67,21 +74,21 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
   });
 
   app.get("/", async (c) => {
-    return c.json({ data: await ctx.store.list(c.get("apiClient").id) });
+    return c.json({ data: (await ctx.store.list(c.get("apiCredits").id)).map(withoutCreditsId) });
   });
 
   app.get("/:id", async (c) => {
-    const found = await ctx.store.get(c.req.param("id"), c.get("apiClient").id);
+    const found = await ctx.store.get(c.req.param("id"), c.get("apiCredits").id);
     if (!found) return c.json({ error: "Run not found" }, 404);
     return c.json({ data: await present(await sweepAbandoned(found)) });
   });
 
   app.patch("/:id", async (c) => {
-    const apiClientId = c.get("apiClient").id;
+    const apiCreditsId = c.get("apiCredits").id;
     const body = updateBody.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "spec is required" }, 400);
 
-    const existing = await ctx.store.get(c.req.param("id"), apiClientId);
+    const existing = await ctx.store.get(c.req.param("id"), apiCreditsId);
     if (!existing) return c.json({ error: "Run not found" }, 404);
     if (existing.status !== "DRAFT") return c.json({ error: "A run can only change while it is a draft" }, 409);
 
@@ -90,21 +97,21 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     } catch (err) {
       return c.json(specError(err), 400);
     }
-    const run = await ctx.store.updateDraft(existing.id, apiClientId, body.data.spec);
+    const run = await ctx.store.updateDraft(existing.id, apiCreditsId, body.data.spec);
     if (!run) return c.json({ error: "A run can only change while it is a draft" }, 409);
     return c.json({ data: await present(run) });
   });
 
   app.post("/:id/cancel", async (c) => {
-    const apiClientId = c.get("apiClient").id;
-    const found = await ctx.store.get(c.req.param("id"), apiClientId);
+    const apiCreditsId = c.get("apiCredits").id;
+    const found = await ctx.store.get(c.req.param("id"), apiCreditsId);
     if (!found) return c.json({ error: "Run not found" }, 404);
     const existing = await sweepAbandoned(found);
 
     if (existing.status === "DRAFT") {
-      const run = await ctx.store.cancelDraft(existing.id, apiClientId);
+      const run = await ctx.store.cancelDraft(existing.id, apiCreditsId);
       if (!run) return c.json({ error: "This run has already moved on" }, 409);
-      return c.json({ data: run });
+      return c.json({ data: withoutCreditsId(run) });
     }
 
     if (existing.status !== "PAID" && existing.status !== "RUNNING") {
@@ -114,17 +121,17 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
       return c.json({ error: "A batch is still being confirmed. Try again once it lands." }, 409);
     }
 
-    const closed = await ctx.store.complete({ id: existing.id, apiClientId, status: "CANCELLED", path: c.req.path });
+    const closed = await ctx.store.complete({ id: existing.id, apiCreditsId, status: "CANCELLED", path: c.req.path });
     if (!closed) return c.json({ error: "This run is already closed" }, 409);
-    return c.json({ data: { ...(await ctx.store.get(existing.id, apiClientId)), refunded: closed.refunded } });
+    return c.json({ data: { ...(await ctx.store.get(existing.id, apiCreditsId)), refunded: closed.refunded } });
   });
 
   app.post("/:id/checkout", async (c) => {
-    const apiClientId = c.get("apiClient").id;
+    const apiCreditsId = c.get("apiCredits").id;
     const body = checkoutBody.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "Choose to pay with credits or from your wallet" }, 400);
 
-    const existing = await ctx.store.get(c.req.param("id"), apiClientId);
+    const existing = await ctx.store.get(c.req.param("id"), apiCreditsId);
     if (!existing) return c.json({ error: "Run not found" }, 404);
     if (existing.status !== "DRAFT") return c.json({ error: "This run is already paid" }, 409);
 
@@ -137,7 +144,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
     let paymentId: string | undefined;
     if (body.data.method === "wallet") {
-      paymentId = (await ctx.intentPayment(body.data.intentId, apiClientId)) ?? undefined;
+      paymentId = (await ctx.intentPayment(body.data.intentId, apiCreditsId)) ?? undefined;
       if (!paymentId) {
         return c.json({ error: "That payment has not reached your account yet. Try again in a moment." }, 402);
       }
@@ -145,7 +152,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
     const outcome = await ctx.store.checkout({
       id: existing.id,
-      apiClientId,
+      apiCreditsId,
       service: existing.service,
       quote,
       paymentId,
@@ -155,14 +162,14 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
     if (outcome === "not-draft") return c.json({ error: "This run is already paid" }, 409);
     if (outcome === "insufficient") {
-      const balance = await ctx.store.balance(apiClientId);
+      const balance = await ctx.store.balance(apiCreditsId);
       return c.json(
         { error: "Not enough credits for this run", data: { total: quote.total, balance, shortfall: quote.total - balance } },
         402,
       );
     }
 
-    const run = await ctx.store.get(existing.id, apiClientId);
+    const run = await ctx.store.get(existing.id, apiCreditsId);
     return c.json({ data: run ? await present(run) : null });
   });
 

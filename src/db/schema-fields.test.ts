@@ -3,7 +3,7 @@ import { fieldsOf, unknownFields, assertWritable } from "./schema-fields.js";
 
 test("a model's fields come from the schema itself", () => {
   const fields = fieldsOf("Payment");
-  expect(fields.has("apiClientId")).toBe(true);
+  expect(fields.has("apiCreditsId")).toBe(true);
   expect(fields.has("proofNonce")).toBe(true);
 });
 
@@ -12,7 +12,7 @@ test("the field that broke crediting is absent, as the schema says", () => {
 });
 
 test("a write of real fields reports nothing", () => {
-  expect(unknownFields("Payment", { apiClientId: "c1", txHash: "0x1" })).toEqual([]);
+  expect(unknownFields("Payment", { apiCreditsId: "c1", txHash: "0x1" })).toEqual([]);
 });
 
 test("a write of an absent field is reported", () => {
@@ -20,7 +20,7 @@ test("a write of an absent field is reported", () => {
 });
 
 test("asserting a good write passes", () => {
-  expect(() => assertWritable("Payment", { apiClientId: "c1" })).not.toThrow();
+  expect(() => assertWritable("Payment", { apiCreditsId: "c1" })).not.toThrow();
 });
 
 test("asserting a bad write names the field", () => {

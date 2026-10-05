@@ -25,7 +25,7 @@ function setup(accountHasWallet: boolean) {
         findUnique: mock(async () => null),
         create,
       },
-      apiClient: { upsert: mock(async () => ({})) },
+      apiCredits: { upsert: mock(async () => ({})) },
       app: { findUnique: mock(async () => null) },
       $transaction: transaction,
     },

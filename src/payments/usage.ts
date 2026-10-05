@@ -10,7 +10,7 @@ export interface UsageDb {
 }
 
 export interface UsageRecord {
-  apiClientId: string;
+  apiCreditsId: string;
   actionKey: string;
   chain: string;
   service: string;

@@ -10,12 +10,12 @@ async function ensure(options: { own: boolean; stray?: boolean }) {
       account: { create: async () => ({ id: "acct-new" }) },
       identity: { create: async () => ({}) },
       accountProfile: { create: async () => ({}) },
-      apiClient: { create: async () => ({}) },
+      apiCredits: { create: async () => ({}) },
     }),
   );
   const upsert = mock(() => Promise.resolve({}));
   mock.module("../db/client.js", () => ({
-    default: { identity: { findFirst, findUnique, update: mock(() => Promise.resolve({})) }, apiClient: { upsert }, app: { findUnique: mock(() => Promise.resolve(null)) }, $transaction: transaction },
+    default: { identity: { findFirst, findUnique, update: mock(() => Promise.resolve({})) }, apiCredits: { upsert }, app: { findUnique: mock(() => Promise.resolve(null)) }, $transaction: transaction },
   }));
   const { ensureAccountForWallet } = await import("./account.js");
   const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, clientId: "client-key" });

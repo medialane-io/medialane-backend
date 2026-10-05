@@ -23,7 +23,7 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
           id: "a1",
           status: "ACTIVE",
           sessionsValidFrom: null,
-          apiClient: { id: "ac1", accountId: "a1", plan: "PREMIUM", creditBalance: 0 },
+          apiCredits: { id: "ac1", accountId: "a1", plan: "PREMIUM", creditBalance: 0 },
         })),
       },
       apiKey: { findFirst, delete: del, findMany: mock(async () => []) },
@@ -44,7 +44,7 @@ describe("an account has one API key", () => {
     const res = await app.request("/keys", { method: "POST", headers, body: JSON.stringify({}) });
     expect(res.status).toBe(201);
     expect(order).toEqual(["deleteMany", "create"]);
-    expect(deleteMany).toHaveBeenCalledWith({ where: { apiClientId: "ac1" } });
+    expect(deleteMany).toHaveBeenCalledWith({ where: { apiCreditsId: "ac1" } });
     expect(create).toHaveBeenCalledTimes(1);
     const body = (await res.json()) as { data: { id: string; prefix: string; plaintext: string } };
     expect(body.data.id).toBe("k-new");

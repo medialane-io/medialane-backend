@@ -4,8 +4,8 @@ import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
 import { appNameForClient } from "../apps/resolve.js";
 import type { Chain } from "@prisma/client";
 
-export async function ensureApiClient(accountId: string) {
-  return prisma.apiClient.upsert({
+export async function ensureApiCredits(accountId: string) {
+  return prisma.apiCredits.upsert({
     where: { accountId },
     create: { accountId },
     update: {},
@@ -125,7 +125,7 @@ export async function ensureAccountForWallet(params: {
 
   if (!params.linkToAccountId) {
     const own = await prisma.identity.findFirst({
-      where: { chain: params.chain, address, scheme: IDENTITY_SCHEME.WALLET, account: { apiClient: { id: params.clientId } } },
+      where: { chain: params.chain, address, scheme: IDENTITY_SCHEME.WALLET, account: { apiCredits: { id: params.clientId } } },
       select: { accountId: true },
     });
     if (own) return { accountId: own.accountId, created: false };
