@@ -7,7 +7,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
-import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
+import { ensureAccountForWallet, ensureApiClient, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { generateApiKey } from "../../utils/apiKey.js";
 import { callerClientId } from "../../utils/caller.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -127,17 +127,10 @@ siws.post(
       address: wallet,
       clientId,
     });
-    const apiClient = await prisma.apiClient.upsert({
-      where: { accountId },
-      create: { accountId },
-      update: {},
-      select: { id: true },
-    });
 
     return c.json({
       token,
       accountId,
-      apiClientId: apiClient.id,
       accountToken: issueAccountSessionToken(accountId),
     });
   }
@@ -153,8 +146,7 @@ siws.post("/keys", identityAuth, async (c) => {
   const accountId = await resolveAccountIdFromWallet(clientId, chain, wallet);
   if (!accountId) return c.json({ error: "Account not found — sign in first" }, 404);
 
-  const apiClient = await prisma.apiClient.findUnique({ where: { accountId }, select: { id: true } });
-  if (!apiClient) return c.json({ error: "ApiClient not found — sign in first" }, 404);
+  const apiClient = await ensureApiClient(accountId);
 
   await prisma.apiKey.updateMany({
     where: { apiClientId: apiClient.id, label: "portal-session", status: "ACTIVE" },

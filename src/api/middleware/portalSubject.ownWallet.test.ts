@@ -40,6 +40,9 @@ async function signIn(options: { ownWallet: boolean; stray?: boolean }) {
       ensured = true;
       return (ensure as unknown as (...a: unknown[]) => Promise<unknown>)(...args);
     },
+    ensureApiClient: async () => {
+      throw new Error("not expected: every account in this test already has an ApiClient");
+    },
   }));
   const { portalSubject } = await import("./portalSubject.js");
   const { issueToken } = await import("../../utils/siwsToken.js");
