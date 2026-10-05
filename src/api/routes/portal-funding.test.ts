@@ -45,7 +45,7 @@ function app(store: FundingStore, methods: FundingMethod[] = [fakeMethod()], api
   const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "a1", status: "ACTIVE" });
-    c.set("apiCredits", { id: apiCreditsId, accountId: "a1", plan: "FREE", creditBalance: 0 });
+    c.set("apiCredits", { id: apiCreditsId, accountId: "a1", creditBalance: 0 });
     await next();
   });
   a.route("/", createFundingRoutes({ store, methods, mdlnMultiplier: async () => 1 }));

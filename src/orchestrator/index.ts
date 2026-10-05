@@ -1,7 +1,6 @@
 import { startReaper } from "./reaper.js";
 import { startUnverifiedAccountsLoop } from "./unverifiedAccounts.js";
 import { startAccountNoticesLoop } from "./accountNotices.js";
-import { startWebhookDeliveryLoop } from "./webhook.js";
 import { startMetadataRetryLoop } from "./metadataRetry.js";
 import { startRewardsComputeLoop } from "./rewardsCompute.js";
 import { startWalletActivityRefreshLoop } from "./walletActivityRefresh.js";
@@ -20,7 +19,6 @@ export async function startOrchestrator(): Promise<void> {
   startReaper().catch((err) => log.error({ err }, "Reaper crashed"));
   startUnverifiedAccountsLoop().catch((err) => log.error({ err }, "Unverified accounts loop crashed"));
   startAccountNoticesLoop().catch((err) => log.error({ err }, "Account notices loop crashed"));
-  startWebhookDeliveryLoop().catch((err) => log.error({ err }, "Webhook delivery loop crashed"));
   startMetadataRetryLoop().catch((err) => log.error({ err }, "Metadata retry loop crashed"));
   startRewardsComputeLoop().catch((err) => log.error({ err }, "Rewards compute loop crashed"));
   startWalletActivityRefreshLoop().catch((err) => log.error({ err }, "Wallet-activity refresh loop crashed"));

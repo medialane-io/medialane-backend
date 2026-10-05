@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
-import { requirePlan } from "../middleware/tierGate.js";
 import { portalSubject } from "../middleware/portalSubject.js";
 import { launchpadRuns } from "./launchpad-runs/index.js";
 import { freshSignature } from "../middleware/freshSignature.js";
@@ -37,7 +36,6 @@ portal.get("/me", async (c) => {
     data: {
       id: apiCredits.id,
       accountId: apiCredits.accountId,
-      plan: apiCredits.plan,
       status: account.status,
       creditBalance: apiCredits.creditBalance,
     },
@@ -188,94 +186,6 @@ portal.delete("/keys/:id", freshSignature, async (c) => {
   await prisma.apiKey.delete({ where: { id } });
   log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key removed via portal");
   return c.json({ data: { id } });
-});
-
-portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {
-  const apiCredits = c.get("apiCredits");
-
-  const endpoints = await prisma.webhookEndpoint.findMany({
-    where: { apiCreditsId: apiCredits.id },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      url: true,
-      events: true,
-      status: true,
-      createdAt: true,
-    },
-  });
-
-  return c.json({ data: endpoints });
-});
-
-const createWebhookSchema = z.object({
-  url: z.string().url(),
-  events: z
-    .array(z.enum(["ORDER_CREATED", "ORDER_FULFILLED", "ORDER_CANCELLED", "TRANSFER"]))
-    .min(1),
-  label: z.string().optional(),
-});
-
-portal.post("/webhooks", requirePlan("PREMIUM"), async (c) => {
-  const apiCredits = c.get("apiCredits");
-  const body = await c.req.json().catch(() => null);
-  const parsed = createWebhookSchema.safeParse(body);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-  }
-
-  const { url, events } = parsed.data;
-
-  if (isPrivateOrInsecureUrl(url)) {
-    return c.json({ error: "Webhook URL must be a public https:// address" }, 400);
-  }
-
-  const secret = `whsec_${randomBytes(32).toString("hex")}`;
-
-  const endpoint = await prisma.webhookEndpoint.create({
-    data: {
-      apiCreditsId: apiCredits.id,
-      url,
-      secret,
-      events: events as any,
-    },
-  });
-
-  log.info({ endpointId: endpoint.id, apiCreditsId: apiCredits.id }, "Webhook endpoint created");
-
-  return c.json(
-    {
-      data: {
-        id: endpoint.id,
-        url: endpoint.url,
-        events: endpoint.events,
-        status: endpoint.status,
-
-        secret,
-      },
-    },
-    201
-  );
-});
-
-portal.delete("/webhooks/:id", requirePlan("PREMIUM"), async (c) => {
-  const apiCredits = c.get("apiCredits");
-  const { id } = c.req.param();
-
-  const endpoint = await prisma.webhookEndpoint.findFirst({
-    where: { id, apiCreditsId: apiCredits.id },
-  });
-
-  if (!endpoint) {
-    return c.json({ error: "Webhook endpoint not found" }, 404);
-  }
-
-  await prisma.webhookEndpoint.update({
-    where: { id },
-    data: { status: "DISABLED" },
-  });
-
-  return c.json({ data: { id, status: "DISABLED" } });
 });
 
 export default portal;

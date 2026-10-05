@@ -14,7 +14,7 @@ function makeApp(deps: IssuanceDeps) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: "acc-1", status: "ACTIVE" });
-    c.set("apiCredits", { id: "biz-1", accountId: "acc-1", plan: "FREE", creditBalance: 0 });
+    c.set("apiCredits", { id: "biz-1", accountId: "acc-1", creditBalance: 0 });
     await next();
   });
   app.route("/v1/business/issuance", createIssuanceRoutes(deps));

@@ -8,7 +8,7 @@ export async function ensureApiCredits(accountId: string) {
     where: { accountId },
     create: { accountId },
     update: {},
-    select: { id: true, accountId: true, plan: true, creditBalance: true },
+    select: { id: true, accountId: true, creditBalance: true },
   });
 }
 

@@ -7,7 +7,7 @@ function app() {
   const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "a1", status: "ACTIVE" });
-    c.set("apiCredits", { id: "ac1", accountId: "a1", plan: "PREMIUM", creditBalance: 0 });
+    c.set("apiCredits", { id: "ac1", accountId: "a1", creditBalance: 0 });
     await next();
   });
   a.route("/", portal);

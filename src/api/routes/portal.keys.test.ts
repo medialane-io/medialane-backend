@@ -23,7 +23,7 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
           id: "a1",
           status: "ACTIVE",
           sessionsValidFrom: null,
-          apiCredits: { id: "ac1", accountId: "a1", plan: "PREMIUM", creditBalance: 0 },
+          apiCredits: { id: "ac1", accountId: "a1", creditBalance: 0 },
         })),
       },
       apiKey: { findFirst, delete: del, findMany: mock(async () => []) },

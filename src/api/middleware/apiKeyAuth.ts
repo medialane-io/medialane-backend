@@ -27,7 +27,6 @@ const KEY_SELECT = {
     select: {
       id: true,
       accountId: true,
-      plan: true,
       creditBalance: true,
       account: { select: { id: true, status: true } },
     },

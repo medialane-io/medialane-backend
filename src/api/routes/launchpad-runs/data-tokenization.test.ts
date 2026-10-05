@@ -57,7 +57,7 @@ function world() {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: "acct-ac1", status: "ACTIVE" });
-    c.set("apiCredits", { id: "ac1", accountId: "acct-ac1", plan: "FREE", creditBalance: 0 });
+    c.set("apiCredits", { id: "ac1", accountId: "acct-ac1", creditBalance: 0 });
     await next();
   });
   app.route("/", createRunRoutes({ store, priceOf: async () => 2, execution }));

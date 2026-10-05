@@ -5,7 +5,6 @@ const log = createLogger("orchestrator:reaper");
 
 const REAPER_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-const WEBHOOK_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const EMAIL_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -17,14 +16,6 @@ export function expiredOrderWhere(nowMs: number) {
 }
 
 export async function runReaper(): Promise<void> {
-  const { count: deliveriesDeleted } = await prisma.webhookDelivery.deleteMany({
-    where: {
-      isTerminal: true,
-      createdAt: { lt: new Date(Date.now() - WEBHOOK_DELIVERY_TTL_MS) },
-    },
-  });
-  if (deliveriesDeleted > 0) log.info({ count: deliveriesDeleted }, "Reaper: purged old webhook deliveries");
-
   const { count: intentDeleted } = await prisma.transactionIntent.deleteMany({
     where: {
       status: { in: ["CONFIRMED", "FAILED", "EXPIRED"] },

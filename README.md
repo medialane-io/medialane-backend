@@ -135,14 +135,11 @@ GET  /v1/metadata/resolve?uri=...         Resolve ipfs://, data:, https://
 
 ### Portal (Tenant self-service)
 ```
-GET    /v1/portal/me                      Tenant profile + plan
+GET    /v1/portal/me                      Account profile and credit balance
 GET    /v1/portal/keys                    API keys
 POST   /v1/portal/keys                    Create API key (plaintext shown once)
 DELETE /v1/portal/keys/:id                Revoke key
 GET    /v1/portal/usage                   30-day usage by day
-GET    /v1/portal/webhooks                List webhooks (PREMIUM)
-POST   /v1/portal/webhooks                Create webhook (PREMIUM, secret shown once)
-DELETE /v1/portal/webhooks/:id            Delete webhook (PREMIUM)
 ```
 
 ### Admin
@@ -268,7 +265,7 @@ bun run reset-cursor   # Reset indexer cursor to start block (mirror replays the
 ```
 
 The REST API (`src/index.ts`) and the mirror indexer + background orchestrator loops
-(`src/worker.ts` — reaper, webhook delivery, metadata retry, rewards recompute,
+(`src/worker.ts` — reaper, metadata retry, rewards recompute,
 wallet-activity refresh) are two separate entrypoints from the same codebase. Locally you
 typically only need `bun dev`; the worker only matters if you're touching indexing or the
 background loops.
@@ -330,7 +327,7 @@ whichever service(s) need them to pick them up.
 | [medialane-io](https://github.com/medialane-io/medialane-io) | Consumer app: Media Wallet, email login, sponsored transactions |
 | [medialane-starknet](https://github.com/medialane-io/medialane-starknet) | Wallet-sovereign Starknet app: creator launchpad + marketplace |
 | [medialane-sdk](https://github.com/medialane-io/medialane-sdk) | TypeScript SDK (`@medialane/sdk`), wraps this API |
-| [medialane-portal](https://github.com/medialane-io/medialane-portal) | Developer portal (API keys, docs, webhooks) |
+| [medialane-portal](https://github.com/medialane-io/medialane-portal) | Developer portal (API keys, docs) |
 
 ---
 

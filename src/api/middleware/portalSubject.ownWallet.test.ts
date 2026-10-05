@@ -10,21 +10,21 @@ const keyAccount = {
   id: "acct-key",
   status: "ACTIVE",
   sessionsValidFrom: null,
-  apiCredits: { id: "client-key", accountId: "acct-key", plan: "FREE" as const, creditBalance: 99996 },
+  apiCredits: { id: "client-key", accountId: "acct-key", creditBalance: 99996 },
 };
 
 const createdAccount = {
   id: "acct-new",
   status: "ACTIVE",
   sessionsValidFrom: null,
-  apiCredits: { id: "client-new", accountId: "acct-new", plan: "FREE", creditBalance: 0 },
+  apiCredits: { id: "client-new", accountId: "acct-new", creditBalance: 0 },
 };
 
 const strayAccount = {
   id: "acct-stray",
   status: "ACTIVE",
   sessionsValidFrom: null,
-  apiCredits: { id: "client-stray", accountId: "acct-stray", plan: "FREE", creditBalance: 0 },
+  apiCredits: { id: "client-stray", accountId: "acct-stray", creditBalance: 0 },
 };
 
 async function signIn(options: { ownWallet: boolean; stray?: boolean }) {

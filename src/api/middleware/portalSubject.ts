@@ -11,7 +11,7 @@ const accountSelect = {
   id: true,
   status: true,
   sessionsValidFrom: true,
-  apiCredits: { select: { id: true, accountId: true, plan: true, creditBalance: true } },
+  apiCredits: { select: { id: true, accountId: true, creditBalance: true } },
 } as const;
 
 export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {

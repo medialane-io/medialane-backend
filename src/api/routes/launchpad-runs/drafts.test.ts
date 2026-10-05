@@ -9,7 +9,7 @@ function appFor(store: MemoryRunStore, apiCreditsId = "ac1", intentPayment?: Int
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: `acct-${apiCreditsId}`, status: "ACTIVE" });
-    c.set("apiCredits", { id: apiCreditsId, accountId: `acct-${apiCreditsId}`, plan: "FREE", creditBalance: 0 });
+    c.set("apiCredits", { id: apiCreditsId, accountId: `acct-${apiCreditsId}`, creditBalance: 0 });
     await next();
   });
   app.route("/", createRunRoutes({ store, priceOf: async () => 2, intentPayment }));
