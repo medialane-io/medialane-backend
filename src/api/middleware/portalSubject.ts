@@ -5,7 +5,7 @@ import prisma from "../../db/client.js";
 import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
 import { accountSessionIssuedAt, sessionVerdict, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { ensureAccountForWallet, ensureApiCredits } from "../../utils/account.js";
-import { callerApiCreditsId } from "../../utils/caller.js";
+import { callerApp } from "../../utils/caller.js";
 
 const accountSelect = {
   id: true,
@@ -39,8 +39,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!identity) return c.json({ error: "Invalid or expired token" }, 401);
 
   const address = normalizeAddress(identity.chain, identity.address);
-  const apiCreditsId = callerApiCreditsId(c);
-  if (!apiCreditsId) return c.json({ error: "This API key has no client" }, 400);
+  const appId = callerApp(c);
   const keyAccountId = c.get("apiKey")?.apiCredits?.accountId;
   let wallet = keyAccountId
     ? await prisma.identity.findFirst({
@@ -51,15 +50,15 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   if (!wallet) {
     wallet = await prisma.identity.findUnique({
-      where: { apiCreditsId_chain_address: { apiCreditsId, chain: identity.chain, address } },
+      where: { appId_chain_address: { appId, chain: identity.chain, address } },
       select: { account: { select: accountSelect } },
     });
   }
 
   if (!wallet) {
-    await ensureAccountForWallet({ chain: identity.chain, address, apiCreditsId });
+    await ensureAccountForWallet({ chain: identity.chain, address, appId });
     wallet = await prisma.identity.findUnique({
-      where: { apiCreditsId_chain_address: { apiCreditsId, chain: identity.chain, address } },
+      where: { appId_chain_address: { appId, chain: identity.chain, address } },
       select: { account: { select: accountSelect } },
     });
   }

@@ -4,8 +4,8 @@ export async function verifyAndActivate(
   deps: Pick<AuthEmailDeps, "markEmailVerified" | "activateAccount">,
   accountId: string,
   email: string,
-  apiCreditsId: string,
+  appId: string,
 ): Promise<void> {
-  await deps.markEmailVerified(email, apiCreditsId);
+  await deps.markEmailVerified(email, appId);
   await deps.activateAccount(accountId);
 }

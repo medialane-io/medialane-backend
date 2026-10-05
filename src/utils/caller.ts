@@ -1,12 +1,9 @@
 import type { Context } from "hono";
 import type { AppEnv } from "../types/hono.js";
-import { env } from "../config/env.js";
 
-export function callerApiCreditsId(c: Context<AppEnv>): string | null {
-  return c.get("apiKey")?.apiCredits?.id ?? null;
-}
+export const DEFAULT_APP = "MEDIALANE_API";
+export const IO_APP = "MEDIALANE_IO";
 
-export function ioApiCreditsId(): string {
-  if (!env.IO_CLIENT_ID) throw new Error("IO_CLIENT_ID is not configured");
-  return env.IO_CLIENT_ID;
+export function callerApp(c: Context<AppEnv>): string {
+  return c.get("appId") ?? DEFAULT_APP;
 }

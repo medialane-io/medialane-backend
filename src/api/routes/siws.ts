@@ -8,7 +8,7 @@ import { issueToken } from "../../utils/siwsToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyWalletSignature } from "../../auth/verify.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
-import { callerApiCreditsId } from "../../utils/caller.js";
+import { callerApp } from "../../utils/caller.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
@@ -117,13 +117,12 @@ siws.post(
     if (count === 0) return c.json({ error: "nonce_expired" }, 400);
 
     const token = issueToken(chain, wallet);
-    const apiCreditsId = callerApiCreditsId(c);
-    if (!appSource || !apiCreditsId) return c.json({ token });
+    if (!appSource) return c.json({ token });
 
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      apiCreditsId,
+      appId: callerApp(c),
     });
 
     return c.json({

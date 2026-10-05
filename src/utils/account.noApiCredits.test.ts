@@ -31,7 +31,7 @@ describe("an account created or found for a wallet", () => {
   test("a new account gets no ApiCredits", async () => {
     const { upsert, txApiCreditsCreate } = setup({});
     const { ensureAccountForWallet } = await import("./account.js");
-    const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, apiCreditsId: "c1" });
+    const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, appId: "c1" });
     expect(result.created).toBe(true);
     expect(txApiCreditsCreate).not.toHaveBeenCalled();
     expect(upsert).not.toHaveBeenCalled();
@@ -40,7 +40,7 @@ describe("an account created or found for a wallet", () => {
   test("an existing account is returned without creating an ApiCredits", async () => {
     const { upsert } = setup({ existing: true });
     const { ensureAccountForWallet } = await import("./account.js");
-    const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, apiCreditsId: "c1" });
+    const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, appId: "c1" });
     expect(result).toEqual({ accountId: "acct-1", created: false });
     expect(upsert).not.toHaveBeenCalled();
   });
@@ -48,7 +48,7 @@ describe("an account created or found for a wallet", () => {
   test("an account linked to a session gets no ApiCredits", async () => {
     const { upsert } = setup({});
     const { ensureAccountForWallet } = await import("./account.js");
-    await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, apiCreditsId: "c1", linkToAccountId: "acct-9" });
+    await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, appId: "c1", linkToAccountId: "acct-9" });
     expect(upsert).not.toHaveBeenCalled();
   });
 });

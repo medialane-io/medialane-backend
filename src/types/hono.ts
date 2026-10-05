@@ -21,6 +21,8 @@ export type AppVariables = {
 
   account: AuthedAccount;
 
+  appId: string;
+
   apiCredits: AuthedApiCredits;
   apiKey: AuthedApiKey;
   walletAddress?: string;
