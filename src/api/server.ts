@@ -5,6 +5,7 @@ import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyGate } from "./middleware/apiKeyGate.js";
+import { appSourceCheck } from "./middleware/appSource.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
@@ -70,6 +71,7 @@ export function createApp(): Hono<AppEnv> {
   });
 
   app.use("/v1/*", apiKeyGate);
+  app.use("/v1/*", appSourceCheck);
 
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);
