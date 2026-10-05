@@ -161,16 +161,19 @@ portal.post("/keys", freshSignature, async (c) => {
   }
 
   const generated = generateApiKey();
-  const key = await prisma.apiKey.create({
-    data: {
-      apiClientId: apiClient.id,
-      prefix: generated.prefix,
-      keyHash: generated.keyHash,
-      label: parsed.data.label ?? undefined,
-    },
+  const key = await prisma.$transaction(async (tx) => {
+    await tx.apiKey.deleteMany({ where: { apiClientId: apiClient.id } });
+    return tx.apiKey.create({
+      data: {
+        apiClientId: apiClient.id,
+        prefix: generated.prefix,
+        keyHash: generated.keyHash,
+        label: parsed.data.label ?? undefined,
+      },
+    });
   });
 
-  log.info({ keyId: key.id, apiClientId: apiClient.id }, "Self-service API key created");
+  log.info({ keyId: key.id, apiClientId: apiClient.id }, "API key created, replacing any earlier key");
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: generated.plaintext } }, 201);
 });
 
@@ -182,10 +185,9 @@ portal.delete("/keys/:id", freshSignature, async (c) => {
     where: { id, apiClientId: apiClient.id },
   });
   if (!key) return c.json({ error: "API key not found" }, 404);
-  if (key.status === "REVOKED") return c.json({ error: "Key already revoked" }, 409);
 
-  await prisma.apiKey.update({ where: { id }, data: { status: "REVOKED" } });
-  log.info({ keyId: id, apiClientId: apiClient.id }, "API key revoked via portal");
+  await prisma.apiKey.delete({ where: { id } });
+  log.info({ keyId: id, apiClientId: apiClient.id }, "API key removed via portal");
   return c.json({ data: { id, status: "REVOKED" } });
 });
 
