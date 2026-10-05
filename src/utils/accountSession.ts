@@ -1,5 +1,5 @@
 import prisma from "../db/client.js";
-import { accountSessionIssuedAt, isSessionCurrent, verifyAccountSessionToken } from "./accountSessionToken.js";
+import { sessionVerdict, verifyAccountSessionToken } from "./accountSessionToken.js";
 
 export async function currentAccountIdFromSession(raw: string): Promise<string | null> {
   const accountId = verifyAccountSessionToken(raw);
@@ -8,6 +8,6 @@ export async function currentAccountIdFromSession(raw: string): Promise<string |
     where: { id: accountId },
     select: { status: true, sessionsValidFrom: true },
   });
-  if (!account || account.status === "INACTIVE") return null;
-  return isSessionCurrent(accountSessionIssuedAt(raw), account.sessionsValidFrom) ? accountId : null;
+  if (!account) return null;
+  return sessionVerdict(account, raw) === "ok" ? accountId : null;
 }

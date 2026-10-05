@@ -20,6 +20,7 @@ export function isSessionCurrent(issuedAt: number | null, validFrom: Date | null
 
 const ACCOUNT_SESSION_PREFIX = "account_session_";
 
+
 export function accountSessionIssuedAt(raw: string): number | null {
   if (verifyAccountSessionToken(raw) === null) return null;
 
@@ -33,4 +34,14 @@ export function accountSessionIssuedAt(raw: string): number | null {
   } catch {
     return null;
   }
+}
+
+export type SessionVerdict = "ok" | "inactive" | "expired";
+
+export function sessionVerdict(
+  account: { status: string; sessionsValidFrom: Date | null },
+  raw: string,
+): SessionVerdict {
+  if (account.status === "INACTIVE") return "inactive";
+  return isSessionCurrent(accountSessionIssuedAt(raw), account.sessionsValidFrom) ? "ok" : "expired";
 }
