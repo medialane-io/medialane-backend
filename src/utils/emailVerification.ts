@@ -36,3 +36,7 @@ export function canClaimEmail(
   }
   return { allowed: true, reason: null };
 }
+
+export function shouldAddEmailIdentity(input: { emailHeldByAnyAccount: boolean; accountHasEmail: boolean }): boolean {
+  return !input.emailHeldByAnyAccount && !input.accountHasEmail;
+}

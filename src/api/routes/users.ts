@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { accountWallet, ensureAccountForWallet } from "../../utils/account.js";
+import { accountWallet, ensureAccountForWallet, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
@@ -12,7 +12,7 @@ import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../util
 import { appNameForClient } from "../../apps/resolve.js";
 import { currentAccountIdFromSession } from "../../utils/accountSession.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
-import { getCurrentEmailIdentity, canClaimEmail } from "../../utils/emailVerification.js";
+import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { emailDeadlineFor } from "../../utils/emailDeadline.js";
@@ -111,13 +111,21 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     ? ((await currentAccountIdFromSession(parsed.data.accountToken)) ?? undefined)
     : undefined;
 
-  const { accountId } = await ensureAccountForWallet({
-    chain,
-    address: walletAddress,
-    provider,
-    clientId: clientId,
-    linkToAccountId,
-  });
+  let accountId: string;
+  try {
+    ({ accountId } = await ensureAccountForWallet({
+      chain,
+      address: walletAddress,
+      provider,
+      clientId: clientId,
+      linkToAccountId,
+    }));
+  } catch (err) {
+    if (err instanceof WalletAlreadyAttachedError) {
+      return c.json({ error: "wallet_already_attached", message: "This account already has a wallet." }, 409);
+    }
+    throw err;
+  }
 
   if (parsed.data.email) {
     const existing = await prisma.identity.findFirst({
@@ -128,7 +136,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
       },
       select: { id: true },
     });
-    if (!existing) {
+    if (shouldAddEmailIdentity({ emailHeldByAnyAccount: existing !== null, accountHasEmail: (await getCurrentEmailIdentity(accountId)) !== null })) {
       await prisma.identity.create({
         data: {
           accountId,
@@ -181,24 +189,13 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   const clientId = callerClientId(c);
   if (!clientId) return c.json(NO_CLIENT, 400);
 
-  await prisma.$transaction([
-    prisma.identity.updateMany({
-      where: { accountId: existing.accountId, scheme: IDENTITY_SCHEME.WALLET },
-      data: { isPrimary: false },
-    }),
-    prisma.identity.create({
-      data: {
-        accountId: existing.accountId,
-        app: await appNameForClient(clientId),
-        scheme: IDENTITY_SCHEME.WALLET,
-        provider: "unknown",
-        chain: newWalletId.chain,
-        address: newAddress,
-        clientId: clientId,
-        isPrimary: true,
-      },
-    }),
-  ]);
+  await replaceWallet({
+    accountId: existing.accountId,
+    clientId,
+    chain: newWalletId.chain,
+    address: newAddress,
+    app: await appNameForClient(clientId),
+  });
 
   return c.json({ walletAddress: newAddress });
 });
