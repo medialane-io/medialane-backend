@@ -1,4 +1,4 @@
-import type { Plan, AccountStatus } from "@prisma/client";
+import type { AccountStatus } from "@prisma/client";
 
 export type AuthedAccount = {
   id: string;
@@ -8,7 +8,6 @@ export type AuthedAccount = {
 export type AuthedApiCredits = {
   id: string;
   accountId: string;
-  plan: Plan;
   creditBalance: number;
 };
 export type AuthedApiKey = {

@@ -37,8 +37,6 @@ async function main() {
   `;
   await markApplied("20260312000000_add_fts_indexes");
 
-  await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "attemptCount" INTEGER NOT NULL DEFAULT 0`;
-  await prisma.$executeRaw`ALTER TABLE "WebhookDelivery" ADD COLUMN IF NOT EXISTS "isTerminal" BOOLEAN NOT NULL DEFAULT false`;
   await markApplied("20260312000001_add_job_reaper_and_delivery_tracking");
 
   await markApplied("20260312000002_normalize_collection_addresses");

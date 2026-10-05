@@ -22,7 +22,7 @@ function app(d: MeterDeps) {
   const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "a1", status: "ACTIVE" });
-    c.set("apiCredits", { id: "ac1", accountId: "a1", plan: "FREE", creditBalance: 100 });
+    c.set("apiCredits", { id: "ac1", accountId: "a1", creditBalance: 100 });
     await next();
   });
   a.use("/v1/*", meter(d));
@@ -149,7 +149,7 @@ describe("meter", () => {
     const a = new Hono<AppEnv>();
     a.use("*", async (c, next) => {
       c.set("account", { id: "a1", status: "ACTIVE" });
-      c.set("apiCredits", { id: "ac1", accountId: "a1", plan: "FREE", creditBalance: 100 });
+      c.set("apiCredits", { id: "ac1", accountId: "a1", creditBalance: 100 });
       await next();
     });
     a.use("/v1/*", meter(d));
@@ -173,7 +173,7 @@ describe("meter", () => {
     const a = new Hono<AppEnv>();
     a.use("*", async (c, next) => {
       c.set("account", { id: "a1", status: "ACTIVE" });
-      c.set("apiCredits", { id: "ac1", accountId: "a1", plan: "FREE", creditBalance: 100 });
+      c.set("apiCredits", { id: "ac1", accountId: "a1", creditBalance: 100 });
       await next();
     });
     a.use("/v1/*", meter(d));

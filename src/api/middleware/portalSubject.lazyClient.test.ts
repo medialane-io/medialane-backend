@@ -7,7 +7,7 @@ function accountRow(over: { status?: string; apiCredits?: unknown } = {}) {
 }
 
 async function signIn(account: ReturnType<typeof accountRow> | null) {
-  const created = { id: "ac-new", accountId: "a1", plan: "FREE", creditBalance: 0 };
+  const created = { id: "ac-new", accountId: "a1", creditBalance: 0 };
   const ensureApiCredits = mock(async (_id?: string) => created);
   mock.module("../../db/client.js", () => ({
     default: { account: { findUnique: mock(async () => account) } },
@@ -34,7 +34,7 @@ describe("signing in to the portal", () => {
   });
 
   test("uses the ApiCredits an account already has", async () => {
-    const existing = { id: "ac-old", accountId: "a1", plan: "FREE", creditBalance: 5 };
+    const existing = { id: "ac-old", accountId: "a1", creditBalance: 5 };
     const { res, ensureApiCredits } = await signIn(accountRow({ apiCredits: existing }));
     expect(await res.json()).toEqual({ apiCredits: "ac-old" });
     expect(ensureApiCredits).not.toHaveBeenCalled();

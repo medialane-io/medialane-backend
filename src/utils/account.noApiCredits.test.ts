@@ -55,11 +55,11 @@ describe("an account created or found for a wallet", () => {
 
 describe("ensureApiCredits", () => {
   test("creates the account's ApiCredits when it has none, or returns the one it has", async () => {
-    const upsert = mock(async (_arg?: unknown) => ({ id: "ac1", accountId: "acct-1", plan: "FREE", creditBalance: 0 }));
+    const upsert = mock(async (_arg?: unknown) => ({ id: "ac1", accountId: "acct-1", creditBalance: 0 }));
     mock.module("../db/client.js", () => ({ default: { apiCredits: { upsert } } }));
     const { ensureApiCredits } = await import("./account.js");
     const client = await ensureApiCredits("acct-1");
-    expect(client).toEqual({ id: "ac1", accountId: "acct-1", plan: "FREE", creditBalance: 0 });
+    expect(client).toEqual({ id: "ac1", accountId: "acct-1", creditBalance: 0 });
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { accountId: "acct-1" }, create: { accountId: "acct-1" }, update: {} }));
   });
 });

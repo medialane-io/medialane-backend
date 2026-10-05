@@ -542,18 +542,6 @@ model SponsorshipLicense {
   @@index([chain, assetContract, assetTokenId])
 }
 
-enum WebhookEventType {
-  ORDER_CREATED
-  ORDER_FULFILLED
-  ORDER_CANCELLED
-  TRANSFER
-}
-
-enum WebhookEndpointStatus {
-  ACTIVE
-  DISABLED
-}
-
 enum IntentType {
   CREATE_LISTING
   MAKE_OFFER
@@ -622,39 +610,6 @@ model ApiKey {
   @@unique([apiCreditsId])
 }
 
-model WebhookEndpoint {
-  id          String                @id @default(cuid())
-  apiCreditsId String
-  apiCredits   ApiCredits             @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
-  url         String
-  secret      String
-  events      WebhookEventType[]
-  status      WebhookEndpointStatus @default(ACTIVE)
-  deliveries  WebhookDelivery[]
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
-
-  @@index([apiCreditsId])
-  @@index([status])
-}
-
-model WebhookDelivery {
-  id           String           @id @default(cuid())
-  endpointId   String
-  endpoint     WebhookEndpoint  @relation(fields: [endpointId], references: [id])
-  eventType    WebhookEventType
-  payload      Json
-  statusCode   Int?
-  responseBody String?
-  deliveredAt  DateTime?
-  attemptCount Int              @default(0)
-  isTerminal   Boolean          @default(false)
-  createdAt    DateTime         @default(now())
-
-  @@index([endpointId])
-  @@index([eventType])
-}
-
 model Report {
   id             String           @id @default(cuid())
   chain          Chain            @default(STARKNET)
@@ -715,11 +670,6 @@ model DropClaimConditions {
   @@unique([chain, collectionAddress])
 }
 
-enum Plan {
-  FREE
-  PREMIUM
-}
-
 enum AccountStatus {
   ACTIVE
   PENDING
@@ -762,11 +712,9 @@ model ApiCredits {
   accountId String  @unique
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
-  plan          Plan @default(FREE)
   creditBalance Int  @default(0)
 
   apiKey               ApiKey?
-  webhooks             WebhookEndpoint[]
   payments             Payment[]
   fundingIntents       FundingIntent[]
   usage                UsageEvent[]

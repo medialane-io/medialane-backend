@@ -4,7 +4,6 @@ import { getLatestBlock } from "./poller.js";
 import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, TRANSFER_SOURCE_IDS, type SourceFetch } from "./sources.js";
 import { applyEvents, applyCollectionsCreated, type ApplyOutcome } from "./apply.js";
 import { worker } from "../orchestrator/worker.js";
-import { fanoutWebhooks, buildWebhookPayload } from "../orchestrator/webhookFanout.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { sleep } from "../utils/retry.js";
@@ -162,13 +161,6 @@ async function tick(tickId: string): Promise<number> {
 
   for (const contract of allAffectedContracts) {
     worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress: contract });
-  }
-
-  for (const event of deduplicatedEvents) {
-    const { eventType, payload } = buildWebhookPayload(event);
-    fanoutWebhooks(eventType, payload).catch((err) =>
-      tlog.warn({ err, eventType }, "Webhook fanout error")
-    );
   }
 
   tlog.info(

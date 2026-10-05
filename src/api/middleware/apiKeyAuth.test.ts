@@ -8,7 +8,7 @@ describe("apiKeyAuth context shape", () => {
 
     a.use("*", async (c, next) => {
       c.set("account", { id: "acc1", status: "ACTIVE" });
-      c.set("apiCredits", { id: "ac1", accountId: "acc1", plan: "FREE", creditBalance: 500 });
+      c.set("apiCredits", { id: "ac1", accountId: "acc1", creditBalance: 500 });
       await next();
     });
     a.get("/probe", (c) => {
