@@ -1050,13 +1050,6 @@ model FundingIntent {
   @@index([status, expiresAt])
 }
 
-model AdminAuthNonce {
-  nonce     String   @id
-  expiresAt DateTime
-
-  @@index([expiresAt])
-}
-
 enum LaunchpadRunStatus {
   DRAFT
   PAID
