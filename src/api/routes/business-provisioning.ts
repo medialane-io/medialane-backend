@@ -11,6 +11,7 @@ import { buildDeployment as buildSponsoredDeployment, defaultClient, executeSpon
 import { accountWallet, ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
 import { createProvider, isContractNotFound, normalizeAddress } from "../../utils/starknet.js";
 import { ioClientId } from "../../utils/caller.js";
+import { IO_APP } from "../../apps/registry.js";
 import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningKey.js";
 import { bill } from "../../payments/usage.js";
 
@@ -87,14 +88,14 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
 export const productionProvisioningDeps: BusinessProvisioningDeps = {
   findIoAccount: async (email) => {
-    const identity = await prisma.identity.findUnique({
-      where: { clientId_scheme_value: { clientId: ioClientId(), scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+    const identity = await prisma.identity.findFirst({
+      where: { app: IO_APP, scheme: IDENTITY_SCHEME.EMAIL, value: email },
       select: { accountId: true },
     });
     if (!identity) return null;
     return { accountId: identity.accountId, walletAddress: await accountWallet(identity.accountId) };
   },
-  createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, ioClientId())).accountId,
+  createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, await ioClientId())).accountId,
   keyFor: provisioningKey,
   isDeployed: async (walletAddress) => {
     try {
@@ -114,7 +115,7 @@ export const productionProvisioningDeps: BusinessProvisioningDeps = {
     signWithPrivateKey(privateKey, starknetTypedData.getMessageHash(typedData as never, address)),
   deployWallet: (input) => executeSponsoredDeploy(input),
   linkWallet: async ({ chain, walletAddress, accountId }) => {
-    await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", clientId: ioClientId(), linkToAccountId: accountId });
+    await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", clientId: await ioClientId(), linkToAccountId: accountId });
   },
 };
 

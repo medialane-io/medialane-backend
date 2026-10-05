@@ -6,8 +6,10 @@ export interface AppDefinition {
   emailConfirmDays: number | null;
 }
 
+export const IO_APP = "MEDIALANE_IO";
+
 export const FIRST_PARTY_APPS: readonly AppDefinition[] = [
-  { name: "MEDIALANE_IO", displayName: "Medialane.io", emailConfirmDays: IO_VERIFICATION_DAYS },
+  { name: IO_APP, displayName: "Medialane.io", emailConfirmDays: IO_VERIFICATION_DAYS },
   { name: "MEDIALANE_STARKNET", displayName: "Medialane", emailConfirmDays: null },
   { name: "MEDIALANE_PORTAL", displayName: "Medialane Portal", emailConfirmDays: null },
   { name: "MEDIALANE_DAO", displayName: "Medialane DAO", emailConfirmDays: null },
