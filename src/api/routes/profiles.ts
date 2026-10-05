@@ -217,7 +217,7 @@ profiles.get("/creators", async (c) => {
     prisma.accountProfile.findMany({
       where,
       include: {
-        account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET, isPrimary: true }, take: 1 } } },
+        account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
       },
       orderBy: { username: "asc" },
       skip: (page - 1) * limit,
@@ -265,7 +265,7 @@ profiles.get("/creators/by-username/:username", async (c) => {
   const profile = await prisma.accountProfile.findUnique({
     where: { username },
     include: {
-      account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET, isPrimary: true }, take: 1 } } },
+      account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
     },
   });
   if (!profile || !profile.account.identities[0]?.address) {
