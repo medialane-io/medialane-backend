@@ -27,7 +27,6 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
     if (client) {
       c.set("apiKey", {
         id: "key_TEST",
-        status: "ACTIVE",
         apiCredits: {
           id: client,
           accountId: "acc_TEST",

@@ -15,7 +15,6 @@ function appWith(setup: (c: Context<AppEnv>) => void) {
 
 const key = (clientId: string) => ({
   id: "key-1",
-  status: "ACTIVE" as const,
   apiCredits: { id: clientId, accountId: "acc-1", plan: "FREE" as const, creditBalance: 0, account: { id: "acc-1", status: "ACTIVE" as const } },
 });
 

@@ -1,4 +1,4 @@
-import type { ApiKeyStatus, Plan, AccountStatus } from "@prisma/client";
+import type { Plan, AccountStatus } from "@prisma/client";
 
 export type AuthedAccount = {
   id: string;
@@ -13,7 +13,6 @@ export type AuthedApiCredits = {
 };
 export type AuthedApiKey = {
   id: string;
-  status: ApiKeyStatus;
   apiCredits: AuthedApiCredits & { account: AuthedAccount };
 };
 

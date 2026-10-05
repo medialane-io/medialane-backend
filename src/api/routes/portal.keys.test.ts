@@ -14,7 +14,7 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
   });
   const del = mock(async (_arg?: unknown) => ({}));
   const findFirst = mock(async ({ where }: { where: { id: string } }) =>
-    where.id === opts.ownedKeyId ? { id: where.id, status: "ACTIVE" } : null,
+    where.id === opts.ownedKeyId ? { id: where.id } : null,
   );
   mock.module("../../db/client.js", () => ({
     default: {
@@ -55,7 +55,7 @@ describe("an account has one API key", () => {
     const { app, headers, del } = await appWith({ ownedKeyId: "k1" });
     const res = await app.request("/keys/k1", { method: "DELETE", headers });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: { id: "k1", status: "REVOKED" } });
+    expect(await res.json()).toEqual({ data: { id: "k1" } });
     expect(del).toHaveBeenCalledWith({ where: { id: "k1" } });
   });
 

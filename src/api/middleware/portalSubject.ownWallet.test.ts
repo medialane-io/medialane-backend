@@ -50,7 +50,6 @@ async function signIn(options: { ownWallet: boolean; stray?: boolean }) {
   app.use("*", async (c, next) => {
     c.set("apiKey", {
       id: "key1",
-      status: "ACTIVE" as const,
       apiCredits: { ...keyAccount.apiCredits, account: { id: "acct-key", status: "ACTIVE" as const } },
     });
     return next();

@@ -138,7 +138,6 @@ portal.get("/keys", async (c) => {
       id: true,
       prefix: true,
       label: true,
-      status: true,
       lastUsedAt: true,
       createdAt: true,
     },
@@ -188,7 +187,7 @@ portal.delete("/keys/:id", freshSignature, async (c) => {
 
   await prisma.apiKey.delete({ where: { id } });
   log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key removed via portal");
-  return c.json({ data: { id, status: "REVOKED" } });
+  return c.json({ data: { id } });
 });
 
 portal.get("/webhooks", requirePlan("PREMIUM"), async (c) => {
