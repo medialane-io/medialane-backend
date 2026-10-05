@@ -29,8 +29,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test src
+      - name: Replay the migrations and check they produce the schema
+        run: |
+          bun run db:fresh
+          bunx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Real-database tests
         run: |
-          bunx prisma db push --skip-generate
           RUN_STORE_TEST_DATABASE_URL="$DATABASE_URL" bun test src/launchpad/run-store.sql.test.ts
           FUNDING_STORE_TEST_DATABASE_URL="$DATABASE_URL" bun test src/funding/store.sql.test.ts
