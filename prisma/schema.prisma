@@ -809,6 +809,7 @@ model Identity {
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
+  @@unique([accountId, scheme])
   @@unique([clientId, chain, address])
   @@unique([clientId, scheme, value])
   @@index([clientId])

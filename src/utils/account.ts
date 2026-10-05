@@ -79,8 +79,36 @@ export function generateAccountPublicId(): string {
   return out;
 }
 
-export function shouldBePrimaryWallet(accountHasPrimaryWallet: boolean): boolean {
-  return !accountHasPrimaryWallet;
+export class WalletAlreadyAttachedError extends Error {
+  constructor() {
+    super("This account already has a wallet");
+    this.name = "WalletAlreadyAttachedError";
+  }
+}
+
+export async function replaceWallet(params: {
+  accountId: string;
+  clientId: string;
+  chain: Chain;
+  address: string;
+  app: string | null;
+}): Promise<void> {
+  const address = normalizeAddress(params.chain, params.address);
+  await prisma.$transaction(async (tx) => {
+    await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET } });
+    await tx.identity.create({
+      data: {
+        accountId: params.accountId,
+        app: params.app,
+        scheme: IDENTITY_SCHEME.WALLET,
+        provider: "unknown",
+        chain: params.chain,
+        address,
+        clientId: params.clientId,
+        isPrimary: true,
+      },
+    });
+  });
 }
 
 export async function ensureAccountForWallet(params: {
@@ -116,10 +144,11 @@ export async function ensureAccountForWallet(params: {
   }
 
   if (params.linkToAccountId) {
-    const hasPrimary = await prisma.identity.findFirst({
-      where: { accountId: params.linkToAccountId, scheme: IDENTITY_SCHEME.WALLET, isPrimary: true },
+    const held = await prisma.identity.findFirst({
+      where: { accountId: params.linkToAccountId, scheme: IDENTITY_SCHEME.WALLET },
       select: { id: true },
     });
+    if (held) throw new WalletAlreadyAttachedError();
     const app = await appNameForClient(params.clientId);
     await prisma.identity.create({
       data: {
@@ -130,7 +159,7 @@ export async function ensureAccountForWallet(params: {
         chain: params.chain,
         address,
         clientId: params.clientId,
-        isPrimary: shouldBePrimaryWallet(hasPrimary !== null),
+        isPrimary: true,
         email: params.email ?? null,
       },
     });
