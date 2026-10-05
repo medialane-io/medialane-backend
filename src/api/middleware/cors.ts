@@ -10,7 +10,7 @@ function isAllowedOrigin(origin: string): string | undefined {
 export const corsMiddleware = cors({
   origin: isAllowedOrigin,
   allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "x-api-key", "x-payment", "x-app-source"],
+  allowHeaders: ["Content-Type", "Authorization", "x-api-key", "x-payment"],
   exposeHeaders: ["X-Credits-Remaining", "X-Payment-Response", "X-Request-Id"],
   maxAge: 86400,
 });
