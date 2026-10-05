@@ -14,7 +14,6 @@ function setup(opts: { existing?: boolean; heldByAccount?: boolean }) {
         create: mock(async () => ({})),
       },
       apiCredits: { upsert },
-      app: { findUnique: mock(async () => null) },
       $transaction: mock(async (run: (tx: unknown) => Promise<unknown>) =>
         run({
           account: { create: async () => ({ id: "acct-new" }) },

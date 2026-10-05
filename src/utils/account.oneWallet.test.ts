@@ -26,7 +26,6 @@ function setup(accountHasWallet: boolean) {
         create,
       },
       apiCredits: { upsert: mock(async () => ({})) },
-      app: { findUnique: mock(async () => null) },
       $transaction: transaction,
     },
   }));
@@ -56,7 +55,7 @@ describe("replaceWallet", () => {
   test("removes the account's wallet and attaches the new one as its only wallet, in one transaction", async () => {
     const { create, deleteMany, calls } = setup(true);
     const { replaceWallet } = await import("./account.js");
-    await replaceWallet({ accountId: "acct-1", clientId: "c1", chain: "STARKNET", address: NEW_WALLET, app: null });
+    await replaceWallet({ accountId: "acct-1", clientId: "c1", chain: "STARKNET", address: NEW_WALLET });
     expect(calls).toEqual(["delete", "create"]);
     expect(deleteMany).toHaveBeenCalledWith({ where: { accountId: "acct-1", scheme: "wallet" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;

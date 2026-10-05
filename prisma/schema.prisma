@@ -772,7 +772,6 @@ model ApiCredits {
   fundingIntents       FundingIntent[]
   usage                UsageEvent[]
   launchpadRuns        LaunchpadRun[]
-  app                  App?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -796,8 +795,6 @@ model Identity {
 
   clientId   String
   client     ApiCredits @relation(fields: [clientId], references: [id])
-  app        String?
-  appRecord  App?      @relation(fields: [app], references: [name], onDelete: Restrict)
   isPrimary  Boolean   @default(false)
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
@@ -806,22 +803,10 @@ model Identity {
   @@unique([clientId, chain, address])
   @@unique([clientId, scheme, value])
   @@index([clientId])
-  @@index([app])
   @@index([accountId])
   @@index([address])
   @@index([email])
 }
-
-model App {
-  name             String     @id
-  displayName      String
-  emailConfirmDays Int?
-  clientId         String?    @unique
-  client           ApiCredits? @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  createdAt        DateTime   @default(now())
-  identities       Identity[]
-}
-
 
 model EmailVerificationCode {
   id         String    @id @default(cuid())

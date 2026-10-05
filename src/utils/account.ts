@@ -1,7 +1,6 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
-import { appNameForClient } from "../apps/resolve.js";
 import type { Chain } from "@prisma/client";
 
 export async function ensureApiCredits(accountId: string) {
@@ -92,7 +91,6 @@ export async function replaceWallet(params: {
   clientId: string;
   chain: Chain;
   address: string;
-  app: string | null;
 }): Promise<void> {
   const address = normalizeAddress(params.chain, params.address);
   await prisma.$transaction(async (tx) => {
@@ -100,7 +98,6 @@ export async function replaceWallet(params: {
     await tx.identity.create({
       data: {
         accountId: params.accountId,
-        app: params.app,
         scheme: IDENTITY_SCHEME.WALLET,
         provider: "unknown",
         chain: params.chain,
@@ -149,11 +146,9 @@ export async function ensureAccountForWallet(params: {
       select: { id: true },
     });
     if (held) throw new WalletAlreadyAttachedError();
-    const app = await appNameForClient(params.clientId);
     await prisma.identity.create({
       data: {
         accountId: params.linkToAccountId,
-        app,
         scheme: IDENTITY_SCHEME.WALLET,
         provider,
         chain: params.chain,
@@ -166,7 +161,6 @@ export async function ensureAccountForWallet(params: {
     return { accountId: params.linkToAccountId, created: false };
   }
 
-  const app = await appNameForClient(params.clientId);
   const accountId = await prisma.$transaction(async (tx) => {
     let account: { id: string } | null = null;
     let lastErr: unknown;
@@ -186,7 +180,6 @@ export async function ensureAccountForWallet(params: {
     await tx.identity.create({
       data: {
         accountId: account.id,
-        app,
         scheme: IDENTITY_SCHEME.WALLET,
         provider,
         chain: params.chain,
@@ -211,7 +204,6 @@ export async function ensureAccountForIdentity(
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
   const isEmail = scheme === IDENTITY_SCHEME.EMAIL;
-  const app = await appNameForClient(clientId);
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
       where: { clientId_scheme_value: { clientId, scheme, value } },
@@ -228,8 +220,7 @@ export async function ensureAccountForIdentity(
         await tx.identity.create({
           data: {
             accountId: account.id,
-            app,
-            scheme,
+                scheme,
             value,
             email: isEmail ? value : null,
             clientId,
