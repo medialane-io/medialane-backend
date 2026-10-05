@@ -34,7 +34,7 @@ test("only io's pending accounts past the window become inactive; no other accou
       where: {
         status: "PENDING",
         createdAt: { lt: new Date(NOW.getTime() - 7 * DAY) },
-        identities: { some: { scheme: "email", clientId: IO } },
+        identities: { some: { scheme: "email", apiCreditsId: IO } },
       },
       data: { status: "INACTIVE" },
     },

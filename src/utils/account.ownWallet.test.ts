@@ -18,7 +18,7 @@ async function ensure(options: { own: boolean; stray?: boolean }) {
     default: { identity: { findFirst, findUnique, update: mock(() => Promise.resolve({})) }, apiCredits: { upsert }, $transaction: transaction },
   }));
   const { ensureAccountForWallet } = await import("./account.js");
-  const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, clientId: "client-key" });
+  const result = await ensureAccountForWallet({ chain: "STARKNET", address: WALLET, apiCreditsId: "client-key" });
   return { result, transaction };
 }
 

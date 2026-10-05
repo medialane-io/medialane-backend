@@ -16,7 +16,7 @@ interface AccountUpdater {
       where: {
         status: "PENDING";
         createdAt: { lt: Date };
-        identities: { some: { scheme: string; clientId: string } };
+        identities: { some: { scheme: string; apiCreditsId: string } };
       };
       data: { status: "INACTIVE" };
     }): Promise<{ count: number }>;
@@ -30,9 +30,9 @@ export function isExpired(createdAt: Date, now: Date = new Date(), days: number 
 export async function deactivateExpiredPending(
   now: Date = new Date(),
   db: AccountUpdater = prisma as unknown as AccountUpdater,
-  ioClientId: string = env.IO_CLIENT_ID,
+  ioApiCreditsId: string = env.IO_CLIENT_ID,
 ): Promise<number> {
-  if (!ioClientId) {
+  if (!ioApiCreditsId) {
     log.warn("IO_CLIENT_ID is not set, so no pending account is closed");
     return 0;
   }
@@ -41,7 +41,7 @@ export async function deactivateExpiredPending(
     where: {
       status: "PENDING",
       createdAt: { lt: cutoff },
-      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, clientId: ioClientId } },
+      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, apiCreditsId: ioApiCreditsId } },
     },
     data: { status: "INACTIVE" },
   });
