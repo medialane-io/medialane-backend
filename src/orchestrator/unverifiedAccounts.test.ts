@@ -16,55 +16,35 @@ test("a pending account past the window has expired", () => {
   expect(isExpired(new Date(NOW.getTime() - 8 * DAY), NOW)).toBe(true);
 });
 
-type Call = { where: { createdAt: { lt: Date }; identities: { some: { app: string } } } };
+const IO = "client_IO";
 
-function fakeDb(apps: { name: string; emailConfirmDays: number | null }[], counts: Record<string, number>) {
-  const calls: Call[] = [];
+test("only io's pending accounts past the window become inactive; no other account is touched", async () => {
+  const calls: unknown[] = [];
   const db = {
-    app: { findMany: async () => apps },
     account: {
-      updateMany: async (args: Call) => {
+      updateMany: async (args: unknown) => {
         calls.push(args);
-        return { count: counts[args.where.identities.some.app] ?? 0 };
+        return { count: 2 };
       },
     },
   };
-  return { db, calls };
-}
-
-test("an app's pending accounts past its window become inactive, scoped to that app", async () => {
-  const { db, calls } = fakeDb([{ name: "MEDIALANE_IO", emailConfirmDays: 7 }], { MEDIALANE_IO: 2 });
-  expect(await deactivateExpiredPending(NOW, db)).toBe(2);
+  expect(await deactivateExpiredPending(NOW, db, IO)).toBe(2);
   expect(calls).toEqual([
     {
       where: {
         status: "PENDING",
         createdAt: { lt: new Date(NOW.getTime() - 7 * DAY) },
-        identities: { some: { scheme: "email", app: "MEDIALANE_IO" } },
+        identities: { some: { scheme: "email", clientId: IO } },
       },
       data: { status: "INACTIVE" },
     },
-  ] as never);
-});
-
-test("each app uses its own window, and the closed accounts are added up", async () => {
-  const { db, calls } = fakeDb(
-    [
-      { name: "APP_A", emailConfirmDays: 7 },
-      { name: "APP_B", emailConfirmDays: 3 },
-    ],
-    { APP_A: 1, APP_B: 4 },
-  );
-  expect(await deactivateExpiredPending(NOW, db)).toBe(5);
-  expect(calls.map((c) => [c.where.identities.some.app, c.where.createdAt.lt.getTime()])).toEqual([
-    ["APP_A", NOW.getTime() - 7 * DAY],
-    ["APP_B", NOW.getTime() - 3 * DAY],
   ]);
 });
 
-test("when no app has a confirmation window nothing is closed", async () => {
-  const { db, calls } = fakeDb([], {});
-  expect(await deactivateExpiredPending(NOW, db)).toBe(0);
+test("when no io client is configured nothing is closed, because io's accounts cannot be told apart", async () => {
+  const calls: unknown[] = [];
+  const db = { account: { updateMany: async (args: unknown) => (calls.push(args), { count: 5 }) } };
+  expect(await deactivateExpiredPending(NOW, db, "")).toBe(0);
   expect(calls).toEqual([]);
 });
 
