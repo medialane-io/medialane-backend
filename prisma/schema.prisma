@@ -794,6 +794,8 @@ model Identity {
 
   apiCreditsId   String
   apiCredits ApiCredits @relation(fields: [apiCreditsId], references: [id])
+  appId      String?
+  app        App?       @relation(fields: [appId], references: [id])
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
@@ -801,8 +803,16 @@ model Identity {
   @@unique([apiCreditsId, chain, address])
   @@unique([apiCreditsId, scheme, value])
   @@index([apiCreditsId])
+  @@index([appId])
   @@index([accountId])
   @@index([address])
+}
+
+model App {
+  id         String     @id
+  name       String
+  createdAt  DateTime   @default(now())
+  identities Identity[]
 }
 
 model EmailVerificationCode {
