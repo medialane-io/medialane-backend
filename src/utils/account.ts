@@ -4,11 +4,12 @@ import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
 import { appNameForClient } from "../apps/resolve.js";
 import type { Chain } from "@prisma/client";
 
-async function ensureApiClient(accountId: string): Promise<void> {
-  await prisma.apiClient.upsert({
+export async function ensureApiClient(accountId: string) {
+  return prisma.apiClient.upsert({
     where: { accountId },
     create: { accountId },
     update: {},
+    select: { id: true, accountId: true, plan: true, creditBalance: true },
   });
 }
 
@@ -139,7 +140,6 @@ export async function ensureAccountForWallet(params: {
     if ((existing.provider === null || existing.provider === "unknown") && provider !== "unknown") {
       await prisma.identity.update({ where: { id: existing.id }, data: { provider } });
     }
-    await ensureApiClient(existing.accountId);
     return { accountId: existing.accountId, created: false };
   }
 
@@ -163,7 +163,6 @@ export async function ensureAccountForWallet(params: {
         email: params.email ?? null,
       },
     });
-    await ensureApiClient(params.linkToAccountId);
     return { accountId: params.linkToAccountId, created: false };
   }
 
@@ -199,7 +198,6 @@ export async function ensureAccountForWallet(params: {
     });
 
     await tx.accountProfile.create({ data: { accountId: account.id } });
-    await tx.apiClient.create({ data: { accountId: account.id } });
     return account.id;
   });
 

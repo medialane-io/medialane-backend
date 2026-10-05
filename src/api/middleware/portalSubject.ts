@@ -4,7 +4,7 @@ import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
 import { accountSessionIssuedAt, isSessionCurrent, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { ensureAccountForWallet } from "../../utils/account.js";
+import { ensureAccountForWallet, ensureApiClient } from "../../utils/account.js";
 import { callerClientId } from "../../utils/caller.js";
 
 const accountSelect = {
@@ -24,7 +24,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const accountId = verifyAccountSessionToken(raw);
   if (accountId) {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: accountSelect });
-    if (!account?.apiClient) return c.json({ error: "No account for this session" }, 404);
+    if (!account) return c.json({ error: "No account for this session" }, 404);
     if (account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
     if (!isSessionCurrent(accountSessionIssuedAt(raw), account.sessionsValidFrom)) {
       return c.json({ error: "Invalid or expired token" }, 401);
@@ -32,7 +32,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
 
     c.set("subjectTokenIssuedAt", accountSessionIssuedAt(raw) ?? undefined);
     c.set("account", { id: account.id, status: account.status });
-    c.set("apiClient", account.apiClient);
+    c.set("apiClient", account.apiClient ?? (await ensureApiClient(account.id)));
     return next();
   }
 
@@ -50,14 +50,14 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
       })
     : null;
 
-  if (!wallet?.account.apiClient) {
+  if (!wallet) {
     wallet = await prisma.identity.findUnique({
       where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
       select: { account: { select: accountSelect } },
     });
   }
 
-  if (!wallet || !wallet.account.apiClient) {
+  if (!wallet) {
     await ensureAccountForWallet({ chain: identity.chain, address, clientId });
     wallet = await prisma.identity.findUnique({
       where: { clientId_chain_address: { clientId, chain: identity.chain, address } },
@@ -65,9 +65,9 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
     });
   }
 
-  const apiClient = wallet?.account.apiClient;
-  if (!wallet || !apiClient) return c.json({ error: "No account for this wallet" }, 404);
+  if (!wallet) return c.json({ error: "No account for this wallet" }, 404);
   if (wallet.account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
+  const apiClient = wallet.account.apiClient ?? (await ensureApiClient(wallet.account.id));
 
   c.set("walletAddress", address);
   c.set("subjectTokenIssuedAt", tokenIssuedAt(raw) ?? undefined);
