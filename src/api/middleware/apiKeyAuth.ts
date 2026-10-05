@@ -23,7 +23,6 @@ function touchLastUsed(keyId: string): void {
 const KEY_SELECT = {
   id: true,
   prefix: true,
-  status: true,
   apiCredits: {
     select: {
       id: true,
@@ -52,13 +51,13 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     select: KEY_SELECT,
   });
 
-  if (!apiKey || apiKey.status !== "ACTIVE" || !apiKey.apiCredits || apiKey.apiCredits.account.status === "INACTIVE") {
+  if (!apiKey || !apiKey.apiCredits || apiKey.apiCredits.account.status === "INACTIVE") {
     return c.json({ error: "Invalid or revoked API key" }, 401);
   }
 
   touchLastUsed(apiKey.id);
 
-  c.set("apiKey", { id: apiKey.id, status: apiKey.status, apiCredits: apiKey.apiCredits });
+  c.set("apiKey", { id: apiKey.id, apiCredits: apiKey.apiCredits });
   c.set("account", apiKey.apiCredits.account);
   c.set("apiCredits", apiKey.apiCredits);
 

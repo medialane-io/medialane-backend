@@ -542,11 +542,6 @@ model SponsorshipLicense {
   @@index([chain, assetContract, assetTokenId])
 }
 
-enum ApiKeyStatus {
-  ACTIVE
-  REVOKED
-}
-
 enum WebhookEventType {
   ORDER_CREATED
   ORDER_FULFILLED
@@ -620,13 +615,11 @@ model ApiKey {
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
-  status      ApiKeyStatus @default(ACTIVE)
   lastUsedAt  DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
   @@unique([apiCreditsId])
-  @@index([status])
 }
 
 model WebhookEndpoint {
