@@ -41,7 +41,7 @@ Polls the `Job` table every 2s with optimistic locking, exponential backoff, and
 | `METADATA_PIN` | Not yet implemented (Pinata free plan doesn't support `pin_by_cid`) |
 
 ### REST API (Hono)
-Multi-tenant API with API key auth. All `/v1/*` routes require a valid `x-api-key` or `Authorization: Bearer` header.
+REST API with API key auth. All `/v1/*` routes require a valid `x-api-key` or `Authorization: Bearer` header. Accounts belong to an app: each app's server sends its id in `x-app-id`, and a request without one belongs to the default app `MEDIALANE_API`.
 
 ---
 
@@ -133,33 +133,14 @@ POST /v1/metadata/upload-directory        Upload a directory of JSON files → i
 GET  /v1/metadata/resolve?uri=...         Resolve ipfs://, data:, https://
 ```
 
-### Portal (Tenant self-service)
+### Portal (self-service)
 ```
 GET    /v1/portal/me                      Account profile and credit balance
 GET    /v1/portal/keys                    API keys
 POST   /v1/portal/keys                    Create API key (plaintext shown once)
 DELETE /v1/portal/keys/:id                Revoke key
-GET    /v1/portal/usage                   30-day usage by day
-```
-
-### Admin
-```
-POST   /admin/tenants                               Create tenant + initial API key
-GET    /admin/tenants                               List all tenants
-PATCH  /admin/tenants/:id                           Update plan or status
-POST   /admin/tenants/:id/keys                      Create additional API key for tenant
-DELETE /admin/keys/:keyId                           Revoke any key
-GET    /admin/usage                                 Usage stats (?tenantId, ?days up to 90)
-POST   /admin/tokens/:contract/:tokenId/refresh     Force metadata re-fetch (bypasses queue)
-POST   /admin/collections                           Register collection by address
-PATCH  /admin/collections/:contract                 Update isKnown, owner, or metadata
-POST   /admin/collections/backfill-metadata         Enqueue COLLECTION_METADATA_FETCH for all pending/failed collections
-POST   /admin/collections/backfill-registry         Scan all CollectionCreated events on-chain and upsert missing collections
-POST   /admin/collections/:contract/refresh         Force COLLECTION_METADATA_FETCH for one collection
-POST   /admin/collections/:contract/stats-refresh   Force STATS_UPDATE for one collection
-GET    /admin/comments                              List comments (?hidden=true|false, ?author, ?contract, page, limit)
-PATCH  /admin/comments/:id/hide                     Set isHidden = true
-PATCH  /admin/comments/:id/show                     Set isHidden = false
+GET    /v1/portal/credits/history         Credit top-ups
+GET    /v1/portal/credits/spend           Credit spend by action
 ```
 
 ---
