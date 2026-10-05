@@ -7,7 +7,7 @@ import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { callerClientId } from "../../utils/caller.js";
+import { callerApiCreditsId } from "../../utils/caller.js";
 import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
 import { createLogger } from "../../utils/logger.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
@@ -290,8 +290,8 @@ profiles.get("/creators/:wallet/profile", async (c) => {
     if (!chain) return c.json({ error: "Invalid chain" }, 400);
 
   const wallet = normalizeAddress(chain, c.req.param("wallet"));
-  const clientId = callerClientId(c);
-  const accountId = clientId ? await resolveAccountIdFromWallet(clientId, chain, wallet) : null;
+  const apiCreditsId = callerApiCreditsId(c);
+  const accountId = apiCreditsId ? await resolveAccountIdFromWallet(apiCreditsId, chain, wallet) : null;
   if (!accountId) return c.json(null);
   const profile = await prisma.accountProfile.findUnique({ where: { accountId } });
   if (!profile) return c.json(null);
@@ -314,13 +314,13 @@ profiles.patch(
       return c.json({ error: "Not authorized to edit this profile" }, 403);
     }
 
-    const clientId = callerClientId(c);
-    if (!clientId) return c.json({ error: "This API key has no client" }, 400);
+    const apiCreditsId = callerApiCreditsId(c);
+    if (!apiCreditsId) return c.json({ error: "This API key has no client" }, 400);
 
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: wallet,
-      clientId,
+      apiCreditsId,
     });
 
     const profile = await prisma.accountProfile.upsert({

@@ -100,7 +100,7 @@ describe("the verification code email", () => {
     const sent: EmailMessage[] = [];
     const deps = {
       send: async (m: EmailMessage) => (sent.push(m), true),
-      fromNameFor: async (clientId: string | null) => (clientId === "client_ACME" ? "Acme Studios" : "Medialane"),
+      fromNameFor: async (apiCreditsId: string | null) => (apiCreditsId === "client_ACME" ? "Acme Studios" : "Medialane"),
     };
     await sendVerificationCode("a@b.co", "482913", "client_ACME", deps);
     await sendVerificationCode("c@d.co", "111111", null, deps);

@@ -12,7 +12,7 @@ import { verifyAndActivate } from "../../utils/confirmEmail.js";
 import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
-import { callerClientId } from "../../utils/caller.js";
+import { callerApiCreditsId } from "../../utils/caller.js";
 
 import { ensureAccountForIdentity } from "../../utils/account.js";
 
@@ -34,13 +34,13 @@ export interface AuthEmailDeps {
   createCode: (email: string, codeHash: string, expiresAt: Date) => Promise<void>;
   claimAttempt: (id: string) => Promise<boolean>;
   consumeCode: (id: string) => Promise<boolean>;
-  sendCode: (to: string, code: string, clientId: string | null) => Promise<void>;
-  checkEmailExists: (email: string, clientId: string) => Promise<boolean>;
-  createAccountWithEmail: (email: string, clientId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
-  findAccountIdByEmail: (email: string, clientId: string) => Promise<string | null>;
-  releaseAbandonedEmail: (email: string, clientId: string) => Promise<boolean>;
-  createVerifiedAccount: (email: string, clientId: string) => Promise<string>;
-  markEmailVerified: (email: string, clientId: string) => Promise<void>;
+  sendCode: (to: string, code: string, apiCreditsId: string | null) => Promise<void>;
+  checkEmailExists: (email: string, apiCreditsId: string) => Promise<boolean>;
+  createAccountWithEmail: (email: string, apiCreditsId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
+  findAccountIdByEmail: (email: string, apiCreditsId: string) => Promise<string | null>;
+  releaseAbandonedEmail: (email: string, apiCreditsId: string) => Promise<boolean>;
+  createVerifiedAccount: (email: string, apiCreditsId: string) => Promise<string>;
+  markEmailVerified: (email: string, apiCreditsId: string) => Promise<void>;
   activateAccount: (accountId: string) => Promise<void>;
   accountStatus: (accountId: string) => Promise<"PENDING" | "ACTIVE" | "INACTIVE" | null>;
 }
@@ -71,13 +71,13 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
   app.post("/request-code", zValidator("json", requestCodeSchema), async (c) => {
     const { email } = c.req.valid("json");
-    await issueVerificationCodeWithDeps(deps, email, callerClientId(c));
+    await issueVerificationCodeWithDeps(deps, email, callerApiCreditsId(c));
     return c.json({ ok: true });
   });
 
   app.post("/verify-code", zValidator("json", verifyCodeSchema), async (c) => {
-    const clientId = callerClientId(c);
-    if (!clientId) return c.json(NO_CLIENT, 400);
+    const apiCreditsId = callerApiCreditsId(c);
+    if (!apiCreditsId) return c.json(NO_CLIENT, 400);
 
     const { email, code } = c.req.valid("json");
     const stored = await deps.findLatestCode(email);
@@ -107,32 +107,32 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
       return c.json({ error: "Invalid or expired code" }, 400);
     }
 
-    await deps.releaseAbandonedEmail(email, clientId);
+    await deps.releaseAbandonedEmail(email, apiCreditsId);
 
-    let accountId = await deps.findAccountIdByEmail(email, clientId);
+    let accountId = await deps.findAccountIdByEmail(email, apiCreditsId);
     if (accountId) {
-      await verifyAndActivate(deps, accountId, email, clientId);
+      await verifyAndActivate(deps, accountId, email, apiCreditsId);
     } else {
-      accountId = await deps.createVerifiedAccount(email, clientId);
+      accountId = await deps.createVerifiedAccount(email, apiCreditsId);
     }
     return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
   app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
-    const clientId = callerClientId(c);
-    if (!clientId) return c.json(NO_CLIENT, 400);
+    const apiCreditsId = callerApiCreditsId(c);
+    if (!apiCreditsId) return c.json(NO_CLIENT, 400);
 
     const { email } = c.req.valid("query");
-    const exists = await deps.checkEmailExists(email, clientId);
+    const exists = await deps.checkEmailExists(email, apiCreditsId);
     return c.json({ exists });
   });
 
   app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
     const { email } = c.req.valid("json");
-    const clientId = callerClientId(c);
-    if (!clientId) return c.json(NO_CLIENT, 400);
+    const apiCreditsId = callerApiCreditsId(c);
+    if (!apiCreditsId) return c.json(NO_CLIENT, 400);
 
-    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email, clientId);
+    const { accountId, alreadyExisted } = await deps.createAccountWithEmail(email, apiCreditsId);
     if (alreadyExisted) {
       return c.json({ error: "ACCOUNT_EXISTS", message: "Verify this address with a code to sign in." }, 409);
     }
@@ -140,17 +140,17 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   });
 
   app.post("/confirm", zValidator("json", confirmSchema), async (c) => {
-    const clientId = callerClientId(c);
-    if (!clientId) return c.json(NO_CLIENT, 400);
+    const apiCreditsId = callerApiCreditsId(c);
+    if (!apiCreditsId) return c.json(NO_CLIENT, 400);
 
     const claims = verifyConfirmToken(env.SIWS_SECRET, c.req.valid("json").token);
     if (!claims) return c.json(INVALID_LINK, 400);
 
     const status = await deps.accountStatus(claims.accountId);
-    const owner = await deps.findAccountIdByEmail(claims.email, clientId);
+    const owner = await deps.findAccountIdByEmail(claims.email, apiCreditsId);
     if (!status || status === "INACTIVE" || owner !== claims.accountId) return c.json(INVALID_LINK, 400);
 
-    await verifyAndActivate(deps, claims.accountId, claims.email, clientId);
+    await verifyAndActivate(deps, claims.accountId, claims.email, apiCreditsId);
     return c.json({ ok: true, email: claims.email });
   });
 
@@ -183,15 +183,15 @@ const productionDeps: AuthEmailDeps = {
     return count === 1;
   },
   sendCode: sendVerificationCode,
-  checkEmailExists: async (email, clientId) => {
+  checkEmailExists: async (email, apiCreditsId) => {
     const identity = await prisma.identity.findFirst({
-      where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
+      where: { apiCreditsId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
       select: { id: true },
     });
     return identity !== null;
   },
-  createAccountWithEmail: async (email, clientId) => {
-    const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, clientId);
+  createAccountWithEmail: async (email, apiCreditsId) => {
+    const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, apiCreditsId);
     if (created) await prisma.account.update({ where: { id: accountId }, data: { status: "PENDING" } });
     return { accountId, alreadyExisted: !created };
   },
@@ -206,28 +206,28 @@ const productionDeps: AuthEmailDeps = {
     return account?.status ?? null;
   },
   releaseAbandonedEmail,
-  createVerifiedAccount: async (email, clientId) => {
-    const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, clientId);
+  createVerifiedAccount: async (email, apiCreditsId) => {
+    const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, apiCreditsId);
     await prisma.identity.updateMany({
-      where: { scheme: IDENTITY_SCHEME.EMAIL, value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), clientId: clientId },
+      where: { scheme: IDENTITY_SCHEME.EMAIL, value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), apiCreditsId: apiCreditsId },
       data: { verifiedAt: new Date() },
     });
     return accountId;
   },
-  markEmailVerified: async (email, clientId) => {
+  markEmailVerified: async (email, apiCreditsId) => {
     await prisma.identity.updateMany({
       where: {
         scheme: IDENTITY_SCHEME.EMAIL,
         value: { in: emailValues(email) },
-        clientId: clientId,
+        apiCreditsId: apiCreditsId,
         verifiedAt: null,
       },
       data: { verifiedAt: new Date() },
     });
   },
-  findAccountIdByEmail: async (email, clientId) => {
+  findAccountIdByEmail: async (email, apiCreditsId) => {
     const identity = await prisma.identity.findFirst({
-      where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
+      where: { apiCreditsId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
       select: { accountId: true },
     });
     return identity?.accountId ?? null;
@@ -237,17 +237,17 @@ const productionDeps: AuthEmailDeps = {
 export async function issueVerificationCodeWithDeps(
   deps: AuthEmailDeps,
   email: string,
-  clientId: string | null = null,
+  apiCreditsId: string | null = null,
 ): Promise<void> {
   const code = String(randomInt(100_000, 1_000_000));
   await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
-  deps.sendCode(email, code, clientId).catch((err: unknown) => {
+  deps.sendCode(email, code, apiCreditsId).catch((err: unknown) => {
     log.error({ err, email }, "Failed to send verification code");
   });
 }
 
-export function issueVerificationCode(email: string, clientId: string | null = null): Promise<void> {
-  return issueVerificationCodeWithDeps(productionDeps, email, clientId);
+export function issueVerificationCode(email: string, apiCreditsId: string | null = null): Promise<void> {
+  return issueVerificationCodeWithDeps(productionDeps, email, apiCreditsId);
 }
 
 export const authEmail = createAuthEmailRoutes(productionDeps);

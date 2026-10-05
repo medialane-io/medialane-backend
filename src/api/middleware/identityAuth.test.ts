@@ -5,12 +5,12 @@ import { issueToken } from "../../utils/siwsToken.js";
 import type { AppEnv } from "../../types/hono.js";
 
 function appWith(
-  isInactive: (clientId: string | null, chain: string, address: string) => Promise<boolean> = async () => false,
-  clientId: string | null = "client-A",
+  isInactive: (apiCreditsId: string | null, chain: string, address: string) => Promise<boolean> = async () => false,
+  apiCreditsId: string | null = "client-A",
 ) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    if (clientId) c.set("apiKey", { id: "k", apiCredits: { id: clientId } } as never);
+    if (apiCreditsId) c.set("apiKey", { id: "k", apiCredits: { id: apiCreditsId } } as never);
     await next();
   });
   app.use("*", createIdentityAuth({ isInactive }));
@@ -66,9 +66,9 @@ test("identityAuth lets a pending account's wallet through", async () => {
 test("identityAuth checks the wallet's account in the caller's client only", async () => {
   const token = issueToken("STARKNET", "0x0123");
   const asked: Array<string | null> = [];
-  const inactiveOnlyInB = async (clientId: string | null) => {
-    asked.push(clientId);
-    return clientId === "client-B";
+  const inactiveOnlyInB = async (apiCreditsId: string | null) => {
+    asked.push(apiCreditsId);
+    return apiCreditsId === "client-B";
   };
   const onA = await appWith(inactiveOnlyInB, "client-A").request("/", { headers: { Authorization: `Bearer ${token}` } });
   const onB = await appWith(inactiveOnlyInB, "client-B").request("/", { headers: { Authorization: `Bearer ${token}` } });

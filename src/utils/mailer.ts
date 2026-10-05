@@ -17,10 +17,10 @@ export function sanitizeFromName(name: string | null | undefined): string {
   return cleaned || DEFAULT_FROM_NAME;
 }
 
-export async function fromNameForClient(clientId: string | null): Promise<string> {
-  if (!clientId) return DEFAULT_FROM_NAME;
+export async function fromNameForClient(apiCreditsId: string | null): Promise<string> {
+  if (!apiCreditsId) return DEFAULT_FROM_NAME;
   const client = await prisma.apiCredits.findUnique({
-    where: { id: clientId },
+    where: { id: apiCreditsId },
     select: { account: { select: { profile: { select: { name: true } } } } },
   });
   return sanitizeFromName(client?.account.profile?.name);
@@ -65,16 +65,16 @@ type Send = (message: EmailMessage) => Promise<boolean>;
 
 export interface VerificationMailDeps {
   send: Send;
-  fromNameFor: (clientId: string | null) => Promise<string>;
+  fromNameFor: (apiCreditsId: string | null) => Promise<string>;
 }
 
 export async function sendVerificationCode(
   to: string,
   code: string,
-  clientId: string | null = null,
+  apiCreditsId: string | null = null,
   deps: VerificationMailDeps = { send: sendEmail, fromNameFor: fromNameForClient },
 ): Promise<void> {
-  const fromName = await deps.fromNameFor(clientId);
+  const fromName = await deps.fromNameFor(apiCreditsId);
   const delivered = await deps.send({ to, fromName, template: "verification-code", data: { code } });
   if (!delivered) log.warn("Could not send the verification code email");
 }

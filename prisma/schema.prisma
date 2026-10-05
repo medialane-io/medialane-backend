@@ -792,15 +792,15 @@ model Identity {
 
   value String?
 
-  clientId   String
-  client     ApiCredits @relation(fields: [clientId], references: [id])
+  apiCreditsId   String
+  apiCredits ApiCredits @relation(fields: [apiCreditsId], references: [id])
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@unique([accountId, scheme])
-  @@unique([clientId, chain, address])
-  @@unique([clientId, scheme, value])
-  @@index([clientId])
+  @@unique([apiCreditsId, chain, address])
+  @@unique([apiCreditsId, scheme, value])
+  @@index([apiCreditsId])
   @@index([accountId])
   @@index([address])
 }

@@ -7,7 +7,7 @@ import { accountWallet, ensureAccountForWallet, replaceWallet, WalletAlreadyAtta
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
-import { callerClientId } from "../../utils/caller.js";
+import { callerApiCreditsId } from "../../utils/caller.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import { currentAccountIdFromSession } from "../../utils/accountSession.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
@@ -56,15 +56,15 @@ users.post(
   async (c) => {
     const body = c.req.valid("json");
     const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
-    const clientId = callerClientId(c);
-    if (!clientId) return c.json(NO_CLIENT, 400);
+    const apiCreditsId = callerApiCreditsId(c);
+    if (!apiCreditsId) return c.json(NO_CLIENT, 400);
     const chain: Chain = body.chain ?? "STARKNET";
 
     const { accountId } = await ensureAccountForWallet({
       chain,
       address: body.walletAddress,
       provider,
-      clientId,
+      apiCreditsId,
     });
 
     const account = await prisma.account.findUniqueOrThrow({
@@ -96,8 +96,8 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
   }
   const provider = (parsed.data.walletType ?? "UNKNOWN").toLowerCase();
-  const clientId = callerClientId(c);
-  if (!clientId) return c.json(NO_CLIENT, 400);
+  const apiCreditsId = callerApiCreditsId(c);
+  if (!apiCreditsId) return c.json(NO_CLIENT, 400);
   const chain: Chain = parsed.data.chain ?? "STARKNET";
 
   if (chain !== "STARKNET") {
@@ -116,7 +116,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
       chain,
       address: walletAddress,
       provider,
-      clientId: clientId,
+      apiCreditsId: apiCreditsId,
       linkToAccountId,
     }));
   } catch (err) {
@@ -129,7 +129,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   if (parsed.data.email) {
     const existing = await prisma.identity.findFirst({
       where: {
-        clientId,
+        apiCreditsId,
         scheme: IDENTITY_SCHEME.EMAIL,
         value: { in: emailValues(parsed.data.email) },
       },
@@ -141,11 +141,11 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           accountId,
           scheme: IDENTITY_SCHEME.EMAIL,
           value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.data.email),
-          clientId: clientId,
+          apiCreditsId: apiCreditsId,
           verifiedAt: null,
         },
       });
-      issueVerificationCode(parsed.data.email, clientId).catch((err: unknown) => {
+      issueVerificationCode(parsed.data.email, apiCreditsId).catch((err: unknown) => {
         log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
       });
     }
@@ -177,18 +177,18 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   }
 
   const existing = await prisma.identity.findUnique({
-    where: { clientId_chain_address: { clientId: callerClientId(c) ?? "", chain: "STARKNET", address: walletAddress } },
+    where: { apiCreditsId_chain_address: { apiCreditsId: callerApiCreditsId(c) ?? "", chain: "STARKNET", address: walletAddress } },
     select: { accountId: true },
   });
   if (!existing) return c.json({ error: "Account not found" }, 404);
 
   const newAddress = normalizeAddress(newWalletId.chain, newWalletId.address);
-  const clientId = callerClientId(c);
-  if (!clientId) return c.json(NO_CLIENT, 400);
+  const apiCreditsId = callerApiCreditsId(c);
+  if (!apiCreditsId) return c.json(NO_CLIENT, 400);
 
   await replaceWallet({
     accountId: existing.accountId,
-    clientId,
+    apiCreditsId,
     chain: newWalletId.chain,
     address: newAddress,
   });
@@ -229,7 +229,7 @@ users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
 users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
   const identity = await prisma.identity.findUnique({
-    where: { clientId_chain_address: { clientId: callerClientId(c) ?? "", chain: "STARKNET", address: walletAddress } },
+    where: { apiCreditsId_chain_address: { apiCreditsId: callerApiCreditsId(c) ?? "", chain: "STARKNET", address: walletAddress } },
     select: { address: true, accountId: true, account: { select: { publicId: true, status: true, createdAt: true } } },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);
@@ -265,18 +265,18 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
   }
   const email = parsed.data.email;
-  const clientId = callerClientId(c);
-  if (!clientId) return c.json(NO_CLIENT, 400);
+  const apiCreditsId = callerApiCreditsId(c);
+  if (!apiCreditsId) return c.json(NO_CLIENT, 400);
 
   const identity = await prisma.identity.findUnique({
-    where: { clientId_chain_address: { clientId: callerClientId(c) ?? "", chain: "STARKNET", address: walletAddress } },
+    where: { apiCreditsId_chain_address: { apiCreditsId: callerApiCreditsId(c) ?? "", chain: "STARKNET", address: walletAddress } },
     select: { accountId: true },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);
   const accountId = identity.accountId;
 
   const existingOwner = await prisma.identity.findFirst({
-    where: { clientId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
+    where: { apiCreditsId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
     select: { accountId: true, verifiedAt: true },
   });
   const decision = canClaimEmail(accountId, existingOwner);
@@ -288,20 +288,20 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
   }
 
   await prisma.$transaction([
-    prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, clientId: clientId } }),
-    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) }, clientId: clientId } }),
+    prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, apiCreditsId: apiCreditsId } }),
+    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) }, apiCreditsId: apiCreditsId } }),
     prisma.identity.create({
       data: {
         accountId,
         scheme: IDENTITY_SCHEME.EMAIL,
         value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email),
-        clientId: clientId,
+        apiCreditsId: apiCreditsId,
         verifiedAt: null,
       },
     }),
   ]);
 
-  await issueVerificationCode(email, clientId);
+  await issueVerificationCode(email, apiCreditsId);
 
   return c.json({ email, emailVerified: false });
 });
@@ -314,7 +314,7 @@ users.get(
     const identityWhere: Record<string, unknown> = {};
     if (chain && VALID_CHAINS.has(chain as Chain)) identityWhere.chain = chain;
     if (walletType) identityWhere.provider = walletType.toLowerCase();
-    if (clientId) identityWhere.clientId = clientId;
+    if (clientId) identityWhere.apiCreditsId = clientId;
 
     const accountWhere: Record<string, unknown> = {};
     if (Object.keys(identityWhere).length > 0) accountWhere.identities = { some: identityWhere };
