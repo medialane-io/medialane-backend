@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { accountSessionIssuedAt, isSessionCurrent, issueAccountSessionToken, verifyAccountSessionToken } from "./accountSessionToken";
+import { accountSessionIssuedAt, isSessionCurrent, issueAccountSessionToken, sessionVerdict, verifyAccountSessionToken } from "./accountSessionToken";
 
 test("issues a token that verifies back to the same accountId", () => {
   const token = issueAccountSessionToken("acc_ABC123");
@@ -60,3 +60,15 @@ test("a token issued now is current against a cutoff set just before it", () => 
   const token = issueAccountSessionToken("acc_ABC123");
   expect(isSessionCurrent(accountSessionIssuedAt(token), cutoff)).toBe(true);
 });
+
+test("sessionVerdict refuses an inactive account first, then a session older than the cutoff", () => {
+  const token = issueAccountSessionToken("acc_ABC123");
+  const future = new Date(Date.now() + 60_000);
+  const past = new Date(Date.now() - 60_000);
+  expect(sessionVerdict({ status: "ACTIVE", sessionsValidFrom: null }, token)).toBe("ok");
+  expect(sessionVerdict({ status: "PENDING", sessionsValidFrom: past }, token)).toBe("ok");
+  expect(sessionVerdict({ status: "ACTIVE", sessionsValidFrom: future }, token)).toBe("expired");
+  expect(sessionVerdict({ status: "INACTIVE", sessionsValidFrom: null }, token)).toBe("inactive");
+  expect(sessionVerdict({ status: "INACTIVE", sessionsValidFrom: future }, token)).toBe("inactive");
+});
+
