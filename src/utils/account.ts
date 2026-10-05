@@ -37,13 +37,13 @@ export async function accountWallets(accountIds: string[], chain: Chain = "STARK
 }
 
 export async function resolveAccountIdFromWallet(
-  apiCreditsId: string,
+  appId: string,
   chain: Chain,
   address: string,
 ): Promise<string | null> {
   const normalized = normalizeAddress(chain, address);
   const identity = await prisma.identity.findUnique({
-    where: { apiCreditsId_chain_address: { apiCreditsId, chain, address: normalized } },
+    where: { appId_chain_address: { appId, chain, address: normalized } },
     select: { accountId: true },
   });
   return identity?.accountId ?? null;
@@ -88,7 +88,7 @@ export class WalletAlreadyAttachedError extends Error {
 
 export async function replaceWallet(params: {
   accountId: string;
-  apiCreditsId: string;
+  appId: string;
   chain: Chain;
   address: string;
 }): Promise<void> {
@@ -102,7 +102,7 @@ export async function replaceWallet(params: {
         provider: "unknown",
         chain: params.chain,
         address,
-        apiCreditsId: params.apiCreditsId,
+        appId: params.appId,
       },
     });
   });
@@ -112,22 +112,14 @@ export async function ensureAccountForWallet(params: {
   chain: Chain;
   address: string;
   provider?: string;
-  apiCreditsId: string;
+  appId: string;
   linkToAccountId?: string;
 }): Promise<{ accountId: string; created: boolean }> {
   const address = normalizeAddress(params.chain, params.address);
   const provider = (params.provider ?? "unknown").toLowerCase();
 
-  if (!params.linkToAccountId) {
-    const own = await prisma.identity.findFirst({
-      where: { chain: params.chain, address, scheme: IDENTITY_SCHEME.WALLET, account: { apiCredits: { id: params.apiCreditsId } } },
-      select: { accountId: true },
-    });
-    if (own) return { accountId: own.accountId, created: false };
-  }
-
   const existing = await prisma.identity.findUnique({
-    where: { apiCreditsId_chain_address: { apiCreditsId: params.apiCreditsId, chain: params.chain, address } },
+    where: { appId_chain_address: { appId: params.appId, chain: params.chain, address } },
     select: { id: true, accountId: true, provider: true },
   });
 
@@ -151,7 +143,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        apiCreditsId: params.apiCreditsId,
+        appId: params.appId,
       },
     });
     return { accountId: params.linkToAccountId, created: false };
@@ -180,7 +172,7 @@ export async function ensureAccountForWallet(params: {
         provider,
         chain: params.chain,
         address,
-        apiCreditsId: params.apiCreditsId,
+        appId: params.appId,
       },
     });
 
@@ -194,12 +186,12 @@ export async function ensureAccountForWallet(params: {
 export async function ensureAccountForIdentity(
   scheme: string,
   rawValue: string,
-  apiCreditsId: string,
+  appId: string,
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(scheme, rawValue);
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await prisma.identity.findUnique({
-      where: { apiCreditsId_scheme_value: { apiCreditsId, scheme, value } },
+      where: { appId_scheme_value: { appId, scheme, value } },
       select: { accountId: true },
     });
     if (existing) return { accountId: existing.accountId, created: false };
@@ -215,7 +207,7 @@ export async function ensureAccountForIdentity(
             accountId: account.id,
             scheme,
             value,
-            apiCreditsId,
+            appId,
             verifiedAt: null,
           },
         });

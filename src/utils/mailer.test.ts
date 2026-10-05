@@ -29,8 +29,8 @@ test("sanitizeFromName falls back to Medialane when nothing usable is left", () 
 });
 
 test("an email not tied to an app, like a guardian alert, is sent as Medialane", async () => {
-  const { fromNameForClient } = await import("./mailer");
-  expect(await fromNameForClient(null)).toBe("Medialane");
+  const { fromNameForApp } = await import("./mailer");
+  expect(await fromNameForApp(null)).toBe("Medialane");
 });
 
 const message: EmailMessage = { to: "a@b.co", template: "verification-code", data: { code: "482913" } };
@@ -100,7 +100,7 @@ describe("the verification code email", () => {
     const sent: EmailMessage[] = [];
     const deps = {
       send: async (m: EmailMessage) => (sent.push(m), true),
-      fromNameFor: async (apiCreditsId: string | null) => (apiCreditsId === "client_ACME" ? "Acme Studios" : "Medialane"),
+      fromNameFor: async (appId: string | null) => (appId === "client_ACME" ? "Acme Studios" : "Medialane"),
     };
     await sendVerificationCode("a@b.co", "482913", "client_ACME", deps);
     await sendVerificationCode("c@d.co", "111111", null, deps);

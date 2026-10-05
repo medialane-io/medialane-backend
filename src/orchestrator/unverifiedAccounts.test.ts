@@ -16,7 +16,7 @@ test("a pending account past the window has expired", () => {
   expect(isExpired(new Date(NOW.getTime() - 8 * DAY), NOW)).toBe(true);
 });
 
-const IO = "client_IO";
+const IO = "MEDIALANE_IO";
 
 test("only io's pending accounts past the window become inactive; no other account is touched", async () => {
   const calls: unknown[] = [];
@@ -34,18 +34,11 @@ test("only io's pending accounts past the window become inactive; no other accou
       where: {
         status: "PENDING",
         createdAt: { lt: new Date(NOW.getTime() - 7 * DAY) },
-        identities: { some: { scheme: "email", apiCreditsId: IO } },
+        identities: { some: { scheme: "email", appId: IO } },
       },
       data: { status: "INACTIVE" },
     },
   ]);
-});
-
-test("when no io client is configured nothing is closed, because io's accounts cannot be told apart", async () => {
-  const calls: unknown[] = [];
-  const db = { account: { updateMany: async (args: unknown) => (calls.push(args), { count: 5 }) } };
-  expect(await deactivateExpiredPending(NOW, db, "")).toBe(0);
-  expect(calls).toEqual([]);
 });
 
 test("the deadline is exactly seven days after the account was made", () => {

@@ -9,7 +9,7 @@ const created = new Date("2026-10-03T12:00:00Z");
 const identity = (over: Partial<Parameters<typeof toWelcomeCandidate>[0]["identities"][number]>) => ({
   scheme: "email",
   value: null,
-  apiCreditsId: IO,
+  appId: IO,
   verifiedAt: null,
   address: null,
   createdAt: created,
@@ -32,7 +32,7 @@ describe("the confirm token in the notice emails", () => {
 describe("reading an account into a welcome candidate", () => {
   test("takes the io email from its value and the wallet address", () => {
     const a = toWelcomeCandidate(
-      account([identity({ value: "a@b.co" }), identity({ scheme: "wallet", address: "0xabc", apiCreditsId: IO })]),
+      account([identity({ value: "a@b.co" }), identity({ scheme: "wallet", address: "0xabc", appId: IO })]),
       IO,
     );
     expect(a).toMatchObject({ accountId: "acc_1", email: "a@b.co", walletAddress: "0xabc" });
@@ -54,7 +54,7 @@ describe("reading an account into a welcome candidate", () => {
   test("an account with no io email or no wallet is not a candidate", () => {
     const wallet = identity({ scheme: "wallet", address: "0xabc" });
     expect(toWelcomeCandidate(account([wallet]), IO)).toBeNull();
-    expect(toWelcomeCandidate(account([identity({ value: "a@b.co", apiCreditsId: "client_OTHER" }), wallet]), IO)).toBeNull();
+    expect(toWelcomeCandidate(account([identity({ value: "a@b.co", appId: "client_OTHER" }), wallet]), IO)).toBeNull();
     expect(toWelcomeCandidate(account([identity({ value: "a@b.co" })]), IO)).toBeNull();
   });
 });

@@ -5,7 +5,7 @@ const log = createLogger("orchestrator:unverified-accounts");
 
 const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 import { DAY_MS, IO_VERIFICATION_DAYS } from "../utils/accountLifecycle.js";
-import { env } from "../config/env.js";
+import { IO_APP } from "../utils/caller.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 
 export { IO_VERIFICATION_DAYS, verificationDeadline } from "../utils/accountLifecycle.js";
@@ -16,7 +16,7 @@ interface AccountUpdater {
       where: {
         status: "PENDING";
         createdAt: { lt: Date };
-        identities: { some: { scheme: string; apiCreditsId: string } };
+        identities: { some: { scheme: string; appId: string } };
       };
       data: { status: "INACTIVE" };
     }): Promise<{ count: number }>;
@@ -30,18 +30,14 @@ export function isExpired(createdAt: Date, now: Date = new Date(), days: number 
 export async function deactivateExpiredPending(
   now: Date = new Date(),
   db: AccountUpdater = prisma as unknown as AccountUpdater,
-  ioApiCreditsId: string = env.IO_CLIENT_ID,
+  ioApp: string = IO_APP,
 ): Promise<number> {
-  if (!ioApiCreditsId) {
-    log.warn("IO_CLIENT_ID is not set, so no pending account is closed");
-    return 0;
-  }
   const cutoff = new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS);
   const { count } = await db.account.updateMany({
     where: {
       status: "PENDING",
       createdAt: { lt: cutoff },
-      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, apiCreditsId: ioApiCreditsId } },
+      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, appId: ioApp } },
     },
     data: { status: "INACTIVE" },
   });

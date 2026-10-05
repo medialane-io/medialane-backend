@@ -37,7 +37,7 @@ describe("linking a wallet to an account session", () => {
     const { create } = setup(true);
     const { ensureAccountForWallet, WalletAlreadyAttachedError } = await import("./account.js");
     await expect(
-      ensureAccountForWallet({ chain: "STARKNET", address: NEW_WALLET, apiCreditsId: "c1", linkToAccountId: "acct-1" }),
+      ensureAccountForWallet({ chain: "STARKNET", address: NEW_WALLET, appId: "c1", linkToAccountId: "acct-1" }),
     ).rejects.toBeInstanceOf(WalletAlreadyAttachedError);
     expect(create).not.toHaveBeenCalled();
   });
@@ -45,7 +45,7 @@ describe("linking a wallet to an account session", () => {
   test("still attaches the first wallet to an account that has none", async () => {
     const { create } = setup(false);
     const { ensureAccountForWallet } = await import("./account.js");
-    const result = await ensureAccountForWallet({ chain: "STARKNET", address: NEW_WALLET, apiCreditsId: "c1", linkToAccountId: "acct-1" });
+    const result = await ensureAccountForWallet({ chain: "STARKNET", address: NEW_WALLET, appId: "c1", linkToAccountId: "acct-1" });
     expect(result).toEqual({ accountId: "acct-1", created: false });
     expect(create).toHaveBeenCalledTimes(1);
   });
@@ -55,10 +55,10 @@ describe("replaceWallet", () => {
   test("removes the account's wallet and attaches the new one as its only wallet, in one transaction", async () => {
     const { create, deleteMany, calls } = setup(true);
     const { replaceWallet } = await import("./account.js");
-    await replaceWallet({ accountId: "acct-1", apiCreditsId: "c1", chain: "STARKNET", address: NEW_WALLET });
+    await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
     expect(calls).toEqual(["delete", "create"]);
     expect(deleteMany).toHaveBeenCalledWith({ where: { accountId: "acct-1", scheme: "wallet" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
-    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, apiCreditsId: "c1" });
+    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1" });
   });
 });

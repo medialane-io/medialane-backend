@@ -17,13 +17,10 @@ export function sanitizeFromName(name: string | null | undefined): string {
   return cleaned || DEFAULT_FROM_NAME;
 }
 
-export async function fromNameForClient(apiCreditsId: string | null): Promise<string> {
-  if (!apiCreditsId) return DEFAULT_FROM_NAME;
-  const client = await prisma.apiCredits.findUnique({
-    where: { id: apiCreditsId },
-    select: { account: { select: { profile: { select: { name: true } } } } },
-  });
-  return sanitizeFromName(client?.account.profile?.name);
+export async function fromNameForApp(appId: string | null): Promise<string> {
+  if (!appId) return DEFAULT_FROM_NAME;
+  const app = await prisma.app.findUnique({ where: { id: appId }, select: { name: true } });
+  return sanitizeFromName(app?.name);
 }
 
 export type EmailTemplate =
@@ -65,16 +62,16 @@ type Send = (message: EmailMessage) => Promise<boolean>;
 
 export interface VerificationMailDeps {
   send: Send;
-  fromNameFor: (apiCreditsId: string | null) => Promise<string>;
+  fromNameFor: (appId: string | null) => Promise<string>;
 }
 
 export async function sendVerificationCode(
   to: string,
   code: string,
-  apiCreditsId: string | null = null,
-  deps: VerificationMailDeps = { send: sendEmail, fromNameFor: fromNameForClient },
+  appId: string | null = null,
+  deps: VerificationMailDeps = { send: sendEmail, fromNameFor: fromNameForApp },
 ): Promise<void> {
-  const fromName = await deps.fromNameFor(apiCreditsId);
+  const fromName = await deps.fromNameFor(appId);
   const delivered = await deps.send({ to, fromName, template: "verification-code", data: { code } });
   if (!delivered) log.warn("Could not send the verification code email");
 }

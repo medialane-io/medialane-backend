@@ -10,7 +10,7 @@ import { signWithPrivateKey } from "@medialane/sdk/starknet";
 import { buildDeployment as buildSponsoredDeployment, defaultClient, executeSponsoredDeploy } from "./paymaster.js";
 import { accountWallet, ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
 import { createProvider, isContractNotFound, normalizeAddress } from "../../utils/starknet.js";
-import { ioApiCreditsId } from "../../utils/caller.js";
+import { IO_APP } from "../../utils/caller.js";
 import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningKey.js";
 import { bill } from "../../payments/usage.js";
 
@@ -88,13 +88,13 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 export const productionProvisioningDeps: BusinessProvisioningDeps = {
   findIoAccount: async (email) => {
     const identity = await prisma.identity.findUnique({
-      where: { apiCreditsId_scheme_value: { apiCreditsId: ioApiCreditsId(), scheme: IDENTITY_SCHEME.EMAIL, value: email } },
+      where: { appId_scheme_value: { appId: IO_APP, scheme: IDENTITY_SCHEME.EMAIL, value: email } },
       select: { accountId: true },
     });
     if (!identity) return null;
     return { accountId: identity.accountId, walletAddress: await accountWallet(identity.accountId) };
   },
-  createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, ioApiCreditsId())).accountId,
+  createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, IO_APP)).accountId,
   keyFor: provisioningKey,
   isDeployed: async (walletAddress) => {
     try {
@@ -114,7 +114,7 @@ export const productionProvisioningDeps: BusinessProvisioningDeps = {
     signWithPrivateKey(privateKey, starknetTypedData.getMessageHash(typedData as never, address)),
   deployWallet: (input) => executeSponsoredDeploy(input),
   linkWallet: async ({ chain, walletAddress, accountId }) => {
-    await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", apiCreditsId: ioApiCreditsId(), linkToAccountId: accountId });
+    await ensureAccountForWallet({ chain, address: walletAddress, provider: "mediawallet", appId: IO_APP, linkToAccountId: accountId });
   },
 };
 

@@ -5,7 +5,7 @@ import type { AppEnv } from "../../types/hono.js";
 import { env } from "../../config/env.js";
 import { issueConfirmToken } from "../../utils/emailConfirmToken.js";
 
-function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "client_IO") {
+function appWith(deps: Partial<AuthEmailDeps> = {}, appId: string | null = "MEDIALANE_IO") {
   const fullDeps: AuthEmailDeps = {
     findLatestCode: async () => null,
     createCode: async () => {},
@@ -24,19 +24,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, client: string | null = "cli
   };
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
-    if (client) {
-      c.set("apiKey", {
-        id: "key_TEST",
-        apiCredits: {
-          id: client,
-          accountId: "acc_TEST",
-          plan: "FREE",
-          creditBalance: 0,
-          account: { id: "acc_TEST", status: "ACTIVE" },
-        },
-      });
-      c.set("apiCredits", { id: "client_TEST", accountId: "acc_TEST", plan: "FREE", creditBalance: 0 });
-    }
+    if (appId) c.set("appId", appId);
     return next();
   });
   app.route("/", createAuthEmailRoutes(fullDeps));
@@ -317,27 +305,27 @@ test("POST /register-account does not leak whether the existing account was ever
   expect(Object.keys(body).sort()).toEqual(["error", "message"]);
 });
 
-test("an account belongs to the client that registered it, so the same address in two clients is two accounts", async () => {
-  const asked: Array<{ email: string; client: string }> = [];
+test("an account belongs to the app that registered it, so the same address in two apps is two accounts", async () => {
+  const asked: Array<{ email: string; app: string }> = [];
   const app = appWith({
-    checkEmailExists: async (email, client) => {
-      asked.push({ email, client });
+    checkEmailExists: async (email, app) => {
+      asked.push({ email, app });
       return false;
     },
   });
 
   await app.request("/exists?email=person@example.com");
 
-  expect(asked).toEqual([{ email: "person@example.com", client: "client_IO" }]);
+  expect(asked).toEqual([{ email: "person@example.com", app: "MEDIALANE_IO" }]);
 });
 
-test("a key with no client cannot resolve an account, rather than falling into somebody else's", async () => {
-  const app = appWith({}, null);
+test("a request that names no app looks the account up in the default app", async () => {
+  const asked: string[] = [];
+  const app = appWith({ checkEmailExists: async (_email, app) => (asked.push(app), false) }, null);
 
-  const res = await app.request("/exists?email=person@example.com");
+  await app.request("/exists?email=person@example.com");
 
-  expect(res.status).toBe(400);
-  expect(await res.json()).toMatchObject({ error: "unknown_client" });
+  expect(asked).toEqual(["MEDIALANE_API"]);
 });
 
 test("GET /exists looks the account up with the email as typed", async () => {

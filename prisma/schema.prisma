@@ -766,7 +766,6 @@ model ApiCredits {
   creditBalance Int  @default(0)
 
   apiKey               ApiKey?
-  identities           Identity[]
   webhooks             WebhookEndpoint[]
   payments             Payment[]
   fundingIntents       FundingIntent[]
@@ -792,17 +791,14 @@ model Identity {
 
   value String?
 
-  apiCreditsId   String
-  apiCredits ApiCredits @relation(fields: [apiCreditsId], references: [id])
-  appId      String?
-  app        App?       @relation(fields: [appId], references: [id])
+  appId      String
+  app        App        @relation(fields: [appId], references: [id])
   verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@unique([accountId, scheme])
-  @@unique([apiCreditsId, chain, address])
-  @@unique([apiCreditsId, scheme, value])
-  @@index([apiCreditsId])
+  @@unique([appId, chain, address])
+  @@unique([appId, scheme, value])
   @@index([appId])
   @@index([accountId])
   @@index([address])
