@@ -16,4 +16,4 @@ pg_ctl -D "$DATA_DIR" -o "-p ${PORT} -k ${DATA_DIR} -h 127.0.0.1" -l "$DATA_DIR/
 createdb -h 127.0.0.1 -p "$PORT" -U postgres run_store_test
 
 DATABASE_URL="$URL" bunx prisma db push --skip-generate >/dev/null
-DATABASE_URL="$URL" RUN_STORE_TEST_DATABASE_URL="$URL" bun test src/launchpad/run-store.sql.test.ts
+DATABASE_URL="$URL" RUN_STORE_TEST_DATABASE_URL="$URL" SQL_TEST_DATABASE_URL="$URL" bun test "${@:-src/launchpad/run-store.sql.test.ts}"
