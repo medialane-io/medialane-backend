@@ -57,6 +57,28 @@ describe.skipIf(!databaseUrl)("transfer balances against Postgres", () => {
     expect(await balanceOf("0xb")).toBe("9");
   });
 
+  const inTx = (txHash: string, from: string, to: string, amount: string, logIndex: number) => ({
+    ...single(from, to, amount, logIndex),
+    txHash,
+  });
+
+  test("two identical moves at different event indexes in one tx both count", async () => {
+    const { handleTransferSingle } = await import("./transfer.js");
+    await handleTransferSingle(inTx("0xtwin", ZERO_ADDRESS, "0xd", "1", 10), prisma, "STARKNET");
+    await handleTransferSingle(inTx("0xtwin", ZERO_ADDRESS, "0xd", "1", 11), prisma, "STARKNET");
+    expect(await balanceOf("0xd")).toBe("2");
+  });
+
+  test("re-applying a stored transfer inside a transaction does not abort it", async () => {
+    const { handleTransferSingle } = await import("./transfer.js");
+    await handleTransferSingle(inTx("0xagain", ZERO_ADDRESS, "0xe", "1", 0), prisma, "STARKNET");
+    await prisma.$transaction(async (tx) => {
+      await handleTransferSingle(inTx("0xagain", ZERO_ADDRESS, "0xe", "1", 0), tx, "STARKNET");
+      await tx.collection.findFirst({ where });
+    });
+    expect(await balanceOf("0xe")).toBe("1");
+  });
+
   test("replaying the same transfer changes nothing", async () => {
     const { handleTransferSingle } = await import("./transfer.js");
     await handleTransferSingle(single("0xb", "0xc", "1", 5), prisma, "STARKNET");
