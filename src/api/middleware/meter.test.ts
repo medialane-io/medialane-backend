@@ -42,6 +42,14 @@ function app(d: MeterDeps) {
 }
 
 describe("meter", () => {
+  test("the response does not wait for the usage record", async () => {
+    const res = await Promise.race([
+      app(deps({ recordUsage: () => new Promise<void>(() => {}) })).request("/v1/tokens"),
+      new Promise<"hung">((r) => setTimeout(() => r("hung"), 500)),
+    ]);
+    expect(res).not.toBe("hung");
+    expect((res as Response).status).toBe(200);
+  });
   test("passes through when balance covers the cost", async () => {
     const res = await app(deps({ debitCredits: async () => true })).request("/v1/tokens");
     expect(res.status).toBe(200);
