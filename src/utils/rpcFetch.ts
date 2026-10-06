@@ -6,10 +6,16 @@ const log = createLogger("utils:rpcFetch");
 
 const RPC_TIMEOUT_MS = 15_000;
 
-function timedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function timedFetch(input: RequestInfo | URL, init?: RequestInit, timeoutMs = RPC_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(input, { ...init, signal: controller.signal });
+    const body = await res.arrayBuffer();
+    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 let _rpcFetch: typeof fetch | null = null;
