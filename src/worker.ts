@@ -1,5 +1,4 @@
 import { startMirror } from "./mirror/index.js";
-import { registerIngestors, type ChainIngestor } from "./mirror/ingestor.js";
 import { startOrchestrator } from "./orchestrator/index.js";
 import { worker } from "./orchestrator/worker.js";
 import { createLogger } from "./utils/logger.js";
@@ -21,15 +20,10 @@ async function main() {
 
   await reportRpcEndpoints();
 
-  const starknetIngestor: ChainIngestor = {
-    chain: "STARKNET",
-    start: () =>
-      startMirror().catch((err) => {
-        log.fatal({ err }, "Mirror crashed");
-        process.exit(1);
-      }),
-  };
-  registerIngestors([starknetIngestor]);
+  startMirror().catch((err) => {
+    log.fatal({ err }, "Mirror crashed");
+    process.exit(1);
+  });
 
   startOrchestrator().catch((err) => {
     log.fatal({ err }, "Orchestrator crashed");

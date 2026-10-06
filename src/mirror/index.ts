@@ -14,20 +14,13 @@ export const CHAIN = "STARKNET" as const;
 
 const CATCHUP_THRESHOLD = 1000;
 
-const TICK_TIMEOUT_MS = 60_000;
-
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
   while (true) {
     const tickId = randomUUID().slice(0, 8);
     let lagBlocks = 0;
     try {
-      lagBlocks = await Promise.race([
-        tick(tickId),
-        new Promise<number>((_, reject) =>
-          setTimeout(() => reject(new Error(`tick timed out after ${TICK_TIMEOUT_MS}ms`)), TICK_TIMEOUT_MS)
-        ),
-      ]);
+      lagBlocks = await tick(tickId);
     } catch (err) {
       log.error({ err, tickId }, "Mirror tick error");
     }
