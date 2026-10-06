@@ -34,7 +34,6 @@ const raw = await pollContractEvents({
   fromBlock,
   toBlock,
   keys: [[num.toHex(TRANSFER_SELECTOR), num.toHex(TRANSFER_SINGLE_SELECTOR), num.toHex(TRANSFER_BATCH_SELECTOR)]],
-  maxPages: 100,
 });
 const events = parseEvents(raw).filter(
   (e) => e.type === "Transfer" || e.type === "TransferSingle" || e.type === "TransferBatch",
