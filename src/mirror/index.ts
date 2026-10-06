@@ -79,7 +79,7 @@ async function tick(tickId: string): Promise<number> {
     async (tx) => {
       outcome = await applyEvents(rawEvents, tx, CHAIN);
 
-      await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
+      await saveCursor({ lastBlock: BigInt(toBlock) }, CHAIN, tx);
 
       for (const id of TRANSFER_SOURCE_IDS) {
         const transferFetch = byId.get(id);
@@ -101,7 +101,7 @@ async function tick(tickId: string): Promise<number> {
       affectedContracts.add(contractAddress);
     }
   } catch (err) {
-    await saveCursor({ lastBlock: cursor.lastBlock, continuationToken: null }, CHAIN);
+    await saveCursor({ lastBlock: cursor.lastBlock }, CHAIN);
     tlog.error(
       { err, fromBlock, toBlock, rewoundTo: cursor.lastBlock.toString() },
       "Writing new collections failed, so the range is left to be read again",

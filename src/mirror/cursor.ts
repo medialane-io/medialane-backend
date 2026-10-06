@@ -7,7 +7,6 @@ const log = createLogger("cursor");
 
 export interface Cursor {
   lastBlock: bigint;
-  continuationToken: string | null;
 }
 
 export async function loadCursor(chain: Chain): Promise<Cursor> {
@@ -18,13 +17,10 @@ export async function loadCursor(chain: Chain): Promise<Cursor> {
   if (!row) {
     const startBlock = BigInt(env.INDEXER_START_BLOCK);
     log.info({ chain, startBlock: startBlock.toString() }, "No cursor found, starting from START_BLOCK");
-    return { lastBlock: startBlock, continuationToken: null };
+    return { lastBlock: startBlock };
   }
 
-  return {
-    lastBlock: row.lastBlock,
-    continuationToken: row.continuationToken,
-  };
+  return { lastBlock: row.lastBlock };
 }
 
 export async function saveCursor(
@@ -33,10 +29,7 @@ export async function saveCursor(
   tx?: Prisma.TransactionClient
 ): Promise<void> {
   const client = tx ?? prisma;
-  const data = {
-    lastBlock: cursor.lastBlock,
-    continuationToken: cursor.continuationToken,
-  };
+  const data = { lastBlock: cursor.lastBlock };
   await client.indexerCursor.upsert({
     where: { chain },
     create: { chain, ...data },
@@ -48,8 +41,8 @@ export async function resetCursor(chain: Chain, toBlock?: bigint): Promise<void>
   const block = toBlock ?? BigInt(env.INDEXER_START_BLOCK);
   await prisma.indexerCursor.upsert({
     where: { chain },
-    create: { chain, lastBlock: block, continuationToken: null },
-    update: { lastBlock: block, continuationToken: null },
+    create: { chain, lastBlock: block },
+    update: { lastBlock: block },
   });
 
   await prisma.sourceCursor.deleteMany({ where: { chain } });
