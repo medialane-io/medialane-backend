@@ -50,7 +50,7 @@ test("an existing cursor resumes from lastSyncedBlock + 1", async () => {
 test("decodes a plain transfer into an upserted SEND row and advances the cursor", async () => {
   const token = SUPPORTED_TOKENS[0].address;
   const transferEvent: RawStarknetEvent = {
-    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx",
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx", event_index: 0,
     from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeone"], data: ["0x64", "0x0"],
   };
   const { deps, upserted, getCursorSet } = fakeDeps({
@@ -65,11 +65,11 @@ test("decodes a plain transfer into an upserted SEND row and advances the cursor
 test("assigns each row's timestamp from its own block time, not wall-clock time", async () => {
   const token = SUPPORTED_TOKENS[0].address;
   const earlyEvent: RawStarknetEvent = {
-    block_hash: "0xb1", block_number: 100, transaction_hash: "0xtx-early",
+    block_hash: "0xb1", block_number: 100, transaction_hash: "0xtx-early", event_index: 0,
     from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeone"], data: ["0x64", "0x0"],
   };
   const lateEvent: RawStarknetEvent = {
-    block_hash: "0xb2", block_number: 200, transaction_hash: "0xtx-late",
+    block_hash: "0xb2", block_number: 200, transaction_hash: "0xtx-late", event_index: 0,
     from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeoneelse"], data: ["0x64", "0x0"],
   };
   const blockTimes: Record<number, Date> = {
@@ -90,7 +90,7 @@ test("assigns each row's timestamp from its own block time, not wall-clock time"
 
 test("decodes an account-contract event into a DEPLOY row", async () => {
   const deployEvent: RawStarknetEvent = {
-    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx2",
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx2", event_index: 0,
     from_address: ACCOUNT, keys: [ACCOUNT_CREATED_GUID_SELECTOR, "0xownerguid"], data: ["0x0"],
   };
   const { deps, upserted } = fakeDeps({
@@ -103,7 +103,7 @@ test("decodes an account-contract event into a DEPLOY row", async () => {
 
 test("a guardian-triggered escape notifies the account, in addition to being recorded", async () => {
   const escapeEvent: RawStarknetEvent = {
-    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx3",
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx3", event_index: 0,
     from_address: ACCOUNT, keys: [ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR], data: [],
   };
   const { deps, upserted, guardianNotifications } = fakeDeps({
@@ -117,7 +117,7 @@ test("a guardian-triggered escape notifies the account, in addition to being rec
 
 test("adding a guardian notifies the account, in addition to being recorded", async () => {
   const setEvent: RawStarknetEvent = {
-    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx4",
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx4", event_index: 0,
     from_address: ACCOUNT, keys: [GUARDIAN_ADDED_GUID_SELECTOR], data: [],
   };
   const { deps, upserted, guardianNotifications } = fakeDeps({
@@ -131,7 +131,7 @@ test("adding a guardian notifies the account, in addition to being recorded", as
 
 test("a completed escape notifies the account, in addition to being recorded", async () => {
   const completedEvent: RawStarknetEvent = {
-    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx5",
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx5", event_index: 0,
     from_address: ACCOUNT, keys: [OWNER_ESCAPED_GUID_SELECTOR], data: [],
   };
   const { deps, upserted, guardianNotifications } = fakeDeps({
@@ -146,7 +146,7 @@ test("a completed escape notifies the account, in addition to being recorded", a
 test("an ordinary transfer does not trigger a guardian notification", async () => {
   const token = SUPPORTED_TOKENS[0].address;
   const transferEvent: RawStarknetEvent = {
-    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx",
+    block_hash: "0xb", block_number: 175, transaction_hash: "0xtx", event_index: 0,
     from_address: token, keys: [TRANSFER_SELECTOR, ACCOUNT, "0xsomeone"], data: ["0x64", "0x0"],
   };
   const { deps, guardianNotifications } = fakeDeps({

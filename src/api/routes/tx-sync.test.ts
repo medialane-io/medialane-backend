@@ -11,7 +11,7 @@ describe("a receipt becomes the same input the poller applies", () => {
       99,
     );
     expect(events).toEqual([
-      { from_address: "0xc", keys: ["0x1"], data: ["0x2"], block_number: 99, transaction_hash: "0xtx" },
+      { from_address: "0xc", keys: ["0x1"], data: ["0x2"], block_number: 99, transaction_hash: "0xtx", event_index: 0 },
     ] as never);
   });
 
@@ -145,4 +145,19 @@ describe("a factory deploy in the receipt is applied by that factory's own handl
     );
     expect(factoryBatches(events)).toEqual([]);
   });
+});
+
+test("an event keeps its position in the whole receipt, even when earlier events are skipped", () => {
+  const receipt = {
+    events: [
+      { from_address: "0xfee", keys: ["0x1"], data: [] },
+      { from_address: "0xbad", keys: [], data: [] },
+      { from_address: "0xabc", keys: ["0x2"], data: [] },
+    ],
+  };
+  const events = eventsFromReceipt(receipt, "0xtx", 7);
+  expect(events.map((e) => [e.from_address, e.event_index])).toEqual([
+    ["0xfee", 0],
+    ["0xabc", 2],
+  ]);
 });

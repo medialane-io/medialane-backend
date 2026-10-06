@@ -13,7 +13,7 @@ const TOKEN = "0x0000000000000000000000000000000000000000000000000000000000000ab
 function baseEvent(overrides: Partial<RawStarknetEvent> = {}): RawStarknetEvent {
   return {
     block_hash: "0xblock", block_number: 100, transaction_hash: "0xtx",
-    from_address: TOKEN, keys: [], data: [], ...overrides,
+    from_address: TOKEN, keys: [], data: [], event_index: 0, ...overrides,
   };
 }
 

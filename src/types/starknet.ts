@@ -6,6 +6,7 @@ export interface RawStarknetEvent {
   from_address: string;
   keys: string[];
   data: string[];
+  event_index: number;
 }
 
 export interface GetEventsResponse {

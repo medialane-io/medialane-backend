@@ -27,6 +27,7 @@ function rawEvent(overrides: Partial<RawStarknetEvent>): RawStarknetEvent {
     block_number: 12345,
     transaction_hash: TX_HASH,
     block_hash: BLOCK_HASH,
+    event_index: 0,
     ...overrides,
   };
 }

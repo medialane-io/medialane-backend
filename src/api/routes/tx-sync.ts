@@ -33,14 +33,15 @@ export function eventsFromReceipt(
 ): RawStarknetEvent[] {
   const events = (receipt as { events?: ReceiptEvent[] } | null)?.events ?? [];
   return events
-    .filter((e) => e.from_address && e.keys?.length)
-    .map((e) => ({
+    .map((e, i) => ({
       from_address: e.from_address!,
-      keys: e.keys!,
+      keys: e.keys ?? [],
       data: e.data ?? [],
       block_number: blockNumber,
       transaction_hash: txHash,
-    })) as unknown as RawStarknetEvent[];
+      event_index: i,
+    }))
+    .filter((e) => e.from_address && e.keys.length > 0) as unknown as RawStarknetEvent[];
 }
 
 const POLLED_CONTRACT_SOURCES = new Set([

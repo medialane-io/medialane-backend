@@ -25,6 +25,7 @@ export type MarketplaceReceiptEvent = {
   block_number: number;
   transaction_hash: string;
   block_hash: string;
+  event_index: number;
 };
 
 export async function verifyMarketplaceTx(txHash: string): Promise<VerifyResult> {
@@ -148,15 +149,16 @@ export async function fetchMarketplaceReceiptEvents(txHash: string): Promise<Mar
   const events = (receipt.events as Array<{ from_address?: string; keys?: string[]; data?: string[] }>) ?? [];
 
   return events
-    .filter((event) => VALID_MARKETPLACE_CONTRACTS.has(safeNormalizeAddress(event.from_address)))
-    .map((event) => ({
+    .map((event, i) => ({
       from_address: safeNormalizeAddress(event.from_address),
       keys: event.keys ?? [],
       data: event.data ?? [],
       block_number: blockNumber,
       transaction_hash: normalizedTxHash,
       block_hash: blockHash,
-    }));
+      event_index: i,
+    }))
+    .filter((event) => VALID_MARKETPLACE_CONTRACTS.has(event.from_address));
 }
 
 export async function fetchReceiptEvents(txHash: string): Promise<RawStarknetEvent[]> {
@@ -169,13 +171,14 @@ export async function fetchReceiptEvents(txHash: string): Promise<RawStarknetEve
   const blockHash = typeof receipt.block_hash === "string" ? receipt.block_hash : "";
   const events = (receipt.events as Array<{ from_address?: string; keys?: string[]; data?: string[] }>) ?? [];
 
-  return events.map((event) => ({
+  return events.map((event, i) => ({
     from_address: safeNormalizeAddress(event.from_address),
     keys: event.keys ?? [],
     data: event.data ?? [],
     block_number: blockNumber,
     transaction_hash: normalizedTxHash,
     block_hash: blockHash,
+    event_index: i,
   }));
 }
 
