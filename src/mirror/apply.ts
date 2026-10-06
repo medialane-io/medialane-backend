@@ -6,7 +6,7 @@ import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/ord
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleCounterIncremented } from "./handlers/counterIncremented.js";
 import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
-import { dispatchTransfer } from "./handlers/transfer.js";
+import { dispatchTransfer, ensureTransferCollections } from "./handlers/transfer.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { upsertCollectionFromFactory } from "../utils/collection.js";
 import { serviceForFactory } from "../utils/factoryService.js";
@@ -70,6 +70,7 @@ export async function applyEvents(
   const rest = raw.filter((e) => !isMarketplace1155Event(e));
 
   const parsed = deduplicateTransfers(parseEvents(rest));
+  await ensureTransferCollections(tx, parsed, chain);
 
   const affectedContracts = new Set<string>();
   const orderNftContracts = new Set<string>();

@@ -15,9 +15,8 @@ import { getServiceByMarketplaceAddress } from "../../../utils/collection.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "../../../mirror/handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "../../../mirror/handlers/orderCancelled.js";
-import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
+import { dispatchTransfer, ensureTransferCollections } from "../../../mirror/handlers/transfer.js";
 import { parseEvents } from "../../../mirror/parser.js";
-import { getTokenByAddress } from "../../../config/constants.js";
 import { runTransferFollowups } from "../../../orchestrator/transferFollowup.js";
 import {
   log,
@@ -185,6 +184,7 @@ export async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
   );
 
   await prisma.$transaction(async (tx) => {
+    await ensureTransferCollections(tx, transferEvents, "STARKNET");
     for (const event of rawFulfilledEvents) {
       const venue = getServiceByMarketplaceAddress(event.from_address);
       if (venue?.standard === "ERC1155") {
@@ -213,10 +213,7 @@ export async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
         continue;
       }
 
-      if (
-        (event.type === "Transfer" || event.type === "TransferSingle" || event.type === "TransferBatch") &&
-        !getTokenByAddress(event.contractAddress)
-      ) {
+      if (isNftTransferEvent(event)) {
         await dispatchTransfer(event, tx, "STARKNET");
       }
     }
@@ -262,6 +259,7 @@ export async function hydrateTransfersFromTx(txHash: string): Promise<void> {
   const transferEvents = parsedEvents.filter(isNftTransferEvent);
 
   await prisma.$transaction(async (tx) => {
+    await ensureTransferCollections(tx, transferEvents, "STARKNET");
     for (const event of transferEvents) {
       await dispatchTransfer(event, tx, "STARKNET");
     }

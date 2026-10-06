@@ -1,5 +1,5 @@
-import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
-import type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch } from "../../types/marketplace.js";
+import { type Chain, type Prisma } from "@prisma/client";
+import type { ParsedEvent, ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch } from "../../types/marketplace.js";
 export type { ParsedTransfer, ParsedTransferSingle, ParsedTransferBatch };
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { ensureCollectionFromActivity } from "../../utils/collection.js";
@@ -40,20 +40,36 @@ async function decrementBalance(
   `;
 }
 
-async function upsertTokenAndCollection(
+async function upsertToken(
   tx: Prisma.TransactionClient,
   chain: Chain,
   contractAddress: string,
   tokenId: string,
-  blockNumber: bigint,
-  standard: TokenStandard,
 ): Promise<void> {
   await tx.token.upsert({
     where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
     create: { chain, contractAddress, tokenId, metadataStatus: "PENDING" },
     update: {},
   });
-  await ensureCollectionFromActivity(tx, { chain, contractAddress, standard, blockNumber });
+}
+
+export async function ensureTransferCollections(
+  tx: Prisma.TransactionClient,
+  events: ParsedEvent[],
+  chain: Chain,
+): Promise<void> {
+  const seen = new Set<string>();
+  for (const e of events) {
+    if (e.type !== "Transfer" && e.type !== "TransferSingle" && e.type !== "TransferBatch") continue;
+    if (seen.has(e.contractAddress)) continue;
+    seen.add(e.contractAddress);
+    await ensureCollectionFromActivity(tx, {
+      chain,
+      contractAddress: e.contractAddress,
+      standard: e.type === "Transfer" ? "ERC721" : "ERC1155",
+      blockNumber: e.blockNumber,
+    });
+  }
 }
 
 async function createTransferIfNew(
@@ -81,7 +97,7 @@ export async function handleTransfer(
 ): Promise<void> {
   const { contractAddress, tokenId, from, to, blockNumber, txHash, logIndex } = event;
 
-  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC721");
+  await upsertToken(tx, chain, contractAddress, tokenId);
 
   const isNew = await createTransferIfNew(tx, {
     chain,
@@ -110,7 +126,7 @@ export async function handleTransferSingle(
   const { contractAddress, tokenId, from, to, amount, blockNumber, txHash, logIndex } = event;
   const qty = BigInt(amount);
 
-  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
+  await upsertToken(tx, chain, contractAddress, tokenId);
 
   const isNew = await createTransferIfNew(tx, {
     chain,
@@ -144,7 +160,7 @@ export async function handleTransferBatch(
 
     const itemLogIndex = logIndex * 10000 + i;
 
-    await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
+    await upsertToken(tx, chain, contractAddress, tokenId);
 
     const isNew = await createTransferIfNew(tx, {
       chain,

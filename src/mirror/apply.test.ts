@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { isMarketplace1155Event, deduplicateTransfers } from "./apply.js";
-import { STARKNET_MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
+import { isMarketplace1155Event, deduplicateTransfers, applyEvents } from "./apply.js";
+import { num } from "starknet";
+import type { Prisma } from "@prisma/client";
+import { STARKNET_MARKETPLACE_1155_CONTRACT, TRANSFER_SELECTOR, ZERO_ADDRESS } from "../config/constants.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 function rawEvent(from: string): RawStarknetEvent {
@@ -63,4 +65,32 @@ describe("a transfer reported twice is applied once", () => {
     const order = { type: "OrderCreated", orderHash: "0x1" };
     expect(deduplicateTransfers([order] as never)).toEqual([order] as never);
   });
+});
+
+test("a batch of transfers checks each collection once", async () => {
+  const upserts: string[] = [];
+  const tx = {
+    collection: {
+      upsert: async (a: { where: { chain_contractAddress: { contractAddress: string } } }) => {
+        upserts.push(a.where.chain_contractAddress.contractAddress);
+        return {};
+      },
+    },
+    token: { upsert: async () => ({}) },
+    transfer: { createMany: async () => ({ count: 1 }) },
+    $executeRaw: async () => 1,
+  } as unknown as Prisma.TransactionClient;
+  const mint = (tokenId: string, i: number) =>
+    ({
+      from_address: "0xc0ffee",
+      keys: [num.toHex(TRANSFER_SELECTOR), ZERO_ADDRESS, "0xa11ce", tokenId, "0x0"],
+      data: [],
+      block_number: 1,
+      transaction_hash: "0x123abc",
+      event_index: i,
+    }) as unknown as RawStarknetEvent;
+
+  await applyEvents([mint("0x1", 0), mint("0x2", 1), mint("0x3", 2)], tx, "STARKNET");
+
+  expect(upserts).toHaveLength(1);
 });

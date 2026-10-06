@@ -2,7 +2,7 @@ import { num } from "starknet";
 import prisma from "../db/client.js";
 import { pollContractEvents, getLatestBlock } from "../mirror/poller.js";
 import { parseEvents } from "../mirror/parser.js";
-import { dispatchTransfer } from "../mirror/handlers/transfer.js";
+import { dispatchTransfer, ensureTransferCollections } from "../mirror/handlers/transfer.js";
 import { TRANSFER_SELECTOR, TRANSFER_SINGLE_SELECTOR, TRANSFER_BATCH_SELECTOR } from "../config/constants.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { handleStatsUpdate } from "../orchestrator/stats.js";
@@ -43,7 +43,10 @@ let applied = 0;
 let skipped = 0;
 for (const event of events) {
   try {
-    await prisma.$transaction((tx) => dispatchTransfer(event, tx, "STARKNET"));
+    await prisma.$transaction(async (tx) => {
+      await ensureTransferCollections(tx, [event], "STARKNET");
+      await dispatchTransfer(event, tx, "STARKNET");
+    });
     applied++;
   } catch (err) {
     if ((err as { code?: string }).code !== "P2002") console.warn("backfill row error:", err);
