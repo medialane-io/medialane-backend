@@ -74,7 +74,6 @@ export interface EventSource {
   startBlock?: number;
 
   cadenceMs?: number;
-  maxPages?: number;
 
   apply?: (events: RawStarknetEvent[], ctx: SourceContext) => Promise<void>;
 }
@@ -194,13 +193,13 @@ const TREASURY_DEPOSIT_SOURCES: EventSource[] = x402Config.treasury
   : [];
 
 export const EVENT_SOURCES: EventSource[] = [
-  { id: CORE_MARKETPLACE_721, scope: { kind: "contract", address: STARKNET_MARKETPLACE_721_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
-  { id: CORE_MARKETPLACE_1155, scope: { kind: "contract", address: STARKNET_MARKETPLACE_1155_CONTRACT }, selectors: MARKETPLACE_SELECTORS, maxPages: 100 },
+  { id: CORE_MARKETPLACE_721, scope: { kind: "contract", address: STARKNET_MARKETPLACE_721_CONTRACT }, selectors: MARKETPLACE_SELECTORS },
+  { id: CORE_MARKETPLACE_1155, scope: { kind: "contract", address: STARKNET_MARKETPLACE_1155_CONTRACT }, selectors: MARKETPLACE_SELECTORS },
   { id: CORE_FACTORY_MIP721, scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
   { id: CORE_FACTORY_DATA_TOKENIZATION, scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
 
-  { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
-  { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS, maxPages: 100 },
+  { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS },
+  { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], cadenceMs: EVERY_TICK, apply: applyComments },
 
   ...TREASURY_DEPOSIT_SOURCES,
@@ -256,59 +255,58 @@ export function sourceFromBlock(
 
 const _lastPollTime = new Map<string, number>();
 
+const SOURCE_CONCURRENCY = 4;
+
 export async function fetchDueSources(params: {
   chain: Chain;
   fromBlock: number;
   toBlock: number;
   now: number;
+  sources?: EventSource[];
 }): Promise<SourceFetch[]> {
-  const { chain, fromBlock, toBlock, now } = params;
-  const fetches: SourceFetch[] = [];
+  const { chain, fromBlock, toBlock, now, sources = EVENT_SOURCES } = params;
+  const due = sources.filter(
+    (s) => !(s.scope.kind === "contract" && !s.scope.address) && isDue(s.cadenceMs, _lastPollTime.get(s.id), now),
+  );
+  return mapWithConcurrency(due, SOURCE_CONCURRENCY, (source) => fetchSource(source, chain, fromBlock, toBlock, now));
+}
 
-  for (const source of EVENT_SOURCES) {
-    if (source.scope.kind === "contract" && !source.scope.address) continue;
-    if (!isDue(source.cadenceMs, _lastPollTime.get(source.id), now)) continue;
-
-    let from = fromBlock;
-    let cursorTo: number | null = null;
-    if (source.cadenceMs !== undefined) {
-      from = sourceFromBlock(await loadSourceCursor(chain, source.id), fromBlock, source.startBlock);
-      cursorTo = toBlock;
-      _lastPollTime.set(source.id, now);
-    }
-
-    let events: RawStarknetEvent[] = [];
-    if (from <= toBlock) {
-      if (source.scope.kind === "contract") {
-        events = await pollContractEvents({
-          address: source.scope.address!,
-          fromBlock: from,
-          toBlock,
-          keys: [source.selectors, ...(source.keyFilters ?? [])],
-          maxPages: source.maxPages,
-        });
-      } else {
-        const collections = await prisma.collection.findMany({
-          where: collectionScopeWhere(source.scope, chain, toBlock),
-          select: { contractAddress: true },
-        });
-
-        events = (
-          await mapWithConcurrency(collections, COLLECTION_POLL_CONCURRENCY, (c) =>
-            pollContractEvents({
-              address: c.contractAddress,
-              fromBlock: from,
-              toBlock,
-              keys: [source.selectors],
-              maxPages: source.maxPages,
-            })
-          )
-        ).flat();
-      }
-    }
-
-    fetches.push({ source, events, cursorTo });
+async function fetchSource(
+  source: EventSource,
+  chain: Chain,
+  fromBlock: number,
+  toBlock: number,
+  now: number,
+): Promise<SourceFetch> {
+  let from = fromBlock;
+  let cursorTo: number | null = null;
+  if (source.cadenceMs !== undefined) {
+    from = sourceFromBlock(await loadSourceCursor(chain, source.id), fromBlock, source.startBlock);
+    cursorTo = toBlock;
+    _lastPollTime.set(source.id, now);
   }
 
-  return fetches;
+  let events: RawStarknetEvent[] = [];
+  if (from <= toBlock) {
+    if (source.scope.kind === "contract") {
+      events = await pollContractEvents({
+        address: source.scope.address!,
+        fromBlock: from,
+        toBlock,
+        keys: [source.selectors, ...(source.keyFilters ?? [])],
+      });
+    } else {
+      const collections = await prisma.collection.findMany({
+        where: collectionScopeWhere(source.scope, chain, toBlock),
+        select: { contractAddress: true },
+      });
+      events = (
+        await mapWithConcurrency(collections, COLLECTION_POLL_CONCURRENCY, (c) =>
+          pollContractEvents({ address: c.contractAddress, fromBlock: from, toBlock, keys: [source.selectors] })
+        )
+      ).flat();
+    }
+  }
+
+  return { source, events, cursorTo };
 }

@@ -7,11 +7,9 @@ export async function pollContractEvents(params: {
   toBlock: number;
   keys: string[][];
   chunkSize?: number;
-  maxPages?: number;
 }): Promise<RawStarknetEvent[]> {
   const allEvents: RawStarknetEvent[] = [];
   let continuationToken: string | undefined = undefined;
-  let page = 0;
   do {
     const response = await callRpc((provider) => provider.getEvents({
       address: params.address,
@@ -27,8 +25,7 @@ export async function pollContractEvents(params: {
     }
 
     continuationToken = response.continuation_token;
-    page++;
-  } while (continuationToken && (params.maxPages === undefined || page < params.maxPages));
+  } while (continuationToken);
 
   return allEvents;
 }

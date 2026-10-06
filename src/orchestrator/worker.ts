@@ -4,7 +4,6 @@ import { handleStatsUpdate } from "./stats.js";
 import { handleCollectionMetadataFetch } from "./collectionMetadata.js";
 import { syncWalletActivityProd } from "../walletActivity/sync.js";
 import { createLogger } from "../utils/logger.js";
-import { sleep } from "../utils/retry.js";
 
 const log = createLogger("worker");
 
@@ -21,11 +20,13 @@ interface QueuedItem {
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 5000;
+const CONCURRENCY = 6;
 
 class InMemoryWorker {
   private queue: QueuedItem[] = [];
   private pendingKeys = new Set<string>();
-  private running = false;
+  private active = 0;
+  private retrying = 0;
 
   private key(item: WorkItem): string {
     switch (item.type) {
@@ -44,15 +45,19 @@ class InMemoryWorker {
     if (this.pendingKeys.has(k)) return;
     this.pendingKeys.add(k);
     this.queue.push({ item, attempts: 0 });
-    if (!this.running) this.drain();
+    this.pump();
+  }
+
+  private idle(): boolean {
+    return this.active === 0 && this.retrying === 0 && this.queue.length === 0;
   }
 
   async waitDrain(timeoutMs: number): Promise<void> {
-    if (!this.running && this.queue.length === 0) return;
+    if (this.idle()) return;
     return new Promise<void>((resolve) => {
       const deadline = setTimeout(resolve, timeoutMs);
       const poll = setInterval(() => {
-        if (!this.running && this.queue.length === 0) {
+        if (this.idle()) {
           clearInterval(poll);
           clearTimeout(deadline);
           resolve();
@@ -61,29 +66,38 @@ class InMemoryWorker {
     });
   }
 
-  private async drain(): Promise<void> {
-    this.running = true;
-    while (this.queue.length > 0) {
+  private pump(): void {
+    while (this.active < CONCURRENCY && this.queue.length > 0) {
       const entry = this.queue.shift()!;
-      const k = this.key(entry.item);
+      this.active++;
+      void this.run(entry).finally(() => {
+        this.active--;
+        this.pump();
+      });
+    }
+  }
 
-      try {
-        await this.process(entry.item);
-        this.pendingKeys.delete(k);
-      } catch (err) {
-        entry.attempts++;
-        if (entry.attempts < MAX_ATTEMPTS) {
-          const delay = RETRY_BASE_MS * entry.attempts;
-          log.warn({ type: entry.item.type, attempts: entry.attempts, delay }, "Worker: retrying after error");
-          await sleep(delay);
+  private async run(entry: QueuedItem): Promise<void> {
+    const k = this.key(entry.item);
+    try {
+      await this.process(entry.item);
+      this.pendingKeys.delete(k);
+    } catch (err) {
+      entry.attempts++;
+      if (entry.attempts < MAX_ATTEMPTS) {
+        const delay = RETRY_BASE_MS * entry.attempts;
+        log.warn({ type: entry.item.type, attempts: entry.attempts, delay }, "Worker: retrying after error");
+        this.retrying++;
+        setTimeout(() => {
+          this.retrying--;
           this.queue.push(entry);
-        } else {
-          log.error({ err, type: entry.item.type, attempts: entry.attempts }, "Worker: item exhausted retries");
-          this.pendingKeys.delete(k);
-        }
+          this.pump();
+        }, delay);
+      } else {
+        log.error({ err, type: entry.item.type, attempts: entry.attempts }, "Worker: item exhausted retries");
+        this.pendingKeys.delete(k);
       }
     }
-    this.running = false;
   }
 
   private async process(item: WorkItem): Promise<void> {

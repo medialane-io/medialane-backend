@@ -14,20 +14,13 @@ export const CHAIN = "STARKNET" as const;
 
 const CATCHUP_THRESHOLD = 1000;
 
-const TICK_TIMEOUT_MS = 60_000;
-
 export async function startMirror(): Promise<void> {
   log.info({ chain: CHAIN }, "Mirror starting...");
   while (true) {
     const tickId = randomUUID().slice(0, 8);
     let lagBlocks = 0;
     try {
-      lagBlocks = await Promise.race([
-        tick(tickId),
-        new Promise<number>((_, reject) =>
-          setTimeout(() => reject(new Error(`tick timed out after ${TICK_TIMEOUT_MS}ms`)), TICK_TIMEOUT_MS)
-        ),
-      ]);
+      lagBlocks = await tick(tickId);
     } catch (err) {
       log.error({ err, tickId }, "Mirror tick error");
     }
@@ -86,7 +79,7 @@ async function tick(tickId: string): Promise<number> {
     async (tx) => {
       outcome = await applyEvents(rawEvents, tx, CHAIN);
 
-      await saveCursor({ lastBlock: BigInt(toBlock), continuationToken: null }, CHAIN, tx);
+      await saveCursor({ lastBlock: BigInt(toBlock) }, CHAIN, tx);
 
       for (const id of TRANSFER_SOURCE_IDS) {
         const transferFetch = byId.get(id);
@@ -108,7 +101,7 @@ async function tick(tickId: string): Promise<number> {
       affectedContracts.add(contractAddress);
     }
   } catch (err) {
-    await saveCursor({ lastBlock: cursor.lastBlock, continuationToken: null }, CHAIN);
+    await saveCursor({ lastBlock: cursor.lastBlock }, CHAIN);
     tlog.error(
       { err, fromBlock, toBlock, rewoundTo: cursor.lastBlock.toString() },
       "Writing new collections failed, so the range is left to be read again",

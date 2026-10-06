@@ -8,74 +8,24 @@ import {
   ACTIVE_LISTING_ACTIVITY_WHERE,
   ACTIVE_OFFER_ACTIVITY_WHERE,
   SALE_ORDER_WHERE,
-  isOrderSale,
 } from "../utils/orderSale.js";
+import { batchTokenMeta } from "../utils/serialize.js";
+import { mergeFeed, activityItemToken, MAX_FEED_DEPTH, type ActivityFeedItem } from "./activities.feed.js";
 
 const activities = new Hono();
 
-interface TransferActivityItem {
-  type: "mint" | "transfer";
-  chain: Chain;
-  contractAddress: string;
-  tokenId: string;
-  from: string | null;
-  to: string;
-  blockNumber: string;
-  amount: string;
-  txHash: string;
-  timestamp: Date;
-}
-
-interface OrderActivityItem {
-  type: "sale" | "offer" | "listing" | "cancelled";
-  chain: Chain;
-  orderHash: string;
-  nftContract: string | null;
-  nftTokenId: string | null;
-  offerer: string;
-  fulfiller: string | null;
-  price: { raw: string | null; formatted: string | null; currency: string | null };
-  tokenStandard: string;
-  txHash: string;
-  timestamp: Date;
-}
-
-type ActivityFeedItem = TransferActivityItem | OrderActivityItem;
-
-function isTransferActivityItem(item: ActivityFeedItem): item is TransferActivityItem {
-  return item.type === "mint" || item.type === "transfer";
-}
-
-function activityItemToken(item: ActivityFeedItem): { contract: string | null; tokenId: string | null } {
-  if (isTransferActivityItem(item)) return { contract: item.contractAddress, tokenId: item.tokenId };
-  return { contract: item.nftContract, tokenId: item.nftTokenId };
-}
-
-function transferType(fromAddress: string): "mint" | "transfer" {
-  return fromAddress === ZERO_ADDRESS ? "mint" : "transfer";
-}
-
-async function batchActivityTokenMeta(
-  feed: ActivityFeedItem[]
-): Promise<Map<string, { name: string | null; image: string | null; animationUrl: string | null }>> {
-  const pairs = feed
-    .map((item) => ({ chain: item.chain, ...activityItemToken(item) }))
-    .filter(
-      (p): p is { chain: Chain; contract: string; tokenId: string } =>
-        !!p.chain && !!p.contract && !!p.tokenId
-    )
-    .map((p) => ({ chain: p.chain, contractAddress: p.contract, tokenId: p.tokenId }));
-
-  if (!pairs.length) return new Map();
-
-  const tokens = await prisma.token.findMany({
-    where: { OR: pairs },
-    select: { contractAddress: true, tokenId: true, name: true, image: true, animationUrl: true },
-  });
-
-  return new Map(
-    tokens.map((t) => [`${t.contractAddress}-${t.tokenId}`, { name: t.name, image: t.image, animationUrl: t.animationUrl }])
+async function withTokenMeta(feed: ActivityFeedItem[]) {
+  const meta = await batchTokenMeta(
+    feed.map((item) => {
+      const { contract, tokenId } = activityItemToken(item);
+      return { chain: item.chain, nftContract: contract, nftTokenId: tokenId };
+    }),
   );
+  return feed.map((item) => {
+    const { contract, tokenId } = activityItemToken(item);
+    const m = meta.get(`${contract}-${tokenId}`);
+    return { ...item, token: m ? { name: m.name, image: m.image, animationUrl: m.animationUrl } : null };
+  });
 }
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -182,6 +132,8 @@ activities.get("/", async (c) => {
   const type = c.req.query("type");
 
   const skip = (page - 1) * limit;
+  const take = skip + limit;
+  const deep = take > MAX_FEED_DEPTH;
 
   const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
 
@@ -197,87 +149,18 @@ activities.get("/", async (c) => {
   const { transferWhere, orderWhere } = buildActivityWhere({ chainFilter, type, contract, hiddenContractFilter });
 
   const [transfers, orders, transferCount, orderCount] = await Promise.all([
-    wantTransfers
-      ? prisma.transfer.findMany({
-          where: transferWhere,
-          orderBy: { blockNumber: "desc" },
-          skip,
-          take: limit,
-        })
+    wantTransfers && !deep
+      ? prisma.transfer.findMany({ where: transferWhere, orderBy: { createdAt: "desc" }, take })
       : [],
-    wantOrders
-      ? prisma.order.findMany({
-          where: orderWhere,
-          orderBy: { updatedAt: "desc" },
-          skip,
-          take: limit,
-        })
+    wantOrders && !deep
+      ? prisma.order.findMany({ where: orderWhere, orderBy: { updatedAt: "desc" }, take })
       : [],
     wantTransfers ? prisma.transfer.count({ where: transferWhere }) : 0,
     wantOrders ? prisma.order.count({ where: orderWhere }) : 0,
   ]);
 
-  const saleTxHashes = new Set(
-    orders
-      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
-      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
-  );
-
-  const rawFeed: ActivityFeedItem[] = [
-    ...transfers
-      .filter((t) => !saleTxHashes.has(t.txHash))
-      .map((t): TransferActivityItem => ({
-        type: transferType(t.fromAddress),
-        chain: t.chain,
-        contractAddress: t.contractAddress,
-        tokenId: t.tokenId,
-        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
-        to: t.toAddress,
-        blockNumber: t.blockNumber.toString(),
-        amount: t.amount ?? "1",
-        txHash: t.txHash,
-        timestamp: t.createdAt,
-      })),
-    ...orders.map((o): OrderActivityItem => ({
-      type:
-        isOrderSale(o)
-          ? "sale"
-          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
-          ? "offer"
-          : o.status === "ACTIVE"
-          ? "listing"
-          : "cancelled",
-      chain: o.chain,
-      orderHash: o.orderHash,
-      nftContract: o.nftContract,
-      nftTokenId: o.nftTokenId,
-      offerer: o.offerer,
-      fulfiller: o.fulfiller,
-      price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
-      tokenStandard: o.offerItemType === "ERC20" ? o.considerationItemType : o.offerItemType,
-      txHash: o.createdTxHash,
-      timestamp: o.updatedAt,
-    })),
-  ]
-    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    .slice(0, limit);
-
-  const feed =
-    hiddenTokenSet.size > 0
-      ? rawFeed.filter((item) => {
-          const { contract, tokenId } = activityItemToken(item);
-          return !hiddenTokenSet.has(`${contract}:${tokenId}`);
-        })
-      : rawFeed;
-
-  const tokenMeta = await batchActivityTokenMeta(feed);
-  const enrichedFeed = feed.map((item) => {
-    const { contract, tokenId } = activityItemToken(item);
-    const meta = tokenMeta.get(`${contract}-${tokenId}`);
-    return { ...item, token: meta ? { name: meta.name, image: meta.image, animationUrl: meta.animationUrl } : null };
-  });
-
-  return c.json({ data: enrichedFeed, meta: { page, limit, total: transferCount + orderCount } });
+  const data = await withTokenMeta(mergeFeed(transfers, orders, { skip, limit, hiddenTokenSet }));
+  return c.json({ data, meta: { page, limit, total: Math.min(transferCount + orderCount, MAX_FEED_DEPTH) } });
 });
 
 activities.get("/:address", async (c) => {
@@ -287,6 +170,8 @@ activities.get("/:address", async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const skip = (page - 1) * limit;
+  const take = skip + limit;
+  const deep = take > MAX_FEED_DEPTH;
   const addr = normalizeAddress(chain, address);
 
   const { hiddenTokenSet, hiddenContractFilter } = await loadHiddenContentFilter();
@@ -301,81 +186,12 @@ activities.get("/:address", async (c) => {
   if (hiddenContractFilter) orderWhere.nftContract = hiddenContractFilter;
 
   const [transfers, orders] = await Promise.all([
-    prisma.transfer.findMany({
-      where: transferWhere,
-      orderBy: { blockNumber: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.order.findMany({
-      where: orderWhere,
-      orderBy: { updatedAt: "desc" },
-      skip,
-      take: limit,
-    }),
+    deep ? [] : prisma.transfer.findMany({ where: transferWhere, orderBy: { createdAt: "desc" }, take }),
+    deep ? [] : prisma.order.findMany({ where: orderWhere, orderBy: { updatedAt: "desc" }, take }),
   ]);
 
-  const saleTxHashes = new Set(
-    orders
-      .filter((o) => isOrderSale(o) && (o.fulfilledTxHash || o.createdTxHash))
-      .map((o) => (o.fulfilledTxHash ?? o.createdTxHash) as string)
-  );
-
-  const rawFeed: ActivityFeedItem[] = [
-    ...transfers
-      .filter((t) => !saleTxHashes.has(t.txHash))
-      .map((t): TransferActivityItem => ({
-        type: transferType(t.fromAddress),
-        chain: t.chain,
-        contractAddress: t.contractAddress,
-        tokenId: t.tokenId,
-        from: t.fromAddress === ZERO_ADDRESS ? null : t.fromAddress,
-        to: t.toAddress,
-        blockNumber: t.blockNumber.toString(),
-        amount: t.amount ?? "1",
-        txHash: t.txHash,
-        timestamp: t.createdAt,
-      })),
-    ...orders.map((o): OrderActivityItem => ({
-      type:
-        isOrderSale(o)
-          ? "sale"
-          : o.status === "ACTIVE" && o.offerItemType === "ERC20"
-          ? "offer"
-          : o.status === "ACTIVE"
-          ? "listing"
-          : "cancelled",
-      chain: o.chain,
-      orderHash: o.orderHash,
-      nftContract: o.nftContract,
-      nftTokenId: o.nftTokenId,
-      offerer: o.offerer,
-      fulfiller: o.fulfiller,
-      price: { raw: o.priceRaw, formatted: o.priceFormatted, currency: o.currencySymbol },
-      tokenStandard: o.offerItemType === "ERC20" ? o.considerationItemType : o.offerItemType,
-      txHash: o.createdTxHash,
-      timestamp: o.updatedAt,
-    })),
-  ]
-    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    .slice(0, limit);
-
-  const feed =
-    hiddenTokenSet.size > 0
-      ? rawFeed.filter((item) => {
-          const { contract, tokenId } = activityItemToken(item);
-          return !hiddenTokenSet.has(`${contract}:${tokenId}`);
-        })
-      : rawFeed;
-
-  const tokenMeta = await batchActivityTokenMeta(feed);
-  const enrichedFeed = feed.map((item) => {
-    const { contract, tokenId } = activityItemToken(item);
-    const meta = tokenMeta.get(`${contract}-${tokenId}`);
-    return { ...item, token: meta ? { name: meta.name, image: meta.image, animationUrl: meta.animationUrl } : null };
-  });
-
-  return c.json({ data: enrichedFeed, meta: { page, limit } });
+  const data = await withTokenMeta(mergeFeed(transfers, orders, { skip, limit, hiddenTokenSet }));
+  return c.json({ data, meta: { page, limit } });
 });
 
 export default activities;

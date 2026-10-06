@@ -69,7 +69,7 @@ export function createApp(): Hono<AppEnv> {
     return bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge })(c, next);
   });
 
-  app.use("/v1/*", apiKeyGate);
+  app.use("/v1/*", ...apiKeyGate);
 
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);

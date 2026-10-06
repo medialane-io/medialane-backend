@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { rpcEndpoints, redactRpcUrl, reportRpcEndpoints } from "./rpcFetch.js";
+import { rpcEndpoints, redactRpcUrl, reportRpcEndpoints, timedFetch } from "./rpcFetch.js";
 
 describe("which RPC endpoints the backend will call", () => {
   test("only keyed endpoints are used", () => {
@@ -48,3 +48,27 @@ describe("what startup says about the rpc endpoints", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 })
+
+describe("an rpc call that stops mid-answer", () => {
+  test("is cut off by the timeout instead of hanging the caller", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"jsonrpc":"2.0",'));
+            },
+          }),
+        ),
+    });
+    try {
+      const outcome = await timedFetch(`http://127.0.0.1:${server.port}`, {}, 100)
+        .then((res) => res.text())
+        .then(() => "answered", () => "cut off");
+      expect(outcome).toBe("cut off");
+    } finally {
+      server.stop(true);
+    }
+  }, 2000);
+});

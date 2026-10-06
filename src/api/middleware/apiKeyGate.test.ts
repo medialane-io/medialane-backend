@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import type { MiddlewareHandler } from "hono";
-import { apiKeyGate, composeMiddleware } from "./apiKeyGate.js";
+import { apiKeyGate } from "./apiKeyGate.js";
 
 describe("apiKeyGate — no path is exempt", () => {
   const previouslyExemptPaths: Array<{ method: "GET" | "POST"; path: string }> = [
@@ -18,7 +18,7 @@ describe("apiKeyGate — no path is exempt", () => {
   for (const { method, path } of previouslyExemptPaths) {
     test(`${method} ${path} requires a key`, async () => {
       const app = new Hono<AppEnv>();
-      app.use("/v1/*", apiKeyGate);
+      app.use("/v1/*", ...apiKeyGate);
       app[method === "GET" ? "get" : "post"](path, (c) => c.json({ ok: true }));
       const res = await app.request(path, { method });
       expect(res.status).toBe(401);
@@ -27,7 +27,7 @@ describe("apiKeyGate — no path is exempt", () => {
 
   test("an arbitrary unmapped /v1/* path also requires a key", async () => {
     const app = new Hono<AppEnv>();
-    app.use("/v1/*", apiKeyGate);
+    app.use("/v1/*", ...apiKeyGate);
     app.get("/v1/whatever-shows-up-next", (c) => c.json({ ok: true }));
     const res = await app.request("/v1/whatever-shows-up-next");
     expect(res.status).toBe(401);
@@ -41,7 +41,7 @@ const respondsWith = (status: 401 | 402 | 429): MiddlewareHandler =>
 
 function app(handlers: MiddlewareHandler[]) {
   const a = new Hono();
-  a.use("/v1/*", composeMiddleware(handlers));
+  a.use("/v1/*", ...handlers);
   a.onError((_err, c) => c.json({ error: "Internal server error" }, 500));
   a.get("/v1/thing", async (c) => c.json({ data: [] }));
   return a;

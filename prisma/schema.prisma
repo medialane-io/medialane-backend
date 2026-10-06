@@ -69,7 +69,6 @@ enum VerificationMethod {
 model IndexerCursor {
   chain             Chain    @id
   lastBlock         BigInt
-  continuationToken String?
   updatedAt         DateTime @updatedAt
 }
 
@@ -129,7 +128,6 @@ model Order {
 
   @@unique([chain, orderHash])
   @@index([chain, offerer])
-  @@index([chain, status])
   @@index([chain, nftContract, nftTokenId])
   @@index([chain, parentOrderHash])
   @@index([chain, status, nftContract])
@@ -138,6 +136,7 @@ model Order {
   @@index([chain, updatedAt])
   @@index([marketplaceContract])
   @@index([marketplaceService])
+  @@index([chain, fulfiller])
 }
 
 model OrderFill {
@@ -160,8 +159,6 @@ model OrderFill {
   createdAt       DateTime @default(now())
 
   @@unique([chain, orderHash, txHash, logIndex])
-  @@index([chain, orderHash])
-  @@index([chain, nftContract])
   @@index([chain, nftContract, nftTokenId])
   @@index([createdAt])
 }
@@ -196,10 +193,9 @@ model Token {
   updatedAt       DateTime       @updatedAt
 
   @@unique([chain, contractAddress, tokenId])
-  @@index([chain, contractAddress])
   @@index([chain, metadataStatus])
   @@index([chain, ipType])
-  @@index([chain, isHidden])
+  @@index([chain, isHidden, metadataStatus, createdAt])
 }
 
 model Collection {
@@ -435,6 +431,7 @@ model Transfer {
   @@index([chain, toAddress])
   @@index([chain, fromAddress])
   @@index([chain, blockNumber])
+  @@index([chain, createdAt])
 }
 
 model TokenBalance {
@@ -448,8 +445,6 @@ model TokenBalance {
 
   @@unique([chain, contractAddress, tokenId, owner])
   @@index([chain, owner])
-  @@index([chain, contractAddress])
-  @@index([chain, contractAddress, tokenId])
 }
 
 model SponsorshipOffer {
@@ -747,8 +742,6 @@ model Identity {
   @@unique([accountId, scheme])
   @@unique([appId, chain, address])
   @@unique([appId, scheme, value])
-  @@index([appId])
-  @@index([accountId])
   @@index([address])
 }
 
@@ -836,7 +829,6 @@ model PricingRule {
   updatedAt DateTime @updatedAt
 
   @@unique([actionKey, chain, service])
-  @@index([actionKey])
 }
 
 model RewardAction {
@@ -901,7 +893,6 @@ model UserBadge {
   txHash    String?
 
   @@unique([address, badgeKey])
-  @@index([address])
   @@index([accountId])
 }
 

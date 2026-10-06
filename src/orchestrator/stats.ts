@@ -13,46 +13,51 @@ export async function handleStatsUpdate(payload: {
   const { contractAddress } = payload;
   const chain = payload.chain as Chain;
 
-  const collection = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain, contractAddress } },
-    select: { standard: true, image: true, description: true },
-  });
-
-  const [{ count: holderCountBig }] = await prisma.$queryRaw<[{ count: bigint }]>`
-    SELECT COUNT(DISTINCT owner)::bigint AS count
-    FROM "TokenBalance"
-    WHERE chain = ${chain}::"Chain"
-      AND "contractAddress" = ${contractAddress}
-      AND amount::numeric > 0
-  `;
-  const holderCount = Number(holderCountBig);
-  let totalSupply: number;
-  if (collection?.standard === "ERC1155") {
-    const [{ total }] = await prisma.$queryRaw<[{ total: bigint }]>`
-      SELECT COALESCE(SUM(amount::numeric), 0)::bigint AS total
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  const [collection, [balances], floorRows, volumeRows] = await Promise.all([
+    prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain, contractAddress } },
+      select: { standard: true, image: true, description: true },
+    }),
+    prisma.$queryRaw<[{ holders: bigint; supply: bigint }]>`
+      SELECT COUNT(DISTINCT owner)::bigint AS holders,
+             COALESCE(SUM(amount::numeric), 0)::bigint AS supply
       FROM "TokenBalance"
       WHERE chain = ${chain}::"Chain"
         AND "contractAddress" = ${contractAddress}
-        AND amount::numeric > 0
-    `;
-    totalSupply = Number(total);
-  } else {
-    totalSupply = await prisma.token.count({ where: { chain, contractAddress } });
-  }
+        AND amount <> '0'
+    `,
+    prisma.$queryRaw<{ priceRaw: string; considerationToken: string | null }[]>`
+      SELECT "priceRaw", "considerationToken"
+      FROM "Order"
+      WHERE chain = ${chain}::"Chain"
+        AND "nftContract" = ${contractAddress}
+        AND status = 'ACTIVE'
+        AND "offerItemType" IN ('ERC721', 'ERC1155')
+        AND "endTime" > ${nowSec}
+        AND "priceRaw" ~ '^[0-9]+$'
+        AND "priceRaw"::numeric > 0
+      ORDER BY "priceRaw"::numeric ASC
+      LIMIT 1
+    `,
+    prisma.$queryRaw<{ currencyToken: string; total: string }[]>`
+      SELECT "currencyToken", SUM("priceRaw"::numeric)::text AS total
+      FROM "OrderFill"
+      WHERE chain = ${chain}::"Chain"
+        AND "nftContract" = ${contractAddress}
+        AND "currencyToken" IS NOT NULL
+        AND "priceRaw" ~ '^[0-9]+$'
+      GROUP BY "currencyToken"
+      ORDER BY SUM("priceRaw"::numeric) DESC
+      LIMIT 1
+    `,
+  ]);
 
-  const floorRows = await prisma.$queryRaw<{ priceRaw: string; considerationToken: string | null }[]>`
-    SELECT "priceRaw", "considerationToken"
-    FROM "Order"
-    WHERE chain = ${chain}::"Chain"
-      AND "nftContract" = ${contractAddress}
-      AND status = 'ACTIVE'
-      AND "offerItemType" IN ('ERC721', 'ERC1155')
-      AND "endTime" > ${BigInt(Math.floor(Date.now() / 1000))}
-      AND "priceRaw" ~ '^[0-9]+$'
-      AND "priceRaw"::numeric > 0
-    ORDER BY "priceRaw"::numeric ASC
-    LIMIT 1
-  `;
+  const holderCount = Number(balances.holders);
+  const totalSupply =
+    collection?.standard === "ERC1155"
+      ? Number(balances.supply)
+      : await prisma.token.count({ where: { chain, contractAddress } });
 
   let floorPrice: string | null = null;
   let floorCurrency: string | null = null;
@@ -64,18 +69,6 @@ export async function handleStatsUpdate(payload: {
       floorCurrency = token.symbol;
     }
   }
-
-  const volumeRows = await prisma.$queryRaw<{ currencyToken: string; total: string }[]>`
-    SELECT "currencyToken", SUM("priceRaw"::numeric)::text AS total
-    FROM "OrderFill"
-    WHERE chain = ${chain}::"Chain"
-      AND "nftContract" = ${contractAddress}
-      AND "currencyToken" IS NOT NULL
-      AND "priceRaw" ~ '^[0-9]+$'
-    GROUP BY "currencyToken"
-    ORDER BY SUM("priceRaw"::numeric) DESC
-    LIMIT 1
-  `;
 
   let totalVolume: string | null = null;
   let volumeCurrency: string | null = null;

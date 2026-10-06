@@ -15,16 +15,12 @@ async function incrementBalance(
   owner: string,
   amount: bigint
 ): Promise<void> {
-  const existing = await tx.tokenBalance.findUnique({
-    where: { chain_contractAddress_tokenId_owner: { chain, contractAddress, tokenId, owner } },
-    select: { amount: true },
-  });
-  const newAmount = BigInt(existing?.amount ?? "0") + amount;
-  await tx.tokenBalance.upsert({
-    where: { chain_contractAddress_tokenId_owner: { chain, contractAddress, tokenId, owner } },
-    create: { chain, contractAddress, tokenId, owner, amount: newAmount.toString() },
-    update: { amount: newAmount.toString() },
-  });
+  await tx.$executeRaw`
+    INSERT INTO "TokenBalance" (id, chain, "contractAddress", "tokenId", owner, amount, "updatedAt")
+    VALUES (gen_random_uuid()::text, ${chain}::"Chain", ${contractAddress}, ${tokenId}, ${owner}, ${amount.toString()}, NOW())
+    ON CONFLICT (chain, "contractAddress", "tokenId", owner)
+    DO UPDATE SET amount = ("TokenBalance".amount::numeric + ${amount.toString()}::numeric)::text, "updatedAt" = NOW()
+  `;
 }
 
 async function decrementBalance(
@@ -36,17 +32,12 @@ async function decrementBalance(
   amount: bigint
 ): Promise<void> {
   if (owner === ZERO_ADDRESS) return;
-  const existing = await tx.tokenBalance.findUnique({
-    where: { chain_contractAddress_tokenId_owner: { chain, contractAddress, tokenId, owner } },
-    select: { amount: true },
-  });
-  const current = BigInt(existing?.amount ?? "0");
-  const newAmount = current > amount ? current - amount : 0n;
-  await tx.tokenBalance.upsert({
-    where: { chain_contractAddress_tokenId_owner: { chain, contractAddress, tokenId, owner } },
-    create: { chain, contractAddress, tokenId, owner, amount: "0" },
-    update: { amount: newAmount.toString() },
-  });
+  await tx.$executeRaw`
+    INSERT INTO "TokenBalance" (id, chain, "contractAddress", "tokenId", owner, amount, "updatedAt")
+    VALUES (gen_random_uuid()::text, ${chain}::"Chain", ${contractAddress}, ${tokenId}, ${owner}, '0', NOW())
+    ON CONFLICT (chain, "contractAddress", "tokenId", owner)
+    DO UPDATE SET amount = GREATEST("TokenBalance".amount::numeric - ${amount.toString()}::numeric, 0)::text, "updatedAt" = NOW()
+  `;
 }
 
 async function upsertTokenAndCollection(

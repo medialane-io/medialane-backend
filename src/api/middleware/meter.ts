@@ -93,7 +93,7 @@ export function meter(deps: MeterDeps = {
       if (kept > 0) {
         c.header("X-Credits-Remaining", String(Math.max(0, apiCredits.creditBalance - kept)));
       }
-      await recordUsage({
+      void recordUsage({
         apiCreditsId: apiCredits.id,
         actionKey: charge.actionKey,
         chain: charge.chain,
