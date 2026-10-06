@@ -1,6 +1,6 @@
 import { num } from "starknet";
 import type { Prisma } from "@prisma/client";
-import { parseEvents } from "./parser.js";
+import { parseEvents, eventIndexOf } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
 import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "./handlers/orderFulfilled.js";
 import { handleOrderCancelled } from "./handlers/orderCancelled.js";
@@ -122,12 +122,10 @@ async function applyMarketplace1155(
   const SEL_CANCELLED = num.toHex(ORDER_CANCELLED_SELECTOR);
   const SEL_COUNTER = num.toHex(COUNTER_INCREMENTED_SELECTOR);
 
-  const txCounters = new Map<string, number>();
   for (const rawEvent of events) {
     const selector = num.toHex(rawEvent.keys[0]);
     const evTxHash = rawEvent.transaction_hash ?? "";
-    const logIndex = txCounters.get(evTxHash) ?? 0;
-    txCounters.set(evTxHash, logIndex + 1);
+    const logIndex = eventIndexOf(rawEvent);
 
     if (selector === SEL_CREATED) {
       const nftContract = await handleOrderCreated1155(rawEvent, tx, chain);

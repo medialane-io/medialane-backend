@@ -8,7 +8,7 @@ import {
   TRANSFER_SELECTOR,
   TRANSFER_SINGLE_SELECTOR,
 } from "../config/constants.js";
-import { parseEvent, findTransferTo } from "./parser.js";
+import { parseEvent, parseEvents, findTransferTo } from "./parser.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 const MARKETPLACE = "0x00f8ccaae0bc811c79605974cc1dab769b9cea8877f033f8e3c17f30457caba6";
@@ -158,4 +158,17 @@ describe("findTransferTo", () => {
     const events = [transferSingleEvent({ data: ["0x0", "0x0", "0x1", "0x0"] })];
     expect(findTransferTo(events, { contractAddress: COLLECTION, tokenId: "not-a-number", to: FULFILLER })).toBe(false);
   });
+});
+
+test("an event's logIndex is its event_index on chain, not its place in the batch", () => {
+  const [parsed] = parseEvents([
+    rawEvent({ keys: [num.toHex(TRANSFER_SELECTOR), OFFERER, FULFILLER, "0x2a", "0x0"], event_index: 5 }),
+  ]);
+  expect(parsed.logIndex).toBe(5);
+});
+
+test("an event without an event_index stops the batch", () => {
+  expect(() =>
+    parseEvents([{ ...rawEvent({ keys: [num.toHex(TRANSFER_SELECTOR), OFFERER, FULFILLER, "0x2a", "0x0"] }), event_index: undefined } as never]),
+  ).toThrow("has no event_index");
 });

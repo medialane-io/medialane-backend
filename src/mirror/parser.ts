@@ -226,15 +226,17 @@ export function parseEvent(
   return null;
 }
 
-export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
+export function eventIndexOf(event: RawStarknetEvent): number {
+  if (typeof event.event_index !== "number") {
+    throw new Error(`event in ${event.transaction_hash} has no event_index`);
+  }
+  return event.event_index;
+}
 
-  const txCounters = new Map<string, number>();
+export function parseEvents(events: RawStarknetEvent[]): ParsedEvent[] {
   const results: ParsedEvent[] = [];
   for (const event of events) {
-    const txHash = normalizeHash(event.transaction_hash);
-    const n = txCounters.get(txHash) ?? 0;
-    txCounters.set(txHash, n + 1);
-    const parsed = parseEvent(event, n);
+    const parsed = parseEvent(event, eventIndexOf(event));
     if (parsed) results.push(parsed);
   }
   return results;

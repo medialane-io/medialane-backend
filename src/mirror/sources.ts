@@ -3,6 +3,7 @@ import prisma from "../db/client.js";
 import { env } from "../config/env.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { pollContractEvents } from "./poller.js";
+import { eventIndexOf } from "./parser.js";
 import { loadSourceCursor } from "./cursor.js";
 import { mapWithConcurrency } from "../utils/retry.js";
 import {
@@ -115,12 +116,8 @@ export const TRANSFER_SOURCE_IDS = [CORE_TRANSFERS, CORE_TRANSFERS_EXTERNAL] as 
 export const EXTERNAL_SERVICES = ["external-erc721", "external-erc1155"];
 
 async function applyComments(events: RawStarknetEvent[]): Promise<void> {
-  const txCounters: Record<string, number> = {};
   for (const event of events) {
-    const txHash = event.transaction_hash ?? "";
-    const logIndex = txCounters[txHash] ?? 0;
-    txCounters[txHash] = logIndex + 1;
-    await handleCommentAdded(event, txHash, logIndex);
+    await handleCommentAdded(event, event.transaction_hash ?? "", eventIndexOf(event));
   }
 }
 

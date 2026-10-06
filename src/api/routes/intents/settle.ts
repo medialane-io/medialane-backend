@@ -163,7 +163,7 @@ export async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string
           offerer: normalizeAddress("STARKNET", event.keys[2]),
           blockNumber: BigInt(event.block_number),
           txHash: event.transaction_hash,
-          logIndex: 0,
+          logIndex: event.event_index,
         },
         tx,
         "STARKNET"
@@ -245,7 +245,7 @@ export async function hydrateCancellationFromTx(txHash: string, expectedOrderHas
         offerer: normalizeAddress("STARKNET", matched.keys[2]),
         blockNumber: BigInt(matched.block_number),
         txHash: matched.transaction_hash,
-        logIndex: 0,
+        logIndex: matched.event_index,
       },
       tx,
       "STARKNET"
