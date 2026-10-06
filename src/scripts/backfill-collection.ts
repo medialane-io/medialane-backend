@@ -28,6 +28,13 @@ if (!collection) {
   process.exit(0);
 }
 
+const existing = await prisma.transfer.count({ where: { chain: "STARKNET", contractAddress } });
+if (existing > 0) {
+  console.warn(`backfill: ${contractAddress} already has ${existing} transfers — skipping, re-reading would store them twice`);
+  await prisma.$disconnect();
+  process.exit(0);
+}
+
 console.log(`backfill: ${contractAddress} blocks ${fromBlock}..${toBlock}`);
 const raw = await pollContractEvents({
   address: contractAddress,
