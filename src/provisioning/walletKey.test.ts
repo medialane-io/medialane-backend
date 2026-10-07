@@ -13,7 +13,6 @@ function fakeDeps(overrides: Partial<WalletKeyDeps> = {}) {
   let owners = [computeOwnerGuid(backendKey.publicKey)];
   const executed: { walletAddress: string; calls: Call[]; privateKey: string }[] = [];
   const deps: WalletKeyDeps = {
-    emailVerified: async () => true,
     walletOf: async () => WALLET,
     ownerGuidsOf: async () => owners,
     keyFor: (accountId) => provisioningKeyWith(SECRET, accountId),
@@ -80,12 +79,6 @@ describe("setupWalletKey", () => {
   test("uses only the key computed for this account", async () => {
     const { deps, executed } = fakeDeps();
     expect((await setupWalletKey(deps, "acc-2", PASSKEY)).status).toBe(409);
-    expect(executed).toHaveLength(0);
-  });
-
-  test("refuses an account whose email was never proven", async () => {
-    const { deps, executed } = fakeDeps({ emailVerified: async () => false });
-    expect((await setupWalletKey(deps, "acc-1", PASSKEY)).status).toBe(403);
     expect(executed).toHaveLength(0);
   });
 

@@ -1,10 +1,9 @@
 import { test, expect } from "bun:test";
 import { claimOutcome } from "./emailClaim.js";
 
-const VERIFIED = {
+const HELD = {
   id: "idn_1",
   accountId: "acc_1",
-  verifiedAt: new Date(),
   accountStatus: "ACTIVE" as const,
 };
 
@@ -12,16 +11,11 @@ test("an address nobody holds is free to claim", () => {
   expect(claimOutcome(null)).toBe("none");
 });
 
-test("an address someone proved stays theirs, whatever their account's state", () => {
-  expect(claimOutcome(VERIFIED)).toBe("own");
-  expect(claimOutcome({ ...VERIFIED, accountStatus: "INACTIVE" })).toBe("own");
+test("an address stays with an open or pending account holding it", () => {
+  expect(claimOutcome(HELD)).toBe("own");
+  expect(claimOutcome({ ...HELD, accountStatus: "PENDING" })).toBe("own");
 });
 
-test("an address still inside its grace stays with the account holding it", () => {
-  expect(claimOutcome({ ...VERIFIED, verifiedAt: null })).toBe("own");
-  expect(claimOutcome({ ...VERIFIED, verifiedAt: null, accountStatus: "PENDING" })).toBe("own");
-});
-
-test("an address never proved, on an account that ran out of time, is released", () => {
-  expect(claimOutcome({ ...VERIFIED, verifiedAt: null, accountStatus: "INACTIVE" })).toBe("release");
+test("an address on an account that ran out of time is released", () => {
+  expect(claimOutcome({ ...HELD, accountStatus: "INACTIVE" })).toBe("release");
 });

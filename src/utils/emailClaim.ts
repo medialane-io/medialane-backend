@@ -7,13 +7,11 @@ const log = createLogger("utils:email-claim");
 export interface ClaimableIdentity {
   id: string;
   accountId: string;
-  verifiedAt: Date | null;
   accountStatus: "ACTIVE" | "PENDING" | "INACTIVE";
 }
 
 export function claimOutcome(identity: ClaimableIdentity | null): "none" | "own" | "release" {
   if (!identity) return "none";
-  if (identity.verifiedAt) return "own";
   return identity.accountStatus === "INACTIVE" ? "release" : "own";
 }
 
@@ -27,7 +25,6 @@ export async function releaseAbandonedEmail(email: string, appId: string): Promi
     select: {
       id: true,
       accountId: true,
-      verifiedAt: true,
       account: { select: { status: true } },
     },
   });
@@ -36,7 +33,6 @@ export async function releaseAbandonedEmail(email: string, appId: string): Promi
     identity && {
       id: identity.id,
       accountId: identity.accountId,
-      verifiedAt: identity.verifiedAt,
       accountStatus: identity.account.status,
     },
   );

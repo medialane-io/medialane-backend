@@ -208,7 +208,6 @@ export async function ensureAccountForIdentity(
             scheme,
             value,
             appId,
-            verifiedAt: null,
           },
         });
         return account.id;

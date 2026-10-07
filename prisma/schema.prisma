@@ -736,7 +736,6 @@ model Identity {
 
   appId      String
   app        App        @relation(fields: [appId], references: [id])
-  verifiedAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@unique([accountId, scheme])
