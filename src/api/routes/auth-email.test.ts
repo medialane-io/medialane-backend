@@ -16,8 +16,7 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, appId: string | null = "MEDI
     createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
     findAccountIdByEmail: async () => null,
     releaseAbandonedEmail: async () => false,
-    createVerifiedAccount: async () => "acc_NEW",
-    markEmailVerified: async () => {},
+    createAccountForEmail: async () => "acc_NEW",
     activateAccount: async () => {},
     accountStatus: async () => "PENDING",
     ...deps,
@@ -117,12 +116,12 @@ const verify = (app: ReturnType<typeof appWith>, email = "alice@example.com") =>
     body: JSON.stringify({ email, code: "482913" }),
   });
 
-test("POST /verify-code creates a verified account when the email is new", async () => {
+test("POST /verify-code creates an account when the email is new", async () => {
   const created: string[] = [];
   const code = await storedCode();
   const app = appWith({
     findLatestCode: async () => code,
-    createVerifiedAccount: async (email) => {
+    createAccountForEmail: async (email) => {
       created.push(email);
       return "acc_NEW";
     },
@@ -134,18 +133,18 @@ test("POST /verify-code creates a verified account when the email is new", async
   expect(typeof body.accountToken).toBe("string");
 });
 
-test("POST /verify-code marks an existing account's email verified", async () => {
-  const marked: string[] = [];
+test("POST /verify-code activates the existing account", async () => {
+  const activated: string[] = [];
   const code = await storedCode();
   const app = appWith({
     findLatestCode: async () => code,
     findAccountIdByEmail: async () => "acc_OLD",
-    markEmailVerified: async (email) => {
-      marked.push(email);
+    activateAccount: async (id) => {
+      activated.push(id);
     },
   });
   expect((await verify(app)).status).toBe(200);
-  expect(marked).toEqual(["alice@example.com"]);
+  expect(activated).toEqual(["acc_OLD"]);
 });
 
 test("POST /verify-code with a wrong code creates nothing", async () => {
@@ -153,7 +152,7 @@ test("POST /verify-code with a wrong code creates nothing", async () => {
   const code = await storedCode();
   const app = appWith({
     findLatestCode: async () => code,
-    createVerifiedAccount: async () => {
+    createAccountForEmail: async () => {
       created = true;
       return "acc_NEW";
     },
@@ -340,9 +339,8 @@ test("GET /exists looks the account up with the email as typed", async () => {
   expect(seen).toEqual(["Alice@Example.com"]);
 });
 
-test("POST /verify-code looks the account up and marks it verified with the email as typed", async () => {
+test("POST /verify-code looks the account up with the email as typed", async () => {
   const looked: string[] = [];
-  const marked: string[] = [];
   const code = await storedCode();
   const app = appWith({
     findLatestCode: async () => code,
@@ -350,13 +348,9 @@ test("POST /verify-code looks the account up and marks it verified with the emai
       looked.push(email);
       return "acc_OLD";
     },
-    markEmailVerified: async (email) => {
-      marked.push(email);
-    },
   });
   expect((await verify(app, "Alice@Example.com")).status).toBe(200);
   expect(looked).toEqual(["Alice@Example.com"]);
-  expect(marked).toEqual(["Alice@Example.com"]);
 });
 
 test("POST /request-code sends a code every time it is asked", async () => {
@@ -413,7 +407,7 @@ test("POST /verify-code refuses when the atomic attempt claim fails, even if the
   const app = appWith({
     findLatestCode: async () => code,
     claimAttempt: async () => false,
-    createVerifiedAccount: async () => {
+    createAccountForEmail: async () => {
       created = true;
       return "acc_NEW";
     },
@@ -429,7 +423,7 @@ test("POST /verify-code lets a correct code sign in only once", async () => {
   const app = appWith({
     findLatestCode: async () => code,
     consumeCode: async () => false,
-    createVerifiedAccount: async () => {
+    createAccountForEmail: async () => {
       created += 1;
       return "acc_NEW";
     },
@@ -454,17 +448,16 @@ const confirm = (app: ReturnType<typeof appWith>, token: string) =>
     body: JSON.stringify({ token }),
   });
 
-test("POST /confirm with a good link verifies the email and activates the account, and signs no one in", async () => {
+test("POST /confirm with a good link activates the account, and signs no one in", async () => {
   const calls: string[] = [];
   const app = appWith({
     findAccountIdByEmail: async () => "acc_TEST",
-    markEmailVerified: async (email) => void calls.push(`verified:${email}`),
     activateAccount: async (id) => void calls.push(`activated:${id}`),
   });
   const res = await confirm(app, tokenFor());
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true, email: "alice@example.com" });
-  expect(calls).toEqual(["verified:alice@example.com", "activated:acc_TEST"]);
+  expect(calls).toEqual(["activated:acc_TEST"]);
 });
 
 test("POST /confirm twice is harmless", async () => {
@@ -478,7 +471,7 @@ test("POST /confirm refuses an expired link and changes nothing", async () => {
   const calls: string[] = [];
   const app = appWith({
     findAccountIdByEmail: async () => "acc_TEST",
-    markEmailVerified: async () => void calls.push("verified"),
+    activateAccount: async () => void calls.push("activated"),
   });
   const res = await confirm(app, tokenFor({ expiresAt: new Date(Date.now() - 1000) }));
   expect(res.status).toBe(400);

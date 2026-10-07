@@ -8,7 +8,6 @@ import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { verifyConfirmToken } from "../../utils/emailConfirmToken.js";
-import { verifyAndActivate } from "../../utils/confirmEmail.js";
 import { createLogger } from "../../utils/logger.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -39,8 +38,7 @@ export interface AuthEmailDeps {
   createAccountWithEmail: (email: string, appId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
   findAccountIdByEmail: (email: string, appId: string) => Promise<string | null>;
   releaseAbandonedEmail: (email: string, appId: string) => Promise<boolean>;
-  createVerifiedAccount: (email: string, appId: string) => Promise<string>;
-  markEmailVerified: (email: string, appId: string) => Promise<void>;
+  createAccountForEmail: (email: string, appId: string) => Promise<string>;
   activateAccount: (accountId: string) => Promise<void>;
   accountStatus: (accountId: string) => Promise<"PENDING" | "ACTIVE" | "INACTIVE" | null>;
 }
@@ -105,9 +103,9 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
     let accountId = await deps.findAccountIdByEmail(email, appId);
     if (accountId) {
-      await verifyAndActivate(deps, accountId, email, appId);
+      await deps.activateAccount(accountId);
     } else {
-      accountId = await deps.createVerifiedAccount(email, appId);
+      accountId = await deps.createAccountForEmail(email, appId);
     }
     return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
@@ -141,7 +139,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const owner = await deps.findAccountIdByEmail(claims.email, appId);
     if (!status || status === "INACTIVE" || owner !== claims.accountId) return c.json(INVALID_LINK, 400);
 
-    await verifyAndActivate(deps, claims.accountId, claims.email, appId);
+    await deps.activateAccount(claims.accountId);
     return c.json({ ok: true, email: claims.email });
   });
 
@@ -197,25 +195,8 @@ const productionDeps: AuthEmailDeps = {
     return account?.status ?? null;
   },
   releaseAbandonedEmail,
-  createVerifiedAccount: async (email, appId) => {
-    const { accountId } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, appId);
-    await prisma.identity.updateMany({
-      where: { scheme: IDENTITY_SCHEME.EMAIL, value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), appId },
-      data: { verifiedAt: new Date() },
-    });
-    return accountId;
-  },
-  markEmailVerified: async (email, appId) => {
-    await prisma.identity.updateMany({
-      where: {
-        scheme: IDENTITY_SCHEME.EMAIL,
-        value: { in: emailValues(email) },
-        appId,
-        verifiedAt: null,
-      },
-      data: { verifiedAt: new Date() },
-    });
-  },
+  createAccountForEmail: async (email, appId) =>
+    (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, appId)).accountId,
   findAccountIdByEmail: async (email, appId) => {
     const identity = await prisma.identity.findFirst({
       where: { appId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },

@@ -1,15 +1,12 @@
 import type { Call } from "starknet";
 import { typedData as starknetTypedData } from "starknet";
 import { buildAddOwnerCall, computeOwnerGuid, getOwners, signWithPrivateKey } from "@medialane/sdk/starknet";
-import prisma from "../db/client.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { accountWallet } from "../utils/account.js";
 import { createProvider } from "../utils/starknet.js";
 import { provisioningKey, type ProvisioningKey } from "../utils/provisioningKey.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
 
 export interface WalletKeyDeps {
-  emailVerified(accountId: string): Promise<boolean>;
   walletOf(accountId: string): Promise<string | null>;
   ownerGuidsOf(walletAddress: string): Promise<string[]>;
   keyFor(accountId: string): ProvisioningKey;
@@ -44,8 +41,6 @@ export async function setupWalletKey(
   accountId: string,
   newOwnerPubkey: string,
 ): Promise<WalletKeyOutcome> {
-  if (!(await deps.emailVerified(accountId))) return { status: 403, error: "Verify your email first" };
-
   const walletAddress = await deps.walletOf(accountId);
   if (!walletAddress) return { status: 404, error: "This account has no wallet" };
 
@@ -79,8 +74,6 @@ export async function setupWalletKey(
 }
 
 export const productionWalletKeyDeps: WalletKeyDeps = {
-  emailVerified: async (accountId) =>
-    (await prisma.identity.count({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, verifiedAt: { not: null } } })) > 0,
   walletOf: (accountId) => accountWallet(accountId),
   ownerGuidsOf: async (walletAddress) => (await getOwners(createProvider(), walletAddress)).map((o) => o.guid),
   keyFor: provisioningKey,

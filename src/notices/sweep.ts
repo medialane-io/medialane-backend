@@ -1,8 +1,8 @@
 import type { EmailMessage, EmailTemplate } from "../utils/mailer.js";
 import { verificationDeadline } from "../utils/accountLifecycle.js";
-import { reminderDue, welcomeDue, type ReminderFacts, type WelcomeFacts } from "./rules.js";
+import { reminderDue, type ReminderFacts } from "./rules.js";
 
-export type NoticeKind = "verification-reminder" | "welcome";
+export type NoticeKind = "verification-reminder";
 
 export interface NoticeStore {
   claim(accountId: string, kind: NoticeKind): Promise<boolean>;
@@ -16,19 +16,9 @@ export interface ReminderCandidate {
   facts: ReminderFacts;
 }
 
-export interface WelcomeCandidate {
-  accountId: string;
-  email: string;
-  walletAddress: string;
-  createdAt: Date;
-  facts: WelcomeFacts;
-}
-
 export interface SweepDeps {
   findReminderCandidates(now: Date, limit: number): Promise<ReminderCandidate[]>;
-  stillUnverified(accountId: string): Promise<boolean>;
-  findWelcomeCandidates(now: Date, limit: number): Promise<WelcomeCandidate[]>;
-  loadWelcomeCandidate(accountId: string): Promise<WelcomeCandidate | null>;
+  stillPending(accountId: string): Promise<boolean>;
   store: NoticeStore;
   send(message: EmailMessage): Promise<boolean>;
   confirmToken(accountId: string, email: string, deadline: Date): string;
@@ -53,15 +43,13 @@ interface Pipeline<C extends { accountId: string; email: string }> {
 export const needsAttention = (result: SweepResult): boolean =>
   result.released > 0 || (result.due > 0 && result.sent === 0);
 
-const emptyResult = (): SweepResult => ({ due: 0, sent: 0, released: 0, skipped: 0 });
-
 async function run<C extends { accountId: string; email: string }>(
   pipeline: Pipeline<C>,
   candidates: C[],
   deps: SweepDeps,
 ): Promise<SweepResult> {
   const now = deps.now();
-  const result = emptyResult();
+  const result: SweepResult = { due: 0, sent: 0, released: 0, skipped: 0 };
 
   for (const candidate of candidates) {
     if (!pipeline.due(candidate, now)) {
@@ -102,7 +90,7 @@ async function run<C extends { accountId: string; email: string }>(
 const reminderPipeline = (deps: SweepDeps): Pipeline<ReminderCandidate> => ({
   kind: "verification-reminder",
   due: (candidate, now) => reminderDue(candidate.facts, now),
-  recheck: (candidate) => deps.stillUnverified(candidate.accountId),
+  recheck: (candidate) => deps.stillPending(candidate.accountId),
   message: (candidate) => {
     const deadline = verificationDeadline(candidate.createdAt);
     return {
@@ -112,31 +100,6 @@ const reminderPipeline = (deps: SweepDeps): Pipeline<ReminderCandidate> => ({
   },
 });
 
-const welcomePipeline = (deps: SweepDeps): Pipeline<WelcomeCandidate> => ({
-  kind: "welcome",
-  due: (candidate, now) => welcomeDue(candidate.facts, now),
-  recheck: async (candidate) => {
-    const fresh = await deps.loadWelcomeCandidate(candidate.accountId);
-    return fresh !== null && welcomeDue(fresh.facts, deps.now());
-  },
-  message: (candidate) => {
-    const deadline = verificationDeadline(candidate.createdAt);
-    const confirm = candidate.facts.emailVerified
-      ? null
-      : { token: deps.confirmToken(candidate.accountId, candidate.email, deadline), deadline };
-    return { template: "welcome", data: { walletAddress: candidate.walletAddress, confirm } };
-  },
-});
-
 export async function sweepReminders(deps: SweepDeps): Promise<SweepResult> {
   return run(reminderPipeline(deps), await deps.findReminderCandidates(deps.now(), deps.batchLimit), deps);
-}
-
-export async function sweepWelcomes(deps: SweepDeps): Promise<SweepResult> {
-  return run(welcomePipeline(deps), await deps.findWelcomeCandidates(deps.now(), deps.batchLimit), deps);
-}
-
-export async function welcomeAccount(deps: SweepDeps, accountId: string): Promise<SweepResult> {
-  const candidate = await deps.loadWelcomeCandidate(accountId);
-  return candidate ? run(welcomePipeline(deps), [candidate], deps) : emptyResult();
 }

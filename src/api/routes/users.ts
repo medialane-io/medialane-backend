@@ -15,8 +15,6 @@ import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { emailDeadlineFor } from "../../utils/emailDeadline.js";
-import { needsAttention, welcomeAccount } from "../../notices/sweep.js";
-import { productionSweepDeps } from "../../notices/prismaDeps.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
 
 const log = createLogger("routes:users");
@@ -140,7 +138,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
           scheme: IDENTITY_SCHEME.EMAIL,
           value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.data.email),
           appId,
-          verifiedAt: null,
         },
       });
       issueVerificationCode(parsed.data.email, appId).catch((err: unknown) => {
@@ -149,14 +146,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     }
 
   }
-
-  welcomeAccount(productionSweepDeps(), accountId)
-    .then((result) => {
-      if (needsAttention(result)) log.warn({ accountId, ...result }, "The welcome email was due but not sent");
-    })
-    .catch((err: unknown) => {
-      log.error({ err, accountId }, "Failed to send the welcome email");
-    });
 
   return c.json({ walletAddress });
 });
@@ -235,14 +224,12 @@ users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
     status: identity.account.status,
     createdAt: identity.account.createdAt,
     hasEmail: emailIdentity !== null,
-    emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
   });
   return c.json({
     walletAddress: identity.address,
     accountId: identity.accountId,
     publicId: identity.account.publicId,
     email: emailIdentity?.email ?? null,
-    emailVerified: emailIdentity ? emailIdentity.verifiedAt !== null : false,
     emailDeadline: emailDeadline?.toISOString() ?? null,
   });
 });
@@ -268,7 +255,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
 
   const existingOwner = await prisma.identity.findFirst({
     where: { appId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
-    select: { accountId: true, verifiedAt: true },
+    select: { accountId: true },
   });
   const decision = canClaimEmail(accountId, existingOwner);
   if (!decision.allowed) {
@@ -280,21 +267,19 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
 
   await prisma.$transaction([
     prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, appId } }),
-    prisma.identity.deleteMany({ where: { scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) }, appId } }),
     prisma.identity.create({
       data: {
         accountId,
         scheme: IDENTITY_SCHEME.EMAIL,
         value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email),
         appId,
-        verifiedAt: null,
       },
     }),
   ]);
 
   await issueVerificationCode(email, appId);
 
-  return c.json({ email, emailVerified: false });
+  return c.json({ email });
 });
 
 users.get(

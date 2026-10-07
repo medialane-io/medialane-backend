@@ -25,7 +25,6 @@ export async function fromNameForApp(appId: string | null): Promise<string> {
 
 export type EmailTemplate =
   | { template: "verification-code"; data: { code: string } }
-  | { template: "welcome"; data: { walletAddress: string; confirm: { token: string; deadline: Date } | null } }
   | { template: "verification-reminder"; data: { confirmToken: string; deadline: Date } }
   | { template: "guardian-set"; data: { walletAddress: string } }
   | { template: "guardian-escape-triggered"; data: { walletAddress: string; readyAt: Date } }
