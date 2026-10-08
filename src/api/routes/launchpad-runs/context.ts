@@ -38,7 +38,7 @@ export interface RunReceipt {
 
 export interface ExecutionDeps {
   signedUpload(input: { name: string; size: number; type: string; keyvalues: Record<string, string> }): Promise<string>;
-  pinnedFile(cid: string): Promise<{ size: number; keyvalues: Record<string, string> } | null>;
+  pinnedFile(cid: string): Promise<{ size: number } | null>;
   pinJson(data: Record<string, unknown>): Promise<string>;
   mintCalls: MintCallDeps;
   sponsored: SponsoredInvokeDeps;

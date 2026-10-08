@@ -36,10 +36,8 @@ export async function createSignedUpload(input: {
 
 export async function findPinnedFile(
   cid: string,
-): Promise<{ size: number; keyvalues: Record<string, string> } | null> {
-  const listed = (await getPinata().files.public.list().cid(cid).limit(1)) as {
-    files?: { size: number; keyvalues?: Record<string, string> }[];
-  };
+): Promise<{ size: number } | null> {
+  const listed = (await getPinata().files.public.list().cid(cid).limit(1)) as { files?: { size: number }[] };
   const file = listed.files?.[0];
-  return file ? { size: file.size, keyvalues: file.keyvalues ?? {} } : null;
+  return file ? { size: file.size } : null;
 }

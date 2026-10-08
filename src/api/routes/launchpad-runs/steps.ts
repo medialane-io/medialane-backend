@@ -247,7 +247,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
 
     const pinned = await ex().pinnedFile(cid);
-    if (!pinned || pinned.size !== expected.size || pinned.keyvalues.run !== active.run.id || pinned.keyvalues.file !== name) {
+    if (!pinned || pinned.size !== expected.size) {
       return c.json({ error: `That upload does not match ${name}` }, 409);
     }
 

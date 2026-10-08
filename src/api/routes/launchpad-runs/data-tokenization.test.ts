@@ -171,13 +171,20 @@ describe("uploading a paid run's files", () => {
     expect(w.runs[0]!.creditsSpent).toBe(2);
   });
 
-  test("a pin from another run or file does not count", async () => {
+  test("a file that is already pinned counts when its size matches, whoever pinned it", async () => {
     const w = await paidRun();
     await json(w.app, "POST", "/run1/files/upload-url", { name: "r.pdf" });
-    w.pins.set("bafy-elsewhere", { size: 5, keyvalues: { run: "run9", file: "r.pdf" } });
-    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-elsewhere" })).status).toBe(409);
-    w.pins.set("bafy-other-file", { size: 5, keyvalues: { run: "run1", file: "c.png" } });
-    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-other-file" })).status).toBe(409);
+    w.pins.set("bafy-earlier", { size: 5, keyvalues: { run: "run9", file: "old.pdf" } });
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-earlier" })).status).toBe(201);
+    expect((w.runs[0]!.progress as { files: Record<string, string> }).files["r.pdf"]).toBe("ipfs://bafy-earlier");
+  });
+
+  test("a pin of another size, or no pin, does not count", async () => {
+    const w = await paidRun();
+    w.pins.set("bafy-wrong-size", { size: 9, keyvalues: {} });
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-wrong-size" })).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "r.pdf", cid: "bafy-missing" })).status).toBe(409);
+    expect(w.runs[0]!.creditsSpent).toBe(0);
   });
 
   test("a file can be retried as often as the upload needs, with no lock on the run", async () => {
