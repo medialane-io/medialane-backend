@@ -8,13 +8,15 @@ import {
   emptyProgress,
   expectedFile,
   itemMetadata,
-  itemsInBatch,
+  mintCount,
+  mintsInBatch,
   nextStep,
+  readProgress,
 } from "./progress.js";
 
 const CREATOR = "0x0123";
 
-function catalog(items: unknown[]): DataTokenizationSpec {
+function catalog(items: unknown[], guests?: string[]): DataTokenizationSpec {
   const run = parseRunSpec("data-tokenization-erc721", {
     collection: { kind: "existing", collectionId: "1", contractAddress: "0x1" },
     terms: {
@@ -27,6 +29,7 @@ function catalog(items: unknown[]): DataTokenizationSpec {
       royalty: 5,
     },
     items,
+    ...(guests ? { guests } : {}),
   });
   if (run.service !== "data-tokenization-erc721") throw new Error("unexpected service");
   return run.spec;
@@ -93,9 +96,9 @@ describe("batches and resume", () => {
   test("items split into batches of the run batch size", () => {
     const spec = catalog(many);
     expect(batchCount(spec)).toBe(2);
-    expect(itemsInBatch(spec, 0)).toHaveLength(RUN_BATCH_SIZE);
-    expect(itemsInBatch(spec, 1)).toEqual([RUN_BATCH_SIZE, RUN_BATCH_SIZE + 1]);
-    expect(itemsInBatch(spec, 2)).toEqual([]);
+    expect(mintsInBatch(spec, 0)).toHaveLength(RUN_BATCH_SIZE);
+    expect(mintsInBatch(spec, 1).map((m) => m.item)).toEqual([RUN_BATCH_SIZE, RUN_BATCH_SIZE + 1]);
+    expect(mintsInBatch(spec, 2)).toEqual([]);
   });
 
   test("the next step walks uploads, metadata, then each batch, and repeats a reverted one", () => {
@@ -143,5 +146,40 @@ describe("runs that create their own collection", () => {
 
     progress.collection = { baseUri: "ipfs://c", tx: { txHash: "0x2", status: "SUCCEEDED" }, collectionId: "9" };
     expect(nextStep(run.spec, progress).kind).toBe("upload");
+  });
+});
+
+describe("minting to guests", () => {
+  const photo2 = { ...photo, name: "Photo 2", file: { name: "p2.jpg", size: 14, type: "image/jpeg" } };
+  const guests = Array.from({ length: 13 }, (_, i) => `g${i}@x.com`);
+
+  test("every item goes to every guest, item by item, 25 mints per batch", () => {
+    const spec = catalog([photo, photo2], guests);
+    expect(mintCount(spec)).toBe(26);
+    expect(batchCount(spec)).toBe(2);
+    expect(mintsInBatch(spec, 0)[0]).toEqual({ item: 0, guest: "g0@x.com" });
+    expect(mintsInBatch(spec, 0)[12]).toEqual({ item: 0, guest: "g12@x.com" });
+    expect(mintsInBatch(spec, 0)[13]).toEqual({ item: 1, guest: "g0@x.com" });
+    expect(mintsInBatch(spec, 1)).toEqual([{ item: 1, guest: "g12@x.com" }]);
+  });
+
+  test("without guests every mint goes to the owner", () => {
+    expect(mintsInBatch(catalog([photo]), 0)).toEqual([{ item: 0, guest: null }]);
+  });
+
+  test("guests are lowercased and deduplicated", () => {
+    expect(catalog([photo], ["Ana@X.com", "ana@x.com", "bruno@x.com"]).guests).toEqual(["ana@x.com", "bruno@x.com"]);
+  });
+
+  test("wallets come after metadata and before the batches", () => {
+    const progress = { ...emptyProgress(), files: { "p.jpg": "ipfs://photo" }, tokenUris: { "0": "ipfs://m" } };
+    expect(nextStep(catalog([photo], ["ana@x.com"]), progress)).toEqual({ kind: "wallets" });
+    expect(nextStep(catalog([photo], ["ana@x.com"]), { ...progress, wallets: { "ana@x.com": "0xana" } })).toEqual({ kind: "batch", index: 0 });
+    expect(nextStep(catalog([photo]), progress)).toEqual({ kind: "batch", index: 0 });
+  });
+
+  test("a run saved before guests existed reads with no guests and no wallets", () => {
+    expect(catalog([photo]).guests).toEqual([]);
+    expect(readProgress({ files: {}, tokenUris: {}, batches: {} }).wallets).toEqual({});
   });
 });

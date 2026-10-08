@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { GAS, MAX_RUN_ITEMS, batchSizes, type CostTable, type PlannedStep } from "../../steps.js";
 import { collection, fileRef, terms, type RunServiceDefinition } from "../shared-spec.js";
-import { emptyProgress, expectedFiles, nextStep, readProgress, runInFlight } from "./progress.js";
+import { emptyProgress, expectedFiles, mintCount, nextStep, readProgress, runInFlight } from "./progress.js";
 
 const spec = z
   .object({
@@ -24,6 +24,7 @@ const spec = z
       )
       .min(1)
       .max(MAX_RUN_ITEMS),
+    guests: z.array(z.string().email()).max(MAX_RUN_ITEMS).default([]),
   })
   .superRefine((value, ctx) => {
     const seen = new Set<string>();
@@ -47,21 +48,30 @@ export const DATA_TOKENIZATION_COSTS: CostTable = {
   collection: [{ action: "intent:create-collection", per: "step" }, ...GAS],
   file: [{ action: "metadata:upload-file", per: "step" }],
   metadata: [{ action: "metadata:upload-json", per: "step" }],
+  wallet: [
+    { action: "wallet:deploy", per: "step" },
+    { action: "paymaster:deploy-build", per: "step" },
+    { action: "paymaster:deploy-execute", per: "step" },
+  ],
   batch: [{ action: "intent:mint", per: "item" }, ...GAS],
 };
 
 export const dataTokenization: RunServiceDefinition<DataTokenizationSpec> = {
-  parseSpec: (raw) => spec.parse(raw),
+  parseSpec(raw) {
+    const parsed = spec.parse(raw);
+    return { ...parsed, guests: [...new Set(parsed.guests.map((g) => g.trim().toLowerCase()))] };
+  },
   costs: DATA_TOKENIZATION_COSTS,
-  plan(value) {
+  plan(value, { provisioned }) {
     const steps: PlannedStep[] = [];
     if (value.collection.kind === "new") steps.push({ kind: "collection", items: 0 });
     for (let i = 0; i < expectedFiles(value).size; i++) steps.push({ kind: "file", items: 1 });
     for (let i = 0; i < value.items.length; i++) steps.push({ kind: "metadata", items: 1 });
-    for (const size of batchSizes(value.items.length)) steps.push({ kind: "batch", items: size });
+    for (let i = 0; i < Math.max(0, value.guests.length - provisioned); i++) steps.push({ kind: "wallet", items: 1 });
+    for (const size of batchSizes(mintCount(value))) steps.push({ kind: "batch", items: size });
     return steps;
   },
-  guests: () => [],
+  guests: (value) => value.guests,
   initialProgress: emptyProgress,
   nextStep: (value, progress) => nextStep(value, readProgress(progress)),
   inFlight: (progress) => runInFlight(readProgress(progress)),

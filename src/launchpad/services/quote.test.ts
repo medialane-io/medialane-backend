@@ -71,6 +71,25 @@ describe("data tokenization quote", () => {
     expect(byAction(quote.lines)["intent:create-collection"]).toBe(1);
     expect(byAction(quote.lines)["paymaster:invoke-execute"]).toBe(2);
   });
+  test("with guests, each guest without a wallet pays for one and every item mints to every guest", async () => {
+    const run = parseRunSpec("data-tokenization-erc721", {
+      collection: { kind: "existing", collectionId: "1", contractAddress: "0x1" },
+      terms,
+      items: items.slice(0, 2),
+      guests: ["a@x.com", "b@x.com", "c@x.com"],
+    });
+    const quote = await quoteRun(run, { priceOf, countProvisioned: async () => 1 });
+    expect(byAction(quote.lines)).toEqual({
+      "metadata:upload-file": 3,
+      "metadata:upload-json": 2,
+      "wallet:deploy": 2,
+      "paymaster:deploy-build": 2,
+      "paymaster:deploy-execute": 2,
+      "intent:mint": 6,
+      "paymaster:invoke-build": 1,
+      "paymaster:invoke-execute": 1,
+    });
+  });
 });
 
 describe("ip ticketing quote", () => {

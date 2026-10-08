@@ -17,6 +17,7 @@ export interface CollectionProgress {
 export interface DataTokenizationProgress {
   files: Record<string, Pinned>;
   tokenUris: Record<string, Pinned>;
+  wallets: Record<string, Pinned>;
   batches: Record<string, StepState>;
   collection?: CollectionProgress;
 }
@@ -26,12 +27,13 @@ export type NextStep =
   | { kind: "wait-collection" }
   | { kind: "upload"; files: string[] }
   | { kind: "metadata"; items: number[] }
+  | { kind: "wallets" }
   | { kind: "batch"; index: number }
   | { kind: "wait"; index: number }
   | { kind: "done" };
 
 export function emptyProgress(): DataTokenizationProgress {
-  return { files: {}, tokenUris: {}, batches: {} };
+  return { files: {}, tokenUris: {}, wallets: {}, batches: {} };
 }
 
 export function readProgress(raw: unknown): DataTokenizationProgress {
@@ -39,6 +41,7 @@ export function readProgress(raw: unknown): DataTokenizationProgress {
   return {
     files: p.files ?? {},
     tokenUris: p.tokenUris ?? {},
+    wallets: p.wallets ?? {},
     batches: p.batches ?? {},
     collection: p.collection,
   };
@@ -57,7 +60,11 @@ export function canSubmit(state: StepState | undefined): boolean {
 }
 
 export function runInFlight(progress: DataTokenizationProgress): boolean {
-  return Object.values(progress.batches).some(isInFlight) || isInFlight(progress.collection?.tx);
+  return (
+    Object.values(progress.batches).some(isInFlight) ||
+    isInFlight(progress.collection?.tx) ||
+    Object.values(progress.wallets).some((w) => typeof w !== "string")
+  );
 }
 
 export function collectionIdOf(spec: DataTokenizationSpec, progress: DataTokenizationProgress): string | null {
@@ -87,15 +94,28 @@ export function uploadedUri(progress: DataTokenizationProgress, name: string): s
   return pinnedValue(progress.files[name]);
 }
 
-export function batchCount(spec: DataTokenizationSpec): number {
-  return Math.ceil(spec.items.length / RUN_BATCH_SIZE);
+export interface Mint {
+  item: number;
+  guest: string | null;
 }
 
-export function itemsInBatch(spec: DataTokenizationSpec, index: number): number[] {
+export function mintCount(spec: DataTokenizationSpec): number {
+  return spec.items.length * Math.max(1, spec.guests.length);
+}
+
+export function batchCount(spec: DataTokenizationSpec): number {
+  return Math.ceil(mintCount(spec) / RUN_BATCH_SIZE);
+}
+
+export function mintsInBatch(spec: DataTokenizationSpec, index: number): Mint[] {
   if (!Number.isInteger(index) || index < 0 || index >= batchCount(spec)) return [];
+  const perItem = Math.max(1, spec.guests.length);
   const start = index * RUN_BATCH_SIZE;
-  const end = Math.min(start + RUN_BATCH_SIZE, spec.items.length);
-  return Array.from({ length: end - start }, (_, i) => start + i);
+  const end = Math.min(start + RUN_BATCH_SIZE, mintCount(spec));
+  return Array.from({ length: end - start }, (_, i) => {
+    const k = start + i;
+    return { item: Math.floor(k / perItem), guest: spec.guests[k % perItem] ?? null };
+  });
 }
 
 export function itemMetadata(
@@ -146,6 +166,7 @@ export function nextStep(spec: DataTokenizationSpec, progress: DataTokenizationP
 
   const unpinned = spec.items.map((_, i) => i).filter((i) => !pinnedValue(progress.tokenUris[String(i)]));
   if (unpinned.length > 0) return { kind: "metadata", items: unpinned };
+  if (spec.guests.some((guest) => !pinnedValue(progress.wallets[guest]))) return { kind: "wallets" };
 
   for (let index = 0; index < batchCount(spec); index++) {
     const batch = progress.batches[String(index)];
