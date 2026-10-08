@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createLogger } from "../../../utils/logger.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { encodeByteArray } from "../../../orchestrator/intent/shared.js";
@@ -11,7 +12,7 @@ import {
   collectionIdOf,
   expectedFile,
   itemMetadata,
-  itemsInBatch,
+  mintsInBatch,
   nextStep,
   pinnedValue,
   readProgress,
@@ -26,6 +27,8 @@ import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } f
 const log = createLogger("routes:launchpad-runs:data-tokenization");
 
 const SERVICE = "data-tokenization-erc721";
+
+const guestRequest = z.object({ recipient: z.string().email() });
 
 interface ActiveRun extends ActiveBase {
   spec: DataTokenizationSpec;
@@ -61,16 +64,20 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
   const batchCalls = async (active: ActiveRun, index: number, owner: string): Promise<RegistryCall[]> => {
     const collectionId = collectionIdOf(active.spec, active.progress);
     if (!collectionId) throw new NotReady("Create the collection first");
-    const items = itemsInBatch(active.spec, index);
-    if (items.length === 0) throw new NotReady("There is no such batch in this run");
-    const tokenUris = items.map((i) => pinnedValue(active.progress.tokenUris[String(i)]));
+    const mints = mintsInBatch(active.spec, index);
+    if (mints.length === 0) throw new NotReady("There is no such batch in this run");
+    const tokenUris = mints.map((m) => pinnedValue(active.progress.tokenUris[String(m.item)]));
     if (tokenUris.some((uri) => uri === null)) throw new NotReady("This batch is waiting for its metadata");
+    const toGuests = active.spec.guests.length > 0;
+    const recipients = mints.map((m) => (m.guest === null ? null : pinnedValue(active.progress.wallets[m.guest])));
+    if (toGuests && recipients.some((r) => r === null)) throw new NotReady("This batch is waiting for its guests' wallets");
     return registryMintCalls(ex().mintCalls, {
       registry: ex().registry(),
       collectionId,
       owner,
       tokenUris: tokenUris as string[],
       royaltyPercent: active.spec.terms.royalty,
+      ...(toGuests ? { recipients: recipients as string[] } : {}),
     });
   };
 
@@ -114,7 +121,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
       route: "batches/:index",
       label: "This batch",
       path: (index) => ["batches", String(index)],
-      credits: (active, index) => stepCredits(SERVICE, "batch", itemsInBatch(active.spec, index).length, ctx.priceOf),
+      credits: (active, index) => stepCredits(SERVICE, "batch", mintsInBatch(active.spec, index).length, ctx.priceOf),
       open: (active, index) => canSubmit(active.progress.batches[String(index)]),
       calls: batchCalls,
       state: (active, index) => active.progress.batches[String(index)],
@@ -183,6 +190,51 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
           log.warn({ err, run: active.run.id, index }, "run metadata pin failed");
           return c.json({ error: "Could not store this item's metadata. Try again." }, 502);
         }
+      });
+
+      app.post("/guests/resolve", async (c) => {
+        const active = await loadActive(c);
+        if (active instanceof Response) return active;
+
+        const waiting = active.spec.guests.filter((guest) => active.progress.wallets[guest] === undefined);
+        const resolved = waiting.length > 0 ? await ctx.dataTokenizationGuests().resolveWallets(waiting) : [];
+        const pending: string[] = [];
+        for (const { email, walletAddress } of resolved) {
+          if (walletAddress) await record(active, ["wallets", email], walletAddress);
+          else pending.push(email);
+        }
+        return c.json({ data: { pending } });
+      });
+
+      app.post("/guests", async (c) => {
+        const active = await loadActive(c);
+        if (active instanceof Response) return active;
+
+        const body = guestRequest.safeParse(await c.req.json().catch(() => null));
+        if (!body.success) return c.json({ error: "recipient is required" }, 400);
+        const recipient = body.data.recipient.trim().toLowerCase();
+        if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
+
+        const credits = await stepCredits(SERVICE, "wallet", 1, ctx.priceOf);
+        const path = ["wallets", recipient];
+        if (!(await ctx.store.reserve({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path }))) {
+          return c.json({ error: `${recipient} already has a wallet on the way` }, 409);
+        }
+
+        let result;
+        try {
+          result = await ctx.dataTokenizationGuests().registerWallet({ chain: "STARKNET", email: recipient });
+        } catch (err) {
+          log.warn({ err, run: active.run.id }, "run guest wallet failed");
+          result = null;
+        }
+        if (!result || result.status === 502) {
+          await ctx.store.release({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path });
+          return c.json({ error: `Could not prepare a wallet for ${recipient}. Try again.` }, 502);
+        }
+
+        await record(active, path, result.walletAddress);
+        return c.json({ data: { recipient, walletAddress: result.walletAddress } }, 201);
       });
 
       app.get("/batches/:index", async (c) => {

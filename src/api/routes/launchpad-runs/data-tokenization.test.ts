@@ -6,11 +6,12 @@ import { createRunRoutes } from "./index.js";
 import type { ExecutionDeps, ReceiptEvent, ReceiptStatus } from "./context.js";
 import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
 import { createMemoryRunStore } from "../../../launchpad/testing/memory-run-store.js";
+import type { DataTokenizationGuestDeps } from "../../../launchpad/services/data-tokenization/guests.js";
 
 const OWNER = "0x0123";
 const REGISTRY = "0x0789";
 
-function world() {
+function world(options: { known?: Record<string, string>; deploy?: "fail" } = {}) {
   const store = createMemoryRunStore({ balances: { ac1: 100 }, wallets: [`acct-ac1:${OWNER}`] });
   const { runs, balances, refunds } = store;
 
@@ -54,16 +55,29 @@ function world() {
     },
   };
 
+  const known: Record<string, string> = { ...options.known };
+  const registered: string[] = [];
+  const dataTokenizationGuests: DataTokenizationGuestDeps = {
+    resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: known[g] ?? null })),
+    registerWallet: async (input) => {
+      if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
+      registered.push(input.email);
+      const walletAddress = `0xa${registered.length}`;
+      known[input.email] = walletAddress;
+      return { status: 201, reused: false, walletAddress };
+    },
+  };
+
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     c.set("account", { id: "acct-ac1", status: "ACTIVE" });
     c.set("apiCredits", { id: "ac1", accountId: "acct-ac1", creditBalance: 0 });
     await next();
   });
-  app.route("/", createRunRoutes({ store, priceOf: async () => 2, execution }));
+  app.route("/", createRunRoutes({ store, priceOf: async () => 2, execution, dataTokenizationGuests }));
 
   return {
-    app, runs, balances, refunds, pinned, issued, pins, executed,
+    app, runs, balances, refunds, pinned, issued, pins, executed, registered,
     failExecute: (err: Error | null) => {
       executeError = err;
     },
@@ -340,5 +354,90 @@ describe("a sponsored step only carries its own calls", () => {
     expect(retry.status).toBe(409);
     expect(w.executed).toHaveLength(0);
     expect(w.runs[0]!.creditsSpent).toBe(spent);
+  });
+});
+
+const guestSpec = {
+  collection: spec.collection,
+  terms: spec.terms,
+  items: [{ name: "Pilot", ipType: "Art", placement: "image", file: { name: "a.png", size: 3, type: "image/png" } }],
+  guests: ["Ana@X.com", "bruno@x.com"],
+};
+
+const nextOf = async (w: World) =>
+  ((await (await w.app.request("/run1")).json()) as { data: { next: { kind: string } } }).data.next;
+
+const mintedTo = (w: World) =>
+  (w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Calldata: string[] }[] } } } }).invoke.typedData.message.Calls;
+
+async function guestRun(options: Parameters<typeof world>[0] = {}) {
+  const w = world(options);
+  await json(w.app, "POST", "/", { service: "data-tokenization-erc721", spec: guestSpec });
+  expect((await json(w.app, "POST", "/run1/checkout", { method: "credits" })).status).toBe(200);
+  expect((await upload(w, "a.png", 3)).status).toBe(201);
+  expect((await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER })).status).toBe(201);
+  return w;
+}
+
+const spent = (w: World) => w.runs[0]!.creditsSpent;
+const walletsOf = (w: World) => (w.runs[0]!.progress as { wallets: Record<string, unknown> }).wallets;
+
+describe("minting to guests", () => {
+  test("after metadata, a run with guests prepares their wallets before any batch", async () => {
+    const w = await guestRun();
+    expect((await nextOf(w)).kind).toBe("wallets");
+    expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER, calls: [] })).status).toBe(409);
+  });
+
+  test("a guest who already has a wallet is recorded without spending credits", async () => {
+    const w = await guestRun({ known: { "ana@x.com": "0xana" } });
+    const before = spent(w);
+    const res = await json(w.app, "POST", "/run1/guests/resolve");
+    expect(((await res.json()) as { data: { pending: string[] } }).data.pending).toEqual(["bruno@x.com"]);
+    expect(walletsOf(w)["ana@x.com"]).toBe("0xana");
+    expect(spent(w)).toBe(before);
+  });
+
+  test("preparing a guest's wallet spends its credits once, in any case of the email", async () => {
+    const w = await guestRun();
+    const before = spent(w);
+    expect((await json(w.app, "POST", "/run1/guests", { recipient: "ANA@x.com" })).status).toBe(201);
+    expect(spent(w)).toBe(before + 2 * 3);
+    expect(walletsOf(w)["ana@x.com"]).toBe("0xa1");
+    expect((await json(w.app, "POST", "/run1/guests", { recipient: "ana@x.com" })).status).toBe(409);
+    expect(spent(w)).toBe(before + 2 * 3);
+  });
+
+  test("only someone on the guest list gets a wallet", async () => {
+    const w = await guestRun();
+    expect((await json(w.app, "POST", "/run1/guests", { recipient: "eve@x.com" })).status).toBe(400);
+    expect(w.registered).toEqual([]);
+  });
+
+  test("a failed wallet returns its credits and can be tried again", async () => {
+    const w = await guestRun({ deploy: "fail" });
+    const before = spent(w);
+    expect((await json(w.app, "POST", "/run1/guests", { recipient: "ana@x.com" })).status).toBe(502);
+    expect(spent(w)).toBe(before);
+    expect(walletsOf(w)["ana@x.com"]).toBeUndefined();
+  });
+
+  test("a batch mints the item to every guest's wallet on the registry", async () => {
+    const w = await guestRun();
+    for (const recipient of ["ana@x.com", "bruno@x.com"]) {
+      expect((await json(w.app, "POST", "/run1/guests", { recipient })).status).toBe(201);
+    }
+    expect((await nextOf(w)).kind).toBe("batch");
+    expect((await submitBatch(w)).status).toBe(200);
+    const mints = mintedTo(w);
+    expect(mints).toHaveLength(2);
+    expect(mints.map((m) => BigInt(m.To))).toEqual([BigInt(REGISTRY), BigInt(REGISTRY)]);
+    expect(mints.map((m) => BigInt(m.Calldata[2]!))).toEqual([BigInt("0xa1"), BigInt("0xa2")]);
+  });
+
+  test("a run without guests still mints to the owner", async () => {
+    const w = await readyBatch();
+    expect((await submitBatch(w)).status).toBe(200);
+    expect(mintedTo(w).map((m) => BigInt(m.Calldata[2]!))).toEqual([BigInt(OWNER)]);
   });
 });
