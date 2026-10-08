@@ -27,6 +27,10 @@ const spec = z
     guests: z.array(z.string().email()).max(MAX_RUN_ITEMS).default([]),
   })
   .superRefine((value, ctx) => {
+    const guests = new Set(value.guests.map((g) => g.trim().toLowerCase())).size;
+    if (value.items.length * Math.max(1, guests) > MAX_RUN_ITEMS) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["guests"], message: `A run mints at most ${MAX_RUN_ITEMS} tokens: items times guests` });
+    }
     const seen = new Set<string>();
     value.items.forEach((item, index) => {
       if (item.placement !== "image" && !item.image) {

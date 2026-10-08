@@ -167,6 +167,12 @@ describe("minting to guests", () => {
     expect(mintsInBatch(catalog([photo]), 0)).toEqual([{ item: 0, guest: null }]);
   });
 
+  test("a run mints at most MAX_RUN_ITEMS tokens in all", () => {
+    const many = Array.from({ length: 251 }, (_, i) => `m${i}@x.com`);
+    expect(() => catalog([photo, photo2], many)).toThrow("at most 500");
+    expect(catalog([photo, photo2], many.slice(0, 250)).guests).toHaveLength(250);
+  });
+
   test("guests are lowercased and deduplicated", () => {
     expect(catalog([photo], ["Ana@X.com", "ana@x.com", "bruno@x.com"]).guests).toEqual(["ana@x.com", "bruno@x.com"]);
   });
