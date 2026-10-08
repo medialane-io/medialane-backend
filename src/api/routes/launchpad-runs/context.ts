@@ -17,6 +17,10 @@ import {
   productionCertificateEmissionDeps,
   type CertificateEmissionDeps,
 } from "../../../launchpad/services/certificate-emission/chain.js";
+import {
+  productionDataTokenizationGuestDeps,
+  type DataTokenizationGuestDeps,
+} from "../../../launchpad/services/data-tokenization/guests.js";
 import { defaultClient, type SponsoredInvokeDeps } from "../paymaster.js";
 
 export type ReceiptStatus = "SUCCEEDED" | "REVERTED" | "PENDING";
@@ -51,6 +55,7 @@ export interface RunRouteDeps {
   execution?: ExecutionDeps;
   ticketing?: TicketingDeps;
   certificateEmission?: CertificateEmissionDeps;
+  dataTokenizationGuests?: DataTokenizationGuestDeps;
 }
 
 export interface RunContext {
@@ -60,6 +65,7 @@ export interface RunContext {
   execution(): ExecutionDeps;
   ticketing(): TicketingDeps;
   certificateEmission(): CertificateEmissionDeps;
+  dataTokenizationGuests(): DataTokenizationGuestDeps;
 }
 
 async function productionReceipt(txHash: string): Promise<RunReceipt> {
@@ -105,6 +111,7 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
     execution: () => (execution ??= productionExecution()),
     ticketing: () => deps.ticketing ?? productionTicketingDeps,
     certificateEmission: () => deps.certificateEmission ?? productionCertificateEmissionDeps,
+    dataTokenizationGuests: () => deps.dataTokenizationGuests ?? productionDataTokenizationGuestDeps,
   };
 }
 
