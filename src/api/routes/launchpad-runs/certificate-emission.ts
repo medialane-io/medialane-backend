@@ -5,18 +5,17 @@ import { encodeByteArray } from "../../../orchestrator/intent/shared.js";
 import type { StoredRun } from "../../../launchpad/run-store.js";
 import { parseRunSpec, stepCredits } from "../../../launchpad/services/index.js";
 import type { CertificateEmissionSpec } from "../../../launchpad/services/certificate-emission/definition.js";
-import { registryMintCalls } from "../../../launchpad/services/data-tokenization/mint-calls.js";
+import { COLLECTION_CREATED_SELECTOR } from "../../../config/constants.js";
 import {
   batchCount,
   batchGuests,
-  collectionIdOf,
+  collectionAddressOf,
   readProgress,
   certificateMetadata,
   type CertificateEmissionProgress,
 } from "../../../launchpad/services/certificate-emission/progress.js";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
-import { ownsWallet, walletBody, type RunContext } from "./context.js";
-import { createdCollectionId } from "./data-tokenization.js";
+import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 
 const log = createLogger("routes:launchpad-runs:certificate-emission");
@@ -24,6 +23,25 @@ const log = createLogger("routes:launchpad-runs:certificate-emission");
 const SERVICE = "certificate-emission";
 
 const walletRequest = z.object({ recipient: z.string().email() });
+
+const sameFelt = (a: string | undefined, b: string | undefined) => {
+  if (!a || !b) return false;
+  try {
+    return BigInt(a) === BigInt(b);
+  } catch {
+    return false;
+  }
+};
+
+/** Address of the collection created in `events` by `factory`, from POP `CollectionCreated`. */
+export function createdPopCollection(events: ReceiptEvent[], factory: string): string | null {
+  for (const event of events) {
+    if (!sameFelt(event.from_address, factory) || !sameFelt(event.keys?.[0], COLLECTION_CREATED_SELECTOR)) continue;
+    const address = event.data?.[0];
+    if (address && BigInt(address) !== 0n) return normalizeAddress("STARKNET", address);
+  }
+  return null;
+}
 
 interface ActiveRun extends ActiveBase {
   spec: CertificateEmissionSpec;
@@ -38,9 +56,9 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
     ctx.store.record(active.run.id, active.apiCreditsId, path, value);
 
   const collectionOf = (active: ActiveRun) => {
-    const id = collectionIdOf(active.spec, active.progress);
-    if (!id) throw new NotReady("Create the collection first");
-    return id;
+    const address = collectionAddressOf(active.spec, active.progress);
+    if (!address) throw new NotReady("Create the collection first");
+    return normalizeAddress("STARKNET", address);
   };
 
   const sponsored: SponsoredStep<ActiveRun>[] = [
@@ -49,7 +67,7 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
       label: "The collection",
       path: () => ["collection", "tx"],
       credits: () => stepCredits(SERVICE, "collection", 0, ctx.priceOf),
-      open: (active) => !active.progress.collection?.collectionId && canSubmit(active.progress.collection?.tx),
+      open: (active) => !active.progress.collection?.address && canSubmit(active.progress.collection?.tx),
       async calls(active) {
         const choice = active.spec.collection;
         if (choice.kind !== "new") throw new NotReady("This run uses an existing collection");
@@ -61,22 +79,22 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         }
         return [
           {
-            contractAddress: ex().registry(),
+            contractAddress: chain().popFactory(),
             entrypoint: "create_collection",
-            calldata: [...encodeByteArray(choice.name), ...encodeByteArray(choice.symbol), ...encodeByteArray(baseUri)],
+            calldata: [...encodeByteArray(choice.name), ...encodeByteArray(choice.symbol), ...encodeByteArray(baseUri), "0"],
           },
         ];
       },
       state: (active) => active.progress.collection?.tx,
       async succeeded(active, _index, receipt, txHash, c) {
-        const collectionId = createdCollectionId(receipt.events, ex().registry());
-        if (!collectionId) {
-          log.error({ run: active.run.id, txHash }, "collection created but its id was not in the receipt");
-          return c.json({ error: "The collection was created but its id could not be read yet. Try again shortly." }, 502);
+        const collectionAddress = createdPopCollection(receipt.events, chain().popFactory());
+        if (!collectionAddress) {
+          log.error({ run: active.run.id, txHash }, "collection created but its address was not in the receipt");
+          return c.json({ error: "The collection was created but its address could not be read yet. Try again shortly." }, 502);
         }
         await record(active, ["collection", "tx"], { txHash, status: "SUCCEEDED" });
-        await record(active, ["collection", "collectionId"], collectionId);
-        return c.json({ data: { status: "SUCCEEDED", collectionId } });
+        await record(active, ["collection", "address"], collectionAddress);
+        return c.json({ data: { status: "SUCCEEDED", collectionAddress } });
       },
     },
     {
@@ -88,19 +106,22 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
       async calls(active, index, owner) {
         const guests = batchGuests(active.spec, index);
         if (guests.length === 0) throw new NotReady("There is no such batch in this run");
-        const collectionId = collectionOf(active);
+        const collection = collectionOf(active);
         const tokenUri = pinnedValue(active.progress.tokenUri);
         if (!tokenUri) throw new NotReady("The certificate's metadata is not stored yet");
         const recipients = guests.map((guest) => pinnedValue(active.progress.wallets[guest]));
         if (recipients.some((recipient) => !recipient)) throw new NotReady("This batch is waiting for its guests' wallets");
-        return registryMintCalls(ex().mintCalls, {
-          registry: ex().registry(),
-          collectionId,
-          owner,
-          recipients: recipients as string[],
-          tokenUris: guests.map(() => tokenUri),
-          royaltyPercent: 0,
-        });
+        if (active.spec.collection.kind === "existing") {
+          const organizer = await chain().organizerOf(collection);
+          if (normalizeAddress("STARKNET", organizer) !== normalizeAddress("STARKNET", owner)) {
+            throw new NotReady("This collection is organized by another wallet");
+          }
+        }
+        return (recipients as string[]).map((recipient) => ({
+          contractAddress: collection,
+          entrypoint: "issue",
+          calldata: [recipient, ...encodeByteArray(tokenUri)],
+        }));
       },
       state: (active, index) => active.progress.batches[String(index)],
       async succeeded(active, index, _receipt, txHash, c) {
