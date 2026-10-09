@@ -1,5 +1,5 @@
 -- Funding intents: the account is fixed when a funding starts, never guessed from the payer.
--- Additive only. Spec: medialane-core/docs/superpowers/specs/2026-09-29-funding-intents-design.md
+-- Additive only.
 
 CREATE TYPE "FundingIntentStatus" AS ENUM ('PENDING', 'SETTLED', 'FAILED', 'EXPIRED');
 

@@ -6,8 +6,7 @@
 -- that exist only in the LicenseMinted event, never on-chain state.
 -- Hand-written (no local Postgres available at author time); applied via
 -- `prisma migrate deploy` on the next Railway deploy, same pattern as
--- 20260702000000_add_ticket_redeemed_and_sponsorship_tables. Spec:
--- medialane-core/docs/plans/2026-07-14-ip-sponsorship-real-world-redesign.md
+-- 20260702000000_add_ticket_redeemed_and_sponsorship_tables.
 
 -- CreateTable
 CREATE TABLE "SponsorshipOffer" (

@@ -3,7 +3,7 @@
 -- the platform-gating enums (WalletType, IdentityProvider), and rename the
 -- AppSource value MEDIALANE_DAPP -> MEDIALANE_STARKNET.
 --
--- A wallet is now ONE KIND of Identity (07-identity §II): scheme='wallet', keyed
+-- A wallet is now ONE KIND of Identity: scheme='wallet', keyed
 -- by (chain, address). Social/email logins are scheme='clerk' / 'email' / …,
 -- keyed by (scheme, value). 'value' is the old providerUserId.
 --

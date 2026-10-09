@@ -1,4 +1,4 @@
--- Multichain readiness (spec 2026-06-13 §3.5): Comment.chain and
+-- Multichain readiness: Comment.chain and
 -- ServiceContract.chain move from free-form text to the Chain enum so one
 -- Chain type is used everywhere.
 --
