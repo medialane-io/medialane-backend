@@ -1,4 +1,4 @@
--- Phase D cutover: the Account is the only billing identity (07-identity §III).
+-- Phase D cutover: the Account is the only billing identity.
 -- Pre-verified on a prod-backup restore (2026-07-11 dump): 0 orphan ApiKeys /
 -- WebhookEndpoints / Payments, credits conserved (Account total == legacy
 -- Tenant total). The SET NOT NULLs below are the structural wall — they fail

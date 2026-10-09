@@ -1,12 +1,11 @@
 -- Drop COUNTER_OFFERED from OrderStatus.
 --
 -- Counter-offers are linked orders via `parentOrderHash`, not a third
--- lifecycle state on the parent bid (01-core-model §V). The backend stops
+-- lifecycle state on the parent bid. The backend stops
 -- writing the value in the same release (intents/build.ts:174). Consumer
 -- apps (medialane-io, medialane-dapp) already switched their tab predicate
 -- to the derived `hasActiveCounterOffer` flag.
 --
--- Phase B + C of audit P0-1.
 
 -- Phase B (data backfill): any existing row that's stuck on COUNTER_OFFERED
 -- → back to ACTIVE. The child counter still exists with parentOrderHash, so
