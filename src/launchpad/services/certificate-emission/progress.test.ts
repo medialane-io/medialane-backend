@@ -16,12 +16,14 @@ const parse = (extra: Record<string, unknown> = {}) => certificateEmission.parse
 const progress = (p: Record<string, unknown> = {}) => readProgress(p);
 
 describe("the next step of a Certificate Emission run", () => {
-  test("a new collection comes first, then waits for its transaction", () => {
+  test("a new collection is created once the certificate's metadata is stored, then waits for its transaction", () => {
     const spec = parse({ collection: { kind: "new", name: "Cohort 1", symbol: "C1" } });
-    expect(nextStep(spec, progress())).toEqual({ kind: "collection" });
-    expect(nextStep(spec, progress({ collection: { tx: { status: "SUBMITTED", txHash: "0x1" } } }))).toEqual({
-      kind: "wait-collection",
-    });
+    expect(nextStep(spec, progress())).toEqual({ kind: "certificate-metadata" });
+    expect(nextStep(spec, progress({ tokenUri: "ipfs://meta" }))).toEqual({ kind: "collection" });
+    expect(
+      nextStep(spec, progress({ tokenUri: "ipfs://meta", collection: { tx: { status: "SUBMITTED", txHash: "0x1" } } })),
+    ).toEqual({ kind: "wait-collection" });
+    expect(nextStep(spec, progress({ tokenUri: "ipfs://meta", collection: { address: "0xc" } }))).toEqual({ kind: "wallets" });
   });
 
   test("artwork is uploaded before the certificate's metadata is stored", () => {
