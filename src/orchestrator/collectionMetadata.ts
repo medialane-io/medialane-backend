@@ -73,6 +73,11 @@ const ERC721_INFO_ABI_FELT = [
   },
 ];
 
+/** The on-chain base URI when the contract exposes one, else the one indexed from its factory event. */
+export function resolveCollectionBaseUri(onchain: string, stored: string | null | undefined): string {
+  return onchain || stored || "";
+}
+
 export async function handleCollectionMetadataFetch(payload: {
   chain: string;
   contractAddress: string;
@@ -175,7 +180,9 @@ export async function handleCollectionMetadataFetch(payload: {
   const isOwnCollection = isOwnService(existing?.service);
 
   try {
-    const { name, symbol, baseUri } = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
+    const onchain = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
+    const { name, symbol } = onchain;
+    const baseUri = resolveCollectionBaseUri(onchain.baseUri, existing?.baseUri);
 
     if (isOwnCollection && !name && !symbol && !existing?.name && !existing?.symbol) {
       throw new Error("On-chain name/symbol read failed for own collection — no legacy fallback available");

@@ -354,8 +354,12 @@ describe("a run that creates its own collection", () => {
     return w;
   }
 
-  test("the collection comes first, and its address from the factory's event unlocks the rest", async () => {
+  test("the collection is created after the certificate's metadata, with it as the collection URI", async () => {
     const w = await newCollectionRun();
+    expect((await nextOf(w)).kind).toBe("upload");
+    expect((await sponsor(w, "collection")).status).toBe(409);
+    await uploadArtwork(w);
+    await metadata(w);
     expect((await nextOf(w)).kind).toBe("collection");
     expect((await sponsor(w, "wallets")).status).toBe(404);
 
@@ -364,6 +368,8 @@ describe("a run that creates its own collection", () => {
     const [create] = request.invoke.typedData.message.Calls;
     expect(BigInt(create!.To)).toBe(BigInt(POP_FACTORY));
     expect(BigInt(create!.Selector)).toBe(BigInt(hash.getSelectorFromName("create_collection")));
+    const uri = encodeByteArray("ipfs://meta-1").map((felt) => BigInt(felt));
+    expect(create!.Calldata.slice(-1 - uri.length, -1).map((felt) => BigInt(felt))).toEqual(uri);
     expect(BigInt(create!.Calldata.at(-1)!)).toBe(0n);
     expect((await sponsor(w, "collection")).status).toBe(409);
     expect((await nextOf(w)).kind).toBe("wait-collection");
@@ -372,20 +378,22 @@ describe("a run that creates its own collection", () => {
     const confirmed = await json(w.app, "POST", "/run1/collection/confirm");
     const { data } = (await confirmed.json()) as { data: { collectionAddress: string } };
     expect(BigInt(data.collectionAddress)).toBe(BigInt(NEW_COLLECTION));
-    expect((await nextOf(w)).kind).toBe("upload");
+    expect((await nextOf(w)).kind).toBe("wallets");
   });
 
-  test("the batch issues onto the new collection", async () => {
+  test("the batch issues onto the new collection without a per-token URI", async () => {
     const w = await newCollectionRun();
+    await uploadArtwork(w);
+    await metadata(w);
     await sponsor(w, "collection");
     w.setReceipt("SUCCEEDED", [created]);
     await json(w.app, "POST", "/run1/collection/confirm");
-    await uploadArtwork(w);
-    await metadata(w);
     for (const guest of spec.guests) await json(w.app, "POST", "/run1/recipients", wallet(guest));
     await sponsor(w, "batches/0");
-    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string }[] } } } };
-    expect(BigInt(request.invoke.typedData.message.Calls[0]!.To)).toBe(BigInt(NEW_COLLECTION));
+    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Calldata: string[] }[] } } } };
+    const [issue] = request.invoke.typedData.message.Calls;
+    expect(BigInt(issue!.To)).toBe(BigInt(NEW_COLLECTION));
+    expect(issue!.Calldata.slice(1).map((felt) => BigInt(felt))).toEqual(encodeByteArray("").map((felt) => BigInt(felt)));
   });
 
   test("a run on an existing collection has no collection step", async () => {

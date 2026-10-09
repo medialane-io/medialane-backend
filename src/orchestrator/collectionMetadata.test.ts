@@ -20,3 +20,20 @@ describe("collectionMetadata SSRF guard", () => {
     }
   });
 });
+
+describe("resolveCollectionBaseUri", () => {
+  test("keeps the base URI indexed from the factory when the contract has no base_uri getter", async () => {
+    const { resolveCollectionBaseUri } = await import("./collectionMetadata.js");
+    expect(resolveCollectionBaseUri("", "ipfs://bafy/event.json")).toBe("ipfs://bafy/event.json");
+  });
+
+  test("prefers the on-chain value when the contract exposes one", async () => {
+    const { resolveCollectionBaseUri } = await import("./collectionMetadata.js");
+    expect(resolveCollectionBaseUri("ipfs://chain/", "ipfs://stored/")).toBe("ipfs://chain/");
+  });
+
+  test("is empty when neither is known", async () => {
+    const { resolveCollectionBaseUri } = await import("./collectionMetadata.js");
+    expect(resolveCollectionBaseUri("", null)).toBe("");
+  });
+});

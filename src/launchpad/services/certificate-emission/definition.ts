@@ -35,9 +35,9 @@ export const certificateEmission: RunServiceDefinition<CertificateEmissionSpec> 
   costs: CERTIFICATE_EMISSION_COSTS,
   plan(value, { provisioned }) {
     const steps: PlannedStep[] = [];
-    if (value.collection.kind === "new") steps.push({ kind: "collection", items: 0 });
     if (value.artwork) steps.push({ kind: "file", items: 1 });
     steps.push({ kind: "metadata", items: 1 });
+    if (value.collection.kind === "new") steps.push({ kind: "collection", items: 0 });
     for (let i = 0; i < Math.max(0, value.guests.length - provisioned); i++) steps.push({ kind: "wallet", items: 1 });
     for (const size of batchSizes(value.guests.length)) steps.push({ kind: "emission", items: size });
     return steps;

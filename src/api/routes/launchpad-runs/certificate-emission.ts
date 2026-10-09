@@ -71,10 +71,12 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
       async calls(active) {
         const choice = active.spec.collection;
         if (choice.kind !== "new") throw new NotReady("This run uses an existing collection");
-        let baseUri = active.progress.collection?.baseUri;
-        if (!baseUri) {
-          baseUri = await ex().pinJson({ name: choice.name, external_link: "https://medialane.io" });
-          active.progress.collection = { ...active.progress.collection, baseUri };
+        // The certificate's metadata is the collection URI, so each issue stores no per-token URI.
+        const baseUri = pinnedValue(active.progress.tokenUri);
+        if (!baseUri) throw new NotReady("The certificate's metadata is not stored yet");
+        if (!active.progress.collection) {
+          // The step's tx and address are recorded under `collection`, which must exist first.
+          active.progress.collection = {};
           await record(active, ["collection"], active.progress.collection);
         }
         return [
@@ -120,7 +122,7 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         return (recipients as string[]).map((recipient) => ({
           contractAddress: collection,
           entrypoint: "issue",
-          calldata: [recipient, ...encodeByteArray(tokenUri)],
+          calldata: [recipient, ...encodeByteArray(active.spec.collection.kind === "new" ? "" : tokenUri)],
         }));
       },
       state: (active, index) => active.progress.batches[String(index)],
