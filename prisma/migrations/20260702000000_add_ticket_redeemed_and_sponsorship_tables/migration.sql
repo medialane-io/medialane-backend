@@ -2,8 +2,7 @@
 -- Offer/Bid/License tables. Sponsorship has no factory and mints nothing
 -- itself, so these are NOT Collection/Token rows.
 -- Hand-written (local Postgres unavailable at author time); applied in prod
--- via `prisma migrate deploy`. Spec:
--- medialane-core/docs/specs/2026-07-02-launchpad-tickets-club-sponsorship-design.md
+-- via `prisma migrate deploy`.
 
 -- AlterTable
 ALTER TABLE "Token" ADD COLUMN "redeemed" BOOLEAN NOT NULL DEFAULT false;

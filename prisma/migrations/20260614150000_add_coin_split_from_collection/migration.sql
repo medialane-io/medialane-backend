@@ -1,5 +1,4 @@
 -- Fungible coins get their own table; Collection becomes NFT-only.
--- Spec: medialane-core/docs/specs/2026-06-14-coin-collection-split-design.md
 --
 -- PRE-APPLY CHECK (prod): SELECT name, "contractAddress" FROM "Collection" WHERE standard='ERC20';
 -- (today: "Brother Eli", "STARKNET BROTHER"; both have zero Token rows.)

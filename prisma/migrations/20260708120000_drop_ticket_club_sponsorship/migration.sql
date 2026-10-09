@@ -1,5 +1,4 @@
--- Remove the IP-Tickets / IP-Club / IP-Sponsorship services from the platform
--- (spec: medialane-core/docs/specs/2026-07-08-backend-uniform-digital-assets-design.md).
+-- Remove the IP-Tickets / IP-Club / IP-Sponsorship services from the platform.
 -- No production usage exists; every purged row is a chain-rebuildable projection.
 
 -- Purge indexed rows for the removed services.

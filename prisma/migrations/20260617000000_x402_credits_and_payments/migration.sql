@@ -1,6 +1,5 @@
 -- x402 agent payments: per-tenant credit balance + payment ledger.
--- Hand-written (local Postgres unavailable at author time); applied in prod via
--- `prisma migrate deploy`. Spec: medialane-core/docs/specs/2026-06-17-x402-agent-payments-design.md
+-- Hand-written; applied via `prisma migrate deploy`.
 
 -- CreateEnum
 CREATE TYPE "PaymentStatus" AS ENUM ('SETTLED', 'FAILED');
