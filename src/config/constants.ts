@@ -14,6 +14,7 @@ import {
   STARKNET_IP_CLUB_FACTORY_CONTRACT,
   STARKNET_IP_SPONSORSHIP_CONTRACT,
   STARKNET_COLLECTION_721_START_BLOCK,
+  STARKNET_POP_FACTORY_START_BLOCK,
 } from "@medialane/sdk";
 import { env } from "./env.js";
 
@@ -59,6 +60,7 @@ export {
 export const START_BLOCK = env.INDEXER_START_BLOCK;
 
 export const COLLECTION_721_START_BLOCK = STARKNET_COLLECTION_721_START_BLOCK;
+export const POP_FACTORY_START_BLOCK = STARKNET_POP_FACTORY_START_BLOCK;
 
 export const ORDER_CREATED_SELECTOR = hash.getSelectorFromName("OrderCreated");
 export const ORDER_FULFILLED_SELECTOR =
@@ -73,7 +75,7 @@ export const TRANSFER_SINGLE_SELECTOR = hash.getSelectorFromName("TransferSingle
 export const TRANSFER_BATCH_SELECTOR = hash.getSelectorFromName("TransferBatch");
 export const COLLECTION_CREATED_SELECTOR = hash.getSelectorFromName("CollectionCreated");
 export const COMMENT_ADDED_SELECTOR = hash.getSelectorFromName("CommentAdded");
-export const POP_ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
+export const ALLOWLIST_UPDATED_SELECTOR = hash.getSelectorFromName("AllowlistUpdated");
 export const DROP_CREATED_SELECTOR = hash.getSelectorFromName("DropCreated");
 export const CLAIM_CONDITIONS_UPDATED_SELECTOR = hash.getSelectorFromName("ClaimConditionsUpdated");
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");

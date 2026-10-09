@@ -17,7 +17,11 @@ export function dropCollectionFilter() {
   return { service: "drop-collection", deletedAt: null };
 }
 
-export function dropClaimTransferFilter(contracts: string[]) {
+export function popCollectionFilter() {
+  return { service: "pop-protocol", deletedAt: null };
+}
+
+export function mintTransferFilter(contracts: string[]) {
   return { contractAddress: { in: contracts }, fromAddress: ZERO };
 }
 
@@ -197,15 +201,15 @@ async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
       select: { collectionAddress: true, createdAt: true },
     }),
 
-    prisma.popAllowlist.findMany({
-      distinct: ["collectionAddress"],
-      select: { collectionAddress: true },
+    prisma.collection.findMany({
+      where: popCollectionFilter(),
+      select: { contractAddress: true, createdAt: true },
     }),
   ]);
 
   const allContracts = dedupeLaunchContracts([
     ...drops.map((d) => ({ contract: d.collectionAddress, createdAt: d.createdAt })),
-    ...pops.map((p) => ({ contract: p.collectionAddress, createdAt: new Date() })),
+    ...pops.map((p) => ({ contract: p.contractAddress, createdAt: p.createdAt })),
   ]);
 
   const contractSet = allContracts.map((c) => c.contract);
@@ -376,14 +380,13 @@ async function gatherOfferAccepted(sellerXp: number, buyerXp: number): Promise<R
 
 async function gatherClaimPop(xp: number): Promise<RawEvent[]> {
 
-  const popContracts = await prisma.popAllowlist.findMany({
-    distinct: ["collectionAddress"],
-    select: { collectionAddress: true },
+  const pops = await prisma.collection.findMany({
+    where: popCollectionFilter(),
+    select: { contractAddress: true },
   });
-  const popSet = new Set(popContracts.map((p) => p.collectionAddress));
 
   const transfers = await prisma.transfer.findMany({
-    where: { contractAddress: { in: [...popSet] } },
+    where: mintTransferFilter(pops.map((p) => p.contractAddress)),
     select: { toAddress: true, txHash: true, createdAt: true },
   });
 
@@ -401,7 +404,7 @@ async function gatherClaimDrop(xp: number): Promise<RawEvent[]> {
   const dropContracts = await dropContractAddresses();
 
   const transfers = await prisma.transfer.findMany({
-    where: dropClaimTransferFilter(dropContracts),
+    where: mintTransferFilter(dropContracts),
     select: { toAddress: true, txHash: true, createdAt: true },
   });
 
@@ -486,7 +489,7 @@ export async function computeSoldOutBadges(db: Db): Promise<Set<string>> {
 
   const claimedCounts = await db.transfer.groupBy({
     by: ["contractAddress"],
-    where: dropClaimTransferFilter(drops.map((d) => d.collectionAddress)),
+    where: mintTransferFilter(drops.map((d) => d.collectionAddress)),
     _count: { id: true },
   });
   const claimedByContract = new Map(claimedCounts.map((c) => [c.contractAddress, c._count.id]));

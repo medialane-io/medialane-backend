@@ -29,7 +29,8 @@ import {
   COLLECTION_DEPLOYED_SELECTOR,
   CLUB_DEPLOYED_SELECTOR,
   COMMENT_ADDED_SELECTOR,
-  POP_ALLOWLIST_UPDATED_SELECTOR,
+  ALLOWLIST_UPDATED_SELECTOR,
+  POP_FACTORY_START_BLOCK,
   DROP_CREATED_SELECTOR,
   CLAIM_CONDITIONS_UPDATED_SELECTOR,
   CREATOR_COIN_CREATED_SELECTOR,
@@ -44,7 +45,7 @@ import {
   LICENSE_MINTED_SELECTOR,
 } from "../config/constants.js";
 import { handleCommentAdded } from "./handlers/commentAdded.js";
-import { handlePopCollectionCreated, handlePopAllowlistUpdated } from "./handlers/popFactory.js";
+import { handlePopCollectionCreated } from "./handlers/popFactory.js";
 import { handleDropCreated, handleDropAllowlistUpdated, handleDropClaimConditionsUpdated } from "./handlers/dropFactory.js";
 import { handleCreatorCoinCreated } from "./handlers/creatorCoinFactory.js";
 import { handleIP1155CollectionDeployed } from "./handlers/ip1155Factory.js";
@@ -166,10 +167,6 @@ async function applyCreatorCoinFactory(events: RawStarknetEvent[], ctx: SourceCo
   }
 }
 
-async function applyPopAllowlist(events: RawStarknetEvent[]): Promise<void> {
-  for (const event of events) await handlePopAllowlistUpdated(event);
-}
-
 async function applyDropAllowlist(events: RawStarknetEvent[]): Promise<void> {
   for (const event of events) await handleDropAllowlistUpdated(event);
 }
@@ -204,7 +201,7 @@ export const EVENT_SOURCES: EventSource[] = [
 
   ...TREASURY_DEPOSIT_SOURCES,
 
-  { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyPopFactory },
+  { id: "factory:pop", scope: { kind: "contract", address: STARKNET_POP_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: POP_FACTORY_START_BLOCK, apply: applyPopFactory },
   { id: "factory:drop", scope: { kind: "contract", address: STARKNET_DROP_FACTORY_CONTRACT }, selectors: [hex(DROP_CREATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropFactory },
   { id: "factory:mip-erc1155", scope: { kind: "contract", address: STARKNET_COLLECTION_1155_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIp1155Factory },
   { id: "factory:ip-tickets", scope: { kind: "contract", address: STARKNET_IP_TICKETS_FACTORY_CONTRACT }, selectors: [hex(COLLECTION_DEPLOYED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyIpTicketsFactory },
@@ -221,8 +218,7 @@ export const EVENT_SOURCES: EventSource[] = [
     apply: applySponsorship,
   },
   { id: "factory:creator-coin", scope: { kind: "contract", address: STARKNET_CREATOR_COIN_FACTORY_CONTRACT }, selectors: [hex(CREATOR_COIN_CREATED_SELECTOR)], cadenceMs: env.CREATOR_COIN_POLL_INTERVAL_MS, apply: applyCreatorCoinFactory },
-  { id: "allowlist:pop", scope: { kind: "collections", service: "pop-protocol" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyPopAllowlist },
-  { id: "allowlist:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(POP_ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyDropAllowlist },
+  { id: "allowlist:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(ALLOWLIST_UPDATED_SELECTOR)], cadenceMs: env.TRANSFER_POLL_INTERVAL_MS, apply: applyDropAllowlist },
   { id: "conditions:drop", scope: { kind: "collections", service: "drop-collection" }, selectors: [hex(CLAIM_CONDITIONS_UPDATED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, apply: applyDropConditions },
 ];
 

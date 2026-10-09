@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import {
-  dropClaimTransferFilter,
+  mintTransferFilter,
   soldOutClaimFilter,
   dedupeLaunchContracts,
   dropCollectionFilter,
@@ -9,13 +9,13 @@ import {
 const ZERO = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 test("drop claims are selected as mints from the zero address", () => {
-  const filter = dropClaimTransferFilter(["0xdrop1", "0xdrop2"]);
+  const filter = mintTransferFilter(["0xdrop1", "0xdrop2"]);
   expect(filter.fromAddress).toBe(ZERO);
   expect(filter.contractAddress).toEqual({ in: ["0xdrop1", "0xdrop2"] });
 });
 
 test("drop claims are never selected as transfers away from the zero address", () => {
-  const filter = dropClaimTransferFilter(["0xdrop1"]);
+  const filter = mintTransferFilter(["0xdrop1"]);
   expect(filter.fromAddress).not.toEqual({ not: ZERO });
 });
 
