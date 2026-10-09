@@ -15,6 +15,7 @@ async function incrementBalance(
   owner: string,
   amount: bigint
 ): Promise<void> {
+  if (owner === ZERO_ADDRESS) return;
   await tx.$executeRaw`
     INSERT INTO "TokenBalance" (id, chain, "contractAddress", "tokenId", owner, amount, "updatedAt")
     VALUES (gen_random_uuid()::text, ${chain}::"Chain", ${contractAddress}, ${tokenId}, ${owner}, ${amount.toString()}, NOW())
