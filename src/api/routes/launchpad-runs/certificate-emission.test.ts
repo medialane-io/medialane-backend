@@ -11,6 +11,8 @@ import type { CertificateEmissionDeps } from "../../../launchpad/services/certif
 
 const OWNER = "0x0123";
 const REGISTRY = "0x0789";
+const POP_FACTORY = "0x0f0f";
+const NEW_COLLECTION = "0x0c01";
 interface Call {
   contractAddress: string;
   entrypoint: string;
@@ -19,7 +21,7 @@ interface Call {
 const GROUP = "0x0abc";
 const PRICE = 2;
 
-function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail" } = {}) {
+function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"; organizer?: string } = {}) {
   const store = createMemoryRunStore({ balances: { ac1: 100 }, wallets: [`acct-ac1:${OWNER}`] });
   const { runs, balances, refunds } = store;
 
@@ -70,6 +72,8 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
       known[input.email] = walletAddress;
       return { status: 201, reused: false, walletAddress };
     },
+    popFactory: () => POP_FACTORY,
+    organizerOf: async () => options.organizer ?? OWNER,
   };
 
   const app = new Hono<AppEnv>();
@@ -134,8 +138,8 @@ async function sponsor(w: World, path: string) {
   return json(w.app, "POST", `/run1/${path}/execute`, { userAddress: OWNER, typedData, signature: ["0x1", "0x2"] });
 }
 
-async function withMetadata() {
-  const w = await paid();
+async function withMetadata(options: Parameters<typeof world>[0] = {}) {
+  const w = await paid({}, options);
   await uploadArtwork(w);
   await metadata(w);
   return w;
@@ -143,8 +147,8 @@ async function withMetadata() {
 
 const wallet = (recipient: string) => ({ recipient });
 
-async function withWallets() {
-  const w = await withMetadata();
+async function withWallets(options: Parameters<typeof world>[0] = {}) {
+  const w = await withMetadata(options);
   for (const guest of spec.guests) expect((await json(w.app, "POST", "/run1/recipients", wallet(guest))).status).toBe(201);
   return w;
 }
@@ -271,18 +275,19 @@ describe("issuing the certificates", () => {
     expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER })).status).toBe(409);
   });
 
-  test("a batch mints one certificate per guest to their wallet, and completes the run", async () => {
+  test("a batch issues one certificate per guest to their wallet, and completes the run", async () => {
     const w = await withWallets();
     expect((await nextOf(w)).kind).toBe("batch");
     const submitted = await sponsor(w, "batches/0");
     expect(submitted.status).toBe(200);
-    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Calldata: string[] }[] } } } };
-    const mints = request.invoke.typedData.message.Calls;
-    expect(mints).toHaveLength(2);
-    mints.forEach((mint, i) => {
-      expect(BigInt(mint.To)).toBe(BigInt(REGISTRY));
-      expect(BigInt(mint.Calldata[2]!)).toBe(BigInt(`0xa${i + 1}`));
-      expect(mint.Calldata.slice(3, -1).map((felt) => BigInt(felt))).toEqual(encodeByteArray("ipfs://meta-1").map((felt) => BigInt(felt)));
+    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Selector: string; Calldata: string[] }[] } } } };
+    const issues = request.invoke.typedData.message.Calls;
+    expect(issues).toHaveLength(2);
+    issues.forEach((issue, i) => {
+      expect(BigInt(issue.To)).toBe(BigInt(GROUP));
+      expect(BigInt(issue.Selector)).toBe(BigInt(hash.getSelectorFromName("issue")));
+      expect(BigInt(issue.Calldata[0]!)).toBe(BigInt(`0xa${i + 1}`));
+      expect(issue.Calldata.slice(1).map((felt) => BigInt(felt))).toEqual(encodeByteArray("ipfs://meta-1").map((felt) => BigInt(felt)));
     });
 
     expect((await json(w.app, "POST", "/run1/batches/0/confirm")).status).toBe(202);
@@ -302,6 +307,14 @@ describe("issuing the certificates", () => {
     await json(w.app, "POST", "/run1/batches/0/confirm");
     expect(w.runs[0]!.creditsSpent).toBe(before - (PRICE * 2 + PRICE * 2));
     expect((await sponsor(w, "batches/0")).status).toBe(200);
+  });
+
+  test("refuses an existing collection organized by another wallet", async () => {
+    const w = await withWallets({ organizer: "0x0bad" });
+    const before = w.executed.length;
+    const built = await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER });
+    expect(built.status).toBe(409);
+    expect(w.executed.length).toBe(before);
   });
 
   test("a wallet from another account cannot issue", async () => {
@@ -325,7 +338,11 @@ describe("cancelling", () => {
 });
 
 describe("a run that creates its own collection", () => {
-  const created: ReceiptEvent = { from_address: REGISTRY, keys: [COLLECTION_CREATED_SELECTOR, "0x2a", "0x0"], data: [OWNER] };
+  const created: ReceiptEvent = {
+    from_address: POP_FACTORY,
+    keys: [COLLECTION_CREATED_SELECTOR, "0x2a", "0x0", OWNER],
+    data: [NEW_COLLECTION, "0x0", "0x0", "0x0"],
+  };
 
   async function newCollectionRun() {
     const w = world();
@@ -337,23 +354,28 @@ describe("a run that creates its own collection", () => {
     return w;
   }
 
-  test("the collection comes first, and its id from the registry's event unlocks the rest", async () => {
+  test("the collection comes first, and its address from the factory's event unlocks the rest", async () => {
     const w = await newCollectionRun();
     expect((await nextOf(w)).kind).toBe("collection");
     expect((await sponsor(w, "wallets")).status).toBe(404);
 
     expect((await sponsor(w, "collection")).status).toBe(200);
+    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Selector: string; Calldata: string[] }[] } } } };
+    const [create] = request.invoke.typedData.message.Calls;
+    expect(BigInt(create!.To)).toBe(BigInt(POP_FACTORY));
+    expect(BigInt(create!.Selector)).toBe(BigInt(hash.getSelectorFromName("create_collection")));
+    expect(BigInt(create!.Calldata.at(-1)!)).toBe(0n);
     expect((await sponsor(w, "collection")).status).toBe(409);
     expect((await nextOf(w)).kind).toBe("wait-collection");
 
     w.setReceipt("SUCCEEDED", [created]);
     const confirmed = await json(w.app, "POST", "/run1/collection/confirm");
-    const { data } = (await confirmed.json()) as { data: { collectionId: string } };
-    expect(data.collectionId).toBe("42");
+    const { data } = (await confirmed.json()) as { data: { collectionAddress: string } };
+    expect(BigInt(data.collectionAddress)).toBe(BigInt(NEW_COLLECTION));
     expect((await nextOf(w)).kind).toBe("upload");
   });
 
-  test("the batch mints onto the new collection", async () => {
+  test("the batch issues onto the new collection", async () => {
     const w = await newCollectionRun();
     await sponsor(w, "collection");
     w.setReceipt("SUCCEEDED", [created]);
@@ -362,8 +384,8 @@ describe("a run that creates its own collection", () => {
     await metadata(w);
     for (const guest of spec.guests) await json(w.app, "POST", "/run1/recipients", wallet(guest));
     await sponsor(w, "batches/0");
-    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } };
-    expect(BigInt(request.invoke.typedData.message.Calls[0]!.Calldata[0]!)).toBe(42n);
+    const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string }[] } } } };
+    expect(BigInt(request.invoke.typedData.message.Calls[0]!.To)).toBe(BigInt(NEW_COLLECTION));
   });
 
   test("a run on an existing collection has no collection step", async () => {

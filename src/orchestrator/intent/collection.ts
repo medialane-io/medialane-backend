@@ -1,6 +1,6 @@
 
 
-import { cairo, Contract, CairoCustomEnum, CairoOption, CairoOptionVariant } from "starknet";
+import { cairo, Contract, CairoOption, CairoOptionVariant } from "starknet";
 import { callRpc, normalizeAddress, createProvider } from "../../utils/starknet.js";
 import {
   STARKNET_COLLECTION_1155_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, STARKNET_IP_CLUB_FACTORY_CONTRACT,
@@ -18,7 +18,6 @@ import {
   DropFactoryABI,
   toDropContractConditions,
 } from "@medialane/sdk/starknet";
-import type { PopEventType } from "@medialane/sdk";
 import type { MintIntentBody, CreateCollectionIntentBody, CreateTierIntentBody } from "../../types/api.js";
 import prisma from "../../db/client.js";
 import { uploadJson } from "../metadataPin.js";
@@ -112,7 +111,7 @@ export async function buildMintIntent(body: MintIntentBody) {
 
   if (service === "pop-protocol") {
     const collection = new Contract({ abi: POPCollectionABI as never, address: contractAddress, providerOrAccount: createProvider() as never });
-    const call = collection.populate("admin_mint", [recipient, body.customUri ?? ""]);
+    const call = collection.populate("issue", [recipient, body.customUri ?? ""]);
     return { calls: [call] };
   }
 
@@ -172,17 +171,8 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
   }
 
   if (body.service === "pop-protocol") {
-    if (body.claimEndTimestamp == null || !body.eventType) {
-      throw new Error("claimEndTimestamp and eventType are required to deploy a pop-protocol collection");
-    }
     const factory = new Contract({ abi: POPFactoryABI as never, address: STARKNET_POP_FACTORY_CONTRACT, providerOrAccount: createProvider() as never });
-    const call = factory.populate("create_collection", [
-      body.name,
-      body.symbol,
-      baseUri,
-      body.claimEndTimestamp,
-      new CairoCustomEnum({ [body.eventType as PopEventType]: {} }),
-    ]);
+    const call = factory.populate("create_collection", [body.name, body.symbol, baseUri, body.claimEndTimestamp ?? 0]);
     return { calls: [call] };
   }
 

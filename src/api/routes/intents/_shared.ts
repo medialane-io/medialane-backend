@@ -76,7 +76,6 @@ export const createCollectionSchema = z.object({
   service: z.enum(COLLECTION_SERVICE_IDS).optional(),
 
   claimEndTimestamp: z.number().int().nonnegative().optional(),
-  eventType: z.string().optional(),
 
   maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string").optional(),
   conditions: z.object({

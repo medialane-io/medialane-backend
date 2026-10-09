@@ -4,27 +4,20 @@ import { buildCreateCollectionIntent } from "./collection.js";
 const OWNER = "0x0283e70573f8765763ffe6e0cbd74eec816cf195826443a96b64a50d7a4b9849";
 
 describe("a pop-protocol collection", () => {
-  test("is encoded for the factory's create_collection with its event type", async () => {
+  test("is created with name, symbol, base URI and deadline", async () => {
     const { calls } = await buildCreateCollectionIntent({
-      owner: OWNER,
-      name: "Pilot",
-      symbol: "PLT",
-      baseUri: "ipfs://bafytest",
-      service: "pop-protocol",
-      claimEndTimestamp: 0,
-      eventType: "Course",
+      owner: OWNER, name: "Pilot", symbol: "PLT", baseUri: "ipfs://bafytest",
+      service: "pop-protocol", claimEndTimestamp: 1700000000,
     } as never);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.entrypoint).toBe("create_collection");
-    expect(calls[0]!.calldata?.length).toBeGreaterThan(0);
+    expect((calls[0]!.calldata as string[]).at(-1)).toBe("1700000000");
   });
 
-  test("a different event type changes the encoded variant", async () => {
-    const encode = async (eventType: string) =>
-      (await buildCreateCollectionIntent({
-        owner: OWNER, name: "Pilot", symbol: "PLT", baseUri: "ipfs://bafytest",
-        service: "pop-protocol", claimEndTimestamp: 0, eventType,
-      } as never)).calls[0]!.calldata;
-    expect(await encode("Course")).not.toEqual(await encode("Workshop"));
+  test("defaults the deadline to none", async () => {
+    const { calls } = await buildCreateCollectionIntent({
+      owner: OWNER, name: "Pilot", symbol: "PLT", baseUri: "ipfs://bafytest", service: "pop-protocol",
+    } as never);
+    expect((calls[0]!.calldata as string[]).at(-1)).toBe("0");
   });
 });
