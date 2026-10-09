@@ -109,7 +109,6 @@ export interface CreateCollectionIntentBody {
 
   claimEndTimestamp?: number;
 
-  eventType?: string;
 
   maxSupply?: string;
 
