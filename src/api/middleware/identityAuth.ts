@@ -10,7 +10,7 @@ import type { AppEnv } from "../../types/hono.js";
 
 export type SessionLookup =
   | { verdict: "ok"; accountId: string; walletAddress: string | null }
-  | { verdict: "inactive" | "expired" | "invalid" };
+  | { verdict: "inactive" | "invalid" };
 
 export interface IdentityAuthDeps {
   isInactive(appId: string | null, chain: string, address: string): Promise<boolean>;
@@ -31,12 +31,11 @@ const productionDeps: IdentityAuthDeps = {
     if (!accountId) return { verdict: "invalid" };
     const account = await prisma.account.findUnique({
       where: { id: accountId },
-      select: { status: true, sessionsValidFrom: true },
+      select: { status: true },
     });
     if (!account) return { verdict: "invalid" };
-    const verdict = sessionVerdict(account, raw);
-    if (verdict !== "ok") return { verdict };
-    return { verdict, accountId, walletAddress: await accountWallet(accountId) };
+    if (sessionVerdict(account) === "inactive") return { verdict: "inactive" };
+    return { verdict: "ok", accountId, walletAddress: await accountWallet(accountId) };
   },
 };
 

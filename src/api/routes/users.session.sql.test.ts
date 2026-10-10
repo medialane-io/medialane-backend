@@ -124,3 +124,48 @@ describe.skipIf(!databaseUrl)("session routes read the x-account-session header"
     expect(res.status).toBe(401);
   });
 });
+
+describe.skipIf(!databaseUrl)("confirming the email keeps the person signed in", () => {
+  test("a session issued at sign-up still works after the email is confirmed", async () => {
+    const prisma = (await import("../../db/client.js")).default;
+    const users = (await import("./users.js")).default;
+    const { authEmail } = await import("./auth-email.js");
+    const { issueAccountSessionToken } = await import("../../utils/accountSessionToken.js");
+    const { issueConfirmToken } = await import("../../utils/emailConfirmToken.js");
+    const appId = "MEDIALANE_IO";
+    const app = new Hono<AppEnv>();
+    app.use("*", async (c, next) => {
+      c.set("appId", appId);
+      await next();
+    });
+    app.route("/users", users);
+    app.route("/auth/email", authEmail);
+
+    const { id } = await prisma.account.create({
+      data: {
+        publicId: "confirm-keeps-session",
+        status: "PENDING",
+        identities: { create: [{ scheme: "email", value: "confirm@example.com", appId }] },
+      },
+      select: { id: true },
+    });
+    const session = issueAccountSessionToken(id);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const confirmToken = issueConfirmToken(process.env.SIWS_SECRET!, {
+      accountId: id,
+      email: "confirm@example.com",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const confirmed = await app.request("/auth/email/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: confirmToken }),
+    });
+    expect(confirmed.status).toBe(200);
+
+    const me = await app.request("/users/me", { headers: { "x-account-session": session } });
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as { accountId: string }).accountId).toBe(id);
+  });
+});

@@ -6,8 +6,8 @@ export async function currentAccountIdFromSession(raw: string): Promise<string |
   if (!accountId) return null;
   const account = await prisma.account.findUnique({
     where: { id: accountId },
-    select: { status: true, sessionsValidFrom: true },
+    select: { status: true },
   });
   if (!account) return null;
-  return sessionVerdict(account, raw) === "ok" ? accountId : null;
+  return sessionVerdict(account) === "ok" ? accountId : null;
 }

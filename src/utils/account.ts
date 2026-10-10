@@ -203,6 +203,7 @@ export async function findLiveAccountIdByEmail(email: string, appId: string): Pr
 export async function ensureAccountForEmail(
   email: string,
   appId: string,
+  status: "ACTIVE" | "PENDING" = "ACTIVE",
 ): Promise<{ accountId: string; created: boolean }> {
   const value = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email);
   return prisma.$transaction(async (tx) => {
@@ -215,6 +216,7 @@ export async function ensureAccountForEmail(
     const account = await tx.account.create({
       data: {
         publicId: generateAccountPublicId(),
+        status,
         identities: { create: { scheme: IDENTITY_SCHEME.EMAIL, value, appId } },
       },
       select: { id: true },

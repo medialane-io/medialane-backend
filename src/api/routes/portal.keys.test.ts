@@ -22,7 +22,6 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
         findUnique: mock(async () => ({
           id: "a1",
           status: "ACTIVE",
-          sessionsValidFrom: null,
           apiCredits: { id: "ac1", accountId: "a1", creditBalance: 0 },
         })),
       },

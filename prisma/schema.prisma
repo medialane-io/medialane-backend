@@ -679,8 +679,6 @@ model Account {
 
   status AccountStatus @default(ACTIVE)
 
-  sessionsValidFrom DateTime?
-
   identities Identity[]
   profile    AccountProfile?
   notices    AccountNotice[]
