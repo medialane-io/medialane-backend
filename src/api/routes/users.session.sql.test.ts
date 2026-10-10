@@ -72,3 +72,45 @@ describe.skipIf(!databaseUrl)("GET /users/me with an account session", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe.skipIf(!databaseUrl)("session routes read the x-account-session header", () => {
+  let prisma: PrismaClient;
+  let app: Hono<AppEnv>;
+  let issue: (accountId: string) => string;
+  const appId = "MEDIALANE_IO";
+
+  beforeAll(async () => {
+    prisma = (await import("../../db/client.js")).default;
+    const users = (await import("./users.js")).default;
+    issue = (await import("../../utils/accountSessionToken.js")).issueAccountSessionToken;
+    app = new Hono<AppEnv>();
+    app.use("*", async (c, next) => {
+      c.set("appId", appId);
+      await next();
+    });
+    app.route("/users", users);
+  });
+
+  test("POST /users/me/wallet answers for the header's session", async () => {
+    const wallet = "0x0000000000000000000000000000000000000000000000000000000000000def";
+    const { id } = await prisma.account.create({
+      data: {
+        publicId: "header-wallet",
+        identities: { create: [{ scheme: "wallet", chain: "STARKNET", address: wallet, appId }] },
+      },
+      select: { id: true },
+    });
+    const res = await app.request("/users/me/wallet", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-account-session": issue(id) },
+      body: "{}",
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { walletAddress: string }).walletAddress).toBe(wallet);
+  });
+
+  test("POST /users/me/wallet without a session is refused", async () => {
+    const res = await app.request("/users/me/wallet", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(res.status).toBe(401);
+  });
+});
