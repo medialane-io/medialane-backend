@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
@@ -21,9 +21,6 @@ const log = createLogger("routes:users");
 
 const users = new Hono<AppEnv>();
 
-const sessionToken = (c: Context<AppEnv>, fromBody?: string): string | undefined =>
-  c.req.header("x-account-session") ?? fromBody;
-
 const walletTypeSchema = z.string().max(64);
 const chainEnum = z.nativeEnum(Chain);
 
@@ -42,8 +39,6 @@ const meBodySchema = z.object({
 
   email: z.string().email().optional(),
 
-
-  accountToken: z.string().optional(),
 });
 
 const generateWalletBodySchema = z.object({
@@ -105,7 +100,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     }, 400);
   }
 
-  const session = sessionToken(c, parsed.data.accountToken);
+  const session = c.req.header("x-account-session");
   const linkToAccountId = session ? ((await currentAccountIdFromSession(session)) ?? undefined) : undefined;
 
   let accountId: string;
@@ -180,10 +175,8 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), asyn
   return c.json({ walletAddress: newAddress });
 });
 
-const accountWalletSchema = z.object({ accountToken: z.string().min(1).optional() });
-
-users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
-  const session = sessionToken(c, c.req.valid("json").accountToken);
+users.post("/me/wallet", async (c) => {
+  const session = c.req.header("x-account-session");
   const accountId = session ? await currentAccountIdFromSession(session) : null;
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
 
@@ -197,13 +190,12 @@ users.post("/me/wallet", zValidator("json", accountWalletSchema), async (c) => {
 });
 
 const walletKeySchema = z.object({
-  accountToken: z.string().min(1).optional(),
   newOwnerPubkey: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/),
 });
 
 users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
-  const { accountToken, newOwnerPubkey } = c.req.valid("json");
-  const session = sessionToken(c, accountToken);
+  const { newOwnerPubkey } = c.req.valid("json");
+  const session = c.req.header("x-account-session");
   const accountId = session ? await currentAccountIdFromSession(session) : null;
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
   const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey);

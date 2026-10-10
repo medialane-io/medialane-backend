@@ -109,6 +109,16 @@ describe.skipIf(!databaseUrl)("session routes read the x-account-session header"
     expect(((await res.json()) as { walletAddress: string }).walletAddress).toBe(wallet);
   });
 
+  test("a session sent in the body is not accepted", async () => {
+    const { id } = await prisma.account.create({ data: { publicId: "body-session" }, select: { id: true } });
+    const res = await app.request("/users/me/wallet", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accountToken: issue(id) }),
+    });
+    expect(res.status).toBe(401);
+  });
+
   test("POST /users/me/wallet without a session is refused", async () => {
     const res = await app.request("/users/me/wallet", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(res.status).toBe(401);
