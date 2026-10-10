@@ -25,6 +25,7 @@ export type AppVariables = {
   apiCredits: AuthedApiCredits;
   apiKey: AuthedApiKey;
   walletAddress?: string;
+  sessionAccountId?: string;
 
   subjectTokenIssuedAt?: number;
 
