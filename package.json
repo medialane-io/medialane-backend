@@ -16,13 +16,10 @@
     "db:fresh": "bunx prisma migrate deploy",
     "db:studio": "bunx prisma studio",
     "reset-cursor": "bun run scripts/resetCursor.ts",
-    "seed-rewards": "bun run src/scripts/seed-rewards.ts",
-    "pricing:apply": "bun run src/scripts/apply-pricing.ts",
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
-    "pricing:apply:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run pricing:apply'",
     "test": "bun test src",
     "test:sql": "bash scripts/test-run-store-sql.sh",
     "test:sql:funding": "bash scripts/test-funding-store-sql.sh"

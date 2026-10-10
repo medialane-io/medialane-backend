@@ -1,8 +1,4 @@
-
-
-import prisma from "../db/client.js";
-
-const LEVELS = [
+export const LEVELS: Array<{ level: number; name: string; xpRequired: number; badgeColor: string; description?: string }> = [
 
   { level: 1,  name: "Starter",     xpRequired: 0,       badgeColor: "#64748b", description: "Welcome to Medialane." },
   { level: 2,  name: "Explorer",    xpRequired: 100,     badgeColor: "#64748b" },
@@ -62,7 +58,7 @@ const LEVELS = [
   { level: 50, name: "Genesis",     xpRequired: 26_500_000, badgeColor: "#10b981", description: "The ultimate rank. You create worlds." },
 ];
 
-const ACTIONS = [
+export const ACTIONS = [
   { type: "complete_profile",       label: "Complete profile",           xp: 50,  dailyCap: null, minValueUsdc: null, enabled: true },
   { type: "mint_asset",             label: "Mint an IP asset",           xp: 20,  dailyCap: 10,   minValueUsdc: null, enabled: true },
   { type: "create_collection",      label: "Create a collection",        xp: 50,  dailyCap: 5,    minValueUsdc: null, enabled: true },
@@ -91,13 +87,13 @@ const ACTIONS = [
   { type: "launch_coin",                  label: "Launch a creator coin",          xp: 150, dailyCap: null, minValueUsdc: null, enabled: true },
 ];
 
-const MULTIPLIERS = [
+export const MULTIPLIERS = [
   { name: "Beta Tester",   description: "Any action before public launch", factor: 1.5, condition: "beta_tester",   enabled: true },
   { name: "First 100",     description: "One of the first 100 users",      factor: 2.0, condition: "first_100",     enabled: true },
   { name: "Loyalty",       description: "All listings exclusively on Medialane (scales 1.0–1.5×)", factor: 1.25, condition: "loyalty", enabled: true },
 ];
 
-const BADGES = [
+export const BADGES = [
 
   { key: "og",              name: "OG",              description: "Participated during beta",              icon: "Flame",       color: "#f59e0b", category: "creator",   enabled: true },
   { key: "first_drop",      name: "First Drop",      description: "Launched your first collection",        icon: "Package",     color: "#8b5cf6", category: "creator",   enabled: true },
@@ -123,49 +119,3 @@ const BADGES = [
 
   { key: "patron",          name: "Patron",          description: "Sponsored a creator",                   icon: "Handshake",   color: "#10b981", category: "community", enabled: false },
 ];
-
-async function main() {
-  console.log("Seeding reward configuration…");
-
-  for (const l of LEVELS) {
-    await prisma.rewardLevel.upsert({
-      where: { level: l.level },
-      update: { name: l.name, xpRequired: l.xpRequired, badgeColor: l.badgeColor, description: l.description ?? null },
-      create: { ...l, description: l.description ?? null },
-    });
-  }
-  console.log(`  ✓ ${LEVELS.length} levels`);
-
-  for (const a of ACTIONS) {
-    await prisma.rewardAction.upsert({
-      where: { type: a.type },
-      update: a,
-      create: a,
-    });
-  }
-  console.log(`  ✓ ${ACTIONS.length} action weights`);
-
-  for (const m of MULTIPLIERS) {
-    await prisma.rewardMultiplier.upsert({
-      where: { id: m.condition },
-      update: m,
-      create: { id: m.condition, ...m },
-    });
-  }
-  console.log(`  ✓ ${MULTIPLIERS.length} multipliers`);
-
-  for (const b of BADGES) {
-    await prisma.badgeDefinition.upsert({
-      where: { key: b.key },
-      update: b,
-      create: b,
-    });
-  }
-  console.log(`  ✓ ${BADGES.length} badge definitions`);
-
-  console.log("Done.");
-}
-
-main()
-  .catch((e) => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());

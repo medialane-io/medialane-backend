@@ -2,28 +2,33 @@ import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
+import { ACTIONS, BADGES, LEVELS } from "../../rewards/config.js";
 
 const log = createLogger("routes:rewards");
 
 const rewards = new Hono();
 
-rewards.get("/config", async (c) => {
-  const [levels, actions, badges] = await Promise.all([
-    prisma.rewardLevel.findMany({
-      orderBy: { level: "asc" },
-      select: { level: true, name: true, xpRequired: true, badgeColor: true, description: true },
-    }),
-    prisma.rewardAction.findMany({
-      where: { enabled: true },
-      orderBy: { type: "asc" },
-      select: { type: true, label: true, xp: true, dailyCap: true },
-    }),
-    prisma.badgeDefinition.findMany({
-      where: { enabled: true },
-      orderBy: [{ category: "asc" }, { key: "asc" }],
-      select: { key: true, name: true, description: true, icon: true, color: true, category: true },
-    }),
-  ]);
+const levels = [...LEVELS]
+  .sort((a, b) => a.level - b.level)
+  .map((l) => ({ level: l.level, name: l.name, xpRequired: l.xpRequired, badgeColor: l.badgeColor, description: l.description ?? null }));
+
+const badgeView = (b: (typeof BADGES)[number]) => ({
+  key: b.key,
+  name: b.name,
+  description: b.description,
+  icon: b.icon,
+  color: b.color,
+  category: b.category,
+});
+const badgeByKey = new Map(BADGES.map((b) => [b.key, badgeView(b)]));
+
+rewards.get("/config", (c) => {
+  const actions = ACTIONS.filter((a) => a.enabled)
+    .sort((a, b) => a.type.localeCompare(b.type))
+    .map((a) => ({ type: a.type, label: a.label, xp: a.xp, dailyCap: a.dailyCap }));
+  const badges = BADGES.filter((b) => b.enabled)
+    .sort((a, b) => a.category.localeCompare(b.category) || a.key.localeCompare(b.key))
+    .map(badgeView);
   return c.json({ data: { levels, actions, badges } });
 });
 
@@ -31,10 +36,7 @@ rewards.get("/batch", async (c) => {
   const raw = (c.req.query("addresses") ?? "").split(",").map((a) => a.trim()).filter(Boolean);
   if (raw.length === 0 || raw.length > 50) return c.json({ error: "Provide 1–50 addresses" }, 400);
   const addresses = raw.map((a) => normalizeAddress("STARKNET", a));
-  const [scores, levels] = await Promise.all([
-    prisma.userScore.findMany({ where: { address: { in: addresses } } }),
-    prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
-  ]);
+  const scores = await prisma.userScore.findMany({ where: { address: { in: addresses } } });
   const levelMap = new Map(levels.map((l) => [l.level, l]));
   const byAddress = new Map(scores.map((s) => [s.address, s]));
   const starter = levels[0] ?? { level: 1, name: "Starter", badgeColor: "#64748b" };
@@ -56,14 +58,9 @@ rewards.get("/batch", async (c) => {
 rewards.get("/:address", async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
 
-  const [score, badges, levels] = await Promise.all([
+  const [score, badges] = await Promise.all([
     prisma.userScore.findUnique({ where: { address } }),
-    prisma.userBadge.findMany({
-      where: { address },
-      include: { badge: { select: { key: true, name: true, description: true, icon: true, color: true, category: true } } },
-      orderBy: { awardedAt: "asc" },
-    }),
-    prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
+    prisma.userBadge.findMany({ where: { address }, orderBy: { awardedAt: "asc" }, select: { badgeKey: true } }),
   ]);
 
   if (!score) {
@@ -107,7 +104,7 @@ rewards.get("/:address", async (c) => {
         : null,
       progressPct,
       breakdown: score.breakdown,
-      badges: badges.map((b) => b.badge),
+      badges: badges.flatMap((b) => badgeByKey.get(b.badgeKey) ?? []),
       computedAt: score.computedAt,
     },
   });
@@ -127,7 +124,6 @@ rewards.get("/", async (c) => {
     }),
   ]);
 
-  const levels = await prisma.rewardLevel.findMany({ orderBy: { level: "asc" } });
   const levelMap = new Map(levels.map((l) => [l.level, l]));
 
   const accountIds = scores.map((s) => s.accountId).filter((id): id is string => id != null);

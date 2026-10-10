@@ -806,64 +806,6 @@ enum RemixOfferStatus {
   SELF_MINTED
 }
 
-model RewardLevel {
-  level       Int      @id
-  name        String
-  xpRequired  Int
-  badgeColor  String   @default("#6366f1")
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
-}
-
-model PricingRule {
-  id        String   @id @default(cuid())
-  actionKey String
-  chain     String   @default("ALL")
-  service   String   @default("ALL")
-  credits   Int
-  label     String?
-  updatedAt DateTime @updatedAt
-
-  @@unique([actionKey, chain, service])
-}
-
-model RewardAction {
-  type         String   @id
-  label        String
-  xp           Int
-  dailyCap     Int?
-  minValueUsdc Float?
-  enabled      Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @default(now()) @updatedAt
-}
-
-model RewardMultiplier {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  factor      Float
-  condition   String
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
-}
-
-model BadgeDefinition {
-  id          String      @id @default(cuid())
-  key         String      @unique
-  name        String
-  description String
-  icon        String
-  color       String      @default("#6366f1")
-  category    String
-  enabled     Boolean     @default(true)
-  awards      UserBadge[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @default(now()) @updatedAt
-}
-
 model UserScore {
   address      String   @id
   accountId    String?
@@ -885,7 +827,6 @@ model UserBadge {
   address   String
   accountId String?
   badgeKey  String
-  badge     BadgeDefinition @relation(fields: [badgeKey], references: [key])
   awardedAt DateTime        @default(now())
   txHash    String?
 
