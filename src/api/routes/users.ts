@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { accountWallet, ensureAccountForWallet, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
+import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
@@ -124,11 +124,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
 
   if (parsed.data.email) {
     const existing = await prisma.identity.findFirst({
-      where: {
-        appId,
-        scheme: IDENTITY_SCHEME.EMAIL,
-        value: { in: emailValues(parsed.data.email) },
-      },
+      where: liveEmailWhere(appId, emailValues(parsed.data.email)),
       select: { id: true },
     });
     if (shouldAddEmailIdentity({ emailHeldByAnyAccount: existing !== null, accountHasEmail: (await getCurrentEmailIdentity(accountId)) !== null })) {
@@ -254,7 +250,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
   const accountId = identity.accountId;
 
   const existingOwner = await prisma.identity.findFirst({
-    where: { appId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
+    where: liveEmailWhere(appId, emailValues(email)),
     select: { accountId: true },
   });
   const decision = canClaimEmail(accountId, existingOwner);

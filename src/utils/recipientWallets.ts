@@ -1,8 +1,7 @@
 import type { Chain } from "@prisma/client";
 import prisma from "../db/client.js";
-import { IDENTITY_SCHEME } from "./identity.js";
 import { IO_APP } from "./caller.js";
-import { accountWallets } from "./account.js";
+import { accountWallets, liveEmailWhere } from "./account.js";
 
 export interface RecipientWallet {
   email: string;
@@ -12,7 +11,7 @@ export interface RecipientWallet {
 export async function resolveRecipientWallets(chain: Chain, emails: string[]): Promise<RecipientWallet[]> {
   if (emails.length === 0) return [];
   const identities = await prisma.identity.findMany({
-    where: { appId: IO_APP, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emails } },
+    where: liveEmailWhere(IO_APP, emails),
     select: { value: true, accountId: true },
   });
   const accountByEmail = new Map(identities.map((i) => [i.value!, i.accountId]));
