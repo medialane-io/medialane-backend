@@ -1,4 +1,5 @@
 import prisma from "../db/client.js";
+import { ACTIONS, BADGES, LEVELS, MULTIPLIERS } from "./config.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { normalizeAddress } from "../utils/starknet.js";
@@ -91,15 +92,12 @@ export function levelForXp(xp: number, levels: LevelConfig[]): number {
   return level;
 }
 
-async function loadConfig() {
-  const [actions, multipliers, levels] = await Promise.all([
-    prisma.rewardAction.findMany({ where: { enabled: true } }),
-    prisma.rewardMultiplier.findMany({ where: { enabled: true } }),
-    prisma.rewardLevel.findMany({ orderBy: { level: "asc" } }),
-  ]);
+function loadConfig() {
   const actionMap = new Map<string, ActionConfig>(
-    actions.map((a) => [a.type, { type: a.type, xp: a.xp, dailyCap: a.dailyCap, minValueUsdc: a.minValueUsdc }])
+    ACTIONS.filter((a) => a.enabled).map((a) => [a.type, { type: a.type, xp: a.xp, dailyCap: a.dailyCap, minValueUsdc: a.minValueUsdc }])
   );
+  const multipliers = MULTIPLIERS.filter((m) => m.enabled);
+  const levels = [...LEVELS].sort((a, b) => a.level - b.level);
   return { actionMap, multipliers, levels };
 }
 
@@ -729,9 +727,7 @@ async function computeBadges(
   });
   for (const c of coinCreators) award(normalizeAddress("STARKNET", c.creator!), "coin_creator");
 
-  const enabledKeys = new Set(
-    (await prisma.badgeDefinition.findMany({ where: { enabled: true }, select: { key: true } })).map((b) => b.key)
-  );
+  const enabledKeys = new Set(BADGES.filter((b) => b.enabled).map((b) => b.key));
   for (const [address, keys] of badges) {
     badges.set(address, keys.filter((k) => enabledKeys.has(k)));
   }
@@ -747,7 +743,7 @@ export async function computeRewards(
 
   log.info({ dryRun: isDryRun }, "Computing rewards…");
 
-  const { actionMap, multipliers, levels } = await loadConfig();
+  const { actionMap, multipliers, levels } = loadConfig();
   log.info({ actions: actionMap.size, multipliers: multipliers.length, levels: levels.length }, "Config loaded");
 
   const first100 = await firstNUsers(100);

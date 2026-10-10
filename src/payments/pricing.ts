@@ -1,8 +1,6 @@
 
-import prisma from "../db/client.js";
-import { createLogger } from "../utils/logger.js";
-
-const log = createLogger("payments:pricing");
+import { x402Config, USDC_DECIMALS } from "../config/x402.js";
+import { PRICING } from "../../pricing.config.js";
 
 export const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string; exact?: boolean }> = [
   { method: "POST", prefix: "/v1/intents/mint", actionKey: "intent:mint" },
@@ -70,42 +68,22 @@ export function resolveActionKey(method: string, path: string): string | null {
 
 type RuleMap = Map<string, number>;
 
-let cache: RuleMap | null = null;
-let cacheLoadedAt = 0;
-const CACHE_TTL_MS = 60_000;
-
 function ruleCacheKey(actionKey: string, chain: string, service: string): string {
   return `${actionKey}::${chain}::${service}`;
 }
 
-async function loadRules(): Promise<RuleMap> {
-  const rows = await prisma.pricingRule.findMany({
-    select: { actionKey: true, chain: true, service: true, credits: true },
-  });
-  const map: RuleMap = new Map();
-  for (const r of rows) {
-    map.set(ruleCacheKey(r.actionKey, r.chain, r.service), r.credits);
-  }
-  return map;
-}
+const USD_PER_CREDIT = Number(x402Config.usdcAtomicPerCredit) / 10 ** USDC_DECIMALS;
 
-async function getRules(): Promise<RuleMap> {
-  const stale = !cache || Date.now() - cacheLoadedAt > CACHE_TTL_MS;
-  if (stale) {
-    try {
-      cache = await loadRules();
-      cacheLoadedAt = Date.now();
-    } catch (err) {
-      log.error({ err }, "failed to load PricingRule — using fallback costs");
-      if (!cache) cache = new Map();
-    }
-  }
-  return cache!;
-}
+const PRICE_ROWS = PRICING.map((row) => ({
+  actionKey: row.action,
+  chain: row.chain ?? "ALL",
+  service: row.service ?? "ALL",
+  credits: Math.round(row.usd / USD_PER_CREDIT),
+})).sort(
+  (a, b) => a.actionKey.localeCompare(b.actionKey) || a.chain.localeCompare(b.chain) || a.service.localeCompare(b.service),
+);
 
-export function invalidatePricingCache(): void {
-  cache = null;
-}
+const RULES: RuleMap = new Map(PRICE_ROWS.map((r) => [ruleCacheKey(r.actionKey, r.chain, r.service), r.credits]));
 
 function resolveCost(rules: RuleMap, actionKey: string, chain: string): number {
   for (const key of [ruleCacheKey(actionKey, chain, "ALL"), ruleCacheKey(actionKey, "ALL", "ALL")]) {
@@ -116,7 +94,7 @@ function resolveCost(rules: RuleMap, actionKey: string, chain: string): number {
 }
 
 export async function creditsForAction(actionKey: string, chain: string = DEFAULT_CHAIN): Promise<number> {
-  return resolveCost(await getRules(), actionKey, chain);
+  return resolveCost(RULES, actionKey, chain);
 }
 
 export interface CostContext {
@@ -141,8 +119,7 @@ export async function chargeForRequest(
   if (actionKey === null) return null;
 
   const chain = ctx.chain ?? DEFAULT_CHAIN;
-  const rules = await getRules();
-  const unitCredits = resolveCost(rules, actionKey, chain);
+  const unitCredits = resolveCost(RULES, actionKey, chain);
 
   let units = 1;
   const extractor = BATCH_UNIT_EXTRACTORS[actionKey];
@@ -158,17 +135,8 @@ export async function pricingTable(): Promise<{
   default: number;
   rules: Array<{ actionKey: string; chain: string; service: string; credits: number }>;
 }> {
-  let rows: Array<{ actionKey: string; chain: string; service: string; credits: number }> = [];
-  try {
-    rows = await prisma.pricingRule.findMany({
-      orderBy: [{ actionKey: "asc" }, { chain: "asc" }, { service: "asc" }],
-      select: { actionKey: true, chain: true, service: true, credits: true },
-    });
-  } catch (err) {
-    log.error({ err }, "failed to load PricingRule for discovery — advertising fallback only");
-  }
   return {
-    default: resolveCost(await getRules(), DEFAULT_ACTION_KEY, DEFAULT_CHAIN),
-    rules: rows,
+    default: resolveCost(RULES, DEFAULT_ACTION_KEY, DEFAULT_CHAIN),
+    rules: PRICE_ROWS,
   };
 }
