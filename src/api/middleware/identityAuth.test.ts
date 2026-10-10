@@ -96,8 +96,8 @@ test("identityAuth refuses the session of an inactive account", async () => {
   expect(await res.json()).toEqual({ error: "Account is not active", code: "account_inactive" });
 });
 
-test("identityAuth refuses an expired or invalid session", async () => {
-  for (const verdict of ["expired", "invalid"] as const) {
+test("identityAuth refuses an invalid session", async () => {
+  for (const verdict of ["invalid"] as const) {
     const res = await appWith(undefined, "app-A", async () => ({ verdict })).request("/", { headers: SESSION });
     expect(res.status).toBe(401);
   }

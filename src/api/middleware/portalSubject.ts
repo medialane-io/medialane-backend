@@ -10,7 +10,6 @@ import { callerApp } from "../../utils/caller.js";
 const accountSelect = {
   id: true,
   status: true,
-  sessionsValidFrom: true,
   apiCredits: { select: { id: true, accountId: true, creditBalance: true } },
 } as const;
 
@@ -25,9 +24,7 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (accountId) {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: accountSelect });
     if (!account) return c.json({ error: "No account for this session" }, 404);
-    const verdict = sessionVerdict(account, raw);
-    if (verdict === "inactive") return c.json({ error: "Account is not active" }, 403);
-    if (verdict === "expired") return c.json({ error: "Invalid or expired token" }, 401);
+    if (sessionVerdict(account) === "inactive") return c.json({ error: "Account is not active" }, 403);
 
     c.set("subjectTokenIssuedAt", accountSessionIssuedAt(raw) ?? undefined);
     c.set("account", { id: account.id, status: account.status });

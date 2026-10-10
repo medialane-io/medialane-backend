@@ -2,18 +2,17 @@ import { describe, expect, mock, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 
-function accountRow(sessionsValidFrom: Date | null) {
+function accountRow(status: string) {
   return {
     id: "a1",
-    status: "ACTIVE",
-    sessionsValidFrom,
+    status,
     apiCredits: { id: "ac1", accountId: "a1", creditBalance: 0 },
   };
 }
 
-async function appFor(sessionsValidFrom: Date | null) {
+async function appFor(status: string) {
   mock.module("../../db/client.js", () => ({
-    default: { account: { findUnique: mock(() => Promise.resolve(accountRow(sessionsValidFrom))) } },
+    default: { account: { findUnique: mock(() => Promise.resolve(accountRow(status))) } },
   }));
   const { portalSubject } = await import("./portalSubject.js");
   const { issueAccountSessionToken } = await import("../../utils/accountSessionToken.js");
@@ -24,21 +23,18 @@ async function appFor(sessionsValidFrom: Date | null) {
   return { request, token: issueAccountSessionToken("a1") };
 }
 
-describe("account sessions and the verification cutoff", () => {
-  test("a session issued before the account was verified is refused", async () => {
-    const { request, token } = await appFor(new Date(Date.now() + 60_000));
+describe("account sessions on the portal", () => {
+  test("a session keeps working for an active or pending account", async () => {
+    for (const status of ["ACTIVE", "PENDING"]) {
+      const { request, token } = await appFor(status);
+      expect((await request(token)).status).toBe(200);
+    }
+  });
+
+  test("an inactive account's session is refused", async () => {
+    const { request, token } = await appFor("INACTIVE");
     const res = await request(token);
-    expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: "Invalid or expired token" });
-  });
-
-  test("a session issued after the cutoff is accepted", async () => {
-    const { request, token } = await appFor(new Date(Date.now() - 60_000));
-    expect((await request(token)).status).toBe(200);
-  });
-
-  test("an account with no cutoff keeps its sessions", async () => {
-    const { request, token } = await appFor(null);
-    expect((await request(token)).status).toBe(200);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Account is not active" });
   });
 });

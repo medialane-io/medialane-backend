@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 
 function accountRow(over: { status?: string; apiCredits?: unknown } = {}) {
-  return { id: "a1", status: over.status ?? "ACTIVE", sessionsValidFrom: null, apiCredits: over.apiCredits ?? null };
+  return { id: "a1", status: over.status ?? "ACTIVE", apiCredits: over.apiCredits ?? null };
 }
 
 async function signIn(account: ReturnType<typeof accountRow> | null) {

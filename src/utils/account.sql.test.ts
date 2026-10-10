@@ -59,4 +59,12 @@ describe.skipIf(!databaseUrl)("email accounts against Postgres", () => {
     expect(new Set(results.map((r) => r.accountId)).size).toBe(1);
     expect(results.filter((r) => r.created)).toHaveLength(1);
   });
+
+  test("an account is created with the status it is given, in the same write", async () => {
+    const pending = await account.ensureAccountForEmail("pending@example.com", appId, "PENDING");
+    const active = await account.ensureAccountForEmail("active@example.com", appId, "ACTIVE");
+    const statusOf = async (id: string) => (await prisma.account.findUniqueOrThrow({ where: { id }, select: { status: true } })).status;
+    expect(await statusOf(pending.accountId)).toBe("PENDING");
+    expect(await statusOf(active.accountId)).toBe("ACTIVE");
+  });
 });

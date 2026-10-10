@@ -170,14 +170,13 @@ const productionDeps: AuthEmailDeps = {
   sendCode: sendVerificationCode,
   checkEmailExists: async (email, appId) => (await findLiveAccountIdByEmail(email, appId)) !== null,
   createAccountWithEmail: async (email, appId) => {
-    const { accountId, created } = await ensureAccountForEmail(email, appId);
-    if (created) await prisma.account.update({ where: { id: accountId }, data: { status: "PENDING" } });
+    const { accountId, created } = await ensureAccountForEmail(email, appId, "PENDING");
     return { accountId, alreadyExisted: !created };
   },
   activateAccount: async (accountId) => {
     await prisma.account.updateMany({
       where: { id: accountId, status: "PENDING" },
-      data: { status: "ACTIVE", sessionsValidFrom: new Date() },
+      data: { status: "ACTIVE" },
     });
   },
   accountStatus: async (accountId) => {
