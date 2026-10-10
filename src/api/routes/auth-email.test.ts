@@ -15,7 +15,6 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, appId: string | null = "MEDI
     checkEmailExists: async () => false,
     createAccountWithEmail: async () => ({ accountId: "acc_TEST", alreadyExisted: false }),
     findAccountIdByEmail: async () => null,
-    releaseAbandonedEmail: async () => false,
     createAccountForEmail: async () => "acc_NEW",
     activateAccount: async () => {},
     accountStatus: async () => "PENDING",

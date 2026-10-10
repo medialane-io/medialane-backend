@@ -740,7 +740,7 @@ model Identity {
 
   @@unique([accountId, scheme])
   @@unique([appId, chain, address])
-  @@unique([appId, scheme, value])
+  @@index([appId, scheme, value])
   @@index([address])
 }
 

@@ -6,14 +6,13 @@ import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { sendVerificationCode } from "../../utils/mailer.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { releaseAbandonedEmail } from "../../utils/emailClaim.js";
 import { verifyConfirmToken } from "../../utils/emailConfirmToken.js";
 import { createLogger } from "../../utils/logger.js";
-import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
+import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp } from "../../utils/caller.js";
 
-import { ensureAccountForIdentity } from "../../utils/account.js";
+import { ensureAccountForEmail, findLiveAccountIdByEmail } from "../../utils/account.js";
 
 const log = createLogger("routes:auth-email");
 
@@ -37,7 +36,6 @@ export interface AuthEmailDeps {
   checkEmailExists: (email: string, appId: string) => Promise<boolean>;
   createAccountWithEmail: (email: string, appId: string) => Promise<{ accountId: string; alreadyExisted: boolean }>;
   findAccountIdByEmail: (email: string, appId: string) => Promise<string | null>;
-  releaseAbandonedEmail: (email: string, appId: string) => Promise<boolean>;
   createAccountForEmail: (email: string, appId: string) => Promise<string>;
   activateAccount: (accountId: string) => Promise<void>;
   accountStatus: (accountId: string) => Promise<"PENDING" | "ACTIVE" | "INACTIVE" | null>;
@@ -98,8 +96,6 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     if (!(await deps.consumeCode(stored.id))) {
       return c.json({ error: "Invalid or expired code" }, 400);
     }
-
-    await deps.releaseAbandonedEmail(email, appId);
 
     let accountId = await deps.findAccountIdByEmail(email, appId);
     if (accountId) {
@@ -172,15 +168,9 @@ const productionDeps: AuthEmailDeps = {
     return count === 1;
   },
   sendCode: sendVerificationCode,
-  checkEmailExists: async (email, appId) => {
-    const identity = await prisma.identity.findFirst({
-      where: { appId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
-      select: { id: true },
-    });
-    return identity !== null;
-  },
+  checkEmailExists: async (email, appId) => (await findLiveAccountIdByEmail(email, appId)) !== null,
   createAccountWithEmail: async (email, appId) => {
-    const { accountId, created } = await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, appId);
+    const { accountId, created } = await ensureAccountForEmail(email, appId);
     if (created) await prisma.account.update({ where: { id: accountId }, data: { status: "PENDING" } });
     return { accountId, alreadyExisted: !created };
   },
@@ -194,16 +184,8 @@ const productionDeps: AuthEmailDeps = {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: { status: true } });
     return account?.status ?? null;
   },
-  releaseAbandonedEmail,
-  createAccountForEmail: async (email, appId) =>
-    (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, appId)).accountId,
-  findAccountIdByEmail: async (email, appId) => {
-    const identity = await prisma.identity.findFirst({
-      where: { appId, scheme: IDENTITY_SCHEME.EMAIL, value: { in: emailValues(email) } },
-      select: { accountId: true },
-    });
-    return identity?.accountId ?? null;
-  },
+  createAccountForEmail: async (email, appId) => (await ensureAccountForEmail(email, appId)).accountId,
+  findAccountIdByEmail: findLiveAccountIdByEmail,
 };
 
 export async function issueVerificationCodeWithDeps(

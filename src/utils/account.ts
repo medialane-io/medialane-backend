@@ -1,6 +1,6 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
-import { IDENTITY_SCHEME, normalizeIdentityValue } from "./identity.js";
+import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "./identity.js";
 import type { Chain } from "@prisma/client";
 
 export async function ensureApiCredits(accountId: string) {
@@ -183,41 +183,42 @@ export async function ensureAccountForWallet(params: {
   return { accountId, created: true };
 }
 
-export async function ensureAccountForIdentity(
-  scheme: string,
-  rawValue: string,
+export function liveEmailWhere(appId: string, values: string[]) {
+  return {
+    appId,
+    scheme: IDENTITY_SCHEME.EMAIL,
+    value: { in: values },
+    account: { status: { not: "INACTIVE" as const } },
+  };
+}
+
+export async function findLiveAccountIdByEmail(email: string, appId: string): Promise<string | null> {
+  const identity = await prisma.identity.findFirst({
+    where: liveEmailWhere(appId, emailValues(email)),
+    select: { accountId: true },
+  });
+  return identity?.accountId ?? null;
+}
+
+export async function ensureAccountForEmail(
+  email: string,
   appId: string,
 ): Promise<{ accountId: string; created: boolean }> {
-  const value = normalizeIdentityValue(scheme, rawValue);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const existing = await prisma.identity.findUnique({
-      where: { appId_scheme_value: { appId, scheme, value } },
+  const value = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email);
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${appId}:${IDENTITY_SCHEME.EMAIL}:${value}`}))::text`;
+    const existing = await tx.identity.findFirst({
+      where: liveEmailWhere(appId, emailValues(email)),
       select: { accountId: true },
     });
     if (existing) return { accountId: existing.accountId, created: false };
-
-    try {
-      const accountId = await prisma.$transaction(async (tx) => {
-        const account = await tx.account.create({
-          data: { publicId: generateAccountPublicId() },
-          select: { id: true },
-        });
-        await tx.identity.create({
-          data: {
-            accountId: account.id,
-            scheme,
-            value,
-            appId,
-          },
-        });
-        return account.id;
-      });
-      return { accountId, created: true };
-    } catch (err) {
-      const isUniqueViolation =
-        typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002";
-      if (!isUniqueViolation) throw err;
-    }
-  }
-  throw new Error("Failed to create account after 3 attempts");
+    const account = await tx.account.create({
+      data: {
+        publicId: generateAccountPublicId(),
+        identities: { create: { scheme: IDENTITY_SCHEME.EMAIL, value, appId } },
+      },
+      select: { id: true },
+    });
+    return { accountId: account.id, created: true };
+  });
 }

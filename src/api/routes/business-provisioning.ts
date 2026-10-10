@@ -8,7 +8,7 @@ import prisma from "../../db/client.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { signWithPrivateKey } from "@medialane/sdk/starknet";
 import { buildDeployment as buildSponsoredDeployment, defaultClient, executeSponsoredDeploy } from "./paymaster.js";
-import { accountWallet, ensureAccountForIdentity, ensureAccountForWallet } from "../../utils/account.js";
+import { accountWallet, ensureAccountForEmail, ensureAccountForWallet, findLiveAccountIdByEmail } from "../../utils/account.js";
 import { createProvider, isContractNotFound, normalizeAddress } from "../../utils/starknet.js";
 import { IO_APP } from "../../utils/caller.js";
 import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningKey.js";
@@ -87,14 +87,11 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
 
 export const productionProvisioningDeps: BusinessProvisioningDeps = {
   findIoAccount: async (email) => {
-    const identity = await prisma.identity.findUnique({
-      where: { appId_scheme_value: { appId: IO_APP, scheme: IDENTITY_SCHEME.EMAIL, value: email } },
-      select: { accountId: true },
-    });
-    if (!identity) return null;
-    return { accountId: identity.accountId, walletAddress: await accountWallet(identity.accountId) };
+    const accountId = await findLiveAccountIdByEmail(email, IO_APP);
+    if (!accountId) return null;
+    return { accountId, walletAddress: await accountWallet(accountId) };
   },
-  createIoAccount: async (email) => (await ensureAccountForIdentity(IDENTITY_SCHEME.EMAIL, email, IO_APP)).accountId,
+  createIoAccount: async (email) => (await ensureAccountForEmail(email, IO_APP)).accountId,
   keyFor: provisioningKey,
   isDeployed: async (walletAddress) => {
     try {
