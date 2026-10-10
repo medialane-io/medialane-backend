@@ -1,20 +1,24 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
-import { createIdentityAuth } from "./identityAuth";
+import { createIdentityAuth, type IdentityAuthDeps } from "./identityAuth";
 import { issueToken } from "../../utils/siwsToken.js";
 import type { AppEnv } from "../../types/hono.js";
+
+type SessionResult = Awaited<ReturnType<IdentityAuthDeps["session"]>>;
 
 function appWith(
   isInactive: (appId: string | null, chain: string, address: string) => Promise<boolean> = async () => false,
   appId: string | null = "app-A",
+  session: (raw: string) => Promise<SessionResult> = async () => ({ verdict: "invalid" }),
+  options: { walletOptional?: boolean } = {},
 ) {
   const app = new Hono<AppEnv>();
   app.use("*", async (c, next) => {
     if (appId) c.set("appId", appId);
     await next();
   });
-  app.use("*", createIdentityAuth({ isInactive }));
-  app.get("/", (c) => c.json({ walletAddress: c.get("walletAddress") }));
+  app.use("*", createIdentityAuth({ isInactive, session }, options));
+  app.get("/", (c) => c.json({ walletAddress: c.get("walletAddress"), sessionAccountId: c.get("sessionAccountId") }));
   return app;
 }
 
@@ -75,4 +79,51 @@ test("identityAuth checks the wallet's account in the caller's app only", async 
   expect(onA.status).toBe(200);
   expect(onB.status).toBe(403);
   expect(asked).toEqual(["app-A", "app-B"]);
+});
+
+const SESSION = { "x-account-session": "acct-session" };
+const live = async () => ({ verdict: "ok" as const, accountId: "acc_1", walletAddress: "0xabc" });
+
+test("identityAuth accepts an account session and stamps the account's wallet", async () => {
+  const res = await appWith(undefined, "app-A", live).request("/", { headers: SESSION });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ walletAddress: "0xabc", sessionAccountId: "acc_1" });
+});
+
+test("identityAuth refuses the session of an inactive account", async () => {
+  const res = await appWith(undefined, "app-A", async () => ({ verdict: "inactive" })).request("/", { headers: SESSION });
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ error: "Account is not active", code: "account_inactive" });
+});
+
+test("identityAuth refuses an expired or invalid session", async () => {
+  for (const verdict of ["expired", "invalid"] as const) {
+    const res = await appWith(undefined, "app-A", async () => ({ verdict })).request("/", { headers: SESSION });
+    expect(res.status).toBe(401);
+  }
+});
+
+test("identityAuth asks for a wallet when the session's account has none", async () => {
+  const noWallet = async () => ({ verdict: "ok" as const, accountId: "acc_1", walletAddress: null });
+  const res = await appWith(undefined, "app-A", noWallet).request("/", { headers: SESSION });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "This account has no wallet yet", code: "wallet_required" });
+});
+
+test("identityAuth lets a session without a wallet through where the wallet is optional", async () => {
+  const noWallet = async () => ({ verdict: "ok" as const, accountId: "acc_1", walletAddress: null });
+  const res = await appWith(undefined, "app-A", noWallet, { walletOptional: true }).request("/", { headers: SESSION });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ sessionAccountId: "acc_1" });
+});
+
+test("identityAuth uses the wallet token when both a token and a session are sent", async () => {
+  const token = issueToken("STARKNET", "0x0123");
+  const res = await appWith(undefined, "app-A", live).request("/", {
+    headers: { ...SESSION, Authorization: `Bearer ${token}` },
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { walletAddress: string; sessionAccountId?: string };
+  expect(body.walletAddress).not.toBe("0xabc");
+  expect(body.sessionAccountId).toBeUndefined();
 });

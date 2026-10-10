@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
-import { identityAuth } from "../middleware/identityAuth.js";
+import { identityAuth, identityAuthWalletOptional } from "../middleware/identityAuth.js";
 import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -208,23 +208,33 @@ users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
   return c.json({ walletAddress: outcome.walletAddress, removeOwnerGuid: outcome.removeOwnerGuid });
 });
 
-users.get("/me", async (c, next) => identityAuth(c, next), async (c) => {
-  const walletAddress = c.get("walletAddress") as string;
-  const identity = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
-    select: { address: true, accountId: true, account: { select: { publicId: true, status: true, createdAt: true } } },
+users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (c) => {
+  const walletAddress = c.get("walletAddress") ?? null;
+  const accountId =
+    c.get("sessionAccountId") ??
+    (walletAddress
+      ? (
+          await prisma.identity.findUnique({
+            where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+            select: { accountId: true },
+          })
+        )?.accountId
+      : undefined);
+  if (!accountId) return c.json({ error: "User not found" }, 404);
+  const account = await prisma.account.findUniqueOrThrow({
+    where: { id: accountId },
+    select: { publicId: true, status: true, createdAt: true },
   });
-  if (!identity) return c.json({ error: "User not found" }, 404);
-  const emailIdentity = await getCurrentEmailIdentity(identity.accountId);
+  const emailIdentity = await getCurrentEmailIdentity(accountId);
   const emailDeadline = emailDeadlineFor({
-    status: identity.account.status,
-    createdAt: identity.account.createdAt,
+    status: account.status,
+    createdAt: account.createdAt,
     hasEmail: emailIdentity !== null,
   });
   return c.json({
-    walletAddress: identity.address,
-    accountId: identity.accountId,
-    publicId: identity.account.publicId,
+    walletAddress,
+    accountId,
+    publicId: account.publicId,
     email: emailIdentity?.email ?? null,
     emailDeadline: emailDeadline?.toISOString() ?? null,
   });
