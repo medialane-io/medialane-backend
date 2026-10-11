@@ -34,6 +34,9 @@ import {
   buildPopBurnIntent,
   buildDropClaimIntent,
   buildDropAllowlistIntent,
+  buildWalletManageIntent,
+  buildSwapIntent,
+  buildFundingTransferIntent,
 } from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { callerApp } from "../../../utils/caller.js";
@@ -73,6 +76,9 @@ import {
   popBurnSchema,
   dropClaimSchema,
   dropAllowlistSchema,
+  walletManageSchema,
+  swapIntentSchema,
+  fundingTransferSchema,
 } from "./_shared.js";
 
 function expiresAt(): Date {
@@ -160,6 +166,9 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
   registerIntentRoute(intents, { path: "/pop-burn", schema: popBurnSchema, type: "POP_BURN", requesterField: "owner", build: buildPopBurnIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/drop-claim", schema: dropClaimSchema, type: "DROP_CLAIM", requesterField: "claimer", build: (body, ctx) => buildDropClaimIntent(body, ctx), requiresSignature: false });
   registerIntentRoute(intents, { path: "/drop-allowlist", schema: dropAllowlistSchema, type: "DROP_SET_ALLOWLIST", requesterField: "owner", build: buildDropAllowlistIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/wallet-manage", schema: walletManageSchema, type: "WALLET_MANAGE", requesterField: "owner", build: buildWalletManageIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/swap", schema: swapIntentSchema, type: "SWAP", requesterField: "taker", build: (body) => buildSwapIntent(body), requiresSignature: false });
+  registerIntentRoute(intents, { path: "/funding-transfer", schema: fundingTransferSchema, type: "FUNDING_TRANSFER", requesterField: "owner", build: buildFundingTransferIntent, requiresSignature: false });
   registerIntentRoute(intents, {
     path: "/listing",
     schema: listingSchema,

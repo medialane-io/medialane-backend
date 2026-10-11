@@ -277,3 +277,19 @@ export const popClaimSchema = z.object({ claimer: starknetAddress, collection: s
 export const popBurnSchema = z.object({ owner: starknetAddress, collection: starknetAddress, tokenId: uintString });
 export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress });
 export const dropAllowlistSchema = z.object({ owner: starknetAddress, collection: starknetAddress, addresses: z.array(starknetAddress).min(1) });
+
+export const walletManageSchema = z.object({
+  owner: starknetAddress,
+  action: z.enum(["add_owner", "remove_owner", "cancel_escape", "set_first_guardian", "trigger_escape", "complete_escape"]),
+  pubkey: felt.optional(),
+  ownerGuid: felt.optional(),
+  newOwnerPubkey: felt.optional(),
+});
+export const swapIntentSchema = z.object({
+  taker: starknetAddress,
+  sellTokenAddress: starknetAddress,
+  buyTokenAddress: starknetAddress,
+  sellAmountRaw: uintString.optional(),
+  buyAmountRaw: uintString.optional(),
+});
+export const fundingTransferSchema = z.object({ owner: starknetAddress, asset: starknetAddress, amountAtomic: uintString });

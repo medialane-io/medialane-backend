@@ -38,4 +38,20 @@ describe("action intent routes", () => {
     const res = await app().request("/drop-allowlist", post({ owner: ME, collection: ME, addresses: [] }));
     expect(res.status).toBe(400);
   });
+
+  test("an unknown wallet action is a 400", async () => {
+    const res = await app().request("/wallet-manage", post({ owner: ME, action: "drain" }));
+    expect(res.status).toBe(400);
+  });
+
+  test("a swap with both or neither amount is a 400 with the reason", async () => {
+    const res = await app().request("/swap", post({ taker: ME, sellTokenAddress: ME, buyTokenAddress: ME }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Unsupported currency, or exactly one of sellAmountRaw/buyAmountRaw must be given" });
+  });
+
+  test("a funding transfer in an unaccepted token is a 400", async () => {
+    const res = await app().request("/funding-transfer", post({ owner: ME, asset: "0x999", amountAtomic: "1" }));
+    expect(res.status).toBe(400);
+  });
 });
