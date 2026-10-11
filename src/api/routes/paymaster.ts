@@ -207,6 +207,17 @@ export type DeploymentBuildOutcome =
   | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
   | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string } };
 
+export function deploymentCalls(ownerAddress: string) {
+  const strk = getTokenBySymbol("STRK");
+  if (!strk) throw new Error("STRK token not found in registry");
+  return [{ contractAddress: strk.address, entrypoint: "transfer", calldata: CallData.compile([ownerAddress, uint256.bnToUint256(0)]) as string[] }];
+}
+
+export function deploymentIsMediaWallet(deployment: unknown, ownerAddress: string, classHash: string): boolean {
+  const d = deployment as { address?: unknown; class_hash?: unknown } | null;
+  return sameFelt(d?.address, ownerAddress) && sameFelt(d?.class_hash, classHash);
+}
+
 export async function buildDeployment(
   deps: { clientFactory: () => PaymasterClient },
   body: { ownerPubkey: string; ownerAddress: string; salt?: string },
@@ -219,13 +230,7 @@ export async function buildDeployment(
     return { status: 500, body: { error: "Media Wallet class hash is not configured", code: "sponsor_unavailable" } };
   }
 
-  const calls = [
-    {
-      contractAddress: strk.address,
-      entrypoint: "transfer",
-      calldata: CallData.compile([body.ownerAddress, uint256.bnToUint256(0)]),
-    },
-  ];
+  const calls = deploymentCalls(body.ownerAddress);
 
   try {
     const prepared = (await deps.clientFactory().buildTransaction(
@@ -334,6 +339,14 @@ export default function paymaster(
       | null;
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment) {
       return c.json({ error: "ownerAddress, typedData, signature and deployment are required", code: "invalid_request" }, 400);
+    }
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
+    if (
+      !classHash ||
+      !deploymentIsMediaWallet(body.deployment, body.ownerAddress, classHash) ||
+      !typedDataMatchesCalls(body.typedData, deploymentCalls(body.ownerAddress))
+    ) {
+      return c.json({ error: "Only a Media Wallet deployment can be sponsored", code: "invalid_request" }, 400);
     }
     try {
       const result = await clientFactory().executeTransaction(

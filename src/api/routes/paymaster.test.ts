@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
-import paymaster, { type PaymasterClient } from "./paymaster.js";
+import paymaster, { deploymentCalls, deploymentIsMediaWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 
@@ -189,10 +189,10 @@ describe("POST /deploy/execute", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ownerAddress: OWNER_ADDRESS,
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)),
         signature: ["0x1"],
         deployment: { address: OWNER_ADDRESS, class_hash: classHash },
-        calls: [SPONSORABLE_CALL],
+        calls: deploymentCalls(OWNER_ADDRESS),
       }),
     });
     expect(res.status).toBe(200);
@@ -208,6 +208,45 @@ describe("POST /deploy/execute", () => {
     expect(res.status).toBe(400);
   });
 
+  test("refuses a deployment of another class without calling AVNU", async () => {
+    let executed = false;
+    const app = appWith({ executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } });
+    const res = await app.request("/deploy/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)), signature: ["0x1"], deployment: { address: OWNER_ADDRESS, class_hash: "0x123" } }),
+    });
+    expect(res.status).toBe(400);
+    expect(executed).toBe(false);
+  });
+
+  test("refuses a signature for other calls without calling AVNU", async () => {
+    let executed = false;
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash!;
+    const app = appWith({ executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } });
+    const res = await app.request("/deploy/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: outsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"], deployment: { address: OWNER_ADDRESS, class_hash: classHash } }),
+    });
+    expect(res.status).toBe(400);
+    expect(executed).toBe(false);
+  });
+});
+
+describe("Media Wallet deployment check", () => {
+  const CH = getCoordinates("STARKNET").mediaWalletClassHash!;
+  const OWNER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  test("accepts a Media Wallet deployment at the owner address", () => {
+    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: CH }, OWNER, CH)).toBe(true);
+  });
+
+  test("refuses another class or another address", () => {
+    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: "0x123" }, OWNER, CH)).toBe(false);
+    expect(deploymentIsMediaWallet({ address: "0x9", class_hash: CH }, OWNER, CH)).toBe(false);
+    expect(deploymentIsMediaWallet(null, OWNER, CH)).toBe(false);
+  });
 });
 
 describe("upstream failures", () => {
