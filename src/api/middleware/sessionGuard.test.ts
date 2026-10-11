@@ -4,7 +4,10 @@ import type { AppEnv } from "../../types/hono.js";
 
 async function appFor(account: { status: string } | null) {
   mock.module("../../db/client.js", () => ({
-    default: { account: { findUnique: mock(() => Promise.resolve(account)) } },
+    default: {
+      account: { findUnique: mock(() => Promise.resolve(account)) },
+      identity: { findFirst: mock(() => Promise.resolve(null)) },
+    },
   }));
   const { requireSession } = await import("./sessionGuard.js");
   const { issueAccountSessionToken } = await import("../../utils/accountSessionToken.js");
@@ -47,4 +50,35 @@ describe("gas sponsorship sign-in", () => {
     expect((await call(app, { "x-account-session": account })).status).toBe(401);
   });
 
+});
+
+const W = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+describe("sponsor wallet", () => {
+  async function walletApp() {
+    const { createRequireSession } = await import("./sessionGuard.js");
+    const deps = {
+      accountFromSession: async (raw: string) => (raw === "good-session" ? "acc1" : null),
+      walletOf: async (accountId: string) => (accountId === "acc1" ? W : null),
+      siwsIdentity: (raw: string) => (raw === "good-siws" ? { chain: "STARKNET" as const, address: W } : null),
+    };
+    const app = new Hono<AppEnv>();
+    app.post("/", createRequireSession(deps), (c) => c.json({ wallet: c.get("sponsorWallet") ?? null }));
+    return app;
+  }
+
+  test("a session sets the account's wallet", async () => {
+    const res = await (await walletApp()).request("/", { method: "POST", headers: { "x-account-session": "good-session" } });
+    expect(await res.json()).toEqual({ wallet: W });
+  });
+
+  test("a SIWS token sets its wallet", async () => {
+    const res = await (await walletApp()).request("/", { method: "POST", headers: { authorization: "Bearer good-siws" } });
+    expect(await res.json()).toEqual({ wallet: W });
+  });
+
+  test("no proof is refused", async () => {
+    const res = await (await walletApp()).request("/", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
 });
