@@ -11,6 +11,7 @@ const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
+const INTENTS_REQUIRED = { error: "Sponsorship needs intents", code: "sponsor_unavailable" } as const;
 
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -289,8 +290,7 @@ export default function paymaster(
       const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
       return c.json(outcome.body, outcome.status);
     }
-    const outcome = await buildSponsoredInvoke({ clientFactory }, body ?? {});
-    return c.json(outcome.body, outcome.status);
+    return c.json(INTENTS_REQUIRED, 400);
   });
 
   app.post("/invoke/execute", async (c) => {
@@ -314,8 +314,7 @@ export default function paymaster(
       await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
       return c.json(outcome.body);
     }
-    const outcome = await executeSponsoredInvoke({ clientFactory }, body ?? {});
-    return c.json(outcome.body, outcome.status);
+    return c.json(INTENTS_REQUIRED, 400);
   });
 
   app.post("/deploy/build", async (c) => {
