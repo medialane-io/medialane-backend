@@ -1,5 +1,6 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { requireSession } from "../middleware/sessionGuard.js";
+import { composeIntentCalls, prismaSponsorIntentDeps, type SponsorIntentDeps } from "./sponsorIntents.js";
 import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
@@ -256,22 +257,57 @@ export async function buildDeployment(
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   guard: MiddlewareHandler<AppEnv> = requireSession,
+  intentDeps: SponsorIntentDeps = prismaSponsorIntentDeps,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use("*", guard);
 
+  const composeFor = async (c: Context<AppEnv>, intentIds: unknown) => {
+    const wallet = c.get("sponsorWallet");
+    if (!wallet) return { ok: false as const, status: 403 as const, error: "This account has no wallet to sponsor" };
+    if (!Array.isArray(intentIds) || !intentIds.every((i) => typeof i === "string")) {
+      return { ok: false as const, status: 400 as const, error: "intentIds must be a list of ids" };
+    }
+    const composed = await composeIntentCalls(intentIds, { accountId: c.get("account").id, wallet }, intentDeps);
+    if (!composed.ok) return { ok: false as const, status: 403 as const, error: composed.error };
+    return { ok: true as const, wallet, calls: composed.calls, ids: intentIds as string[] };
+  };
+
   app.post("/invoke/build", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; calls?: unknown[] }
+      | { userAddress?: string; calls?: unknown[]; intentIds?: unknown }
       | null;
+    if (body?.intentIds !== undefined) {
+      const composed = await composeFor(c, body.intentIds);
+      if (!composed.ok) return c.json({ error: composed.error, code: "invalid_request" }, composed.status);
+      const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
+      return c.json(outcome.body, outcome.status);
+    }
     const outcome = await buildSponsoredInvoke({ clientFactory }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
 
   app.post("/invoke/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; typedData?: unknown; signature?: string[] }
+      | { userAddress?: string; typedData?: unknown; signature?: string[]; intentIds?: unknown }
       | null;
+    if (body?.intentIds !== undefined) {
+      const composed = await composeFor(c, body.intentIds);
+      if (!composed.ok) return c.json({ error: composed.error, code: "invalid_request" }, composed.status);
+      if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
+        return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
+      }
+      if (!(await intentDeps.claim(composed.ids))) {
+        return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
+      }
+      const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
+      if (outcome.status !== 200) {
+        if (outcome.body.code !== "may_have_broadcast") await intentDeps.release(composed.ids);
+        return c.json(outcome.body, outcome.status);
+      }
+      await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
+      return c.json(outcome.body);
+    }
     const outcome = await executeSponsoredInvoke({ clientFactory }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
