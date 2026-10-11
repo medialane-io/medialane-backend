@@ -36,3 +36,4 @@ export {
   buildCommentIntent,
   buildGenesisMintIntent,
 } from "./actions.js";
+export { buildPopClaimIntent, buildPopBurnIntent, buildDropClaimIntent, buildDropAllowlistIntent } from "./drops.js";

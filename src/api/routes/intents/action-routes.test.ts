@@ -28,4 +28,14 @@ describe("action intent routes", () => {
     const res = await app().request("/comment", post({ author: ME, nftContract: ME, tokenId: "1", text: "" }));
     expect(res.status).toBe(400);
   });
+
+  test("a POP proof that isn't felts is a 400", async () => {
+    const res = await app().request("/pop-claim", post({ claimer: ME, collection: ME, proof: ["not-a-felt"] }));
+    expect(res.status).toBe(400);
+  });
+
+  test("an empty allowlist is a 400", async () => {
+    const res = await app().request("/drop-allowlist", post({ owner: ME, collection: ME, addresses: [] }));
+    expect(res.status).toBe(400);
+  });
 });

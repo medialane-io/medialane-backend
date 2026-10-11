@@ -30,6 +30,10 @@ import {
   buildTransferCollectionOwnershipIntent,
   buildCommentIntent,
   buildGenesisMintIntent,
+  buildPopClaimIntent,
+  buildPopBurnIntent,
+  buildDropClaimIntent,
+  buildDropAllowlistIntent,
 } from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { callerApp } from "../../../utils/caller.js";
@@ -65,6 +69,10 @@ import {
   transferCollectionOwnershipSchema,
   commentSchema,
   genesisMintSchema,
+  popClaimSchema,
+  popBurnSchema,
+  dropClaimSchema,
+  dropAllowlistSchema,
 } from "./_shared.js";
 
 function expiresAt(): Date {
@@ -148,6 +156,10 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
   registerIntentRoute(intents, { path: "/transfer-collection-ownership", schema: transferCollectionOwnershipSchema, type: "TRANSFER_COLLECTION_OWNERSHIP", requesterField: "owner", build: buildTransferCollectionOwnershipIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/comment", schema: commentSchema, type: "ADD_COMMENT", requesterField: "author", build: buildCommentIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/genesis-mint", schema: genesisMintSchema, type: "GENESIS_MINT", requesterField: "owner", build: buildGenesisMintIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/pop-claim", schema: popClaimSchema, type: "POP_CLAIM", requesterField: "claimer", build: buildPopClaimIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/pop-burn", schema: popBurnSchema, type: "POP_BURN", requesterField: "owner", build: buildPopBurnIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-claim", schema: dropClaimSchema, type: "DROP_CLAIM", requesterField: "claimer", build: (body, ctx) => buildDropClaimIntent(body, ctx), requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-allowlist", schema: dropAllowlistSchema, type: "DROP_SET_ALLOWLIST", requesterField: "owner", build: buildDropAllowlistIntent, requiresSignature: false });
   registerIntentRoute(intents, {
     path: "/listing",
     schema: listingSchema,

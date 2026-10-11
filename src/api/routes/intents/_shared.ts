@@ -270,3 +270,10 @@ export const transferNftSchema = z.object({
 export const transferCollectionOwnershipSchema = z.object({ owner: starknetAddress, collectionId: uintString, newOwner: starknetAddress });
 export const commentSchema = z.object({ author: starknetAddress, nftContract: starknetAddress, tokenId: uintString, text: z.string().trim().min(1).max(1000) });
 export const genesisMintSchema = z.object({ owner: starknetAddress, recipient: starknetAddress });
+
+const felt = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "must be a hex felt");
+
+export const popClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, proof: z.array(felt) });
+export const popBurnSchema = z.object({ owner: starknetAddress, collection: starknetAddress, tokenId: uintString });
+export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress });
+export const dropAllowlistSchema = z.object({ owner: starknetAddress, collection: starknetAddress, addresses: z.array(starknetAddress).min(1) });
