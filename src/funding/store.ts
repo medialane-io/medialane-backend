@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { writeEntry } from "../payments/ledger.js";
 import prisma from "../db/client.js";
 import { PAYMENT_GRACE_MS } from "./core.js";
 import type { FundingIntentRecord, FundingStore, SettleInput, SettleOutcome } from "./types.js";
@@ -103,6 +104,7 @@ export const prismaFundingStore: FundingStore = {
           where: { id: intent.apiCreditsId },
           data: { creditBalance: { increment: credited } },
         });
+        await writeEntry(tx, intent.apiCreditsId, "PAYMENT", credited, { paymentId: payment.id });
         return { outcome: "settled", paymentId: payment.id } as const;
       });
     } catch (err) {

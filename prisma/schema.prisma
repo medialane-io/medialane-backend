@@ -711,6 +711,7 @@ model ApiCredits {
   payments             Payment[]
   fundingIntents       FundingIntent[]
   usage                UsageEvent[]
+  entries              CreditEntry[]
   launchpadRuns        LaunchpadRun[]
 
   createdAt DateTime @default(now())
@@ -1004,4 +1005,28 @@ model LaunchpadRun {
   updatedAt    DateTime           @updatedAt
 
   @@index([apiCreditsId, status])
+}
+
+enum CreditEntryKind {
+  OPENING
+  PAYMENT
+  GRANT
+  USAGE
+  REFUND
+}
+
+model CreditEntry {
+  id             String          @id @default(cuid())
+  apiCreditsId   String
+  apiCredits     ApiCredits      @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
+  kind           CreditEntryKind
+  credits        Int
+  paymentId      String?
+  usageEventId   String?
+  launchpadRunId String?
+  note           String?
+  createdAt      DateTime        @default(now())
+
+  @@index([apiCreditsId, createdAt])
+  @@index([paymentId])
 }
