@@ -3,6 +3,7 @@ import { startUnverifiedAccountsLoop } from "./unverifiedAccounts.js";
 import { startAccountNoticesLoop } from "./accountNotices.js";
 import { startMetadataRetryLoop } from "./metadataRetry.js";
 import { startRewardsComputeLoop } from "./rewardsCompute.js";
+import { startCreditLedgerLoop } from "./creditLedger.js";
 import { startWalletActivityRefreshLoop } from "./walletActivityRefresh.js";
 import { recoverStuckFetchingTokens, recoverPendingWork } from "./startupRecovery.js";
 import { createLogger } from "../utils/logger.js";
@@ -21,5 +22,6 @@ export async function startOrchestrator(): Promise<void> {
   startAccountNoticesLoop().catch((err) => log.error({ err }, "Account notices loop crashed"));
   startMetadataRetryLoop().catch((err) => log.error({ err }, "Metadata retry loop crashed"));
   startRewardsComputeLoop().catch((err) => log.error({ err }, "Rewards compute loop crashed"));
+  startCreditLedgerLoop().catch((err) => log.error({ err }, "Credit ledger loop crashed"));
   startWalletActivityRefreshLoop().catch((err) => log.error({ err }, "Wallet-activity refresh loop crashed"));
 }
