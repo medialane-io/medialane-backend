@@ -274,6 +274,7 @@ export default function paymaster(
       return { ok: false as const, status: 400 as const, error: "intentIds must be a list of ids" };
     }
     const composed = await composeIntentCalls(intentIds, { accountId: c.get("account").id, wallet }, intentDeps);
+    if (!composed.ok && composed.unavailable) return { ok: false as const, status: 400 as const, error: composed.error, code: "sponsor_unavailable" as const };
     if (!composed.ok) return { ok: false as const, status: 403 as const, error: composed.error };
     return { ok: true as const, wallet, calls: composed.calls, ids: intentIds as string[] };
   };
@@ -284,7 +285,7 @@ export default function paymaster(
       | null;
     if (body?.intentIds !== undefined) {
       const composed = await composeFor(c, body.intentIds);
-      if (!composed.ok) return c.json({ error: composed.error, code: "invalid_request" }, composed.status);
+      if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
       const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
       return c.json(outcome.body, outcome.status);
     }
@@ -298,7 +299,7 @@ export default function paymaster(
       | null;
     if (body?.intentIds !== undefined) {
       const composed = await composeFor(c, body.intentIds);
-      if (!composed.ok) return c.json({ error: composed.error, code: "invalid_request" }, composed.status);
+      if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
       if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
         return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
       }

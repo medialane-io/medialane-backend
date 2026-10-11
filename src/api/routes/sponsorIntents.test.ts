@@ -12,12 +12,13 @@ function deps(rows: SponsorIntentRow[]): SponsorIntentDeps {
     claim: async () => true,
     release: async () => {},
     record: async () => {},
+    known: async (addresses) => new Set(addresses.filter((a) => BigInt(a) === 1n)),
     now: () => new Date(),
   };
 }
 
 const row = (over: Partial<SponsorIntentRow>): SponsorIntentRow => ({
-  id: "i1", accountId: "app", requester: W, status: "SIGNED", expiresAt: future, calls: [call("a")], ...over,
+  id: "i1", type: "TRANSFER_TOKEN", accountId: "app", requester: W, status: "SIGNED", expiresAt: future, calls: [call("a")], ...over,
 });
 
 describe("composeIntentCalls", () => {
@@ -47,4 +48,27 @@ describe("composeIntentCalls", () => {
     expect((await composeIntentCalls([], { accountId: "app", wallet: W }, deps([]))).ok).toBe(false);
     expect((await composeIntentCalls(["i1", "i1"], { accountId: "app", wallet: W }, deps([row({})]))).ok).toBe(false);
   });
+});
+
+describe("only known contracts are sponsored", () => {
+  const unknownCall = { contractAddress: "0x666", entrypoint: "claim", calldata: [] as string[] };
+
+  test("a call to a contract Medialane doesn't know is unavailable for sponsorship", async () => {
+    const out = await composeIntentCalls(["i1"], { accountId: "app", wallet: W }, deps([row({ calls: [unknownCall] })]));
+    expect(out).toEqual({ ok: false, unavailable: true, error: "These actions can't be sponsored" });
+  });
+
+  test("swap calls built from the AVNU quote are trusted, but the approved token must be known", async () => {
+    const router = { contractAddress: "0x777", entrypoint: "multi_route_swap", calldata: [] as string[] };
+    const knownApprove = { contractAddress: "0x1", entrypoint: "approve", calldata: [] as string[] };
+    const unknownApprove = { contractAddress: "0x666", entrypoint: "approve", calldata: [] as string[] };
+    expect((await composeIntentCalls(["i1"], { accountId: "app", wallet: W }, deps([row({ type: "SWAP", calls: [knownApprove, router] })]))).ok).toBe(true);
+    expect((await composeIntentCalls(["i1"], { accountId: "app", wallet: W }, deps([row({ type: "SWAP", calls: [unknownApprove, router] })]))).ok).toBe(false);
+  });
+});
+
+test("a large cart is composed as one sponsored transaction", async () => {
+  const rows = Array.from({ length: 25 }, (_, i) => row({ id: `c${i}`, calls: [call(`f${i}`)] }));
+  const out = await composeIntentCalls(rows.map((r) => r.id), { accountId: "app", wallet: W }, deps(rows));
+  expect(out.ok).toBe(true);
 });

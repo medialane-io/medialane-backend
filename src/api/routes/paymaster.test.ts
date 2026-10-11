@@ -334,6 +334,7 @@ function intentApp(rows: SponsorIntentRow[], client: Partial<PaymasterClient>, l
     claim: async (ids) => { log.push(`claim:${ids}`); return true; },
     release: async (ids) => { log.push(`release:${ids}`); },
     record: async (ids, tx) => { log.push(`record:${ids}:${tx}`); },
+    known: async (addresses) => new Set(addresses.filter((a) => BigInt(a) === BigInt(SPONSORABLE_CALL.contractAddress))),
     now: () => new Date(),
   };
   const app = new Hono<AppEnv>();
@@ -347,7 +348,7 @@ function intentApp(rows: SponsorIntentRow[], client: Partial<PaymasterClient>, l
 }
 
 const signedRow: SponsorIntentRow = {
-  id: "i1", accountId: "app", requester: WALLET, status: "SIGNED", expiresAt: new Date(Date.now() + 60_000), calls: [SPONSORABLE_CALL],
+  id: "i1", type: "MINT", accountId: "app", requester: WALLET, status: "SIGNED", expiresAt: new Date(Date.now() + 60_000), calls: [SPONSORABLE_CALL],
 };
 const postJson = (body: unknown) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
@@ -401,6 +402,13 @@ describe("intent sponsorship", () => {
     const res = await intentApp([{ ...signedRow, requester: "0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321" }], {}, [])
       .request("/invoke/build", postJson({ intentIds: ["i1"] }));
     expect(res.status).toBe(403);
+  });
+
+  test("a call to an unknown contract gets sponsor_unavailable so the client falls back to paying", async () => {
+    const res = await intentApp([{ ...signedRow, calls: [{ ...SPONSORABLE_CALL, contractAddress: "0x666" }] }], {}, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("sponsor_unavailable");
   });
 
   test("an account with no wallet can't be sponsored", async () => {
