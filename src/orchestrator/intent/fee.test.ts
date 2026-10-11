@@ -92,3 +92,10 @@ describe("no fee means no chain reads", () => {
     expect(bid.calls).toHaveLength(1);
   });
 });
+
+import { platformFeeConfig } from "./fee.js";
+import { x402Config } from "../../config/x402.js";
+
+test("the platform fee is always on: 1% to the treasury", () => {
+  expect(platformFeeConfig).toMatchObject({ enabled: true, fundAddress: x402Config.treasury, marketplaceBps: 100, launchpadBps: 100, sponsorshipBps: 100 });
+});

@@ -50,11 +50,6 @@ const envSchema = z.object({
     .default("info"),
   MAIL_RELAY_URL: z.string().default(""),
   MAIL_RELAY_SECRET: z.string().default(""),
-  FEE_ENABLED: z.string().default("true").transform((v) => v !== "false"),
-  FEE_FUND_ADDRESS: z.string().default(""),
-  FEE_MARKETPLACE_BPS: z.coerce.number().int().min(0).max(10000).default(100),
-  FEE_LAUNCHPAD_BPS: z.coerce.number().int().min(0).max(10000).default(100),
-  FEE_SPONSORSHIP_BPS: z.coerce.number().int().min(0).max(10000).default(100),
 });
 
 function parseEnv() {

@@ -1,19 +1,13 @@
 import { resolveFeeConfig, type ResolvedFeeConfig } from "@medialane/sdk";
 import { buildFeeCall, type FeeSurface } from "@medialane/sdk/starknet";
-import { env } from "../../config/env.js";
+import { x402Config } from "../../config/x402.js";
 
 export type IntentCall = { contractAddress: string; entrypoint: string; calldata: string[] };
 export type IntentBuildContext = { appId: string };
 
 const FEE_APPS = new Set(["MEDIALANE_IO", "MEDIALANE_STARKNET", "MEDIALANE_PORTAL"]);
 
-export const platformFeeConfig: ResolvedFeeConfig = resolveFeeConfig({
-  enabled: env.FEE_ENABLED,
-  fundAddress: env.FEE_FUND_ADDRESS || undefined,
-  marketplaceBps: env.FEE_MARKETPLACE_BPS,
-  launchpadBps: env.FEE_LAUNCHPAD_BPS,
-  sponsorshipBps: env.FEE_SPONSORSHIP_BPS,
-});
+export const platformFeeConfig: ResolvedFeeConfig = resolveFeeConfig({ fundAddress: x402Config.treasury });
 
 export function feeApplies(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): boolean {
   return FEE_APPS.has(appId) && cfg.enabled && Boolean(cfg.fundAddress);
