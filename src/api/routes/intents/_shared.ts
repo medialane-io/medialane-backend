@@ -256,3 +256,57 @@ export function isNftTransferEvent(
     !getTokenByAddress(event.contractAddress)
   );
 }
+
+const uintString = z.string().regex(/^\d+$/, "must be a non-negative integer string");
+
+export const transferTokenSchema = z.object({ owner: starknetAddress, token: starknetAddress, recipient: starknetAddress, amount: uintString });
+export const transferNftSchema = z.object({
+  owner: starknetAddress,
+  contractAddress: starknetAddress,
+  tokenId: uintString,
+  recipient: starknetAddress,
+  tokenStandard: z.enum(["ERC721", "ERC1155"]),
+});
+export const transferCollectionOwnershipSchema = z.object({ owner: starknetAddress, collectionId: uintString, newOwner: starknetAddress });
+export const commentSchema = z.object({ author: starknetAddress, nftContract: starknetAddress, tokenId: uintString, text: z.string().trim().min(1).max(1000) });
+export const genesisMintSchema = z.object({ owner: starknetAddress, recipient: starknetAddress });
+
+const felt = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "must be a hex felt");
+
+export const popClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, proof: z.array(felt) });
+export const popBurnSchema = z.object({ owner: starknetAddress, collection: starknetAddress, tokenId: uintString });
+export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress });
+export const dropAllowlistSchema = z.object({ owner: starknetAddress, collection: starknetAddress, addresses: z.array(starknetAddress).min(1) });
+
+export const walletManageSchema = z.object({
+  owner: starknetAddress,
+  action: z.enum(["add_owner", "remove_owner", "cancel_escape", "set_first_guardian", "trigger_escape", "complete_escape"]),
+  pubkey: felt.optional(),
+  ownerGuid: felt.optional(),
+  newOwnerPubkey: felt.optional(),
+});
+export const swapIntentSchema = z.object({
+  taker: starknetAddress,
+  sellTokenAddress: starknetAddress,
+  buyTokenAddress: starknetAddress,
+  sellAmountRaw: uintString.optional(),
+  buyAmountRaw: uintString.optional(),
+});
+export const fundingTransferSchema = z.object({ owner: starknetAddress, asset: starknetAddress, amountAtomic: uintString });
+
+export const dropManageSchema = z.object({
+  owner: starknetAddress,
+  collection: starknetAddress,
+  action: z.enum(["allowlist_enabled", "allowlist_add", "allowlist_remove", "withdraw_payments"]),
+  enabled: z.boolean().optional(),
+  addresses: z.array(starknetAddress).optional(),
+  address: starknetAddress.optional(),
+});
+export const popManageSchema = z.object({
+  owner: starknetAddress,
+  collection: starknetAddress,
+  action: z.enum(["issue", "set_allowlist_root"]),
+  recipient: starknetAddress.optional(),
+  tokenUri: z.string().optional(),
+  root: felt.optional(),
+});

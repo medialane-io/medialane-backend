@@ -2,6 +2,8 @@
 
 import type { TypedData } from "starknet";
 import { cairo } from "starknet";
+import type { ResolvedFeeConfig } from "@medialane/sdk";
+import { platformFeeCalls, platformFeeConfig, type IntentBuildContext } from "./fee.js";
 import {
   STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT,
   getChainId, getTokenByAddress,
@@ -163,7 +165,18 @@ export async function buildMakeOfferIntent(body: MakeOfferIntentBody) {
   return { typedData, calls, orderParams };
 }
 
-export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
+export function fulfillFeeCalls(
+  order: { offerItemType: string | null; considerationItemType: string | null; considerationToken: string | null; considerationStartAmount: string | null } | null,
+  quantity: bigint,
+  ctx: IntentBuildContext,
+  cfg: ResolvedFeeConfig = platformFeeConfig,
+) {
+  const isListing = order?.offerItemType === "ERC721" || order?.offerItemType === "ERC1155";
+  if (!isListing || !order?.considerationToken || !order.considerationStartAmount) return [];
+  return platformFeeCalls(ctx.appId, "marketplace", order.considerationToken, BigInt(order.considerationStartAmount) * quantity, cfg);
+}
+
+export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody, ctx: IntentBuildContext = { appId: "" }) {
 
   const order = await prisma.order.findUnique({
     where: { chain_orderHash: { chain: "STARKNET", orderHash: body.orderHash } },
@@ -220,6 +233,8 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody) {
       ? [toHex(body.orderHash), toHex(quantity1155)]
       : [toHex(body.orderHash)],
   });
+
+  calls.push(...fulfillFeeCalls(order, quantity1155, ctx));
 
   return { calls };
 }

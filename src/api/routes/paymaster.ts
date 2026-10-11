@@ -1,5 +1,6 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { requireSession } from "../middleware/sessionGuard.js";
+import { composeIntentCalls, prismaSponsorIntentDeps, type SponsorIntentDeps } from "./sponsorIntents.js";
 import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
@@ -206,6 +207,17 @@ export type DeploymentBuildOutcome =
   | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
   | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string } };
 
+export function deploymentCalls(ownerAddress: string) {
+  const strk = getTokenBySymbol("STRK");
+  if (!strk) throw new Error("STRK token not found in registry");
+  return [{ contractAddress: strk.address, entrypoint: "transfer", calldata: CallData.compile([ownerAddress, uint256.bnToUint256(0)]) as string[] }];
+}
+
+export function deploymentIsMediaWallet(deployment: unknown, ownerAddress: string, classHash: string): boolean {
+  const d = deployment as { address?: unknown; class_hash?: unknown } | null;
+  return sameFelt(d?.address, ownerAddress) && sameFelt(d?.class_hash, classHash);
+}
+
 export async function buildDeployment(
   deps: { clientFactory: () => PaymasterClient },
   body: { ownerPubkey: string; ownerAddress: string; salt?: string },
@@ -218,13 +230,7 @@ export async function buildDeployment(
     return { status: 500, body: { error: "Media Wallet class hash is not configured", code: "sponsor_unavailable" } };
   }
 
-  const calls = [
-    {
-      contractAddress: strk.address,
-      entrypoint: "transfer",
-      calldata: CallData.compile([body.ownerAddress, uint256.bnToUint256(0)]),
-    },
-  ];
+  const calls = deploymentCalls(body.ownerAddress);
 
   try {
     const prepared = (await deps.clientFactory().buildTransaction(
@@ -256,22 +262,58 @@ export async function buildDeployment(
 export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   guard: MiddlewareHandler<AppEnv> = requireSession,
+  intentDeps: SponsorIntentDeps = prismaSponsorIntentDeps,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use("*", guard);
 
+  const composeFor = async (c: Context<AppEnv>, intentIds: unknown) => {
+    const wallet = c.get("sponsorWallet");
+    if (!wallet) return { ok: false as const, status: 403 as const, error: "This account has no wallet to sponsor" };
+    if (!Array.isArray(intentIds) || !intentIds.every((i) => typeof i === "string")) {
+      return { ok: false as const, status: 400 as const, error: "intentIds must be a list of ids" };
+    }
+    const composed = await composeIntentCalls(intentIds, { accountId: c.get("account").id, wallet }, intentDeps);
+    if (!composed.ok && composed.unavailable) return { ok: false as const, status: 400 as const, error: composed.error, code: "sponsor_unavailable" as const };
+    if (!composed.ok) return { ok: false as const, status: 403 as const, error: composed.error };
+    return { ok: true as const, wallet, calls: composed.calls, ids: intentIds as string[] };
+  };
+
   app.post("/invoke/build", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; calls?: unknown[] }
+      | { userAddress?: string; calls?: unknown[]; intentIds?: unknown }
       | null;
+    if (body?.intentIds !== undefined) {
+      const composed = await composeFor(c, body.intentIds);
+      if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
+      const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
+      return c.json(outcome.body, outcome.status);
+    }
     const outcome = await buildSponsoredInvoke({ clientFactory }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
 
   app.post("/invoke/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; typedData?: unknown; signature?: string[] }
+      | { userAddress?: string; typedData?: unknown; signature?: string[]; intentIds?: unknown }
       | null;
+    if (body?.intentIds !== undefined) {
+      const composed = await composeFor(c, body.intentIds);
+      if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
+      if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
+        return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
+      }
+      if (!(await intentDeps.claim(composed.ids))) {
+        return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
+      }
+      const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
+      if (outcome.status !== 200) {
+        if (outcome.body.code !== "may_have_broadcast") await intentDeps.release(composed.ids);
+        return c.json(outcome.body, outcome.status);
+      }
+      await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
+      return c.json(outcome.body);
+    }
     const outcome = await executeSponsoredInvoke({ clientFactory }, body ?? {});
     return c.json(outcome.body, outcome.status);
   });
@@ -298,6 +340,14 @@ export default function paymaster(
       | null;
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment) {
       return c.json({ error: "ownerAddress, typedData, signature and deployment are required", code: "invalid_request" }, 400);
+    }
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash;
+    if (
+      !classHash ||
+      !deploymentIsMediaWallet(body.deployment, body.ownerAddress, classHash) ||
+      !typedDataMatchesCalls(body.typedData, deploymentCalls(body.ownerAddress))
+    ) {
+      return c.json({ error: "Only a Media Wallet deployment can be sponsored", code: "invalid_request" }, 400);
     }
     try {
       const result = await clientFactory().executeTransaction(

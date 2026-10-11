@@ -25,8 +25,25 @@ import {
   buildWithdrawSponsorshipProposalIntent,
   buildAcceptSponsorshipProposalIntent,
   buildRejectSponsorshipProposalIntent,
+  buildTransferTokenIntent,
+  buildTransferNftIntent,
+  buildTransferCollectionOwnershipIntent,
+  buildCommentIntent,
+  buildGenesisMintIntent,
+  buildPopClaimIntent,
+  buildPopBurnIntent,
+  buildDropClaimIntent,
+  buildDropAllowlistIntent,
+  buildDropManageIntent,
+  buildPopManageIntent,
+  buildWalletManageIntent,
+  buildSwapIntent,
+  buildFundingTransferIntent,
 } from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
+import { callerApp } from "../../../utils/caller.js";
+import type { IntentBuildContext } from "../../../orchestrator/intent/fee.js";
+import { IntentRefusal } from "../../../orchestrator/intent/refusal.js";
 import type { AppEnv } from "../../../types/hono.js";
 import {
   log,
@@ -52,6 +69,20 @@ import {
   sponsorshipProposalWithdrawSchema,
   sponsorshipProposalAcceptSchema,
   sponsorshipProposalRejectSchema,
+  transferTokenSchema,
+  transferNftSchema,
+  transferCollectionOwnershipSchema,
+  commentSchema,
+  genesisMintSchema,
+  popClaimSchema,
+  popBurnSchema,
+  dropClaimSchema,
+  dropAllowlistSchema,
+  dropManageSchema,
+  popManageSchema,
+  walletManageSchema,
+  swapIntentSchema,
+  fundingTransferSchema,
 } from "./_shared.js";
 
 function expiresAt(): Date {
@@ -64,7 +95,7 @@ interface IntentRouteConfig<T> {
   type: IntentType;
 
   requesterField: keyof T & string;
-  build: (body: T) => Promise<{ typedData?: unknown; calls: unknown }>;
+  build: (body: T, ctx: IntentBuildContext) => Promise<{ typedData?: unknown; calls: unknown }>;
 
   requiresSignature: boolean;
 
@@ -95,7 +126,7 @@ function registerIntentRoute<T>(
     }
 
     try {
-      const built = await cfg.build(parsed.data);
+      const built = await cfg.build(parsed.data, { appId: callerApp(c) });
       const requester = normalizeAddress("STARKNET", parsed.data[cfg.requesterField] as unknown as string);
       const ttl = expiresAt();
 
@@ -121,6 +152,8 @@ function registerIntentRoute<T>(
         201
       );
     } catch (err: unknown) {
+      const refusal = err instanceof IntentRefusal ? err : null;
+      if (refusal) return c.json({ error: refusal.reason }, 400);
       log.error({ err }, `Failed to build ${cfg.path.slice(1)} intent`);
       return c.json({ error: "We could not prepare that transaction. Please try again." }, 500);
     }
@@ -128,6 +161,20 @@ function registerIntentRoute<T>(
 }
 
 export function registerBuildRoutes(intents: Hono<AppEnv>): void {
+  registerIntentRoute(intents, { path: "/transfer-token", schema: transferTokenSchema, type: "TRANSFER_TOKEN", requesterField: "owner", build: buildTransferTokenIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/transfer-nft", schema: transferNftSchema, type: "TRANSFER_NFT", requesterField: "owner", build: buildTransferNftIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/transfer-collection-ownership", schema: transferCollectionOwnershipSchema, type: "TRANSFER_COLLECTION_OWNERSHIP", requesterField: "owner", build: buildTransferCollectionOwnershipIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/comment", schema: commentSchema, type: "ADD_COMMENT", requesterField: "author", build: buildCommentIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/genesis-mint", schema: genesisMintSchema, type: "GENESIS_MINT", requesterField: "owner", build: buildGenesisMintIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/pop-claim", schema: popClaimSchema, type: "POP_CLAIM", requesterField: "claimer", build: buildPopClaimIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/pop-burn", schema: popBurnSchema, type: "POP_BURN", requesterField: "owner", build: buildPopBurnIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-claim", schema: dropClaimSchema, type: "DROP_CLAIM", requesterField: "claimer", build: (body, ctx) => buildDropClaimIntent(body, ctx), requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-allowlist", schema: dropAllowlistSchema, type: "DROP_SET_ALLOWLIST", requesterField: "owner", build: buildDropAllowlistIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-manage", schema: dropManageSchema, type: "DROP_MANAGE", requesterField: "owner", build: buildDropManageIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/pop-manage", schema: popManageSchema, type: "POP_MANAGE", requesterField: "owner", build: buildPopManageIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/wallet-manage", schema: walletManageSchema, type: "WALLET_MANAGE", requesterField: "owner", build: buildWalletManageIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/swap", schema: swapIntentSchema, type: "SWAP", requesterField: "taker", build: (body) => buildSwapIntent(body), requiresSignature: false });
+  registerIntentRoute(intents, { path: "/funding-transfer", schema: fundingTransferSchema, type: "FUNDING_TRANSFER", requesterField: "owner", build: buildFundingTransferIntent, requiresSignature: false });
   registerIntentRoute(intents, {
     path: "/listing",
     schema: listingSchema,
@@ -458,11 +505,10 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           };
         }
         try {
-          const { calls } = await buildFulfillOrderIntent({
-            fulfiller: normalizedFulfiller,
-            orderHash,
-            quantity,
-          });
+          const { calls } = await buildFulfillOrderIntent(
+            { fulfiller: normalizedFulfiller, orderHash, quantity },
+            { appId: callerApp(c) },
+          );
           return { ok: true, orderHash, calls };
         } catch (err) {
           log.error({ err, orderHash }, "Failed to build fulfill intent");

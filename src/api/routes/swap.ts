@@ -71,6 +71,25 @@ function parseSwapRequest(body: SwapRequestBody | null) {
   return { sellToken, buyToken, amount };
 }
 
+export class NoSwapRouteError extends Error {}
+
+export async function swapCallsFor(
+  parsed: { sellToken: { address: string }; buyToken: { address: string }; amount: { sellAmount: bigint } | { buyAmount: bigint } },
+  takerAddress: string,
+  deps: SwapDeps,
+) {
+  const quotes = await deps.getQuotes({
+    sellTokenAddress: parsed.sellToken.address,
+    buyTokenAddress: parsed.buyToken.address,
+    ...parsed.amount,
+    takerAddress,
+  });
+  const quote = quotes[0];
+  if (!quote) throw new NoSwapRouteError("No swap route available for this pair");
+  const built = await deps.quoteToCalls({ quoteId: quote.quoteId, slippage: DEFAULT_SLIPPAGE, takerAddress });
+  return { calls: built.calls, chainId: built.chainId, quote };
+}
+
 export default function swap(
   deps: SwapDeps = { getQuotes: avnuGetQuotes, quoteToCalls: avnuQuoteToCalls },
 ): Hono<AppEnv> {
@@ -117,23 +136,9 @@ export default function swap(
     }
 
     try {
-      const quotes = await deps.getQuotes({
-        sellTokenAddress: parsed.sellToken.address,
-        buyTokenAddress: parsed.buyToken.address,
-        ...parsed.amount,
-        takerAddress: body.takerAddress,
-      });
-      const quote = quotes[0];
-      if (!quote) return c.json({ error: "No swap route available for this pair" }, 502);
-
-      const built = await deps.quoteToCalls({
-        quoteId: quote.quoteId,
-        slippage: DEFAULT_SLIPPAGE,
-        takerAddress: body.takerAddress,
-      });
-
-      return c.json(stringifyBigInts({ calls: built.calls, chainId: built.chainId, quote }));
+      return c.json(stringifyBigInts(await swapCallsFor(parsed, body.takerAddress, deps)));
     } catch (err) {
+      if (err instanceof NoSwapRouteError) return c.json({ error: "No swap route available for this pair" }, 502);
       log.warn({ err }, "swap build failed");
       return c.json({ error: "Failed to build swap calls" }, 502);
     }

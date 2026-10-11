@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
-import paymaster, { type PaymasterClient } from "./paymaster.js";
+import paymaster, { deploymentCalls, deploymentIsMediaWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
+import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -188,10 +189,10 @@ describe("POST /deploy/execute", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ownerAddress: OWNER_ADDRESS,
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
+        typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)),
         signature: ["0x1"],
         deployment: { address: OWNER_ADDRESS, class_hash: classHash },
-        calls: [SPONSORABLE_CALL],
+        calls: deploymentCalls(OWNER_ADDRESS),
       }),
     });
     expect(res.status).toBe(200);
@@ -207,6 +208,45 @@ describe("POST /deploy/execute", () => {
     expect(res.status).toBe(400);
   });
 
+  test("refuses a deployment of another class without calling AVNU", async () => {
+    let executed = false;
+    const app = appWith({ executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } });
+    const res = await app.request("/deploy/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)), signature: ["0x1"], deployment: { address: OWNER_ADDRESS, class_hash: "0x123" } }),
+    });
+    expect(res.status).toBe(400);
+    expect(executed).toBe(false);
+  });
+
+  test("refuses a signature for other calls without calling AVNU", async () => {
+    let executed = false;
+    const classHash = getCoordinates("STARKNET").mediaWalletClassHash!;
+    const app = appWith({ executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } });
+    const res = await app.request("/deploy/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: outsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"], deployment: { address: OWNER_ADDRESS, class_hash: classHash } }),
+    });
+    expect(res.status).toBe(400);
+    expect(executed).toBe(false);
+  });
+});
+
+describe("Media Wallet deployment check", () => {
+  const CH = getCoordinates("STARKNET").mediaWalletClassHash!;
+  const OWNER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  test("accepts a Media Wallet deployment at the owner address", () => {
+    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: CH }, OWNER, CH)).toBe(true);
+  });
+
+  test("refuses another class or another address", () => {
+    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: "0x123" }, OWNER, CH)).toBe(false);
+    expect(deploymentIsMediaWallet({ address: "0x9", class_hash: CH }, OWNER, CH)).toBe(false);
+    expect(deploymentIsMediaWallet(null, OWNER, CH)).toBe(false);
+  });
 });
 
 describe("upstream failures", () => {
@@ -280,3 +320,99 @@ describe("every sponsorship failure says why it failed", () => {
 });
 
 
+
+const WALLET = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+function intentApp(rows: SponsorIntentRow[], client: Partial<PaymasterClient>, log: string[], wallet: string | null = WALLET) {
+  const stub: PaymasterClient = {
+    buildTransaction: async () => ({ typed_data: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]) }) as never,
+    executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
+    ...client,
+  };
+  const intentDeps: SponsorIntentDeps = {
+    load: async (ids) => rows.filter((r) => ids.includes(r.id)),
+    claim: async (ids) => { log.push(`claim:${ids}`); return true; },
+    release: async (ids) => { log.push(`release:${ids}`); },
+    record: async (ids, tx) => { log.push(`record:${ids}:${tx}`); },
+    known: async (addresses) => new Set(addresses.filter((a) => BigInt(a) === BigInt(SPONSORABLE_CALL.contractAddress))),
+    now: () => new Date(),
+  };
+  const app = new Hono<AppEnv>();
+  app.use("*", async (c, next) => {
+    c.set("account", { id: "app", status: "ACTIVE" } as never);
+    if (wallet) c.set("sponsorWallet", wallet);
+    await next();
+  });
+  app.route("/", paymaster(() => stub, (_c, next) => next(), intentDeps));
+  return app;
+}
+
+const signedRow: SponsorIntentRow = {
+  id: "i1", type: "MINT", accountId: "app", requester: WALLET, status: "SIGNED", expiresAt: new Date(Date.now() + 60_000), calls: [SPONSORABLE_CALL],
+};
+const postJson = (body: unknown) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+describe("intent sponsorship", () => {
+  test("build sponsors the stored calls for the caller's wallet", async () => {
+    const seen: unknown[] = [];
+    const res = await intentApp([signedRow], { buildTransaction: async (req) => { seen.push(req); return { typed_data: { t: 1 } } as never; } }, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{ type: "invoke", invoke: { userAddress: WALLET, calls: [SPONSORABLE_CALL] } }]);
+  });
+
+  test("execute refuses typed data for other calls and never calls AVNU", async () => {
+    let executed = false;
+    const res = await intentApp([signedRow], { executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } }, [])
+      .request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([{ ...SPONSORABLE_CALL, entrypoint: "transfer" }]), signature: ["0x1"] }));
+    expect(res.status).toBe(400);
+    expect(executed).toBe(false);
+  });
+
+  test("execute claims, sponsors and records the intents", async () => {
+    const log: string[] = [];
+    const res = await intentApp([signedRow], {}, log)
+      .request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
+    expect(res.status).toBe(200);
+    expect(log).toEqual(["claim:i1", "record:i1:0xtx"]);
+  });
+
+  test("a failed execute puts the intents back", async () => {
+    const log: string[] = [];
+    const res = await intentApp([signedRow], { executeTransaction: async () => { throw new Error("TRANSACTION_EXECUTION_ERROR"); } }, log)
+      .request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
+    expect(res.status).toBe(422);
+    expect(log).toEqual(["claim:i1", "release:i1"]);
+  });
+
+  test("an execute that may have broadcast keeps the intents claimed", async () => {
+    const log: string[] = [];
+    const res = await intentApp([signedRow], { executeTransaction: async () => { throw new Error("socket hang up"); } }, log)
+      .request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
+    expect(res.status).toBe(502);
+    expect(log).toEqual(["claim:i1"]);
+  });
+
+  test("an intent of another app is refused", async () => {
+    const res = await intentApp([{ ...signedRow, accountId: "other" }], {}, []).request("/invoke/build", postJson({ intentIds: ["i1"] }));
+    expect(res.status).toBe(403);
+  });
+
+  test("an intent of another wallet is refused", async () => {
+    const res = await intentApp([{ ...signedRow, requester: "0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321" }], {}, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
+    expect(res.status).toBe(403);
+  });
+
+  test("a call to an unknown contract gets sponsor_unavailable so the client falls back to paying", async () => {
+    const res = await intentApp([{ ...signedRow, calls: [{ ...SPONSORABLE_CALL, contractAddress: "0x666" }] }], {}, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("sponsor_unavailable");
+  });
+
+  test("an account with no wallet can't be sponsored", async () => {
+    const res = await intentApp([signedRow], {}, [], null).request("/invoke/build", postJson({ intentIds: ["i1"] }));
+    expect(res.status).toBe(403);
+  });
+});
