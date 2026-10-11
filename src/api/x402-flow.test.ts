@@ -9,21 +9,20 @@ describe("x402 end-to-end", () => {
     let balance = 0;
     const deps: MeterDeps = {
       chargeForRequest: async () => ({ actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 1, units: 1 }),
-      debitCredits: async (_t: string, cost: number) => {
+      spend: async (_t: string, cost: number) => {
         if (balance >= cost) {
           balance -= cost;
           return true;
         }
         return false;
       },
-      refundCredits: async (_t: string, cost: number) => {
-        balance += cost;
+      settleUsage: async (_row, owed: number) => {
+        balance += owed;
       },
       settlePayment: async () => {
         balance += 100;
         return { ok: true, creditedAmount: 100 };
       },
-      recordUsage: async () => {},
     };
 
     const app = new Hono<AppEnv>();

@@ -2,7 +2,7 @@ import type { LaunchpadRunStatus, Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { normalizeAddress } from "../utils/starknet.js";
-import { debitCredits, refundCredits } from "../payments/credits.js";
+import { refund, spend } from "../payments/ledger.js";
 import type { RunQuote } from "./steps.js";
 import { resolveRecipientWallets } from "../utils/recipientWallets.js";
 
@@ -135,7 +135,7 @@ export const prismaRunStore: RunStore = {
         });
         if (moved.count === 0) throw new CheckoutAbort("not-draft");
 
-        const paid = await debitCredits(apiCreditsId, quote.total, tx, { launchpadRunId: id });
+        const paid = await spend(apiCreditsId, quote.total, tx, { launchpadRunId: id });
         if (!paid) throw new CheckoutAbort("insufficient");
 
         for (const line of quote.lines) {
@@ -244,7 +244,7 @@ export const prismaRunStore: RunStore = {
 
       const refunded = Math.max(0, run.creditsHeld - run.creditsSpent);
       if (refunded > 0) {
-        await refundCredits(apiCreditsId, refunded, tx, { launchpadRunId: id });
+        await refund(apiCreditsId, refunded, tx, { launchpadRunId: id });
         await tx.usageEvent.create({
           data: {
             apiCreditsId,
