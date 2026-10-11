@@ -82,6 +82,30 @@ describe("starting a top-up", () => {
   });
 });
 
+describe("a top-up amount in the chosen token", () => {
+  test("is kept in the token's own units", () => {
+    expect(method().parseParams({ asset: "STRK", amount: "5" })).toEqual({
+      ok: true,
+      params: { chain: "STARKNET", asset: "STRK", amountAtomic: "5000000000000000000" },
+    });
+    expect(method().parseParams({ asset: "USDC", amount: "10.5" })).toMatchObject({ ok: true, params: { amountAtomic: "10500000" } });
+  });
+
+  test("refuses zero, text and more decimals than the token has", () => {
+    expect(method().parseParams({ asset: "USDC", amount: "0" }).ok).toBe(false);
+    expect(method().parseParams({ asset: "USDC", amount: "abc" }).ok).toBe(false);
+    expect(method().parseParams({ asset: "USDC", amount: "1.1234567" }).ok).toBe(false);
+  });
+
+  test("is exactly what the payment instructions ask for, with no price lookup", async () => {
+    const res = await method({ readUsdPrices: noPrices }).authorize(
+      intent({ payer: null }, { asset: "STRK", amountAtomic: "5000000000000000000" }),
+      { payer: PAYER, signature: ["0x1"] },
+    );
+    expect(res).toMatchObject({ ok: true, instructions: { assetSymbol: "STRK", amountAtomic: "5000000000000000000" } });
+  });
+});
+
 describe("the challenge", () => {
   test("proves ownership of the wallet for this top-up, in its own domain", () => {
     const td = fundingTypedData({ intentId: "fi1", payer: PAYER }) as any;
