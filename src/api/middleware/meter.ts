@@ -2,8 +2,8 @@ import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
 import { chargeForRequest as defaultChargeForRequest } from "../../payments/pricing.js";
-import { debitCredits as defaultDebitCredits, refundCredits as defaultRefundCredits } from "../../payments/credits.js";
-import { billedUnits, recordUsage as defaultRecordUsage } from "../../payments/usage.js";
+import { settleUsage as defaultSettleUsage, spend as defaultSpend } from "../../payments/ledger.js";
+import { billedUnits } from "../../payments/usage.js";
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -14,20 +14,18 @@ const SCHEMES = [new StarknetUsdcScheme()];
 
 export interface MeterDeps {
   chargeForRequest: typeof defaultChargeForRequest;
-  debitCredits: typeof defaultDebitCredits;
-  refundCredits: typeof defaultRefundCredits;
+  spend: typeof defaultSpend;
+  settleUsage: typeof defaultSettleUsage;
   settlePayment: typeof defaultSettlePayment;
-  recordUsage: typeof defaultRecordUsage;
 }
 
 export function meter(deps: MeterDeps = {
   chargeForRequest: defaultChargeForRequest,
-  debitCredits: defaultDebitCredits,
-  refundCredits: defaultRefundCredits,
+  spend: defaultSpend,
+  settleUsage: defaultSettleUsage,
   settlePayment: defaultSettlePayment,
-  recordUsage: defaultRecordUsage,
 }): MiddlewareHandler<AppEnv> {
-  const { chargeForRequest, debitCredits, refundCredits, settlePayment, recordUsage } = deps;
+  const { chargeForRequest, spend, settleUsage, settlePayment } = deps;
   return async (c, next) => {
 
     const charge = await chargeForRequest(c.req.method, c.req.path, {
@@ -59,7 +57,7 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const paid = await debitCredits(apiCredits.id, cost);
+    const paid = await spend(apiCredits.id, cost);
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
@@ -82,40 +80,38 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const settle = async (units: number, status: number) => {
+    const settle = (units: number, status: number) => {
       const kept = charge.unitCredits * units;
       const owed = cost - kept;
-      if (owed > 0) {
-        await refundCredits(apiCredits.id, owed).catch((refundErr) =>
-          log.error({ refundErr, apiCredits: apiCredits.id, owed, path: c.req.path }, "refund of unused hold failed"),
-        );
-      }
       if (kept > 0) {
         c.header("X-Credits-Remaining", String(Math.max(0, apiCredits.creditBalance - kept)));
       }
-      void recordUsage({
-        apiCreditsId: apiCredits.id,
-        actionKey: charge.actionKey,
-        chain: charge.chain,
-        service: charge.service,
-        unitCredits: charge.unitCredits,
-        units,
-        credits: kept,
-        method: c.req.method,
-        path: c.req.path,
-        status,
-      }).catch((usageErr) =>
-        log.error({ usageErr, apiCredits: apiCredits.id, kept, path: c.req.path }, "usage record failed"),
+      void settleUsage(
+        {
+          apiCreditsId: apiCredits.id,
+          actionKey: charge.actionKey,
+          chain: charge.chain,
+          service: charge.service,
+          unitCredits: charge.unitCredits,
+          units,
+          credits: kept,
+          method: c.req.method,
+          path: c.req.path,
+          status,
+        },
+        owed,
+      ).catch((settleErr) =>
+        log.error({ settleErr, apiCredits: apiCredits.id, kept, owed, path: c.req.path }, "usage settlement failed"),
       );
     };
 
     try {
       await next();
     } catch (err) {
-      await settle(0, 500);
+      settle(0, 500);
       throw err;
     }
-    await settle(c.res.status >= 500 ? 0 : billedUnits(c, charge.units), c.res.status);
+    settle(c.res.status >= 500 ? 0 : billedUnits(c, charge.units), c.res.status);
   };
 }
 

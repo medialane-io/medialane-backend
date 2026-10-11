@@ -6,10 +6,12 @@ const databaseUrl = process.env.SQL_TEST_DATABASE_URL;
 describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
   let prisma: PrismaClient;
   let credits: typeof import("./credits.js");
+  let ledger: typeof import("./ledger.js");
 
   beforeAll(async () => {
     prisma = (await import("../db/client.js")).default;
     credits = await import("./credits.js");
+    ledger = await import("./ledger.js");
   });
 
   afterAll(async () => {
@@ -32,21 +34,21 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
 
   test("a spend lowers the balance and writes a USAGE entry together", async () => {
     const { apiCreditsId } = await wallet(100);
-    expect(await credits.debitCredits(apiCreditsId, 30)).toBe(true);
+    expect(await ledger.spend(apiCreditsId, 30)).toBe(true);
     expect(await balanceOf(apiCreditsId)).toBe(70);
     expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits])).toEqual([["USAGE", -30]]);
   });
 
   test("a spend above the balance changes nothing and writes nothing", async () => {
     const { apiCreditsId } = await wallet(10);
-    expect(await credits.debitCredits(apiCreditsId, 30)).toBe(false);
+    expect(await ledger.spend(apiCreditsId, 30)).toBe(false);
     expect(await balanceOf(apiCreditsId)).toBe(10);
     expect(await entriesOf(apiCreditsId)).toHaveLength(0);
   });
 
   test("a refund raises the balance and writes a REFUND entry", async () => {
     const { apiCreditsId } = await wallet(0);
-    await credits.refundCredits(apiCreditsId, 12);
+    await ledger.refund(apiCreditsId, 12);
     expect(await balanceOf(apiCreditsId)).toBe(12);
     expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits])).toEqual([["REFUND", 12]]);
   });
@@ -90,7 +92,7 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
     const { apiCreditsId } = await wallet(50);
     await prisma
       .$transaction(async (tx) => {
-        await credits.debitCredits(apiCreditsId, 20, tx);
+        await ledger.spend(apiCreditsId, 20, tx);
         throw new Error("abort");
       })
       .catch(() => {});
@@ -100,7 +102,7 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
 
   test("concurrent spends never go below zero and the entries add up to what was spent", async () => {
     const { apiCreditsId } = await wallet(50);
-    const results = await Promise.all(Array.from({ length: 10 }, () => credits.debitCredits(apiCreditsId, 10)));
+    const results = await Promise.all(Array.from({ length: 10 }, () => ledger.spend(apiCreditsId, 10)));
     expect(results.filter(Boolean)).toHaveLength(5);
     expect(await balanceOf(apiCreditsId)).toBe(0);
     const entries = await entriesOf(apiCreditsId);
@@ -109,7 +111,7 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
 
   test("an entry can never be edited or deleted on its own", async () => {
     const { apiCreditsId } = await wallet(10);
-    await credits.debitCredits(apiCreditsId, 5);
+    await ledger.spend(apiCreditsId, 5);
     const [entry] = await entriesOf(apiCreditsId);
     await expect((async () => prisma.creditEntry.update({ where: { id: entry!.id }, data: { credits: 1 } }))()).rejects.toThrow("append-only");
     await expect((async () => prisma.creditEntry.delete({ where: { id: entry!.id } }))()).rejects.toThrow("append-only");
@@ -117,8 +119,30 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
 
   test("removing a whole credits record removes its entries with it", async () => {
     const { accountId, apiCreditsId } = await wallet(10);
-    await credits.debitCredits(apiCreditsId, 5);
+    await ledger.spend(apiCreditsId, 5);
     await prisma.account.delete({ where: { id: accountId } });
     expect(await prisma.creditEntry.count({ where: { apiCreditsId } })).toBe(0);
+  });
+
+  test("settling a request writes its usage record and the refund of the unused hold together", async () => {
+    const { apiCreditsId } = await wallet(10);
+    await ledger.spend(apiCreditsId, 5);
+    await ledger.settleUsage(
+      { apiCreditsId, actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 0, credits: 0, method: "GET", path: "/v1/x", status: 200 },
+      5,
+    );
+    const usage = await prisma.usageEvent.findFirstOrThrow({ where: { apiCreditsId } });
+    expect(await balanceOf(apiCreditsId)).toBe(10);
+    expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits, e.usageEventId])).toEqual([
+      ["USAGE", -5, null],
+      ["REFUND", 5, usage.id],
+    ]);
+  });
+
+  test("a grant adds credits with its note", async () => {
+    const { apiCreditsId } = await wallet(0);
+    await ledger.grant(apiCreditsId, 250, "launch credits for the io app, by ops");
+    expect(await balanceOf(apiCreditsId)).toBe(250);
+    expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits, e.note])).toEqual([["GRANT", 250, "launch credits for the io app, by ops"]]);
   });
 });

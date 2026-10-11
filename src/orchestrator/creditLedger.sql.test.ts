@@ -21,8 +21,8 @@ describe.skipIf(!databaseUrl)("opening balances and reconciliation", () => {
   test("opening entries explain balances from before the ledger, including spends made since", async () => {
     const before = await prisma.apiCredits.create({ data: { creditBalance: 500, account: { create: { publicId: `open-a-${Date.now()}` } } } });
     const spentSince = await prisma.apiCredits.create({ data: { creditBalance: 300, account: { create: { publicId: `open-b-${Date.now()}` } } } });
-    const { debitCredits } = await import("../payments/credits.js");
-    await debitCredits(spentSince.id, 100);
+    const { spend } = await import("../payments/ledger.js");
+    await spend(spentSince.id, 100);
 
     await prisma.$executeRawUnsafe(OPENING_SQL);
 
