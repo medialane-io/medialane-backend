@@ -17,6 +17,8 @@
     "db:studio": "bunx prisma studio",
     "reset-cursor": "bun run scripts/resetCursor.ts",
     "compute-rewards": "bun run src/scripts/compute-rewards.ts",
+    "credits:grant": "bun run src/scripts/grant-credits.ts",
+    "credits:grant:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run src/scripts/grant-credits.ts \"$@\"' grant",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
