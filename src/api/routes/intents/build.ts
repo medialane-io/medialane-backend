@@ -27,6 +27,8 @@ import {
   buildRejectSponsorshipProposalIntent,
 } from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
+import { callerApp } from "../../../utils/caller.js";
+import type { IntentBuildContext } from "../../../orchestrator/intent/fee.js";
 import type { AppEnv } from "../../../types/hono.js";
 import {
   log,
@@ -64,7 +66,7 @@ interface IntentRouteConfig<T> {
   type: IntentType;
 
   requesterField: keyof T & string;
-  build: (body: T) => Promise<{ typedData?: unknown; calls: unknown }>;
+  build: (body: T, ctx: IntentBuildContext) => Promise<{ typedData?: unknown; calls: unknown }>;
 
   requiresSignature: boolean;
 
@@ -95,7 +97,7 @@ function registerIntentRoute<T>(
     }
 
     try {
-      const built = await cfg.build(parsed.data);
+      const built = await cfg.build(parsed.data, { appId: callerApp(c) });
       const requester = normalizeAddress("STARKNET", parsed.data[cfg.requesterField] as unknown as string);
       const ttl = expiresAt();
 
@@ -458,11 +460,10 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           };
         }
         try {
-          const { calls } = await buildFulfillOrderIntent({
-            fulfiller: normalizedFulfiller,
-            orderHash,
-            quantity,
-          });
+          const { calls } = await buildFulfillOrderIntent(
+            { fulfiller: normalizedFulfiller, orderHash, quantity },
+            { appId: callerApp(c) },
+          );
           return { ok: true, orderHash, calls };
         } catch (err) {
           log.error({ err, orderHash }, "Failed to build fulfill intent");

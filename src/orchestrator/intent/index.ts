@@ -28,3 +28,4 @@ export {
   buildAcceptSponsorshipProposalIntent,
   buildRejectSponsorshipProposalIntent,
 } from "./sponsorship.js";
+export { platformFeeCalls, type IntentBuildContext, type IntentCall } from "./fee.js";

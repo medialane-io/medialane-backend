@@ -4,6 +4,8 @@ import { cairo, Contract, CairoOption, CairoOptionVariant } from "starknet";
 import { normalizeAddress, createProvider } from "../../utils/starknet.js";
 import { STARKNET_IP_SPONSORSHIP_CONTRACT } from "../../config/constants.js";
 import { IPSponsorshipABI } from "@medialane/sdk/starknet";
+import type { ResolvedFeeConfig } from "@medialane/sdk";
+import { feeApplies, platformFeeCalls, platformFeeConfig, type IntentBuildContext } from "./fee.js";
 import type {
   CreateSponsorshipOfferIntentBody,
   SetSponsorshipOfferOpenIntentBody,
@@ -19,6 +21,28 @@ import type {
 function sponsorshipContract(): Contract {
   return new Contract({ abi: IPSponsorshipABI as never, address: STARKNET_IP_SPONSORSHIP_CONTRACT, providerOrAccount: createProvider() as never });
 }
+
+export interface SponsorshipReader {
+  offer(offerId: string): Promise<{ paymentToken: string }>;
+  bid(offerId: string, sponsor: string): Promise<bigint>;
+  proposal(proposalId: string): Promise<{ amount: bigint; paymentToken: string }>;
+}
+
+const hexAddress = (v: bigint | string) => (typeof v === "bigint" ? "0x" + v.toString(16) : String(v));
+
+export const chainSponsorshipReader: SponsorshipReader = {
+  async offer(offerId) {
+    const o = (await sponsorshipContract().call("get_offer", [cairo.uint256(offerId)])) as { payment_token: bigint | string };
+    return { paymentToken: normalizeAddress("STARKNET", hexAddress(o.payment_token)) };
+  },
+  async bid(offerId, sponsor) {
+    return BigInt((await sponsorshipContract().call("get_bid", [cairo.uint256(offerId), normalizeAddress("STARKNET", sponsor)])) as bigint);
+  },
+  async proposal(proposalId) {
+    const p = (await sponsorshipContract().call("get_proposal", [cairo.uint256(proposalId)])) as { amount: bigint; payment_token: bigint | string };
+    return { amount: BigInt(p.amount), paymentToken: normalizeAddress("STARKNET", hexAddress(p.payment_token)) };
+  },
+};
 
 export async function buildCreateSponsorshipOfferIntent(body: CreateSponsorshipOfferIntentBody) {
   const specificSponsor = body.specificSponsor
@@ -66,12 +90,19 @@ export async function buildRetractSponsorshipBidIntent(body: RetractSponsorshipB
   return { calls: [call] };
 }
 
-export async function buildAcceptSponsorshipBidIntent(body: AcceptSponsorshipBidIntentBody) {
+export async function buildAcceptSponsorshipBidIntent(
+  body: AcceptSponsorshipBidIntentBody,
+  ctx: IntentBuildContext = { appId: "" },
+  read: SponsorshipReader = chainSponsorshipReader,
+  cfg: ResolvedFeeConfig = platformFeeConfig,
+) {
   const call = sponsorshipContract().populate("accept_bid", [
     cairo.uint256(body.offerId),
     normalizeAddress("STARKNET", body.sponsor),
   ]);
-  return { calls: [call] };
+  if (!feeApplies(ctx.appId, cfg)) return { calls: [call] };
+  const [offer, amount] = await Promise.all([read.offer(body.offerId), read.bid(body.offerId, body.sponsor)]);
+  return { calls: [call, ...platformFeeCalls(ctx.appId, "sponsorship", offer.paymentToken, amount, cfg)] };
 }
 
 export async function buildCreateSponsorshipProposalIntent(body: CreateSponsorshipProposalIntentBody) {
@@ -94,9 +125,16 @@ export async function buildWithdrawSponsorshipProposalIntent(body: WithdrawSpons
   return { calls: [call] };
 }
 
-export async function buildAcceptSponsorshipProposalIntent(body: AcceptSponsorshipProposalIntentBody) {
+export async function buildAcceptSponsorshipProposalIntent(
+  body: AcceptSponsorshipProposalIntentBody,
+  ctx: IntentBuildContext = { appId: "" },
+  read: SponsorshipReader = chainSponsorshipReader,
+  cfg: ResolvedFeeConfig = platformFeeConfig,
+) {
   const call = sponsorshipContract().populate("accept_proposal", [cairo.uint256(body.proposalId)]);
-  return { calls: [call] };
+  if (!feeApplies(ctx.appId, cfg)) return { calls: [call] };
+  const proposal = await read.proposal(body.proposalId);
+  return { calls: [call, ...platformFeeCalls(ctx.appId, "sponsorship", proposal.paymentToken, proposal.amount, cfg)] };
 }
 
 export async function buildRejectSponsorshipProposalIntent(body: RejectSponsorshipProposalIntentBody) {
