@@ -51,3 +51,30 @@ describe("POP and drop intents", () => {
     ]);
   });
 });
+
+import { buildDropManageIntent, buildPopManageIntent } from "./drops.js";
+
+describe("drop and POP management intents", () => {
+  test("drop management builds each owner action on the drop", async () => {
+    expect((await buildDropManageIntent({ owner: ME, collection: COL, action: "allowlist_enabled", enabled: false })).calls)
+      .toEqual([{ contractAddress: COL, entrypoint: "set_allowlist_enabled", calldata: ["0"] }]);
+    expect((await buildDropManageIntent({ owner: ME, collection: COL, action: "allowlist_add", addresses: [ME] })).calls)
+      .toEqual([{ contractAddress: COL, entrypoint: "batch_add_to_allowlist", calldata: ["1", ME] }]);
+    expect((await buildDropManageIntent({ owner: ME, collection: COL, action: "allowlist_remove", address: ME })).calls)
+      .toEqual([{ contractAddress: COL, entrypoint: "remove_from_allowlist", calldata: [ME] }]);
+    expect((await buildDropManageIntent({ owner: ME, collection: COL, action: "withdraw_payments" })).calls)
+      .toEqual([{ contractAddress: COL, entrypoint: "withdraw_payments", calldata: [] }]);
+  });
+
+  test("drop management refuses an action missing its input", async () => {
+    await expect(buildDropManageIntent({ owner: ME, collection: COL, action: "allowlist_add" })).rejects.toThrow();
+  });
+
+  test("POP management issues a credential or publishes the allowlist root", async () => {
+    const issued = (await buildPopManageIntent({ owner: ME, collection: COL, action: "issue", recipient: ME })).calls[0]!;
+    expect(issued.entrypoint).toBe("issue");
+    expect(issued.calldata[0]).toBe(ME);
+    expect((await buildPopManageIntent({ owner: ME, collection: COL, action: "set_allowlist_root", root: "0xabc" })).calls)
+      .toEqual([{ contractAddress: COL, entrypoint: "set_allowlist_root", calldata: ["0xabc"] }]);
+  });
+});

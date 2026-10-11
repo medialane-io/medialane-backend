@@ -569,6 +569,8 @@ enum IntentType {
   WALLET_MANAGE
   SWAP
   FUNDING_TRANSFER
+  DROP_MANAGE
+  POP_MANAGE
 }
 
 enum IntentStatus {

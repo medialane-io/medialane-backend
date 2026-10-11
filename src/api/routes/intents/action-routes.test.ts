@@ -54,4 +54,15 @@ describe("action intent routes", () => {
     const res = await app().request("/funding-transfer", post({ owner: ME, asset: "0x999", amountAtomic: "1" }));
     expect(res.status).toBe(400);
   });
+
+  test("an unknown drop management action is a 400", async () => {
+    const res = await app().request("/drop-manage", post({ owner: ME, collection: ME, action: "selfdestruct" }));
+    expect(res.status).toBe(400);
+  });
+
+  test("POP issue without a recipient is a 400 with the reason", async () => {
+    const res = await app().request("/pop-manage", post({ owner: ME, collection: ME, action: "issue" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "recipient is required" });
+  });
 });

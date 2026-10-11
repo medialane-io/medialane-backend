@@ -293,3 +293,20 @@ export const swapIntentSchema = z.object({
   buyAmountRaw: uintString.optional(),
 });
 export const fundingTransferSchema = z.object({ owner: starknetAddress, asset: starknetAddress, amountAtomic: uintString });
+
+export const dropManageSchema = z.object({
+  owner: starknetAddress,
+  collection: starknetAddress,
+  action: z.enum(["allowlist_enabled", "allowlist_add", "allowlist_remove", "withdraw_payments"]),
+  enabled: z.boolean().optional(),
+  addresses: z.array(starknetAddress).optional(),
+  address: starknetAddress.optional(),
+});
+export const popManageSchema = z.object({
+  owner: starknetAddress,
+  collection: starknetAddress,
+  action: z.enum(["issue", "set_allowlist_root"]),
+  recipient: starknetAddress.optional(),
+  tokenUri: z.string().optional(),
+  root: felt.optional(),
+});

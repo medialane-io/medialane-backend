@@ -1,6 +1,6 @@
 import { Contract, cairo } from "starknet";
 import { getListableTokens, type ResolvedFeeConfig } from "@medialane/sdk";
-import { DropCollectionABI } from "@medialane/sdk/starknet";
+import { DropCollectionABI, encodeByteArray } from "@medialane/sdk/starknet";
 import { normalizeAddress, createProvider } from "../../utils/starknet.js";
 import { platformFeeCalls, platformFeeConfig, type IntentBuildContext, type IntentCall } from "./fee.js";
 import { IntentRefusal } from "./refusal.js";
@@ -57,5 +57,55 @@ export async function buildDropAllowlistIntent(body: { owner: string; collection
     { contractAddress: collection, entrypoint: "set_allowlist_enabled", calldata: ["1"] },
     { contractAddress: collection, entrypoint: "batch_add_to_allowlist", calldata: [String(list.length), ...list] },
   ];
+  return { calls };
+}
+
+export type DropManageAction = "allowlist_enabled" | "allowlist_add" | "allowlist_remove" | "withdraw_payments";
+
+export async function buildDropManageIntent(body: {
+  owner: string;
+  collection: string;
+  action: DropManageAction;
+  enabled?: boolean;
+  addresses?: string[];
+  address?: string;
+}) {
+  const collection = addr(body.collection);
+  const call = (entrypoint: string, calldata: string[]): { calls: IntentCall[] } => ({ calls: [{ contractAddress: collection, entrypoint, calldata }] });
+  switch (body.action) {
+    case "allowlist_enabled":
+      if (body.enabled === undefined) throw new IntentRefusal("enabled is required");
+      return call("set_allowlist_enabled", [body.enabled ? "1" : "0"]);
+    case "allowlist_add": {
+      if (!body.addresses?.length) throw new IntentRefusal("addresses are required");
+      const list = body.addresses.map(addr);
+      return call("batch_add_to_allowlist", [String(list.length), ...list]);
+    }
+    case "allowlist_remove":
+      if (!body.address) throw new IntentRefusal("address is required");
+      return call("remove_from_allowlist", [addr(body.address)]);
+    case "withdraw_payments":
+      return call("withdraw_payments", []);
+  }
+}
+
+export type PopManageAction = "issue" | "set_allowlist_root";
+
+export async function buildPopManageIntent(body: {
+  owner: string;
+  collection: string;
+  action: PopManageAction;
+  recipient?: string;
+  tokenUri?: string;
+  root?: string;
+}) {
+  const collection = addr(body.collection);
+  if (body.action === "issue") {
+    if (!body.recipient) throw new IntentRefusal("recipient is required");
+    const calls: IntentCall[] = [{ contractAddress: collection, entrypoint: "issue", calldata: [addr(body.recipient), ...encodeByteArray(body.tokenUri ?? "")] }];
+    return { calls };
+  }
+  if (!body.root) throw new IntentRefusal("root is required");
+  const calls: IntentCall[] = [{ contractAddress: collection, entrypoint: "set_allowlist_root", calldata: [body.root] }];
   return { calls };
 }

@@ -34,6 +34,8 @@ import {
   buildPopBurnIntent,
   buildDropClaimIntent,
   buildDropAllowlistIntent,
+  buildDropManageIntent,
+  buildPopManageIntent,
   buildWalletManageIntent,
   buildSwapIntent,
   buildFundingTransferIntent,
@@ -76,6 +78,8 @@ import {
   popBurnSchema,
   dropClaimSchema,
   dropAllowlistSchema,
+  dropManageSchema,
+  popManageSchema,
   walletManageSchema,
   swapIntentSchema,
   fundingTransferSchema,
@@ -166,6 +170,8 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
   registerIntentRoute(intents, { path: "/pop-burn", schema: popBurnSchema, type: "POP_BURN", requesterField: "owner", build: buildPopBurnIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/drop-claim", schema: dropClaimSchema, type: "DROP_CLAIM", requesterField: "claimer", build: (body, ctx) => buildDropClaimIntent(body, ctx), requiresSignature: false });
   registerIntentRoute(intents, { path: "/drop-allowlist", schema: dropAllowlistSchema, type: "DROP_SET_ALLOWLIST", requesterField: "owner", build: buildDropAllowlistIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-manage", schema: dropManageSchema, type: "DROP_MANAGE", requesterField: "owner", build: buildDropManageIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/pop-manage", schema: popManageSchema, type: "POP_MANAGE", requesterField: "owner", build: buildPopManageIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/wallet-manage", schema: walletManageSchema, type: "WALLET_MANAGE", requesterField: "owner", build: buildWalletManageIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/swap", schema: swapIntentSchema, type: "SWAP", requesterField: "taker", build: (body) => buildSwapIntent(body), requiresSignature: false });
   registerIntentRoute(intents, { path: "/funding-transfer", schema: fundingTransferSchema, type: "FUNDING_TRANSFER", requesterField: "owner", build: buildFundingTransferIntent, requiresSignature: false });
