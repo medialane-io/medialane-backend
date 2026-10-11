@@ -94,6 +94,10 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
     const first = await store.settle({ intent: made, verified: verified(nonce), credited: 100, multiplier: 1 });
     expect(first.outcome).toBe("settled");
     expect(await balance()).toBe(before + 100);
+    if (first.outcome === "settled") {
+      const entry = await prisma.creditEntry.findFirst({ where: { paymentId: first.paymentId } });
+      expect(entry).toMatchObject({ kind: "PAYMENT", credits: 100, apiCreditsId });
+    }
     const again = await store.settle({ intent: made, verified: verified(nonce), credited: 100, multiplier: 1 });
     expect(again.outcome).toBe("not-open");
     expect(await balance()).toBe(before + 100);

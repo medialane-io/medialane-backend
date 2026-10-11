@@ -1,44 +1,42 @@
 import prismaDefault from "../db/client.js";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { writeEntry, type EntryRef } from "./ledger.js";
 
-export interface CreditsTx {
-  apiCredits: { update(args: Prisma.ApiCreditsUpdateArgs): Promise<unknown> };
-  payment: { updateMany(args: Prisma.PaymentUpdateManyArgs): Promise<{ count: number }> };
-}
+export type CreditsDb = PrismaClient | Prisma.TransactionClient;
 
-export interface CreditsDb {
-  apiCredits: {
-    updateMany(args: Prisma.ApiCreditsUpdateManyArgs): Promise<{ count: number }>;
-    update(args: Prisma.ApiCreditsUpdateArgs): Promise<unknown>;
-  };
-  payment: { create(args: Prisma.PaymentCreateArgs): Promise<unknown> };
-  $transaction(ops: unknown[]): Promise<unknown>;
-}
-
-export interface UnattributedDb {
-  $transaction<T>(fn: (tx: CreditsTx) => Promise<T>): Promise<T>;
+function inTransaction<T>(db: CreditsDb, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return "$transaction" in db ? (db as PrismaClient).$transaction(fn) : fn(db);
 }
 
 export async function debitCredits(
   apiCreditsId: string,
   cost: number,
-  db: CreditsDb = prismaDefault as unknown as CreditsDb,
+  db: CreditsDb = prismaDefault,
+  ref: EntryRef = {},
 ): Promise<boolean> {
-  const res = await db.apiCredits.updateMany({
-    where: { id: apiCreditsId, creditBalance: { gte: cost } },
-    data: { creditBalance: { decrement: cost } },
+  return inTransaction(db, async (tx) => {
+    const res = await tx.apiCredits.updateMany({
+      where: { id: apiCreditsId, creditBalance: { gte: cost } },
+      data: { creditBalance: { decrement: cost } },
+    });
+    if (res.count === 0) return false;
+    await writeEntry(tx, apiCreditsId, "USAGE", -cost, ref);
+    return true;
   });
-  return res.count > 0;
 }
 
 export async function refundCredits(
   apiCreditsId: string,
   cost: number,
-  db: CreditsDb = prismaDefault as unknown as CreditsDb,
+  db: CreditsDb = prismaDefault,
+  ref: EntryRef = {},
 ): Promise<void> {
-  await db.apiCredits.update({
-    where: { id: apiCreditsId },
-    data: { creditBalance: { increment: cost } },
+  await inTransaction(db, async (tx) => {
+    await tx.apiCredits.update({
+      where: { id: apiCreditsId },
+      data: { creditBalance: { increment: cost } },
+    });
+    await writeEntry(tx, apiCreditsId, "REFUND", cost, ref);
   });
 }
 
@@ -57,12 +55,9 @@ export interface CreditInput {
   proofNonce: string;
 }
 
-export async function creditAccount(
-  input: CreditInput,
-  db: CreditsDb = prismaDefault as unknown as CreditsDb,
-): Promise<void> {
-  await db.$transaction([
-    db.payment.create({
+export async function creditAccount(input: CreditInput, db: CreditsDb = prismaDefault): Promise<void> {
+  await inTransaction(db, async (tx) => {
+    const payment = await tx.payment.create({
       data: {
         apiCreditsId: input.apiCreditsId,
         payer: input.payer,
@@ -76,19 +71,18 @@ export async function creditAccount(
         txHash: input.txHash,
         proofNonce: input.proofNonce,
       },
-    }),
-    db.apiCredits.update({
+      select: { id: true },
+    });
+    await tx.apiCredits.update({
       where: { id: input.apiCreditsId },
       data: { creditBalance: { increment: input.creditedAmount } },
-    }),
-  ]);
+    });
+    await writeEntry(tx, input.apiCreditsId, "PAYMENT", input.creditedAmount, { paymentId: payment.id });
+  });
 }
 
-export async function settleUnattributedPayment(
-  input: CreditInput,
-  db: UnattributedDb = prismaDefault as unknown as UnattributedDb,
-): Promise<boolean> {
-  return db.$transaction(async (tx: CreditsTx) => {
+export async function settleUnattributedPayment(input: CreditInput, db: CreditsDb = prismaDefault): Promise<boolean> {
+  return inTransaction(db, async (tx) => {
     const claimed = await tx.payment.updateMany({
       where: { proofNonce: input.proofNonce, status: "UNATTRIBUTED" },
       data: {
@@ -106,10 +100,12 @@ export async function settleUnattributedPayment(
     });
     if (claimed.count === 0) return false;
 
+    const payment = await tx.payment.findUniqueOrThrow({ where: { proofNonce: input.proofNonce }, select: { id: true } });
     await tx.apiCredits.update({
       where: { id: input.apiCreditsId },
       data: { creditBalance: { increment: input.creditedAmount } },
     });
+    await writeEntry(tx, input.apiCreditsId, "PAYMENT", input.creditedAmount, { paymentId: payment.id });
     return true;
   });
 }
