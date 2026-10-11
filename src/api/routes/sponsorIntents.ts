@@ -1,6 +1,6 @@
 import { getCoordinates, getListableTokens } from "@medialane/sdk";
 import prisma from "../../db/client.js";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { verifyAndSettle } from "./intents/settle.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -88,24 +88,54 @@ export const prismaSponsorIntentDeps: SponsorIntentDeps = {
       verifyAndSettle(id, txHash).catch((err) => log.error({ err, id, txHash }, "verifyAndSettle failed after sponsorship"));
     }
   },
-  known: async (addresses, wallet) => {
-    const known = new Set([...protocolContracts(), normalizeAddress("STARKNET", wallet)].filter((a) => addresses.includes(a)));
-    const rest = addresses.filter((a) => !known.has(a));
-    if (rest.length === 0) return known;
-    const [collections, coins] = await Promise.all([
-      prisma.collection.findMany({ where: { chain: "STARKNET", contractAddress: { in: rest } }, select: { contractAddress: true } }),
-      prisma.coin.findMany({ where: { chain: "STARKNET", contractAddress: { in: rest } }, select: { contractAddress: true } }),
-    ]);
-    for (const row of [...collections, ...coins]) known.add(normalizeAddress("STARKNET", row.contractAddress));
-    return known;
-  },
+  known: (addresses, wallet) => knownTargets(addresses, wallet),
   now: () => new Date(),
 };
 
-function protocolContracts(): string[] {
-  const coordinates = getCoordinates("STARKNET") as unknown as Record<string, unknown>;
-  const contracts = Object.entries(coordinates)
-    .filter(([key, value]) => typeof value === "string" && value.startsWith("0x") && !key.endsWith("ClassHash"))
-    .map(([, value]) => value as string);
-  return [...contracts, ...getListableTokens().map((t) => t.address)].map((a) => normalizeAddress("STARKNET", a));
+export interface KnownTargetDeps {
+  protocolAddresses(): string[];
+  protocolClassHashes(): string[];
+  indexed(addresses: string[]): Promise<string[]>;
+  classHashOf(address: string): Promise<string | null>;
 }
+
+export function createKnownTargets(deps: KnownTargetDeps) {
+  return async (addresses: string[], wallet: string): Promise<Set<string>> => {
+    const norm = (a: string) => normalizeAddress("STARKNET", a);
+    const fixed = new Set([...deps.protocolAddresses(), wallet].map(norm));
+    const known = new Set(addresses.filter((a) => fixed.has(norm(a))).map(norm));
+    let rest = addresses.map(norm).filter((a) => !known.has(a));
+    if (rest.length === 0) return known;
+    for (const a of await deps.indexed(rest)) known.add(norm(a));
+    rest = rest.filter((a) => !known.has(a));
+    if (rest.length === 0) return known;
+    const classes = new Set(deps.protocolClassHashes().map((h) => BigInt(h)));
+    const hashes = await Promise.all(rest.map((a) => deps.classHashOf(a)));
+    rest.forEach((a, i) => {
+      const hash = hashes[i];
+      if (hash && classes.has(BigInt(hash))) known.add(a);
+    });
+    return known;
+  };
+}
+
+function coordinateValues(match: (key: string) => boolean): string[] {
+  const coordinates = getCoordinates("STARKNET") as unknown as Record<string, unknown>;
+  return Object.entries(coordinates)
+    .filter(([key, value]) => typeof value === "string" && value.startsWith("0x") && match(key))
+    .map(([, value]) => value as string);
+}
+
+const knownTargets = createKnownTargets({
+  protocolAddresses: () => [...coordinateValues((key) => !key.endsWith("ClassHash")), ...getListableTokens().map((t) => t.address)],
+  protocolClassHashes: () => coordinateValues((key) => key.endsWith("ClassHash") && key !== "mediaWalletClassHash"),
+  indexed: async (addresses) => {
+    const [collections, coins] = await Promise.all([
+      prisma.collection.findMany({ where: { chain: "STARKNET", contractAddress: { in: addresses } }, select: { contractAddress: true } }),
+      prisma.coin.findMany({ where: { chain: "STARKNET", contractAddress: { in: addresses } }, select: { contractAddress: true } }),
+    ]);
+    return [...collections, ...coins].map((row) => row.contractAddress);
+  },
+  classHashOf: (address) =>
+    callRpc((provider) => provider.getClassHashAt(address)).then(String).catch(() => null),
+});

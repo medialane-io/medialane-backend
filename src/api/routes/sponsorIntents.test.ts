@@ -72,3 +72,41 @@ test("a large cart is composed as one sponsored transaction", async () => {
   const out = await composeIntentCalls(rows.map((r) => r.id), { accountId: "app", wallet: W }, deps(rows));
   expect(out.ok).toBe(true);
 });
+
+import { createKnownTargets } from "./sponsorIntents.js";
+
+describe("known contracts", () => {
+  const PROTOCOL_CLASS = "0x0abc";
+  const deps = (indexed: string[], classes: Record<string, string>) =>
+    createKnownTargets({
+      protocolAddresses: () => ["0x00000000000000000000000000000000000000000000000000000000000000aa"],
+      protocolClassHashes: () => [PROTOCOL_CLASS],
+      indexed: async (addresses) => addresses.filter((a) => indexed.includes(a)),
+      classHashOf: async (address) => classes[address] ?? null,
+    });
+
+  test("a freshly deployed protocol contract is known by its class hash before it is indexed", async () => {
+    const fresh = "0x00000000000000000000000000000000000000000000000000000000000000cc";
+    const known = await deps([], { [fresh]: PROTOCOL_CLASS })([fresh], W);
+    expect([...known]).toEqual([fresh]);
+  });
+
+  test("a contract of another class is not known", async () => {
+    const other = "0x00000000000000000000000000000000000000000000000000000000000000dd";
+    const known = await deps([], { [other]: "0x999" })([other], W);
+    expect(known.size).toBe(0);
+  });
+
+  test("protocol addresses, indexed contracts and the wallet are known without reading the chain", async () => {
+    const indexed = "0x00000000000000000000000000000000000000000000000000000000000000ee";
+    const read: string[] = [];
+    const known = await createKnownTargets({
+      protocolAddresses: () => ["0x00000000000000000000000000000000000000000000000000000000000000aa"],
+      protocolClassHashes: () => [PROTOCOL_CLASS],
+      indexed: async (addresses) => addresses.filter((a) => a === indexed),
+      classHashOf: async (address) => { read.push(address); return null; },
+    })(["0x00000000000000000000000000000000000000000000000000000000000000aa", indexed, W], W);
+    expect(known.size).toBe(3);
+    expect(read).toEqual([]);
+  });
+});
