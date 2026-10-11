@@ -256,3 +256,17 @@ export function isNftTransferEvent(
     !getTokenByAddress(event.contractAddress)
   );
 }
+
+const uintString = z.string().regex(/^\d+$/, "must be a non-negative integer string");
+
+export const transferTokenSchema = z.object({ owner: starknetAddress, token: starknetAddress, recipient: starknetAddress, amount: uintString });
+export const transferNftSchema = z.object({
+  owner: starknetAddress,
+  contractAddress: starknetAddress,
+  tokenId: uintString,
+  recipient: starknetAddress,
+  tokenStandard: z.enum(["ERC721", "ERC1155"]),
+});
+export const transferCollectionOwnershipSchema = z.object({ owner: starknetAddress, collectionId: uintString, newOwner: starknetAddress });
+export const commentSchema = z.object({ author: starknetAddress, nftContract: starknetAddress, tokenId: uintString, text: z.string().trim().min(1).max(1000) });
+export const genesisMintSchema = z.object({ owner: starknetAddress, recipient: starknetAddress });

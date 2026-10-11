@@ -25,10 +25,16 @@ import {
   buildWithdrawSponsorshipProposalIntent,
   buildAcceptSponsorshipProposalIntent,
   buildRejectSponsorshipProposalIntent,
+  buildTransferTokenIntent,
+  buildTransferNftIntent,
+  buildTransferCollectionOwnershipIntent,
+  buildCommentIntent,
+  buildGenesisMintIntent,
 } from "../../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { callerApp } from "../../../utils/caller.js";
 import type { IntentBuildContext } from "../../../orchestrator/intent/fee.js";
+import { IntentRefusal } from "../../../orchestrator/intent/refusal.js";
 import type { AppEnv } from "../../../types/hono.js";
 import {
   log,
@@ -54,6 +60,11 @@ import {
   sponsorshipProposalWithdrawSchema,
   sponsorshipProposalAcceptSchema,
   sponsorshipProposalRejectSchema,
+  transferTokenSchema,
+  transferNftSchema,
+  transferCollectionOwnershipSchema,
+  commentSchema,
+  genesisMintSchema,
 } from "./_shared.js";
 
 function expiresAt(): Date {
@@ -123,6 +134,8 @@ function registerIntentRoute<T>(
         201
       );
     } catch (err: unknown) {
+      const refusal = err instanceof IntentRefusal ? err : null;
+      if (refusal) return c.json({ error: refusal.reason }, 400);
       log.error({ err }, `Failed to build ${cfg.path.slice(1)} intent`);
       return c.json({ error: "We could not prepare that transaction. Please try again." }, 500);
     }
@@ -130,6 +143,11 @@ function registerIntentRoute<T>(
 }
 
 export function registerBuildRoutes(intents: Hono<AppEnv>): void {
+  registerIntentRoute(intents, { path: "/transfer-token", schema: transferTokenSchema, type: "TRANSFER_TOKEN", requesterField: "owner", build: buildTransferTokenIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/transfer-nft", schema: transferNftSchema, type: "TRANSFER_NFT", requesterField: "owner", build: buildTransferNftIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/transfer-collection-ownership", schema: transferCollectionOwnershipSchema, type: "TRANSFER_COLLECTION_OWNERSHIP", requesterField: "owner", build: buildTransferCollectionOwnershipIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/comment", schema: commentSchema, type: "ADD_COMMENT", requesterField: "author", build: buildCommentIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/genesis-mint", schema: genesisMintSchema, type: "GENESIS_MINT", requesterField: "owner", build: buildGenesisMintIntent, requiresSignature: false });
   registerIntentRoute(intents, {
     path: "/listing",
     schema: listingSchema,

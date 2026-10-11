@@ -29,3 +29,10 @@ export {
   buildRejectSponsorshipProposalIntent,
 } from "./sponsorship.js";
 export { platformFeeCalls, type IntentBuildContext, type IntentCall } from "./fee.js";
+export {
+  buildTransferTokenIntent,
+  buildTransferNftIntent,
+  buildTransferCollectionOwnershipIntent,
+  buildCommentIntent,
+  buildGenesisMintIntent,
+} from "./actions.js";
