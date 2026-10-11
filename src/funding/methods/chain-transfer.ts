@@ -13,9 +13,16 @@ export function atomicFromUsdc(amount: string): bigint {
   return BigInt(whole) * 10n ** 6n + BigInt(fraction.padEnd(6, "0"));
 }
 
+export function atomicFromAmount(amount: string, decimals: number): bigint | null {
+  const [whole = "0", fraction = ""] = amount.split(".");
+  if (fraction.length > decimals) return null;
+  return BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fraction.padEnd(decimals, "0") || "0");
+}
+
 const paramsSchema = z.object({
   chain: z.literal("STARKNET").default("STARKNET"),
   amountUsdc: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/).optional(),
+  amount: z.string().regex(/^\d{1,18}(\.\d{1,18})?$/).optional(),
   asset: z.string().min(1).max(12).optional(),
 });
 const challengeSchema = z.object({ payer: z.string().min(3) });
@@ -95,14 +102,18 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
 
     parseParams(raw) {
       const parsed = paramsSchema.safeParse(raw ?? {});
-      if (!parsed.success) return { ok: false, error: "Enter an amount in dollars, for example 10 or 10.5." };
+      if (!parsed.success) return { ok: false, error: "Enter an amount, for example 10 or 10.5." };
 
       const params: Record<string, unknown> = { chain: parsed.data.chain };
       const token = tokenBySymbol(parsed.data.asset ?? "USDC");
       if (!token) return { ok: false, error: "That token can't be used to add credits." };
       params.asset = token.symbol;
 
-      if (parsed.data.amountUsdc !== undefined) {
+      if (parsed.data.amount !== undefined) {
+        const atomic = atomicFromAmount(parsed.data.amount, token.decimals);
+        if (atomic === null || atomic <= 0n) return { ok: false, error: "Enter an amount above zero." };
+        params.amountAtomic = atomic.toString();
+      } else if (parsed.data.amountUsdc !== undefined) {
         const usd = atomicFromUsdc(parsed.data.amountUsdc);
         if (usd <= 0n) return { ok: false, error: "Enter an amount above zero." };
         params.suggestedUsdAtomic = usd.toString();
@@ -162,8 +173,11 @@ export function createChainTransferMethod(deps: ChainTransferDeps): FundingMetho
         })),
       };
 
+      const fixed = intent.params.amountAtomic;
       const usd = suggestedUsd(intent);
-      if (usd !== null) {
+      if (typeof fixed === "string" && /^\d+$/.test(fixed)) {
+        instructions.amountAtomic = fixed;
+      } else if (usd !== null) {
         const amount = await tokenAmountFor(token, usd, deps.readUsdPrices);
         if (amount === null) return { ok: false, error: "Prices are unavailable right now. Try again shortly." };
         instructions.amountAtomic = amount.toString();
