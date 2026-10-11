@@ -11,6 +11,7 @@ const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
+const INTENTS_REQUIRED = { error: "Sponsorship needs intents", code: "sponsor_unavailable" } as const;
 
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -280,42 +281,34 @@ export default function paymaster(
   };
 
   app.post("/invoke/build", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; calls?: unknown[]; intentIds?: unknown }
-      | null;
-    if (body?.intentIds !== undefined) {
-      const composed = await composeFor(c, body.intentIds);
-      if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
-      const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
-      return c.json(outcome.body, outcome.status);
-    }
-    const outcome = await buildSponsoredInvoke({ clientFactory }, body ?? {});
+    const body = (await c.req.json().catch(() => null)) as { intentIds?: unknown } | null;
+    if (body?.intentIds === undefined) return c.json(INTENTS_REQUIRED, 400);
+    const composed = await composeFor(c, body.intentIds);
+    if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
+    const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
     return c.json(outcome.body, outcome.status);
   });
 
   app.post("/invoke/execute", async (c) => {
     const body = (await c.req.json().catch(() => null)) as
-      | { userAddress?: string; typedData?: unknown; signature?: string[]; intentIds?: unknown }
+      | { intentIds?: unknown; typedData?: unknown; signature?: string[] }
       | null;
-    if (body?.intentIds !== undefined) {
-      const composed = await composeFor(c, body.intentIds);
-      if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
-      if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
-        return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
-      }
-      if (!(await intentDeps.claim(composed.ids))) {
-        return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
-      }
-      const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
-      if (outcome.status !== 200) {
-        if (outcome.body.code !== "may_have_broadcast") await intentDeps.release(composed.ids);
-        return c.json(outcome.body, outcome.status);
-      }
-      await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
-      return c.json(outcome.body);
+    if (body?.intentIds === undefined) return c.json(INTENTS_REQUIRED, 400);
+    const composed = await composeFor(c, body.intentIds);
+    if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
+    if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
+      return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
     }
-    const outcome = await executeSponsoredInvoke({ clientFactory }, body ?? {});
-    return c.json(outcome.body, outcome.status);
+    if (!(await intentDeps.claim(composed.ids))) {
+      return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
+    }
+    const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
+    if (outcome.status !== 200) {
+      if (outcome.body.code !== "may_have_broadcast") await intentDeps.release(composed.ids);
+      return c.json(outcome.body, outcome.status);
+    }
+    await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
+    return c.json(outcome.body);
   });
 
   app.post("/deploy/build", async (c) => {
