@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { identityAuth, identityAuthWalletOptional } from "../middleware/identityAuth.js";
-import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
+import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
@@ -266,17 +266,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
     return c.json({ error: message }, 409);
   }
 
-  await prisma.$transaction([
-    prisma.identity.deleteMany({ where: { accountId, scheme: IDENTITY_SCHEME.EMAIL, appId } }),
-    prisma.identity.create({
-      data: {
-        accountId,
-        scheme: IDENTITY_SCHEME.EMAIL,
-        value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email),
-        appId,
-      },
-    }),
-  ]);
+  await replaceEmail({ accountId, appId, email });
 
   await issueVerificationCode(email, appId);
 
