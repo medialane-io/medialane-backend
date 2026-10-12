@@ -53,9 +53,14 @@ async function fetchCounterFromContract(contractAddress: string, address: string
   return BigInt(result[0]).toString();
 }
 
-export async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise<string> {
+/** royalty_info(token_id, sale_price = 10000): the royalty for a 10000-unit sale is the bps. RPC felts are hex. */
+export function royaltyInfoCalldata(tokenId: string): string[] {
   const id = cairo.uint256(tokenId);
-  const calldata = [id.low.toString(), id.high.toString(), "10000", "0"];
+  return [toHex(BigInt(id.low)), toHex(BigInt(id.high)), toHex(10000), "0x0"];
+}
+
+export async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise<string> {
+  const calldata = royaltyInfoCalldata(tokenId);
   try {
     const { result } = await postRpc<string[]>(
       {
