@@ -38,6 +38,7 @@ import rpcProxy from "./routes/rpc.js";
 import paymasterProxy from "./routes/paymaster.js";
 import swapProxy from "./routes/swap.js";
 import coins from "./routes/coins.js";
+import chainReads from "./routes/chain-reads.js";
 import drops from "./routes/drops.js";
 import siws from "./routes/siws.js";
 import { authEmail } from "./routes/auth-email.js";
@@ -88,6 +89,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1", profiles);
   app.route("/v1/collections", collections);
   app.route("/v1/tx/sync", txSync);
+  app.route("/v1", chainReads);
   app.route("/v1/coins", coins);
   app.route("/v1/activities", activities);
   app.route("/v1/intents", intents);
