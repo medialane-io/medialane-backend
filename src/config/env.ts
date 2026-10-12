@@ -21,9 +21,6 @@ const envSchema = z.object({
 
   CREATOR_COIN_START_BLOCK: z.coerce.number().default(10474544),
 
-  UNRUG_FACTORY_ADDRESS: z
-    .string()
-    .default("0x01a46467a9246f45c8c340f1f155266a26a71c07bd55d36e8d1c7d0d438a2dbc"),
   INDEXER_START_BLOCK: z.coerce.number().default(9196722),
   CREATOR_COIN_POLL_INTERVAL_MS: z.coerce.number().default(300000),
 

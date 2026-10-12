@@ -13,35 +13,10 @@ import {
   STARKNET_IP_TICKETS_FACTORY_CONTRACT,
   STARKNET_IP_CLUB_FACTORY_CONTRACT,
   STARKNET_IP_SPONSORSHIP_CONTRACT,
-  STARKNET_COLLECTION_721_START_BLOCK,
   STARKNET_POP_FACTORY_START_BLOCK,
   STARKNET_DROP_FACTORY_START_BLOCK,
 } from "@medialane/sdk";
 import { env } from "./env.js";
-
-interface BackendChainCoords {
-  rpcUrl: string;
-  marketplace721: string;
-  marketplace1155: string;
-  collection721: string;
-  collection1155: string;
-}
-
-export const CHAIN_COORDS: Partial<Record<Chain, BackendChainCoords>> = {
-  STARKNET: {
-    rpcUrl: env.STARKNET_RPC_URL ?? env.ALCHEMY_RPC_URL,
-    marketplace721: STARKNET_MARKETPLACE_721_CONTRACT,
-    marketplace1155: STARKNET_MARKETPLACE_1155_CONTRACT,
-    collection721: STARKNET_COLLECTION_721_CONTRACT,
-    collection1155: STARKNET_COLLECTION_1155_CONTRACT,
-  },
-};
-
-export function chainCoords(chain: Chain): BackendChainCoords {
-  const c = CHAIN_COORDS[chain];
-  if (!c) throw new Error(`No coordinates configured for chain "${chain}"`);
-  return c;
-}
 
 export {
   STARKNET_MARKETPLACE_721_CONTRACT,
@@ -60,7 +35,6 @@ export {
 
 export const START_BLOCK = env.INDEXER_START_BLOCK;
 
-export const COLLECTION_721_START_BLOCK = STARKNET_COLLECTION_721_START_BLOCK;
 export const POP_FACTORY_START_BLOCK = STARKNET_POP_FACTORY_START_BLOCK;
 export const DROP_FACTORY_START_BLOCK = STARKNET_DROP_FACTORY_START_BLOCK;
 
@@ -84,7 +58,6 @@ export const DROP_ALLOWLIST_ROOT_SET_SELECTOR = hash.getSelectorFromName("Allowl
 export const DROP_COLLECTION_SELECTORS = [DROP_CLAIMED_SELECTOR, DROP_ISSUED_SELECTOR, DROP_ALLOWLIST_ROOT_SET_SELECTOR];
 export const CREATOR_COIN_CREATED_SELECTOR = hash.getSelectorFromName("CreatorCoinCreated");
 
-export const UNRUG_FACTORY_CONTRACT = env.UNRUG_FACTORY_ADDRESS;
 export const COLLECTION_DEPLOYED_SELECTOR = hash.getSelectorFromName("CollectionDeployed");
 export const CLUB_DEPLOYED_SELECTOR = hash.getSelectorFromName("ClubDeployed");
 

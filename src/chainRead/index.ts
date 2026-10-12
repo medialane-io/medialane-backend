@@ -19,11 +19,6 @@ export async function getCollectionOwner(chain: Chain, contract: string): Promis
   return starknetCollectionOwner(contract);
 }
 
-export async function isAccountOwner(chain: Chain, accountAddress: string, ownerPubkey: string): Promise<boolean> {
-  if (chain !== "STARKNET") throw new Error(`Owner-membership reads not implemented for chain "${chain}"`);
-  return starknetIsAccountOwner(accountAddress, ownerPubkey);
-}
-
 export async function getEscapeReadyAt(chain: Chain, accountAddress: string): Promise<Date | null> {
   if (chain !== "STARKNET") throw new Error(`Escape reads not implemented for chain "${chain}"`);
   return callRpc((provider) => __unstable_starknetGetEscapeReadyAtWithProvider(provider, accountAddress));
@@ -90,20 +85,3 @@ async function starknetCollectionOwner(contract: string): Promise<string> {
   return normalizeAddress("STARKNET", String(ownerResult));
 }
 
-async function starknetIsAccountOwner(accountAddress: string, ownerPubkey: string): Promise<boolean> {
-  return callRpc((provider) => __unstable_starknetIsAccountOwnerWithProvider(provider, accountAddress, ownerPubkey));
-}
-
-export async function __unstable_starknetIsAccountOwnerWithProvider(
-  provider: { callContract: (call: { contractAddress: string; entrypoint: string; calldata: string[] }) => Promise<string[]> },
-  accountAddress: string,
-  ownerPubkey: string,
-): Promise<boolean> {
-
-  const res = await provider.callContract({
-    contractAddress: accountAddress,
-    entrypoint: "is_owner",
-    calldata: ["0x0", ownerPubkey],
-  });
-  return BigInt(res[0]) === 1n;
-}
