@@ -52,4 +52,31 @@ describe("chain reads", () => {
     const res = await app.request(`/v1/pop/${POP}/claim-info`);
     expect(await res.json()).toEqual({ data: null });
   });
+
+  test("a drop's terms and supply are read from the drop contract, amounts as strings", async () => {
+    const DROP = "0x" + "e".repeat(64);
+    const { app } = build({
+      organizer: ["0x1"],
+      terms: ["0x64", "0xc8", "0x5", "0x0", "0x2", "0x3", "0x0"],
+      allowlist_root: ["0x0"],
+      max_supply: ["0xa", "0x0"],
+      total_minted: ["0x4", "0x0"],
+    });
+    const res = await app.request(`/v1/drops/${DROP}/state`);
+    expect((await res.json()).data).toMatchObject({
+      startTime: 100,
+      endTime: 200,
+      price: "5",
+      maxPerWallet: "3",
+      allowlistRoot: "0x0",
+      maxSupply: "10",
+      totalMinted: "4",
+    });
+  });
+
+  test("a drop read that fails gives null", async () => {
+    const { app } = build({});
+    const res = await app.request(`/v1/drops/${POP}/state`);
+    expect(await res.json()).toEqual({ data: null });
+  });
 });
