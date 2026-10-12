@@ -13,9 +13,13 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
     return { id: "k-new", prefix: data.prefix, label: data.label ?? null };
   });
   const del = mock(async (_arg?: unknown) => ({}));
-  const findFirst = mock(async ({ where }: { where: { id: string } }) =>
-    where.id === opts.ownedKeyId ? { id: where.id } : null,
+  const findFirst = mock(async ({ where }: { where: { id?: string } }) =>
+    where.id && where.id === opts.ownedKeyId ? { id: where.id, prefix: "ml_live_old1" } : null,
   );
+  const event = mock(async (_arg?: unknown) => {
+    order.push("event");
+    return {};
+  });
   mock.module("../../db/client.js", () => ({
     default: {
       account: {
@@ -25,8 +29,9 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
           apiCredits: { id: "ac1", accountId: "a1", creditBalance: 0 },
         })),
       },
-      apiKey: { findFirst, delete: del, findMany: mock(async () => []) },
-      $transaction: mock(async (run: (tx: unknown) => Promise<unknown>) => run({ apiKey: { deleteMany, create } })),
+      apiKey: { findMany: mock(async () => []) },
+      $transaction: mock(async (run: (tx: unknown) => Promise<unknown>) =>
+        run({ apiKey: { findFirst, deleteMany, create, delete: del }, accountEvent: { create: event } })),
     },
   }));
   const { default: portal } = await import("./portal.js");
@@ -34,15 +39,15 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
   const app = new Hono<AppEnv>();
   app.route("/", portal);
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${issueAccountSessionToken("a1")}` };
-  return { app, headers, deleteMany, create, del, order };
+  return { app, headers, deleteMany, create, del, event, order };
 }
 
 describe("an account has one API key", () => {
-  test("creating a key replaces the account's existing key in one transaction", async () => {
+  test("creating a key replaces the account's existing key and records it, in one transaction", async () => {
     const { app, headers, deleteMany, create, order } = await appWith();
     const res = await app.request("/keys", { method: "POST", headers, body: JSON.stringify({}) });
     expect(res.status).toBe(201);
-    expect(order).toEqual(["deleteMany", "create"]);
+    expect(order).toEqual(["deleteMany", "create", "event"]);
     expect(deleteMany).toHaveBeenCalledWith({ where: { apiCreditsId: "ac1" } });
     expect(create).toHaveBeenCalledTimes(1);
     const body = (await res.json()) as { data: { id: string; prefix: string; plaintext: string } };
@@ -50,18 +55,20 @@ describe("an account has one API key", () => {
     expect(body.data.plaintext.startsWith("ml_live_")).toBe(true);
   });
 
-  test("deleting the account's key removes it", async () => {
-    const { app, headers, del } = await appWith({ ownedKeyId: "k1" });
+  test("deleting the account's key removes it and records it", async () => {
+    const { app, headers, del, event } = await appWith({ ownedKeyId: "k1" });
     const res = await app.request("/keys/k1", { method: "DELETE", headers });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { id: "k1" } });
     expect(del).toHaveBeenCalledWith({ where: { id: "k1" } });
+    expect(event).toHaveBeenCalledWith({ data: { accountId: "a1", type: "API_KEY_DELETED", data: { prefix: "ml_live_old1" } } });
   });
 
   test("deleting a key that is not the account's is a 404 and removes nothing", async () => {
-    const { app, headers, del } = await appWith({ ownedKeyId: "k1" });
+    const { app, headers, del, event } = await appWith({ ownedKeyId: "k1" });
     const res = await app.request("/keys/someone-elses", { method: "DELETE", headers });
     expect(res.status).toBe(404);
     expect(del).not.toHaveBeenCalled();
+    expect(event).not.toHaveBeenCalled();
   });
 });
