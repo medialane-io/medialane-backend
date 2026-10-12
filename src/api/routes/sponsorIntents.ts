@@ -126,9 +126,17 @@ function coordinateValues(match: (key: string) => boolean): string[] {
     .map(([, value]) => value as string);
 }
 
+/** Protocol contracts sponsored by address, and protocol classes sponsored by class hash. */
+export function sponsorableProtocol(): { addresses: string[]; classHashes: string[] } {
+  return {
+    addresses: [...coordinateValues((key) => !key.endsWith("ClassHash")), ...getListableTokens().map((t) => t.address)],
+    classHashes: coordinateValues((key) => key.endsWith("ClassHash") && key !== "mediaWalletClassHash"),
+  };
+}
+
 const knownTargets = createKnownTargets({
-  protocolAddresses: () => [...coordinateValues((key) => !key.endsWith("ClassHash")), ...getListableTokens().map((t) => t.address)],
-  protocolClassHashes: () => coordinateValues((key) => key.endsWith("ClassHash") && key !== "mediaWalletClassHash"),
+  protocolAddresses: () => sponsorableProtocol().addresses,
+  protocolClassHashes: () => sponsorableProtocol().classHashes,
   indexed: async (addresses) => {
     const [collections, coins] = await Promise.all([
       prisma.collection.findMany({ where: { chain: "STARKNET", contractAddress: { in: addresses } }, select: { contractAddress: true } }),

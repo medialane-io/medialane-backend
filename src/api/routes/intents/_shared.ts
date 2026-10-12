@@ -64,6 +64,8 @@ export const mintSchema = z.object({
   collectionContract: starknetAddress.optional(),
 });
 
+const felt = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "must be a hex felt");
+
 export const createCollectionSchema = z.object({
   owner: starknetAddress,
   name: z.string().min(1),
@@ -78,13 +80,14 @@ export const createCollectionSchema = z.object({
   claimEndTimestamp: z.number().int().nonnegative().optional(),
 
   maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string").optional(),
-  conditions: z.object({
+  terms: z.object({
     startTime: z.number().int().nonnegative(),
     endTime: z.number().int().nonnegative(),
     price: z.string().regex(/^\d+$/, "price must be a non-negative integer string"),
     paymentToken: starknetAddress,
-    maxQuantityPerWallet: z.string().regex(/^\d+$/, "maxQuantityPerWallet must be a non-negative integer string"),
+    maxPerWallet: z.string().regex(/^\d+$/, "maxPerWallet must be a non-negative integer string"),
   }).optional(),
+  allowlistRoot: felt.optional(),
 });
 
 export const createTierSchema = z.object({
@@ -271,12 +274,10 @@ export const transferCollectionOwnershipSchema = z.object({ owner: starknetAddre
 export const commentSchema = z.object({ author: starknetAddress, nftContract: starknetAddress, tokenId: uintString, text: z.string().trim().min(1).max(1000) });
 export const genesisMintSchema = z.object({ owner: starknetAddress, recipient: starknetAddress });
 
-const felt = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "must be a hex felt");
 
 export const popClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, proof: z.array(felt) });
 export const popBurnSchema = z.object({ owner: starknetAddress, collection: starknetAddress, tokenId: uintString });
-export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress });
-export const dropAllowlistSchema = z.object({ owner: starknetAddress, collection: starknetAddress, addresses: z.array(starknetAddress).min(1) });
+export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, quantity: uintString, proof: z.array(felt).optional() });
 
 export const walletManageSchema = z.object({
   owner: starknetAddress,
@@ -297,10 +298,10 @@ export const fundingTransferSchema = z.object({ owner: starknetAddress, asset: s
 export const dropManageSchema = z.object({
   owner: starknetAddress,
   collection: starknetAddress,
-  action: z.enum(["allowlist_enabled", "allowlist_add", "allowlist_remove", "withdraw_payments"]),
-  enabled: z.boolean().optional(),
-  addresses: z.array(starknetAddress).optional(),
-  address: starknetAddress.optional(),
+  action: z.enum(["issue", "set_allowlist_root"]),
+  recipient: starknetAddress.optional(),
+  quantity: uintString.optional(),
+  root: felt.optional(),
 });
 export const popManageSchema = z.object({
   owner: starknetAddress,

@@ -36,5 +36,5 @@ export {
   buildCommentIntent,
   buildGenesisMintIntent,
 } from "./actions.js";
-export { buildPopClaimIntent, buildPopBurnIntent, buildDropClaimIntent, buildDropAllowlistIntent, buildDropManageIntent, buildPopManageIntent } from "./drops.js";
+export { buildPopClaimIntent, buildPopBurnIntent, buildDropClaimIntent, buildDropManageIntent, buildPopManageIntent } from "./drops.js";
 export { buildWalletManageIntent, buildSwapIntent, buildFundingTransferIntent } from "./walletOps.js";

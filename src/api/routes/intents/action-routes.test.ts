@@ -34,9 +34,15 @@ describe("action intent routes", () => {
     expect(res.status).toBe(400);
   });
 
-  test("an empty allowlist is a 400", async () => {
-    const res = await app().request("/drop-allowlist", post({ owner: ME, collection: ME, addresses: [] }));
+  test("a drop claim of 0 tokens is a 400 with the reason", async () => {
+    const res = await app().request("/drop-claim", post({ claimer: ME, collection: ME, quantity: "0" }));
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "quantity must be between 1 and 50" });
+  });
+
+  test("the old drop allowlist route is gone", async () => {
+    const res = await app().request("/drop-allowlist", post({ owner: ME, collection: ME, addresses: [ME] }));
+    expect(res.status).toBe(404);
   });
 
   test("an unknown wallet action is a 400", async () => {
@@ -64,5 +70,14 @@ describe("action intent routes", () => {
     const res = await app().request("/pop-manage", post({ owner: ME, collection: ME, action: "issue" }));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "recipient is required" });
+  });
+
+  test("a drop without a metadata folder is a 400 with the reason", async () => {
+    const res = await app().request("/create-collection", post({
+      owner: ME, name: "D", symbol: "D", service: "drop-collection", maxSupply: "10",
+      terms: { startTime: 0, endTime: 0, price: "0", paymentToken: ME, maxPerWallet: "0" },
+    }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "baseUri is required for a drop" });
   });
 });

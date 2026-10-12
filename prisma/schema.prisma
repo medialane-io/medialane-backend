@@ -224,6 +224,7 @@ model Collection {
   service         String
   claimedBy       String?
   profile         CollectionProfile?
+  drop            Drop?
   deletedAt       DateTime?
   deletedBy       String?
   createdAt       DateTime           @default(now())
@@ -565,7 +566,6 @@ enum IntentType {
   POP_CLAIM
   POP_BURN
   DROP_CLAIM
-  DROP_SET_ALLOWLIST
   WALLET_MANAGE
   SWAP
   FUNDING_TRANSFER
@@ -643,17 +643,6 @@ model Report {
   @@index([createdAt])
 }
 
-model PopAllowlist {
-  id                String   @id @default(cuid())
-  chain             Chain    @default(STARKNET)
-  collectionAddress String
-  walletAddress     String
-  allowed           Boolean  @default(true)
-  updatedAt         DateTime @updatedAt
-
-  @@unique([chain, collectionAddress, walletAddress])
-  @@index([chain, collectionAddress])
-}
 
 model HiddenCreator {
   chain    Chain    @default(STARKNET)
@@ -663,21 +652,6 @@ model HiddenCreator {
   @@id([chain, address])
 }
 
-model DropClaimConditions {
-  id                Int      @id @default(autoincrement())
-  chain             Chain    @default(STARKNET)
-  collectionAddress String
-  maxSupply         String
-  price             String   @default("0")
-  paymentToken      String   @default("0x0")
-  startTime         BigInt
-  endTime           BigInt
-  maxPerWallet      String   @default("1")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@unique([chain, collectionAddress])
-}
 
 enum AccountStatus {
   ACTIVE
@@ -1043,4 +1017,53 @@ model CreditEntry {
 
   @@index([apiCreditsId, createdAt])
   @@index([paymentId])
+}
+
+model Drop {
+  chain              Chain      @default(STARKNET)
+  collectionAddress  String
+  dropId             String
+  organizer          String
+  maxSupply          Decimal    @db.Decimal(78, 0)
+  startTime          Decimal    @db.Decimal(20, 0)
+  endTime            Decimal    @db.Decimal(20, 0)
+  price              Decimal    @db.Decimal(78, 0)
+  paymentToken       String
+  maxPerWallet       Decimal    @db.Decimal(78, 0)
+  allowlistRoot      String
+  allowlistRootBlock BigInt
+  minted             Decimal    @default(0) @db.Decimal(78, 0)
+  revenue            Decimal    @default(0) @db.Decimal(78, 0)
+  collectors         Int        @default(0)
+  createdBlock       BigInt
+  collection         Collection @relation(fields: [chain, collectionAddress], references: [chain, contractAddress])
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@id([chain, collectionAddress])
+  @@index([chain, organizer])
+  @@index([chain, startTime])
+}
+
+enum DropMintKind {
+  CLAIM
+  ISSUE
+}
+
+model DropMint {
+  id                String       @id @default(cuid())
+  chain             Chain        @default(STARKNET)
+  collectionAddress String
+  kind              DropMintKind
+  wallet            String
+  quantity          Decimal      @db.Decimal(78, 0)
+  firstTokenId      Decimal      @db.Decimal(78, 0)
+  totalPaid         Decimal      @default(0) @db.Decimal(78, 0)
+  blockNumber       BigInt
+  txHash            String
+  logIndex          Int
+  createdAt         DateTime     @default(now())
+
+  @@unique([chain, collectionAddress, txHash, logIndex])
+  @@index([chain, collectionAddress, blockNumber])
 }

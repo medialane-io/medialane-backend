@@ -112,13 +112,15 @@ export interface CreateCollectionIntentBody {
 
   maxSupply?: string;
 
-  conditions?: {
+  terms?: {
     startTime: number;
     endTime: number;
     price: string;
     paymentToken: string;
-    maxQuantityPerWallet: string;
+    maxPerWallet: string;
   };
+
+  allowlistRoot?: string;
 }
 
 export interface CreateTierIntentBody {

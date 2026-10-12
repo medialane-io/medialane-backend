@@ -33,7 +33,6 @@ import {
   buildPopClaimIntent,
   buildPopBurnIntent,
   buildDropClaimIntent,
-  buildDropAllowlistIntent,
   buildDropManageIntent,
   buildPopManageIntent,
   buildWalletManageIntent,
@@ -77,7 +76,6 @@ import {
   popClaimSchema,
   popBurnSchema,
   dropClaimSchema,
-  dropAllowlistSchema,
   dropManageSchema,
   popManageSchema,
   walletManageSchema,
@@ -169,8 +167,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
   registerIntentRoute(intents, { path: "/pop-claim", schema: popClaimSchema, type: "POP_CLAIM", requesterField: "claimer", build: buildPopClaimIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/pop-burn", schema: popBurnSchema, type: "POP_BURN", requesterField: "owner", build: buildPopBurnIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/drop-claim", schema: dropClaimSchema, type: "DROP_CLAIM", requesterField: "claimer", build: (body, ctx) => buildDropClaimIntent(body, ctx), requiresSignature: false });
-  registerIntentRoute(intents, { path: "/drop-allowlist", schema: dropAllowlistSchema, type: "DROP_SET_ALLOWLIST", requesterField: "owner", build: buildDropAllowlistIntent, requiresSignature: false });
-  registerIntentRoute(intents, { path: "/drop-manage", schema: dropManageSchema, type: "DROP_MANAGE", requesterField: "owner", build: buildDropManageIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/drop-manage", schema: dropManageSchema, type: "DROP_MANAGE", requesterField: "owner", build: (body) => buildDropManageIntent(body), requiresSignature: false });
   registerIntentRoute(intents, { path: "/pop-manage", schema: popManageSchema, type: "POP_MANAGE", requesterField: "owner", build: buildPopManageIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/wallet-manage", schema: walletManageSchema, type: "WALLET_MANAGE", requesterField: "owner", build: buildWalletManageIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/swap", schema: swapIntentSchema, type: "SWAP", requesterField: "taker", build: (body) => buildSwapIntent(body), requiresSignature: false });
@@ -467,6 +464,8 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
       return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
+      const refusal = err instanceof IntentRefusal ? err : null;
+      if (refusal) return c.json({ error: refusal.reason }, 400);
       log.error({ err }, "Failed to build create-collection intent");
       return c.json({ error: "We could not prepare that collection. Please try again." }, 500);
     }
