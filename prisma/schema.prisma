@@ -672,8 +672,29 @@ model Account {
   notices    AccountNotice[]
 
   apiCredits ApiCredits?
+  events     AccountEvent[]
 
   @@index([createdAt])
+}
+
+model AccountEvent {
+  id        String           @id @default(cuid())
+  accountId String
+  account   Account          @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  type      AccountEventType
+  data      Json
+  createdAt DateTime         @default(now())
+
+  @@index([accountId, createdAt])
+}
+
+enum AccountEventType {
+  EMAIL_CHANGED
+  WALLET_REPLACED
+  WALLET_KEY_ADDED
+  API_KEY_CREATED
+  API_KEY_DELETED
+  STATUS_CHANGED
 }
 
 model AccountNotice {
