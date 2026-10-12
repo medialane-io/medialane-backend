@@ -45,6 +45,7 @@ describe("app access", () => {
     expect((await app.request("/v1/collections?page=2", { headers: io() })).status).toBe(200);
     expect((await app.request(`/v1/drops/0x${"d".repeat(64)}/state`, { headers: io() })).status).toBe(200);
     expect((await app.request("/v1/auth/email/register-account", { method: "POST", headers: io() })).status).toBe(200);
+    expect((await app.request("/v1/users/register", { method: "POST", headers: { "x-app-id": "MEDIALANE_STARKNET" } })).status).toBe(200);
   });
 
   test("a request without an app id is untouched", async () => {
