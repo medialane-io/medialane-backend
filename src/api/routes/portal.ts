@@ -7,7 +7,7 @@ import { launchpadRuns } from "./launchpad-runs/index.js";
 import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
-import { generateApiKey } from "../../utils/apiKey.js";
+import { deleteApiKey, generateApiKey, replaceApiKey } from "../../utils/apiKey.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -158,17 +158,7 @@ portal.post("/keys", freshSignature, async (c) => {
   }
 
   const generated = generateApiKey();
-  const key = await prisma.$transaction(async (tx) => {
-    await tx.apiKey.deleteMany({ where: { apiCreditsId: apiCredits.id } });
-    return tx.apiKey.create({
-      data: {
-        apiCreditsId: apiCredits.id,
-        prefix: generated.prefix,
-        keyHash: generated.keyHash,
-        label: parsed.data.label ?? undefined,
-      },
-    });
-  });
+  const key = await replaceApiKey(apiCredits, generated, parsed.data.label);
 
   log.info({ keyId: key.id, apiCreditsId: apiCredits.id }, "API key created, replacing any earlier key");
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: generated.plaintext } }, 201);
@@ -178,12 +168,7 @@ portal.delete("/keys/:id", freshSignature, async (c) => {
   const apiCredits = c.get("apiCredits");
   const { id } = c.req.param();
 
-  const key = await prisma.apiKey.findFirst({
-    where: { id, apiCreditsId: apiCredits.id },
-  });
-  if (!key) return c.json({ error: "API key not found" }, 404);
-
-  await prisma.apiKey.delete({ where: { id } });
+  if (!(await deleteApiKey(apiCredits, id))) return c.json({ error: "API key not found" }, 404);
   log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key removed via portal");
   return c.json({ data: { id } });
 });
