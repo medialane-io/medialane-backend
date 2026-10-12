@@ -254,3 +254,13 @@ export async function ensureAccountForEmail(
     return { accountId: account.id, created: true };
   });
 }
+
+export async function activateAccount(accountId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.account.updateMany({
+      where: { id: accountId, status: "PENDING" },
+      data: { status: "ACTIVE" },
+    });
+    if (count === 1) await recordAccountEvent(tx, accountId, "STATUS_CHANGED", { from: "PENDING", to: "ACTIVE" });
+  });
+}
