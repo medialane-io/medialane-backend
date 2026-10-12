@@ -15,14 +15,15 @@ import {
   IPClubCollectionABI,
   POPFactoryABI,
   POPCollectionABI,
-  DropFactoryABI,
-  toDropContractConditions,
+  dropCalls,
 } from "@medialane/sdk/starknet";
 import type { MintIntentBody, CreateCollectionIntentBody, CreateTierIntentBody } from "../../types/api.js";
 import prisma from "../../db/client.js";
 import { uploadJson } from "../metadataPin.js";
 import { resolveServiceForContract } from "../../utils/collection.js";
 import { log, encodeByteArray, resolveCollectionContract } from "./shared.js";
+import { isListableToken, toIntentCall } from "./calls.js";
+import { IntentRefusal } from "./refusal.js";
 
 export const FACTORY_FAMILY_SERVICE_IDS = ["mip-erc1155", "ip-tickets", "ip-ticketing", "ip-club"] as const;
 export const TIER_SERVICE_IDS = ["ip-tickets", "ip-ticketing", "ip-club"] as const;
@@ -146,6 +147,8 @@ export async function buildMintIntent(body: MintIntentBody) {
 }
 
 export async function buildCreateCollectionIntent(body: CreateCollectionIntentBody) {
+  if (body.service === "drop-collection") return buildCreateDropIntent(body);
+
   let baseUri = body.baseUri || "";
 
   if (!baseUri) {
@@ -176,22 +179,6 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     return { calls: [call] };
   }
 
-  if (body.service === "drop-collection") {
-    if (!body.maxSupply || !body.conditions) {
-      throw new Error("maxSupply and conditions are required to deploy a drop-collection");
-    }
-    const factory = new Contract({ abi: DropFactoryABI as never, address: STARKNET_DROP_FACTORY_CONTRACT, providerOrAccount: createProvider() as never });
-
-    const call = factory.populate("create_drop", [
-      body.name,
-      body.symbol,
-      baseUri,
-      BigInt(body.maxSupply),
-      toDropContractConditions(body.conditions),
-    ]);
-    return { calls: [call] };
-  }
-
   const contract = resolveCollectionContract(body.collectionContract, body.service);
   const calldata = [
     ...encodeByteArray(body.name),
@@ -199,6 +186,24 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
     ...encodeByteArray(baseUri),
   ];
   return { calls: [{ contractAddress: contract, entrypoint: "create_collection", calldata }] };
+}
+
+/** Token URIs are baseUri + id, so a drop needs its metadata folder; nothing is uploaded here. */
+function buildCreateDropIntent(body: CreateCollectionIntentBody) {
+  if (!body.baseUri) throw new IntentRefusal("baseUri is required for a drop");
+  if (!body.maxSupply || !body.terms) throw new IntentRefusal("maxSupply and terms are required for a drop");
+  const { terms } = body;
+  if (terms.endTime !== 0 && terms.endTime <= terms.startTime) throw new IntentRefusal("The sale must end after it starts");
+  if (BigInt(terms.price) > 0n && !isListableToken(terms.paymentToken)) throw new IntentRefusal("Unknown payment token");
+  const call = dropCalls.create(STARKNET_DROP_FACTORY_CONTRACT, {
+    name: body.name,
+    symbol: body.symbol,
+    baseUri: body.baseUri,
+    maxSupply: body.maxSupply,
+    terms,
+    allowlistRoot: body.allowlistRoot,
+  });
+  return { calls: [toIntentCall(call)] };
 }
 
 export async function buildCreateTierIntent(body: CreateTierIntentBody) {

@@ -467,6 +467,8 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
       return c.json({ data: { id: intent.id, requiresSignature: false, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
+      const refusal = err instanceof IntentRefusal ? err : null;
+      if (refusal) return c.json({ error: refusal.reason }, 400);
       log.error({ err }, "Failed to build create-collection intent");
       return c.json({ error: "We could not prepare that collection. Please try again." }, 500);
     }

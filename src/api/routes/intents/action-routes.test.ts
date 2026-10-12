@@ -65,4 +65,13 @@ describe("action intent routes", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "recipient is required" });
   });
+
+  test("a drop without a metadata folder is a 400 with the reason", async () => {
+    const res = await app().request("/create-collection", post({
+      owner: ME, name: "D", symbol: "D", service: "drop-collection", maxSupply: "10",
+      terms: { startTime: 0, endTime: 0, price: "0", paymentToken: ME, maxPerWallet: "0" },
+    }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "baseUri is required for a drop" });
+  });
 });
