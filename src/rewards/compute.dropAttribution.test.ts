@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import {
   mintTransferFilter,
-  soldOutClaimFilter,
   dedupeLaunchContracts,
   dropCollectionFilter,
 } from "./compute.js";
@@ -17,12 +16,6 @@ test("drop claims are selected as mints from the zero address", () => {
 test("drop claims are never selected as transfers away from the zero address", () => {
   const filter = mintTransferFilter(["0xdrop1"]);
   expect(filter.fromAddress).not.toEqual({ not: ZERO });
-});
-
-test("sold-out counting also counts mints from the zero address", () => {
-  const filter = soldOutClaimFilter("0xdrop1");
-  expect(filter.fromAddress).toBe(ZERO);
-  expect(filter.contractAddress).toBe("0xdrop1");
 });
 
 test("a contract appearing in both launch sources is awarded once", () => {

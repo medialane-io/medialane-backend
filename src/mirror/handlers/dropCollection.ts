@@ -9,6 +9,7 @@ import {
   DROP_ISSUED_SELECTOR,
 } from "../../config/constants.js";
 import { pollContractEvents } from "../poller.js";
+import { getBlockTimestamp } from "../../utils/blockTimestamp.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 
@@ -55,8 +56,24 @@ export function dropEventLogIndexes(events: RawStarknetEvent[]): number[] {
   });
 }
 
+/** Stamps each row with its block's time; one lookup per block. */
+export async function withBlockTimes<T extends { blockNumber: bigint | number }>(
+  rows: T[],
+  blockTime: (block: number) => Promise<Date>,
+): Promise<(T & { createdAt: Date })[]> {
+  const times = new Map<bigint, Date>();
+  for (const r of rows) {
+    const block = BigInt(r.blockNumber);
+    if (!times.has(block)) times.set(block, await blockTime(Number(block)));
+  }
+  return rows.map((r) => ({ ...r, createdAt: times.get(BigInt(r.blockNumber))! }));
+}
+
 /** Reduces Claimed / Issued / AllowlistRootSet; safe to run twice over the same events. */
-export async function applyDropEvents(events: RawStarknetEvent[]): Promise<void> {
+export async function applyDropEvents(
+  events: RawStarknetEvent[],
+  blockTime: (block: number) => Promise<Date> = getBlockTimestamp,
+): Promise<void> {
   const indexes = dropEventLogIndexes(events);
   const touched = new Set<string>();
   const mints: Prisma.DropMintCreateManyInput[] = [];
@@ -86,7 +103,7 @@ export async function applyDropEvents(events: RawStarknetEvent[]): Promise<void>
     });
     touched.add(parsed.collectionAddress);
   }
-  if (mints.length) await prisma.dropMint.createMany({ data: mints, skipDuplicates: true });
+  if (mints.length) await prisma.dropMint.createMany({ data: await withBlockTimes(mints, blockTime), skipDuplicates: true });
   for (const collectionAddress of touched) await recountDrop(collectionAddress);
 }
 

@@ -1,5 +1,5 @@
 import { resolveFeeConfig, type ResolvedFeeConfig } from "@medialane/sdk";
-import { buildFeeCall, type FeeSurface } from "@medialane/sdk/starknet";
+import { buildFeeCall, feeBps, type FeeSurface } from "@medialane/sdk/starknet";
 import { x402Config } from "../../config/x402.js";
 
 export type IntentCall = { contractAddress: string; entrypoint: string; calldata: string[] };
@@ -11,6 +11,11 @@ export const platformFeeConfig: ResolvedFeeConfig = resolveFeeConfig({ fundAddre
 
 export function feeApplies(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): boolean {
   return FEE_APPS.has(appId) && cfg.enabled && Boolean(cfg.fundAddress);
+}
+
+/** Launchpad fee, in basis points, that intents built for `appId` add to a mint. */
+export function dropFeeBps(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): number {
+  return feeApplies(appId, cfg) ? feeBps("launchpad", cfg) : 0;
 }
 
 export function platformFeeCalls(

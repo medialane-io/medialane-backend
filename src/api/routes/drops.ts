@@ -3,6 +3,8 @@ import type { Drop, DropMint, Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
+import { callerApp } from "../../utils/caller.js";
+import { dropFeeBps } from "../../orchestrator/intent/fee.js";
 
 export type DropListStatus = "live" | "upcoming" | "ended";
 
@@ -92,7 +94,10 @@ const drops = new Hono<AppEnv>();
 drops.get("/", async (c) => {
   const { page, limit } = paging(c);
   const status = c.req.query("status");
-  const where = buildDropListWhere({ status, organizer: c.req.query("organizer"), now: Math.floor(Date.now() / 1000) });
+  const organizerRaw = c.req.query("organizer");
+  const organizer = organizerRaw ? contractParam(organizerRaw) : undefined;
+  if (organizerRaw && !organizer) return c.json({ error: "Invalid organizer address" }, 400);
+  const where = buildDropListWhere({ status, organizer: organizer ?? undefined, now: Math.floor(Date.now() / 1000) });
   const orderBy: Prisma.DropOrderByWithRelationInput = status === "upcoming" ? { startTime: "asc" } : { createdBlock: "desc" };
   const [rows, total] = await Promise.all([
     prisma.drop.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit, include: { collection: collectionFields } }),
@@ -100,6 +105,8 @@ drops.get("/", async (c) => {
   ]);
   return c.json({ data: rows.map(serializeDrop), meta: { page, limit, total } });
 });
+
+drops.get("/fee", (c) => c.json({ data: { launchpadBps: dropFeeBps(callerApp(c)) } }));
 
 drops.get("/:contract", async (c) => {
   const collectionAddress = contractParam(c.req.param("contract"));

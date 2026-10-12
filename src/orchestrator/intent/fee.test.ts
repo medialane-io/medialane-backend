@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveFeeConfig } from "@medialane/sdk";
-import { platformFeeCalls } from "./fee.js";
+import { dropFeeBps, platformFeeCalls } from "./fee.js";
 import { fulfillFeeCalls } from "./marketplace.js";
 import { buildAcceptSponsorshipBidIntent, buildAcceptSponsorshipProposalIntent } from "./sponsorship.js";
 
@@ -98,4 +98,17 @@ import { x402Config } from "../../config/x402.js";
 
 test("the platform fee is always on: 1% to the treasury", () => {
   expect(platformFeeConfig).toMatchObject({ enabled: true, fundAddress: x402Config.treasury, marketplaceBps: 100, launchpadBps: 100, sponsorshipBps: 100 });
+});
+
+describe("dropFeeBps", () => {
+  test("the launchpad fee applies to Medialane apps when a fund address is set", () => {
+    const cfg = resolveFeeConfig({ fundAddress: "0x1" });
+    expect(dropFeeBps("MEDIALANE_IO", cfg)).toBe(100);
+    expect(dropFeeBps("MEDIALANE_STARKNET", cfg)).toBe(100);
+  });
+
+  test("no launchpad fee for other apps, or with no fund address", () => {
+    expect(dropFeeBps("MEDIALANE_API", resolveFeeConfig({ fundAddress: "0x1" }))).toBe(0);
+    expect(dropFeeBps("MEDIALANE_IO", resolveFeeConfig({}))).toBe(0);
+  });
 });
