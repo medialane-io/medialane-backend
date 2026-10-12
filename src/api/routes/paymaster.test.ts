@@ -45,89 +45,27 @@ function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
   return app;
 }
 
-describe("POST /invoke/build", () => {
-  test("builds a sponsored invoke and returns only the typed data", async () => {
-    const calls: unknown[] = [];
-    const res = await appWith({}, calls).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
-    });
+describe("POST /invoke/build and /invoke/execute", () => {
+  test("build returns only the typed data and asks AVNU for sponsored mode", async () => {
+    const seen: unknown[] = [];
+    const res = await intentApp([signedRow], { buildTransaction: async (req, opts) => { seen.push(opts); return { typed_data: { message: "td" } } as never; } }, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ typedData: { message: "td" } });
-    const built = calls[0] as { req: { type: string }; opts: { feeMode: { mode: string } } };
-    expect(built.req.type).toBe("invoke");
-    expect(built.opts.feeMode.mode).toBe("sponsored");
+    expect((seen[0] as { feeMode: { mode: string } }).feeMode.mode).toBe("sponsored");
   });
 
-  test("sponsors any call the key sends, whatever the contract or entrypoint", async () => {
-    const calls: unknown[] = [];
-    const res = await appWith({}, calls).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        calls: [{ contractAddress: "0x0abc", entrypoint: "multi_route_swap", calldata: [] }],
-      }),
-    });
-    expect(res.status).toBe(200);
-    expect(calls).toHaveLength(1);
-  });
-
-  test("rejects a missing address or an empty call list without reaching the paymaster", async () => {
-    const calls: unknown[] = [];
-    for (const body of [{ calls: [{}] }, { userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [] }, {}]) {
-      const res = await appWith({}, calls).request("/invoke/build", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      expect(res.status).toBe(400);
-    }
-    expect(calls.length).toBe(0);
-  });
-
-});
-
-describe("POST /invoke/execute", () => {
-  test("executes and returns the transaction hash", async () => {
-    const res = await appWith({}).request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        typedData: outsideExecutionTypedData([SPONSORABLE_CALL]),
-        signature: ["0x1", "0x2"],
-        calls: [SPONSORABLE_CALL],
-      }),
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ transactionHash: "0xtx" });
-  });
-
-  test("requires the signature", async () => {
-    const res = await appWith({}).request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", typedData: { m: 1 }, calls: [SPONSORABLE_CALL] }),
-    });
+  test("execute requires the signature", async () => {
+    const res = await intentApp([signedRow], {}, []).request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]) }));
     expect(res.status).toBe(400);
   });
 
-  test("accepts sponsored-mode typedData with no trailing fee call (multi-call listing)", async () => {
-    const registerOrder = { contractAddress: "0x2", entrypoint: "register_order", calldata: ["0x4"] };
-    const calls = [SPONSORABLE_CALL, registerOrder];
-    const res = await appWith({}).request("/invoke/execute", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        typedData: sponsoredOutsideExecutionTypedData(calls),
-        signature: ["0x1"],
-        calls,
-      }),
-    });
-    expect(res.status).toBe(200);
+  test("execute accepts typed data with or without the trailing fee call", async () => {
+    for (const typedData of [outsideExecutionTypedData([SPONSORABLE_CALL]), sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL])]) {
+      const res = await intentApp([signedRow], {}, []).request("/invoke/execute", postJson({ intentIds: ["i1"], typedData, signature: ["0x1"] }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ transactionHash: "0xtx" });
+    }
   });
 });
 
@@ -251,43 +189,18 @@ describe("Media Wallet deployment check", () => {
 
 describe("upstream failures", () => {
   test("a paymaster error becomes a 502, not an unhandled throw", async () => {
-    const app = appWith({
-      buildTransaction: async () => {
-        throw new Error("paymaster down");
-      },
-    });
-    const res = await app.request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
-    });
+    const res = await intentApp([signedRow], { buildTransaction: async () => { throw new Error("paymaster down"); } }, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
     expect(res.status).toBe(502);
   });
 });
 
 describe("sponsored calls are never refused for volume", () => {
   test("a wallet's 61st sponsored build in a minute still reaches the paymaster", async () => {
-    const USER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     let built = 0;
-    const stub: PaymasterClient = {
-      buildTransaction: async () => {
-        built += 1;
-        return { typed_data: { message: "td" } } as never;
-      },
-      executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
-    };
-    const app = new Hono<AppEnv>();
-    app.use("*", async (c, next) => {
-      c.set("account", { id: "acct-app", status: "ACTIVE" } as never);
-      await next();
-    });
-    app.route("/", paymaster(() => stub, (_c, next) => next()));
+    const app = intentApp([signedRow], { buildTransaction: async () => { built += 1; return { typed_data: { message: "td" } } as never; } }, []);
     for (let i = 0; i < 61; i++) {
-      const res = await app.request("/invoke/build", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userAddress: USER, calls: [SPONSORABLE_CALL] }),
-      });
+      const res = await app.request("/invoke/build", postJson({ intentIds: ["i1"] }));
       expect(res.status).toBe(200);
     }
     expect(built).toBe(61);
@@ -295,31 +208,19 @@ describe("sponsored calls are never refused for volume", () => {
 });
 
 describe("every sponsorship failure says why it failed", () => {
-  test("a missing field is invalid_request", async () => {
-    const res = await appWith({}).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+  test("a malformed intent list is invalid_request", async () => {
+    const res = await intentApp([signedRow], {}, []).request("/invoke/build", postJson({ intentIds: "i1" }));
+    expect(res.status).toBe(400);
     expect(((await res.json()) as { code?: string }).code).toBe("invalid_request");
   });
 
   test("a sponsor that cannot build is sponsor_unavailable", async () => {
-    const res = await appWith({
-      buildTransaction: async () => {
-        throw new Error("fetch failed");
-      },
-    }).request("/invoke/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userAddress: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", calls: [SPONSORABLE_CALL] }),
-    });
+    const res = await intentApp([signedRow], { buildTransaction: async () => { throw new Error("fetch failed"); } }, [])
+      .request("/invoke/build", postJson({ intentIds: ["i1"] }));
     expect(res.status).toBe(502);
     expect(((await res.json()) as { code?: string }).code).toBe("sponsor_unavailable");
   });
 });
-
-
 
 const WALLET = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -414,5 +315,22 @@ describe("intent sponsorship", () => {
   test("an account with no wallet can't be sponsored", async () => {
     const res = await intentApp([signedRow], {}, [], null).request("/invoke/build", postJson({ intentIds: ["i1"] }));
     expect(res.status).toBe(403);
+  });
+});
+
+describe("raw calls are no longer sponsored", () => {
+  test("a raw-calls build gets sponsor_unavailable so old clients fall back to paying", async () => {
+    const res = await intentApp([], {}, []).request("/invoke/build", postJson({ userAddress: WALLET, calls: [SPONSORABLE_CALL] }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Sponsorship needs intents", code: "sponsor_unavailable" });
+  });
+
+  test("a raw-calls execute gets sponsor_unavailable and never reaches AVNU", async () => {
+    let executed = false;
+    const res = await intentApp([], { executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } }, [])
+      .request("/invoke/execute", postJson({ userAddress: WALLET, typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("sponsor_unavailable");
+    expect(executed).toBe(false);
   });
 });

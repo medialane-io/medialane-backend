@@ -26,15 +26,6 @@ export async function callRpc<T>(fn: (provider: RpcProvider) => Promise<T>): Pro
 
 export { normalizeAddress, normalizeHash } from "@medialane/sdk";
 
-export function feltToHex(felt: string | bigint): string {
-  try {
-    const n = typeof felt === "bigint" ? felt : BigInt(felt);
-    return "0x" + n.toString(16);
-  } catch {
-    return "0x0";
-  }
-}
-
 export function decodeShortstring(felt: unknown): string {
   try {
     let n = BigInt(String(felt));
