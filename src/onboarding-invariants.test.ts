@@ -22,7 +22,13 @@ describe("who can have an account that expires", () => {
 
   test("only the email sign-up route ever marks an account PENDING, the state the 7-day rule closes", () => {
     const writers = sourceFiles(SRC)
-      .filter((file) => /prisma\.account\.(?:update|updateMany|create|createMany|upsert)\([\s\S]{0,200}?status:\s*"PENDING"/.test(readFileSync(file, "utf8")))
+      .filter((file) => {
+        const source = readFileSync(file, "utf8");
+        return (
+          /ensureAccountForEmail\([^)]*"PENDING"\)/.test(source) ||
+          /(?:prisma|tx)\.account\.(?:update|updateMany|create|createMany|upsert)\(\{[\s\S]{0,300}?data:\s*\{[^}]*status:\s*"PENDING"/.test(source)
+        );
+      })
       .map((file) => relative(SRC, file));
     expect(writers).toEqual(["api/routes/auth-email.ts"]);
   });

@@ -1,6 +1,7 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "./identity.js";
+import { recordAccountEvent } from "./accountEvents.js";
 import type { Chain } from "@prisma/client";
 
 export async function ensureApiCredits(accountId: string) {
@@ -94,6 +95,10 @@ export async function replaceWallet(params: {
 }): Promise<void> {
   const address = normalizeAddress(params.chain, params.address);
   await prisma.$transaction(async (tx) => {
+    const previous = await tx.identity.findFirst({
+      where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET },
+      select: { address: true },
+    });
     await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET } });
     await tx.identity.create({
       data: {
@@ -104,6 +109,31 @@ export async function replaceWallet(params: {
         address,
         appId: params.appId,
       },
+    });
+    await recordAccountEvent(tx, params.accountId, "WALLET_REPLACED", {
+      chain: params.chain,
+      from: previous?.address ?? null,
+      to: address,
+      appId: params.appId,
+    });
+  });
+}
+
+export async function replaceEmail(params: { accountId: string; appId: string; email: string }): Promise<void> {
+  const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, params.email);
+  await prisma.$transaction(async (tx) => {
+    const previous = await tx.identity.findFirst({
+      where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, appId: params.appId },
+      select: { value: true },
+    });
+    await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, appId: params.appId } });
+    await tx.identity.create({
+      data: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, value: email, appId: params.appId },
+    });
+    await recordAccountEvent(tx, params.accountId, "EMAIL_CHANGED", {
+      from: previous?.value ?? null,
+      to: email,
+      appId: params.appId,
     });
   });
 }
@@ -222,5 +252,15 @@ export async function ensureAccountForEmail(
       select: { id: true },
     });
     return { accountId: account.id, created: true };
+  });
+}
+
+export async function activateAccount(accountId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const { count } = await tx.account.updateMany({
+      where: { id: accountId, status: "PENDING" },
+      data: { status: "ACTIVE" },
+    });
+    if (count === 1) await recordAccountEvent(tx, accountId, "STATUS_CHANGED", { from: "PENDING", to: "ACTIVE" });
   });
 }

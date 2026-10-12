@@ -1,7 +1,9 @@
 import type { Call } from "starknet";
 import { typedData as starknetTypedData } from "starknet";
 import { buildAddOwnerCall, computeOwnerGuid, getOwners, signWithPrivateKey } from "@medialane/sdk/starknet";
+import prisma from "../db/client.js";
 import { accountWallet } from "../utils/account.js";
+import { recordAccountEvent } from "../utils/accountEvents.js";
 import { createProvider } from "../utils/starknet.js";
 import { provisioningKey, type ProvisioningKey } from "../utils/provisioningKey.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
@@ -12,6 +14,7 @@ export interface WalletKeyDeps {
   keyFor(accountId: string): ProvisioningKey;
   execute(input: { walletAddress: string; calls: Call[]; privateKey: string }): Promise<string>;
   waitFor(txHash: string): Promise<void>;
+  recordKeyAdded(accountId: string, wallet: string, txHash: string): Promise<void>;
 }
 
 export type WalletKeyOutcome =
@@ -55,14 +58,14 @@ export async function setupWalletKey(
   }
   if (ownsWallet(owners, newOwnerPubkey)) return { status: 200, walletAddress, removeOwnerGuid };
 
+  let txHash: string;
   try {
-    await deps.waitFor(
-      await deps.execute({
-        walletAddress,
-        calls: [buildAddOwnerCall(walletAddress, newOwnerPubkey)],
-        privateKey: key.privateKey,
-      }),
-    );
+    txHash = await deps.execute({
+      walletAddress,
+      calls: [buildAddOwnerCall(walletAddress, newOwnerPubkey)],
+      privateKey: key.privateKey,
+    });
+    await deps.waitFor(txHash);
   } catch (err) {
     return { status: 502, error: err instanceof Error ? err.message : "The wallet key could not be set up" };
   }
@@ -70,6 +73,7 @@ export async function setupWalletKey(
   if (!ownsWallet(await deps.ownerGuidsOf(walletAddress), newOwnerPubkey)) {
     return { status: 502, error: "The wallet key could not be set up" };
   }
+  await deps.recordKeyAdded(accountId, walletAddress, txHash);
   return { status: 200, walletAddress, removeOwnerGuid };
 }
 
@@ -86,4 +90,6 @@ export const productionWalletKeyDeps: WalletKeyDeps = {
   waitFor: async (txHash) => {
     await createProvider().waitForTransaction(txHash);
   },
+  recordKeyAdded: (accountId, wallet, txHash) =>
+    recordAccountEvent(prisma, accountId, "WALLET_KEY_ADDED", { wallet, txHash }),
 };

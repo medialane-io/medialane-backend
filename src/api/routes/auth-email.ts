@@ -12,7 +12,7 @@ import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp } from "../../utils/caller.js";
 
-import { ensureAccountForEmail, findLiveAccountIdByEmail } from "../../utils/account.js";
+import { activateAccount, ensureAccountForEmail, findLiveAccountIdByEmail } from "../../utils/account.js";
 
 const log = createLogger("routes:auth-email");
 
@@ -173,12 +173,7 @@ const productionDeps: AuthEmailDeps = {
     const { accountId, created } = await ensureAccountForEmail(email, appId, "PENDING");
     return { accountId, alreadyExisted: !created };
   },
-  activateAccount: async (accountId) => {
-    await prisma.account.updateMany({
-      where: { id: accountId, status: "PENDING" },
-      data: { status: "ACTIVE" },
-    });
-  },
+  activateAccount,
   accountStatus: async (accountId) => {
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: { status: true } });
     return account?.status ?? null;

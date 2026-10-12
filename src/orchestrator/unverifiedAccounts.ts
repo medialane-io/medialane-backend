@@ -7,39 +7,31 @@ const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 import { DAY_MS, IO_VERIFICATION_DAYS } from "../utils/accountLifecycle.js";
 import { IO_APP } from "../utils/caller.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
+import { recordAccountEvent } from "../utils/accountEvents.js";
 
 export { IO_VERIFICATION_DAYS, verificationDeadline } from "../utils/accountLifecycle.js";
-
-interface AccountUpdater {
-  account: {
-    updateMany(args: {
-      where: {
-        status: "PENDING";
-        createdAt: { lt: Date };
-        identities: { some: { scheme: string; appId: string } };
-      };
-      data: { status: "INACTIVE" };
-    }): Promise<{ count: number }>;
-  };
-}
 
 export function isExpired(createdAt: Date, now: Date = new Date(), days: number = IO_VERIFICATION_DAYS): boolean {
   return now.getTime() - createdAt.getTime() > days * DAY_MS;
 }
 
-export async function deactivateExpiredPending(
-  now: Date = new Date(),
-  db: AccountUpdater = prisma as unknown as AccountUpdater,
-  ioApp: string = IO_APP,
-): Promise<number> {
+export async function deactivateExpiredPending(now: Date = new Date(), ioApp: string = IO_APP): Promise<number> {
   const cutoff = new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS);
-  const { count } = await db.account.updateMany({
-    where: {
-      status: "PENDING",
-      createdAt: { lt: cutoff },
-      identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, appId: ioApp } },
-    },
-    data: { status: "INACTIVE" },
+  const count = await prisma.$transaction(async (tx) => {
+    const deactivated = await tx.$queryRaw<{ id: string }[]>`
+      UPDATE "Account" a SET status = 'INACTIVE', "updatedAt" = NOW()
+      WHERE a.status = 'PENDING'
+        AND a."createdAt" < ${cutoff}
+        AND EXISTS (
+          SELECT 1 FROM "Identity" i
+          WHERE i."accountId" = a.id AND i.scheme = ${IDENTITY_SCHEME.EMAIL} AND i."appId" = ${ioApp}
+        )
+      RETURNING a.id
+    `;
+    for (const { id } of deactivated) {
+      await recordAccountEvent(tx, id, "STATUS_CHANGED", { from: "PENDING", to: "INACTIVE" });
+    }
+    return deactivated.length;
   });
   if (count > 0) log.info({ count }, "Pending io signups that never verified their email are now inactive");
   return count;

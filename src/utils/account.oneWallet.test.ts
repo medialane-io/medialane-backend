@@ -10,9 +10,11 @@ function setup(accountHasWallet: boolean) {
     if (typeof arg === "function") {
       return (arg as (tx: unknown) => Promise<unknown>)({
         identity: {
+          findFirst: async () => ({ address: "0xold" }),
           deleteMany: async (a: unknown) => { calls.push("delete"); return deleteMany(a); },
           create: async (a: unknown) => { calls.push("create"); return create(a); },
         },
+        accountEvent: { create: async () => { calls.push("event"); return {}; } },
       });
     }
     return undefined;
@@ -52,11 +54,11 @@ describe("linking a wallet to an account session", () => {
 });
 
 describe("replaceWallet", () => {
-  test("removes the account's wallet and attaches the new one as its only wallet, in one transaction", async () => {
+  test("removes the account's wallet, attaches the new one as its only wallet and records the change, in one transaction", async () => {
     const { create, deleteMany, calls } = setup(true);
     const { replaceWallet } = await import("./account.js");
     await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual(["delete", "create"]);
+    expect(calls).toEqual(["delete", "create", "event"]);
     expect(deleteMany).toHaveBeenCalledWith({ where: { accountId: "acct-1", scheme: "wallet" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
     expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1" });
