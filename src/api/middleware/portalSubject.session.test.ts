@@ -20,7 +20,8 @@ async function appFor(status: string) {
   app.use("*", portalSubject);
   app.get("/me", (c) => c.json({ ok: true }));
   const request = (token: string) => app.request("/me", { headers: { Authorization: `Bearer ${token}` } });
-  return { request, token: issueAccountSessionToken("a1") };
+  const forwarded = (token: string) => app.request("/me", { headers: { "x-account-session": token } });
+  return { request, forwarded, token: issueAccountSessionToken("a1") };
 }
 
 describe("account sessions on the portal", () => {
@@ -36,5 +37,10 @@ describe("account sessions on the portal", () => {
     const res = await request(token);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "Account is not active" });
+  });
+
+  test("the forwarded session header signs the portal request in", async () => {
+    const { forwarded, token } = await appFor("ACTIVE");
+    expect((await forwarded(token)).status).toBe(200);
   });
 });
