@@ -185,3 +185,43 @@ test("a batch at exactly the cap is still allowed", () => {
   }));
   expect(isAllowedRpcBody(atCap)).toBe(true);
 });
+
+describe("app callers", () => {
+  function appRpc(appId: string | undefined, body: unknown) {
+    const app = new Hono<AppEnv>();
+    app.use("*", async (c, next) => {
+      c.set("appId", appId ?? "MEDIALANE_API");
+      return next();
+    });
+    const upstream = (async () => Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" })) as unknown as typeof fetch;
+    app.route("/v1/rpc", rpc(upstream));
+    return app.request("/v1/rpc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  }
+
+  test("an app request may use the methods account.execute needs", async () => {
+    for (const method of ["starknet_specVersion", "starknet_chainId", "starknet_getNonce", "starknet_estimateFee", "starknet_blockNumber", "starknet_getBlockWithTxs", "starknet_addInvokeTransaction", "starknet_getTransactionReceipt", "starknet_getTransactionStatus", "starknet_call", "starknet_getClassAt", "starknet_getClassHashAt"]) {
+      const res = await appRpc("MEDIALANE_IO", { jsonrpc: "2.0", id: 1, method, params: [] });
+      expect([method, (await res.json()).error]).toEqual([method, undefined]);
+    }
+  });
+
+  test("an app request may not use general chain reads", async () => {
+    for (const method of ["starknet_getEvents", "starknet_getStorageAt", "starknet_getBlockWithReceipts", "starknet_simulateTransactions", "starknet_getTransactionByHash", "starknet_getClass"]) {
+      const res = await appRpc("MEDIALANE_IO", { jsonrpc: "2.0", id: 1, method, params: [{ chunk_size: 10 }] });
+      expect([method, (await res.json()).error?.code]).toEqual([method, -32601]);
+    }
+  });
+
+  test("an app batch with one general read is refused", async () => {
+    const res = await appRpc("MEDIALANE_STARKNET", [
+      { jsonrpc: "2.0", id: 1, method: "starknet_call", params: [] },
+      { jsonrpc: "2.0", id: 2, method: "starknet_getStorageAt", params: [] },
+    ]);
+    expect((await res.json()).error.code).toBe(-32601);
+  });
+
+  test("an API caller keeps the full method list", async () => {
+    const res = await appRpc(undefined, { jsonrpc: "2.0", id: 1, method: "starknet_getStorageAt", params: [] });
+    expect((await res.json()).error).toBeUndefined();
+  });
+});
