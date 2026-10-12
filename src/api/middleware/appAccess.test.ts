@@ -43,6 +43,7 @@ describe("app access", () => {
 
   test("a public route is open without a session", async () => {
     expect((await app.request("/v1/collections?page=2", { headers: io() })).status).toBe(200);
+    expect((await app.request(`/v1/drops/0x${"d".repeat(64)}/state`, { headers: io() })).status).toBe(200);
     expect((await app.request("/v1/auth/email/register-account", { method: "POST", headers: io() })).status).toBe(200);
   });
 
