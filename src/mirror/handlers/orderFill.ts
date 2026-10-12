@@ -60,6 +60,29 @@ export async function recordOrderFill(
     ? formatAmount(priceRaw, tokenMeta.decimals)
     : priceRaw;
 
+  const remainingAmount = input.remainingAmount ?? null;
+  const fields = {
+    fulfiller: input.fulfiller,
+    quantity,
+    remainingAmount,
+    priceRaw,
+    priceFormatted,
+    currencySymbol: tokenMeta?.symbol ?? order.currencySymbol,
+    currencyToken,
+    nftContract: order.nftContract,
+    nftTokenId: order.nftTokenId,
+    blockNumber: input.blockNumber,
+  };
+
+  const recorded = await tx.orderFill.findFirst({
+    where: { chain: input.chain, orderHash: input.orderHash, txHash: input.txHash, quantity, remainingAmount },
+    select: { id: true },
+  });
+  if (recorded) {
+    await tx.orderFill.update({ where: { id: recorded.id }, data: fields });
+    return;
+  }
+
   await tx.orderFill.upsert({
     where: {
       chain_orderHash_txHash_logIndex: {
@@ -69,33 +92,7 @@ export async function recordOrderFill(
         logIndex: input.logIndex,
       },
     },
-    create: {
-      chain: input.chain,
-      orderHash: input.orderHash,
-      fulfiller: input.fulfiller,
-      quantity,
-      remainingAmount: input.remainingAmount ?? null,
-      priceRaw,
-      priceFormatted,
-      currencySymbol: tokenMeta?.symbol ?? order.currencySymbol,
-      currencyToken,
-      nftContract: order.nftContract,
-      nftTokenId: order.nftTokenId,
-      txHash: input.txHash,
-      logIndex: input.logIndex,
-      blockNumber: input.blockNumber,
-    },
-    update: {
-      fulfiller: input.fulfiller,
-      quantity,
-      remainingAmount: input.remainingAmount ?? null,
-      priceRaw,
-      priceFormatted,
-      currencySymbol: tokenMeta?.symbol ?? order.currencySymbol,
-      currencyToken,
-      nftContract: order.nftContract,
-      nftTokenId: order.nftTokenId,
-      blockNumber: input.blockNumber,
-    },
+    create: { chain: input.chain, orderHash: input.orderHash, txHash: input.txHash, logIndex: input.logIndex, ...fields },
+    update: fields,
   });
 }

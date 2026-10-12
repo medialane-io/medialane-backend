@@ -137,3 +137,52 @@ test("drop sources start at the drop factory's first block", () => {
     expect(EVENT_SOURCES.find((s) => s.id === id)!.startBlock).toBe(16240820);
   }
 });
+
+describe("catchUpCollectionTransfers", () => {
+  const event = { block_number: 120, transaction_hash: "0x1", from_address: "0xc", keys: [], data: [], block_hash: "0x0" };
+
+  const deps = (over: { startBlock?: bigint; service?: string; cursors?: Record<string, bigint | null> } = {}) => {
+    const polled: { address: string; fromBlock: number; toBlock: number; keys: string[][] }[] = [];
+    const applied: unknown[][] = [];
+    return {
+      polled,
+      applied,
+      deps: {
+        collection: async () => ({ startBlock: over.startBlock ?? 100n, service: over.service ?? "mip-erc721" }),
+        cursor: async (sourceId: string) => (over.cursors ?? { [CORE_TRANSFERS]: 150n })[sourceId] ?? null,
+        poll: async (p: { address: string; fromBlock: number; toBlock: number; keys: string[][] }) => { polled.push(p); return [event]; },
+        apply: async (events: unknown[]) => { applied.push(events); },
+      },
+    };
+  };
+
+  test("a new collection the transfer reader already passed is read from its creation block up to the reader", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const d = deps();
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.polled.map((p) => [p.address, p.fromBlock, p.toBlock])).toEqual([["0xc", 100, 150]]);
+    expect(d.polled[0]!.keys[0]!.length).toBe(3);
+    expect(d.applied).toEqual([[event]]);
+  });
+
+  test("a collection created ahead of the transfer reader is left to the reader", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const d = deps({ startBlock: 200n });
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.polled).toEqual([]);
+  });
+
+  test("before the transfer reader has a cursor nothing is read", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const d = deps({ cursors: {} });
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.polled).toEqual([]);
+  });
+
+  test("an external collection follows the external transfer reader", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const d = deps({ service: EXTERNAL_SERVICES[0], cursors: { [CORE_TRANSFERS]: 150n, [CORE_TRANSFERS_EXTERNAL]: 130n } });
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.polled.map((p) => p.toBlock)).toEqual([130]);
+  });
+});
