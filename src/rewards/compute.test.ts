@@ -13,25 +13,16 @@ function callCounter() {
 }
 
 describe("computeSoldOutBadges", () => {
-  test("awards the collection owner once a drop's claims meet its max supply, using one groupBy instead of one count per drop", async () => {
+  test("awards the owner of every drop whose minted count meets its max supply", async () => {
     const { calls, record } = callCounter();
+    let where: unknown;
     const db = {
-      dropClaimConditions: {
-        async findMany() {
-          record("dropClaimConditions.findMany");
-          return [
-            { collectionAddress: CONTRACT_1, maxSupply: "2" },
-            { collectionAddress: CONTRACT_2, maxSupply: "10" },
-          ];
-        },
-      },
-      transfer: {
-        async groupBy() {
-          record("transfer.groupBy");
-          return [
-            { contractAddress: CONTRACT_1, _count: { id: 2 } },
-            { contractAddress: CONTRACT_2, _count: { id: 3 } },
-          ];
+      drop: {
+        fields: { maxSupply: "maxSupply-column" },
+        async findMany(args: { where: unknown }) {
+          record("drop.findMany");
+          where = args.where;
+          return [{ collectionAddress: CONTRACT_1 }];
         },
       },
       collection: {
@@ -42,29 +33,20 @@ describe("computeSoldOutBadges", () => {
       },
     } as never;
 
-    const result = await computeSoldOutBadges(db);
-
-    expect(result).toEqual(new Set([OWNER_A]));
-    expect(calls).toEqual(["dropClaimConditions.findMany", "transfer.groupBy", "collection.findMany"]);
+    expect(await computeSoldOutBadges(db)).toEqual(new Set([OWNER_A]));
+    expect(calls).toEqual(["drop.findMany", "collection.findMany"]);
+    expect(where).toEqual({ chain: "STARKNET", maxSupply: { gt: 0 }, minted: { gte: "maxSupply-column" } });
   });
 
-  test("no drops — makes no follow-up queries", async () => {
+  test("no sold-out drops — makes no follow-up queries", async () => {
     const { calls, record } = callCounter();
     const db = {
-      dropClaimConditions: {
-        async findMany() {
-          record("dropClaimConditions.findMany");
-          return [];
-        },
-      },
-      transfer: { async groupBy() { record("transfer.groupBy"); return []; } },
+      drop: { fields: { maxSupply: "m" }, async findMany() { record("drop.findMany"); return []; } },
       collection: { async findMany() { record("collection.findMany"); return []; } },
     } as never;
 
-    const result = await computeSoldOutBadges(db);
-
-    expect(result).toEqual(new Set());
-    expect(calls).toEqual(["dropClaimConditions.findMany"]);
+    expect(await computeSoldOutBadges(db)).toEqual(new Set());
+    expect(calls).toEqual(["drop.findMany"]);
   });
 });
 

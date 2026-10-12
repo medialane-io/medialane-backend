@@ -195,8 +195,9 @@ async function gatherCreations(actionMap: Map<string, ActionConfig>): Promise<Ra
 async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
 
   const [drops, pops] = await Promise.all([
-    prisma.dropClaimConditions.findMany({
-      select: { collectionAddress: true, createdAt: true },
+    prisma.collection.findMany({
+      where: dropCollectionFilter(),
+      select: { contractAddress: true, createdAt: true },
     }),
 
     prisma.collection.findMany({
@@ -206,7 +207,7 @@ async function gatherLaunchLaunchpad(xp: number): Promise<RawEvent[]> {
   ]);
 
   const allContracts = dedupeLaunchContracts([
-    ...drops.map((d) => ({ contract: d.collectionAddress, createdAt: d.createdAt })),
+    ...drops.map((d) => ({ contract: d.contractAddress, createdAt: d.createdAt })),
     ...pops.map((p) => ({ contract: p.contractAddress, createdAt: p.createdAt })),
   ]);
 
@@ -480,25 +481,13 @@ function resolveMultiplier(
 }
 
 export async function computeSoldOutBadges(db: Db): Promise<Set<string>> {
-  const drops = await db.dropClaimConditions.findMany({
-    select: { collectionAddress: true, maxSupply: true },
+  const soldOut = await db.drop.findMany({
+    where: { chain: "STARKNET", maxSupply: { gt: 0 }, minted: { gte: db.drop.fields.maxSupply } },
+    select: { collectionAddress: true },
   });
-  if (drops.length === 0) return new Set();
-
-  const claimedCounts = await db.transfer.groupBy({
-    by: ["contractAddress"],
-    where: mintTransferFilter(drops.map((d) => d.collectionAddress)),
-    _count: { id: true },
-  });
-  const claimedByContract = new Map(claimedCounts.map((c) => [c.contractAddress, c._count.id]));
-
-  const soldOutContracts = drops
-    .filter((d) => BigInt(claimedByContract.get(d.collectionAddress) ?? 0) >= BigInt(d.maxSupply))
-    .map((d) => d.collectionAddress);
-  if (soldOutContracts.length === 0) return new Set();
-
+  if (soldOut.length === 0) return new Set();
   const owners = await db.collection.findMany({
-    where: { contractAddress: { in: soldOutContracts } },
+    where: { contractAddress: { in: soldOut.map((d) => d.collectionAddress) } },
     select: { owner: true },
   });
   return new Set(owners.filter((c) => c.owner).map((c) => normalizeAddress("STARKNET", c.owner!)));

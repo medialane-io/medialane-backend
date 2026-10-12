@@ -37,7 +37,7 @@ describe("EVENT_SOURCES", () => {
     for (const s of EVENT_SOURCES) {
       if (s.cadenceMs === undefined) continue;
       expect([
-        "transfers", "transfers:external", "comments", "allowlist:pop", "allowlist:drop", "conditions:drop", "factory:creator-coin",
+        "transfers", "transfers:external", "comments", "allowlist:pop", "drop:events", "factory:creator-coin",
         "factory:pop", "factory:drop", "factory:mip-erc1155",
         "factory:ip-tickets", "factory:ip-club", "ip-sponsorship",
         ...acceptedTokens().map((t) => `deposit:${t.symbol.toLowerCase()}`),
@@ -130,4 +130,10 @@ describe("how often each collection is polled for transfers", () => {
       startBlock: { lte: 10n },
     });
   });
+});
+
+test("drop sources start at the drop factory's first block", () => {
+  for (const id of ["factory:drop", "drop:events"]) {
+    expect(EVENT_SOURCES.find((s) => s.id === id)!.startBlock).toBe(16240820);
+  }
 });
