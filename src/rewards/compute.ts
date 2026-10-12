@@ -26,10 +26,6 @@ export function mintTransferFilter(contracts: string[]) {
   return { contractAddress: { in: contracts }, fromAddress: ZERO };
 }
 
-export function soldOutClaimFilter(contract: string) {
-  return { contractAddress: contract, fromAddress: ZERO };
-}
-
 export function dedupeLaunchContracts(
   entries: { contract: string; createdAt: Date }[],
 ): { contract: string; createdAt: Date }[] {

@@ -28,7 +28,7 @@ describe("POP intents", () => {
 });
 
 import { normalizeAddress } from "@medialane/sdk";
-import { dropMintCost, type DropOnchain } from "@medialane/sdk/starknet";
+import { feeAmount, feeBps, type DropOnchain } from "@medialane/sdk/starknet";
 import { buildDropClaimIntent as claimIntent, buildDropManageIntent as manageIntent } from "./drops.js";
 
 const big = (xs: string[]) => xs.map((x) => BigInt(x));
@@ -60,7 +60,7 @@ describe("drop claim intent", () => {
   test("the fee charged equals the fee the SDK shows the collector", async () => {
     const d = onchain({ price: 1_234_567n, paymentToken: normalizeAddress("STARKNET", USDC) });
     const { calls } = await claimIntent({ claimer: ME, collection: COL, quantity: "3" }, IO, reads(d), cfg);
-    expect(BigInt(calls[2]!.calldata[1]!)).toBe(dropMintCost(1_234_567n, 3, cfg).fee);
+    expect(BigInt(calls[2]!.calldata[1]!)).toBe(feeAmount(1_234_567n * 3n, feeBps("launchpad", cfg)));
   });
 
   test("a partner app's paid claim has no fee", async () => {

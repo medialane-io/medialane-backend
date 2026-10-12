@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { hash } from "starknet";
 import { normalizeAddress } from "@medialane/sdk";
-import { catchUpDropEvents, dropEventLogIndexes, parseDropCollectionEvent } from "./dropCollection.js";
+import { catchUpDropEvents, dropEventLogIndexes, parseDropCollectionEvent, withBlockTimes } from "./dropCollection.js";
 import { DROP_COLLECTION_SELECTORS } from "../../config/constants.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 
@@ -59,5 +59,14 @@ describe("drop collection events", () => {
     });
     expect(seen).toEqual([{ address: DROP, fromBlock: 16240900, toBlock: 16250000, keys: [DROP_COLLECTION_SELECTORS.map((s) => "0x" + BigInt(s).toString(16))] }]);
     expect(applied).toEqual([[one]]);
+  });
+
+  test("mint rows take their block's time, looked up once per block", async () => {
+    const asked: number[] = [];
+    const blockTime = async (n: number) => { asked.push(n); return new Date(n * 1000); };
+    const rows = [{ blockNumber: 100n, id: "a" }, { blockNumber: 100n, id: "b" }, { blockNumber: 101n, id: "c" }];
+    const out = await withBlockTimes(rows, blockTime);
+    expect(asked).toEqual([100, 101]);
+    expect(out.map((r) => [r.id, r.createdAt.getTime()])).toEqual([["a", 100_000], ["b", 100_000], ["c", 101_000]]);
   });
 });
