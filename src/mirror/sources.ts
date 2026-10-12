@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { pollContractEvents } from "./poller.js";
 import { loadSourceCursor } from "./cursor.js";
+import { applyEvents } from "./apply.js";
 import { mapWithConcurrency } from "../utils/retry.js";
 import {
   STARKNET_MARKETPLACE_721_CONTRACT,
@@ -62,6 +63,7 @@ import type { RawStarknetEvent } from "../types/starknet.js";
 export interface SourceContext {
 
   affectedContracts: Set<string>;
+  createdCollections: Set<string>;
 }
 
 export interface EventSource {
@@ -129,7 +131,10 @@ async function applyComments(events: RawStarknetEvent[]): Promise<void> {
 async function applyPopFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
   for (const event of events) {
     await handlePopCollectionCreated(event);
-    if (event.data?.[0]) ctx.affectedContracts.add(normalizeAddress("STARKNET", event.data[0]));
+    if (!event.data?.[0]) continue;
+    const collection = normalizeAddress("STARKNET", event.data[0]);
+    ctx.affectedContracts.add(collection);
+    ctx.createdCollections.add(collection);
   }
 }
 
@@ -138,6 +143,7 @@ async function applyDropFactory(events: RawStarknetEvent[], ctx: SourceContext):
     const collection = await handleDropCreated(event);
     if (!collection) continue;
     ctx.affectedContracts.add(collection);
+    ctx.createdCollections.add(collection);
     await catchUpDropEvents(collection, event.block_number);
   }
 }
@@ -145,21 +151,30 @@ async function applyDropFactory(events: RawStarknetEvent[], ctx: SourceContext):
 async function applyIp1155Factory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
   for (const event of events) {
     await handleIP1155CollectionDeployed(event);
-    if (event.keys?.[1]) ctx.affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+    if (!event.keys?.[1]) continue;
+    const collection = normalizeAddress("STARKNET", event.keys[1]);
+    ctx.affectedContracts.add(collection);
+    ctx.createdCollections.add(collection);
   }
 }
 
 async function applyIpTicketsFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
   for (const event of events) {
     await handleIPTicketsCollectionDeployed(event);
-    if (event.keys?.[1]) ctx.affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+    if (!event.keys?.[1]) continue;
+    const collection = normalizeAddress("STARKNET", event.keys[1]);
+    ctx.affectedContracts.add(collection);
+    ctx.createdCollections.add(collection);
   }
 }
 
 async function applyIpClubFactory(events: RawStarknetEvent[], ctx: SourceContext): Promise<void> {
   for (const event of events) {
     await handleIPClubDeployed(event);
-    if (event.keys?.[1]) ctx.affectedContracts.add(normalizeAddress("STARKNET", event.keys[1]));
+    if (!event.keys?.[1]) continue;
+    const collection = normalizeAddress("STARKNET", event.keys[1]);
+    ctx.affectedContracts.add(collection);
+    ctx.createdCollections.add(collection);
   }
 }
 
@@ -299,4 +314,44 @@ async function fetchSource(
   }
 
   return { source, events, cursorTo };
+}
+
+export interface TransferCatchUpDeps {
+  collection(address: string): Promise<{ startBlock: bigint; service: string } | null>;
+  cursor(sourceId: string): Promise<bigint | null>;
+  poll(p: { address: string; fromBlock: number; toBlock: number; keys: string[][] }): Promise<RawStarknetEvent[]>;
+  apply(events: RawStarknetEvent[]): Promise<void>;
+}
+
+const chainTransferCatchUp = (chain: "STARKNET"): TransferCatchUpDeps => ({
+  collection: (address) =>
+    prisma.collection.findUnique({
+      where: { chain_contractAddress: { chain, contractAddress: address } },
+      select: { startBlock: true, service: true },
+    }),
+  cursor: (sourceId) => loadSourceCursor(chain, sourceId),
+  poll: (p) => pollContractEvents(p),
+  apply: async (events) => {
+    await prisma.$transaction((tx) => applyEvents(events, tx, chain), { timeout: 60000 });
+  },
+});
+
+export async function catchUpCollectionTransfers(
+  collections: Iterable<string>,
+  deps: TransferCatchUpDeps = chainTransferCatchUp("STARKNET"),
+): Promise<void> {
+  for (const address of collections) {
+    const collection = await deps.collection(address);
+    if (!collection) continue;
+    const sourceId = EXTERNAL_SERVICES.includes(collection.service) ? CORE_TRANSFERS_EXTERNAL : CORE_TRANSFERS;
+    const cursor = await deps.cursor(sourceId);
+    if (cursor == null || collection.startBlock > cursor) continue;
+    const events = await deps.poll({
+      address,
+      fromBlock: Number(collection.startBlock),
+      toBlock: Number(cursor),
+      keys: [TRANSFER_SELECTORS],
+    });
+    if (events.length) await deps.apply(events);
+  }
 }

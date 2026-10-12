@@ -10,6 +10,7 @@ import {
   CORE_MARKETPLACE_1155,
   CORE_MARKETPLACE_721,
   EVENT_SOURCES,
+  catchUpCollectionTransfers,
   type EventSource,
 } from "../../mirror/sources.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -137,10 +138,11 @@ txSync.post("/", async (c) => {
 
   const receiptEvents = eventsFromReceipt(receipt, txHash, blockNumber);
   const affectedContracts = new Set<string>();
+  const createdCollections = new Set<string>();
 
   const deployed = factoryBatches(receiptEvents);
   for (const batch of deployed) {
-    await batch.source.apply!(batch.events, { affectedContracts });
+    await batch.source.apply!(batch.events, { affectedContracts, createdCollections });
   }
 
   const knownCollections = await prisma.collection.findMany({
@@ -163,10 +165,13 @@ txSync.post("/", async (c) => {
     );
     for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN)) {
       outcome.affectedContracts.add(contractAddress);
+      createdCollections.add(contractAddress);
     }
     for (const contractAddress of outcome.affectedContracts) affectedContracts.add(contractAddress);
     applied += outcome.parsed.length;
   }
+
+  await catchUpCollectionTransfers(createdCollections);
 
   for (const contractAddress of affectedContracts) {
     worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress });

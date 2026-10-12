@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
-import { fetchDueSources, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, TRANSFER_SOURCE_IDS, type SourceFetch } from "./sources.js";
+import { fetchDueSources, catchUpCollectionTransfers, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, TRANSFER_SOURCE_IDS, type SourceFetch } from "./sources.js";
 import { applyEvents, applyCollectionsCreated, type ApplyOutcome } from "./apply.js";
 import { worker } from "../orchestrator/worker.js";
 import prisma from "../db/client.js";
@@ -97,22 +97,23 @@ async function tick(tickId: string): Promise<number> {
   const fulfilledOrCancelledHashes = outcome.fulfilledOrCancelledHashes;
 
   try {
-    for (const contractAddress of await applyCollectionsCreated(deduplicatedEvents, CHAIN)) {
-      affectedContracts.add(contractAddress);
-    }
+    const created = await applyCollectionsCreated(deduplicatedEvents, CHAIN);
+    for (const contractAddress of created) affectedContracts.add(contractAddress);
+    await catchUpCollectionTransfers(created);
   } catch (err) {
     await saveCursor({ lastBlock: cursor.lastBlock }, CHAIN);
     tlog.error(
       { err, fromBlock, toBlock, rewoundTo: cursor.lastBlock.toString() },
-      "Writing new collections failed, so the range is left to be read again",
+      "Writing new collections or their transfers failed, so the range is left to be read again",
     );
     throw err;
   }
 
-  const ctx = { affectedContracts };
   for (const fetch of fetches) {
     if (!fetch.source.apply) continue;
-    await fetch.source.apply(fetch.events, ctx);
+    const createdCollections = new Set<string>();
+    await fetch.source.apply(fetch.events, { affectedContracts, createdCollections });
+    await catchUpCollectionTransfers(createdCollections);
     if (fetch.cursorTo != null) {
       await saveSourceCursor(CHAIN, fetch.source.id, BigInt(fetch.cursorTo));
     }
