@@ -34,9 +34,15 @@ describe("action intent routes", () => {
     expect(res.status).toBe(400);
   });
 
-  test("an empty allowlist is a 400", async () => {
-    const res = await app().request("/drop-allowlist", post({ owner: ME, collection: ME, addresses: [] }));
+  test("a drop claim of 0 tokens is a 400 with the reason", async () => {
+    const res = await app().request("/drop-claim", post({ claimer: ME, collection: ME, quantity: "0" }));
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "quantity must be between 1 and 50" });
+  });
+
+  test("the old drop allowlist route is gone", async () => {
+    const res = await app().request("/drop-allowlist", post({ owner: ME, collection: ME, addresses: [ME] }));
+    expect(res.status).toBe(404);
   });
 
   test("an unknown wallet action is a 400", async () => {

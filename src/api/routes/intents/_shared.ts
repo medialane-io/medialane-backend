@@ -277,8 +277,7 @@ export const genesisMintSchema = z.object({ owner: starknetAddress, recipient: s
 
 export const popClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, proof: z.array(felt) });
 export const popBurnSchema = z.object({ owner: starknetAddress, collection: starknetAddress, tokenId: uintString });
-export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress });
-export const dropAllowlistSchema = z.object({ owner: starknetAddress, collection: starknetAddress, addresses: z.array(starknetAddress).min(1) });
+export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, quantity: uintString, proof: z.array(felt).optional() });
 
 export const walletManageSchema = z.object({
   owner: starknetAddress,
@@ -299,10 +298,10 @@ export const fundingTransferSchema = z.object({ owner: starknetAddress, asset: s
 export const dropManageSchema = z.object({
   owner: starknetAddress,
   collection: starknetAddress,
-  action: z.enum(["allowlist_enabled", "allowlist_add", "allowlist_remove", "withdraw_payments"]),
-  enabled: z.boolean().optional(),
-  addresses: z.array(starknetAddress).optional(),
-  address: starknetAddress.optional(),
+  action: z.enum(["issue", "set_allowlist_root"]),
+  recipient: starknetAddress.optional(),
+  quantity: uintString.optional(),
+  root: felt.optional(),
 });
 export const popManageSchema = z.object({
   owner: starknetAddress,

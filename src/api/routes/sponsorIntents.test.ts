@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { composeIntentCalls, type SponsorIntentDeps, type SponsorIntentRow } from "./sponsorIntents.js";
+import { getCoordinates, getTokenBySymbol, normalizeAddress as norm } from "@medialane/sdk";
+import { composeIntentCalls, sponsorableProtocol, type SponsorIntentDeps, type SponsorIntentRow } from "./sponsorIntents.js";
 
 const W = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const X = "0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321";
@@ -108,5 +109,16 @@ describe("known contracts", () => {
     })(["0x00000000000000000000000000000000000000000000000000000000000000aa", indexed, W], W);
     expect(known.size).toBe(3);
     expect(read).toEqual([]);
+  });
+});
+
+describe("protocol contracts the paymaster sponsors", () => {
+  test("include the drop factory, the drop collection class and the payment tokens", () => {
+    const { addresses, classHashes } = sponsorableProtocol();
+    const c = getCoordinates("STARKNET");
+    expect(addresses.map((a) => norm("STARKNET", a))).toContain(norm("STARKNET", c.dropFactory!));
+    expect(addresses.map((a) => norm("STARKNET", a))).toContain(norm("STARKNET", getTokenBySymbol("USDC")!.address));
+    expect(classHashes.map((h) => BigInt(h))).toContain(BigInt(c.dropCollectionClassHash!));
+    expect(classHashes.map((h) => BigInt(h))).not.toContain(BigInt(c.mediaWalletClassHash!));
   });
 });
