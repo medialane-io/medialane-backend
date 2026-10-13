@@ -1,5 +1,5 @@
 import prisma from "../../db/client.js";
-import type { Chain, Collection, Order, Token, TokenStandard } from "@prisma/client";
+import { Prisma, type Chain, type Collection, type Order, type Token, type TokenStandard } from "@prisma/client";
 import type { RawCollectionRow, RawOrderRow, RawTokenRow } from "./rawTypes.js";
 
 export type SerializableOrder = Order | RawOrderRow;
@@ -80,8 +80,26 @@ type SerializableCollectionProfile = {
   description: string | null;
 } | null;
 
+export async function batchFallbackImages(
+  collections: { chain: Chain; contractAddress: string; image: string | null }[],
+  db: Pick<typeof prisma, "$queryRaw"> = prisma,
+): Promise<Map<string, string>> {
+  const missing = collections.filter((c) => !c.image);
+  if (missing.length === 0) return new Map();
+  const keys = missing.map((c) => Prisma.sql`(${c.chain}::"Chain", ${c.contractAddress})`);
+  const rows = await db.$queryRaw<{ contractAddress: string; image: string }[]>`
+    SELECT DISTINCT ON (chain, "contractAddress") "contractAddress", image
+    FROM "Token"
+    WHERE (chain, "contractAddress") IN (${Prisma.join(keys)})
+      AND "metadataStatus" = 'FETCHED' AND image IS NOT NULL AND "isHidden" = false
+    ORDER BY chain, "contractAddress", "tokenId" ASC
+  `;
+  return new Map(rows.map((r) => [r.contractAddress, r.image]));
+}
+
 export function serializeCollection(
-  c: (Collection | RawCollectionRow) & { profile?: SerializableCollectionProfile }
+  c: (Collection | RawCollectionRow) & { profile?: SerializableCollectionProfile },
+  fallbackImage?: string | null,
 ) {
   const profile = c.profile ?? null;
   return {
@@ -92,7 +110,7 @@ export function serializeCollection(
     name: c.name,
     symbol: c.symbol,
     description: c.description,
-    image: c.image,
+    image: c.image ?? fallbackImage ?? null,
     owner: c.owner ?? null,
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,
@@ -118,6 +136,14 @@ export function serializeCollection(
         }
       : null,
   };
+}
+
+export async function serializeCollections<T extends (Collection | RawCollectionRow) & { profile?: SerializableCollectionProfile }>(
+  rows: T[],
+  db: Pick<typeof prisma, "$queryRaw"> = prisma,
+) {
+  const fallbacks = await batchFallbackImages(rows, db);
+  return rows.map((row) => serializeCollection(row, fallbacks.get(row.contractAddress)));
 }
 
 export function serializeToken(

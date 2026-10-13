@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { composeAmountDisplay, batchOrdersByToken, serializeCreatorProfile } from "./serialize.js";
+import { composeAmountDisplay, batchOrdersByToken, batchFallbackImages, serializeCollection, serializeCollections, serializeCreatorProfile } from "./serialize.js";
 
 describe("composeAmountDisplay", () => {
   test("joins value and currency into the API display shape", () => {
@@ -79,5 +79,45 @@ describe("serializeCreatorProfile", () => {
       createdAt,
       updatedAt,
     });
+  });
+});
+
+describe("collection image fallback", () => {
+  const collection = {
+    id: "c1", chain: "STARKNET", contractAddress: "0xabc", collectionId: null, name: "C", symbol: "C",
+    description: null, image: null, owner: null, startBlock: 1n, metadataStatus: "FETCHED", standard: "ERC721",
+    isFeatured: false, isHidden: false, service: "external-erc721", claimedBy: null, floorPrice: null,
+    floorCurrency: null, totalVolume: null, volumeCurrency: null, holderCount: 0, totalSupply: 0,
+    createdAt: new Date(0), updatedAt: new Date(0),
+  } as never;
+
+  test("shows the first token's image only when the collection has none, and never its description", () => {
+    expect(serializeCollection(collection, "ipfs://token")).toMatchObject({ image: "ipfs://token", description: null });
+    expect(serializeCollection({ ...(collection as object), image: "ipfs://own" } as never, "ipfs://token").image).toBe("ipfs://own");
+    expect(serializeCollection(collection).image).toBeNull();
+  });
+
+  test("looks up first-token images in one query, only for collections without an image", async () => {
+    const queryRaw = mock(async () => [{ contractAddress: "0xabc", image: "ipfs://token" }]);
+    const images = await batchFallbackImages(
+      [{ chain: "STARKNET", contractAddress: "0xabc", image: null }, { chain: "STARKNET", contractAddress: "0xdef", image: "ipfs://own" }] as never,
+      { $queryRaw: queryRaw as never },
+    );
+    expect(images.get("0xabc")).toBe("ipfs://token");
+    expect(images.has("0xdef")).toBe(false);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  test("a list of collections gets each one's fallback, not its position in the list", async () => {
+    const queryRaw = mock(async () => [{ contractAddress: "0xabc", image: "ipfs://token" }]);
+    const rows = [collection, { ...(collection as object), contractAddress: "0xnone" }] as never[];
+    const data = await serializeCollections(rows, { $queryRaw: queryRaw as never });
+    expect(data.map((d) => d.image)).toEqual(["ipfs://token", null]);
+  });
+
+  test("skips the query when every collection has its own image", async () => {
+    const queryRaw = mock(async () => []);
+    await batchFallbackImages([{ chain: "STARKNET", contractAddress: "0xdef", image: "ipfs://own" }] as never, { $queryRaw: queryRaw as never });
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 });
