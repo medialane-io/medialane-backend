@@ -26,15 +26,6 @@ export interface NewCollection {
   externalLink?: string;
 }
 
-export function collectionMetadata(choice: NewCollection, imageUri: string | null, owner: string): Record<string, unknown> {
-  return {
-    name: choice.name,
-    ...(choice.description ? { description: choice.description } : {}),
-    ...(imageUri ? { image: imageUri } : {}),
-    external_link: choice.externalLink ?? `https://medialane.io/account/${owner}`,
-  };
-}
-
 export function collectionImage(choice: { kind: string; image?: FileRef }, otherNames: string[]): FileRef | null {
   if (choice.kind !== "new" || !choice.image) return null;
   return otherNames.includes(choice.image.name) ? null : choice.image;

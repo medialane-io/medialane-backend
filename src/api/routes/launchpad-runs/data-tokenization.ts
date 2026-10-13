@@ -19,7 +19,7 @@ import {
   uploadedUri,
   type DataTokenizationProgress,
 } from "../../../launchpad/services/data-tokenization/progress.js";
-import { collectionMetadata } from "../../../launchpad/services/collection-metadata.js";
+import { buildCollectionMetadata } from "@medialane/sdk";
 import { registryMintCalls, type RegistryCall } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { buildSponsoredInvoke } from "../paymaster.js";
 import { indexParam, ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
@@ -96,7 +96,15 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
         if (!baseUri) {
           const imageUri = choice.image ? uploadedUri(active.progress, choice.image.name) : null;
           if (choice.image && !imageUri) throw new NotReady("The collection image is not uploaded yet");
-          baseUri = await ex().pinJson(collectionMetadata(choice, imageUri, normalizeAddress("STARKNET", owner)));
+          baseUri = await ex().pinJson(
+            buildCollectionMetadata({
+              name: choice.name,
+              description: choice.description,
+              image: imageUri,
+              externalLink: choice.externalLink,
+              owner: normalizeAddress("STARKNET", owner),
+            }),
+          );
           active.progress.collection = { ...active.progress.collection, baseUri };
           await record(active, ["collection"], active.progress.collection);
         }

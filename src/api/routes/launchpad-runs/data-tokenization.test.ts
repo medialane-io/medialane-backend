@@ -28,7 +28,12 @@ function world(options: { known?: Record<string, string>; deploy?: "fail" } = {}
   const execution: ExecutionDeps = {
     signedUpload: async ({ name }) => (issued.push(name), `https://uploads.test/${name}`),
     pinnedFile: async (cid) => pins.get(cid) ?? null,
-    pinJson: async (data) => (pinned.push(String(data.name)), pinnedData.push(data), `ipfs://meta-${String(data.name)}`),
+    pinJson: async (pin) => {
+      const data = pin as Record<string, unknown>;
+      pinned.push(String(data.name));
+      pinnedData.push(data);
+      return `ipfs://meta-${String(data.name)}`;
+    },
     mintCalls: { isCollectionOwner: async () => true },
     registry: () => REGISTRY,
     receipt: async () => ({ status: receipt, events }),

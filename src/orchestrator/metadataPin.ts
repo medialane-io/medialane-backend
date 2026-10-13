@@ -13,7 +13,7 @@ function getPinata(): PinataSDK {
   return _pinata;
 }
 
-export async function uploadJson(data: Record<string, unknown>): Promise<string> {
+export async function uploadJson(data: object): Promise<string> {
   const upload = await getPinata().upload.public.json(data);
   return `ipfs://${upload.cid}`;
 }

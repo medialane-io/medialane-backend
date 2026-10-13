@@ -16,7 +16,7 @@ import {
   certificateCollectionImage,
   certificateCollectionImageUri,
 } from "../../../launchpad/services/certificate-emission/progress.js";
-import { collectionMetadata } from "../../../launchpad/services/collection-metadata.js";
+import { buildCollectionMetadata } from "@medialane/sdk";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
 import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
@@ -81,7 +81,15 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         if (!baseUri) {
           const imageUri = certificateCollectionImageUri(active.spec, active.progress);
           if (choice.image && !imageUri) throw new NotReady("The collection image is not uploaded yet");
-          baseUri = await ex().pinJson(collectionMetadata(choice, imageUri, normalizeAddress("STARKNET", owner)));
+          baseUri = await ex().pinJson(
+            buildCollectionMetadata({
+              name: choice.name,
+              description: choice.description,
+              image: imageUri,
+              externalLink: choice.externalLink,
+              owner: normalizeAddress("STARKNET", owner),
+            }),
+          );
           active.progress.collection = { ...active.progress.collection, baseUri };
           await record(active, ["collection"], active.progress.collection);
         }
