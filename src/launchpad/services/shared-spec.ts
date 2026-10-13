@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MAX_FILE_BYTES } from "../steps.js";
+import { newCollectionFields } from "./collection-metadata.js";
 
 export const fileRef = z.object({
   name: z.string().min(1).max(255),
@@ -19,7 +20,7 @@ export const terms = z.object({
 
 export const collection = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing"), collectionId: z.string().min(1), contractAddress: z.string().min(1) }),
-  z.object({ kind: z.literal("new"), name: z.string().min(1).max(80), symbol: z.string().min(1).max(12) }),
+  z.object({ kind: z.literal("new"), ...newCollectionFields }),
 ]);
 
 export interface PlanContext {

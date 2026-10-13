@@ -1,3 +1,4 @@
+import { normalizeAddress } from "../../../utils/starknet.js";
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
@@ -18,6 +19,7 @@ function world(options: { known?: Record<string, string>; deploy?: "fail" } = {}
   let receipt: ReceiptStatus = "PENDING";
   let events: ReceiptEvent[] = [];
   const pinned: string[] = [];
+  const pinnedData: Record<string, unknown>[] = [];
   const issued: string[] = [];
   const pins = new Map<string, { size: number; keyvalues: Record<string, string> }>();
   const executed: unknown[] = [];
@@ -26,7 +28,7 @@ function world(options: { known?: Record<string, string>; deploy?: "fail" } = {}
   const execution: ExecutionDeps = {
     signedUpload: async ({ name }) => (issued.push(name), `https://uploads.test/${name}`),
     pinnedFile: async (cid) => pins.get(cid) ?? null,
-    pinJson: async (data) => (pinned.push(String(data.name)), `ipfs://meta-${String(data.name)}`),
+    pinJson: async (data) => (pinned.push(String(data.name)), pinnedData.push(data), `ipfs://meta-${String(data.name)}`),
     mintCalls: { isCollectionOwner: async () => true },
     registry: () => REGISTRY,
     receipt: async () => ({ status: receipt, events }),
@@ -77,7 +79,7 @@ function world(options: { known?: Record<string, string>; deploy?: "fail" } = {}
   app.route("/", createRunRoutes({ store, priceOf: async () => 2, execution, dataTokenizationGuests }));
 
   return {
-    app, runs, balances, refunds, pinned, issued, pins, executed, registered,
+    app, runs, balances, refunds, pinned, pinnedData, issued, pins, executed, registered,
     failExecute: (err: Error | null) => {
       executeError = err;
     },
@@ -271,13 +273,15 @@ describe("a run that creates its own collection", () => {
     return w;
   }
 
-  test("the collection comes first, then the id from the registry's event unlocks the batches", async () => {
+  test("the collection comes after the uploads, then the id from the registry's event unlocks the batches", async () => {
     const w = await paidNewCollectionRun();
     const first = (await (await w.app.request("/run1")).json()) as { data: { next: { kind: string } } };
-    expect(first.data.next.kind).toBe("collection");
+    expect(first.data.next.kind).toBe("upload");
 
     await upload(w, "r.pdf", 5);
     await upload(w, "c.png", 3);
+    const afterUploads = (await (await w.app.request("/run1")).json()) as { data: { next: { kind: string } } };
+    expect(afterUploads.data.next.kind).toBe("collection");
     await json(w.app, "POST", "/run1/items/0/metadata", { userAddress: OWNER });
     expect((await json(w.app, "POST", "/run1/batches/0/build", { userAddress: OWNER })).status).toBe(409);
 
@@ -446,5 +450,55 @@ describe("minting to guests", () => {
     const w = await readyBatch();
     expect((await submitBatch(w)).status).toBe(200);
     expect(mintedTo(w).map((m) => BigInt(m.Calldata[2]!))).toEqual([BigInt(OWNER)]);
+  });
+});
+
+describe("a new collection's metadata", () => {
+  const collectionSpec = {
+    ...spec,
+    collection: {
+      kind: "new", name: "Archive", symbol: "ARC", description: "All my work",
+      image: { name: "cover.png", size: 4, type: "image/png" }, externalLink: "https://me.example",
+    },
+  };
+
+  async function run(body: unknown) {
+    const w = world();
+    await json(w.app, "POST", "/", { service: "data-tokenization-erc721", spec: body });
+    expect((await json(w.app, "POST", "/run1/checkout", { method: "credits" })).status).toBe(200);
+    return w;
+  }
+
+  test("is the app's standard JSON with the uploaded image, pinned once as the collection URI", async () => {
+    const w = await run(collectionSpec);
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(409);
+    await upload(w, "r.pdf", 5);
+    await upload(w, "c.png", 3);
+    await upload(w, "cover.png", 4);
+    const pinsBefore = w.pinnedData.length;
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(200);
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(200);
+    expect(w.pinnedData.length).toBe(pinsBefore + 1);
+    expect(w.pinnedData.at(-1)).toEqual({
+      name: "Archive",
+      description: "All my work",
+      image: (w.runs[0]!.progress as { files: Record<string, string> }).files["cover.png"],
+      external_link: "https://me.example",
+    });
+  });
+
+  test("without the new fields links the collection to the owner's account", async () => {
+    const w = await run({ ...spec, collection: { kind: "new", name: "Archive", symbol: "ARC" } });
+    await upload(w, "r.pdf", 5);
+    await upload(w, "c.png", 3);
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(200);
+    expect(w.pinnedData.at(-1)).toEqual({ name: "Archive", external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}` });
+  });
+
+  test("the collection image is charged like any file", async () => {
+    const w = await run(collectionSpec);
+    const before = w.runs[0]!.creditsSpent;
+    expect((await upload(w, "cover.png", 4)).status).toBe(201);
+    expect(w.runs[0]!.creditsSpent).toBe(before + 2);
   });
 });

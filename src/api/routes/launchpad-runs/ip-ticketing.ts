@@ -13,7 +13,10 @@ import {
   readProgress,
   ticketMetadata,
   type IpTicketingProgress,
+  collectionImageUri,
+  ticketCollectionImage,
 } from "../../../launchpad/services/ip-ticketing/progress.js";
+import { collectionMetadata } from "../../../launchpad/services/collection-metadata.js";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
 import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
@@ -90,7 +93,9 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         if (choice.kind !== "new") throw new NotReady("This run uses an existing collection");
         let baseUri = active.progress.collection?.baseUri;
         if (!baseUri) {
-          baseUri = await ex().pinJson({ name: choice.name, external_link: "https://medialane.io" });
+          const imageUri = collectionImageUri(active.spec, active.progress);
+          if (choice.image && !imageUri) throw new NotReady("The collection image is not uploaded yet");
+          baseUri = await ex().pinJson(collectionMetadata(choice, imageUri, normalizeAddress("STARKNET", owner)));
           active.progress.collection = { ...active.progress.collection, baseUri };
           await record(active, ["collection"], active.progress.collection);
         }
@@ -189,9 +194,14 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
     },
     sponsored,
     files: {
-      expected: (active, name) => (active.spec.artwork?.name === name ? active.spec.artwork : null),
-      uri: (active) => pinnedValue(active.progress.artwork),
-      path: () => ["artwork"],
+      expected: (active, name) => {
+        if (active.spec.artwork?.name === name) return active.spec.artwork;
+        const image = ticketCollectionImage(active.spec);
+        return image?.name === name ? image : null;
+      },
+      uri: (active, name) =>
+        active.spec.artwork?.name === name ? pinnedValue(active.progress.artwork) : pinnedValue(active.progress.collectionImage),
+      path: (active, name) => (active.spec.artwork?.name === name ? ["artwork"] : ["collectionImage"]),
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {

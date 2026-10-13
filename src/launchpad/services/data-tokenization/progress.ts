@@ -83,6 +83,8 @@ export function expectedFiles(spec: DataTokenizationSpec): Map<string, ExpectedF
     files.set(item.file.name, { size: item.file.size, type: item.file.type });
     if (item.image) files.set(item.image.name, { size: item.image.size, type: item.image.type });
   }
+  const image = spec.collection.kind === "new" ? spec.collection.image : undefined;
+  if (image && !files.has(image.name)) files.set(image.name, { size: image.size, type: image.type });
   return files;
 }
 
@@ -157,12 +159,12 @@ export function itemMetadata(
 }
 
 export function nextStep(spec: DataTokenizationSpec, progress: DataTokenizationProgress): NextStep {
+  const missing = [...expectedFiles(spec).keys()].filter((name) => !uploadedUri(progress, name));
+  if (missing.length > 0) return { kind: "upload", files: missing };
+
   if (spec.collection.kind === "new" && !progress.collection?.collectionId) {
     return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };
   }
-
-  const missing = [...expectedFiles(spec).keys()].filter((name) => !uploadedUri(progress, name));
-  if (missing.length > 0) return { kind: "upload", files: missing };
 
   const unpinned = spec.items.map((_, i) => i).filter((i) => !pinnedValue(progress.tokenUris[String(i)]));
   if (unpinned.length > 0) return { kind: "metadata", items: unpinned };

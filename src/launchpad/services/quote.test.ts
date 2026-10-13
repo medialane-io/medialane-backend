@@ -90,6 +90,15 @@ describe("data tokenization quote", () => {
       "paymaster:invoke-execute": 1,
     });
   });
+  test("a new collection's image is charged as one more file", async () => {
+    const run = parseRunSpec("data-tokenization-erc721", {
+      collection: { kind: "new", name: "Archive", symbol: "ARC", image: { name: "logo.png", size: 10, type: "image/png" } },
+      terms,
+      items: items.slice(0, 1),
+    });
+    const quote = await quoteRun(run, { priceOf, countProvisioned: async () => 0 });
+    expect(byAction(quote.lines)["metadata:upload-file"]).toBe(3);
+  });
 });
 
 describe("ip ticketing quote", () => {
@@ -115,5 +124,16 @@ describe("ip ticketing quote", () => {
       "paymaster:invoke-execute": 2,
     });
     expect(quote.total).toBe(2 + 2 + 5 + 5 + 5 + 5 + 3 * 5 + 2 * 1 + 2 * 2);
+  });
+  test("a new collection's image is charged as one more file", async () => {
+    const run = parseRunSpec("ip-ticketing", {
+      collection: { kind: "new", name: "Gala", symbol: "GALA", image: { name: "logo.png", size: 10, type: "image/png" } },
+      terms: { ...terms, transferable: "Allowed" },
+      name: "Ticket",
+      artwork: { name: "a.png", size: 10, type: "image/png" },
+      guests: ["a@x.com"],
+    });
+    const quote = await quoteRun(run, { priceOf, countProvisioned: async () => 1 });
+    expect(byAction(quote.lines)["metadata:upload-file"]).toBe(2);
   });
 });

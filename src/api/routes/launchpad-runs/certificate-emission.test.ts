@@ -1,3 +1,4 @@
+import { normalizeAddress } from "../../../utils/starknet.js";
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
@@ -354,10 +355,9 @@ describe("a run that creates its own collection", () => {
     return w;
   }
 
-  test("the collection is created after the certificate's metadata, with it as the collection URI", async () => {
+  test("the collection is created after the uploads and metadata, with its own metadata as the collection URI", async () => {
     const w = await newCollectionRun();
     expect((await nextOf(w)).kind).toBe("upload");
-    expect((await sponsor(w, "collection")).status).toBe(409);
     await uploadArtwork(w);
     await metadata(w);
     expect((await nextOf(w)).kind).toBe("collection");
@@ -368,7 +368,8 @@ describe("a run that creates its own collection", () => {
     const [create] = request.invoke.typedData.message.Calls;
     expect(BigInt(create!.To)).toBe(BigInt(POP_FACTORY));
     expect(BigInt(create!.Selector)).toBe(BigInt(hash.getSelectorFromName("create_collection")));
-    const uri = encodeByteArray("ipfs://meta-1").map((felt) => BigInt(felt));
+    expect(w.pinned.at(-1)).toEqual({ name: "Cohort 1", external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}` });
+    const uri = encodeByteArray(`ipfs://meta-${w.pinned.length}`).map((felt) => BigInt(felt));
     expect(create!.Calldata.slice(-1 - uri.length, -1).map((felt) => BigInt(felt))).toEqual(uri);
     expect(BigInt(create!.Calldata.at(-1)!)).toBe(0n);
     expect((await sponsor(w, "collection")).status).toBe(409);
@@ -381,7 +382,7 @@ describe("a run that creates its own collection", () => {
     expect((await nextOf(w)).kind).toBe("wallets");
   });
 
-  test("the batch issues onto the new collection without a per-token URI", async () => {
+  test("the batch issues each certificate onto the new collection with the certificate's own URI", async () => {
     const w = await newCollectionRun();
     await uploadArtwork(w);
     await metadata(w);
@@ -393,11 +394,60 @@ describe("a run that creates its own collection", () => {
     const request = w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { To: string; Calldata: string[] }[] } } } };
     const [issue] = request.invoke.typedData.message.Calls;
     expect(BigInt(issue!.To)).toBe(BigInt(NEW_COLLECTION));
-    expect(issue!.Calldata.slice(1).map((felt) => BigInt(felt))).toEqual(encodeByteArray("").map((felt) => BigInt(felt)));
+    expect(issue!.Calldata.slice(1).map((felt) => BigInt(felt))).toEqual(encodeByteArray("ipfs://meta-1").map((felt) => BigInt(felt)));
   });
 
   test("a run on an existing collection has no collection step", async () => {
     const w = await paid();
     expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(409);
+  });
+});
+
+describe("a new certificate collection's metadata", () => {
+  const created: ReceiptEvent = {
+    from_address: POP_FACTORY,
+    keys: [COLLECTION_CREATED_SELECTOR, "0x2a", "0x0", OWNER],
+    data: [NEW_COLLECTION, "0x0", "0x0", "0x0"],
+  };
+  const issuedUris = (w: World) =>
+    (w.executed.at(-1) as { invoke: { typedData: { message: { Calls: { Calldata: string[] }[] } } } }).invoke.typedData.message.Calls.map(
+      (call) => call.Calldata.slice(1).map((felt) => BigInt(felt)),
+    );
+
+  async function newRun(collection: Record<string, unknown>) {
+    const w = world();
+    await json(w.app, "POST", "/", { service: "certificate-emission", spec: { ...spec, collection } });
+    await json(w.app, "POST", "/run1/checkout", { method: "credits" });
+    await uploadArtwork(w);
+    await metadata(w);
+    return w;
+  }
+
+  test("is the collection's standard JSON, not the certificate's, and every certificate carries its own URI", async () => {
+    const w = await newRun({ kind: "new", name: "Cohort 1", symbol: "C1", description: "Our first cohort" });
+    expect((await sponsor(w, "collection")).status).toBe(200);
+    expect(w.pinned.at(-1)).toEqual({
+      name: "Cohort 1",
+      description: "Our first cohort",
+      external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}`,
+    });
+    w.setReceipt("SUCCEEDED", [created]);
+    await json(w.app, "POST", "/run1/collection/confirm");
+    for (const guest of spec.guests) await json(w.app, "POST", "/run1/recipients", { recipient: guest });
+    w.setReceipt("PENDING");
+    expect((await sponsor(w, "batches/0")).status).toBe(200);
+    const tokenUri = (w.runs[0]!.progress as { tokenUri: string }).tokenUri;
+    for (const uri of issuedUris(w)) expect(uri).toEqual(encodeByteArray(tokenUri).map((felt) => BigInt(felt)));
+  });
+
+  test("a collection created the old way keeps issuing with the collection URI", async () => {
+    const w = await newRun({ kind: "new", name: "Cohort 1", symbol: "C1" });
+    w.runs[0]!.progress = {
+      ...(w.runs[0]!.progress as object),
+      collection: { tx: { txHash: "0x1", status: "SUCCEEDED" }, address: NEW_COLLECTION },
+    };
+    for (const guest of spec.guests) await json(w.app, "POST", "/run1/recipients", { recipient: guest });
+    expect((await sponsor(w, "batches/0")).status).toBe(200);
+    for (const uri of issuedUris(w)) expect(uri).toEqual(encodeByteArray("").map((felt) => BigInt(felt)));
   });
 });

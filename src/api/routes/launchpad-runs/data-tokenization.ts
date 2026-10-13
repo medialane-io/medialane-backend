@@ -19,6 +19,7 @@ import {
   uploadedUri,
   type DataTokenizationProgress,
 } from "../../../launchpad/services/data-tokenization/progress.js";
+import { collectionMetadata } from "../../../launchpad/services/collection-metadata.js";
 import { registryMintCalls, type RegistryCall } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { buildSponsoredInvoke } from "../paymaster.js";
 import { indexParam, ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
@@ -88,12 +89,14 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
       path: () => ["collection", "tx"],
       credits: () => stepCredits(SERVICE, "collection", 0, ctx.priceOf),
       open: (active) => !active.progress.collection?.collectionId && canSubmit(active.progress.collection?.tx),
-      async calls(active) {
+      async calls(active, _index, owner) {
         const choice = active.spec.collection;
         if (choice.kind !== "new") throw new NotReady("This run uses an existing collection");
         let baseUri = active.progress.collection?.baseUri;
         if (!baseUri) {
-          baseUri = await ex().pinJson({ name: choice.name, external_link: "https://medialane.io" });
+          const imageUri = choice.image ? uploadedUri(active.progress, choice.image.name) : null;
+          if (choice.image && !imageUri) throw new NotReady("The collection image is not uploaded yet");
+          baseUri = await ex().pinJson(collectionMetadata(choice, imageUri, normalizeAddress("STARKNET", owner)));
           active.progress.collection = { ...active.progress.collection, baseUri };
           await record(active, ["collection"], active.progress.collection);
         }
@@ -154,7 +157,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
     files: {
       expected: (active, name) => expectedFile(active.spec, name),
       uri: (active, name) => uploadedUri(active.progress, name),
-      path: (name) => ["files", name],
+      path: (_active, name) => ["files", name],
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {

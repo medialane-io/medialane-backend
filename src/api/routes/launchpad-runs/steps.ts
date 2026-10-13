@@ -35,7 +35,7 @@ export interface SponsoredStep<A> {
 export interface RunFiles<A> {
   expected(active: A, name: string): { size: number; type: string } | null;
   uri(active: A, name: string): string | null;
-  path(name: string): string[];
+  path(active: A, name: string): string[];
   credits(): Promise<number>;
 }
 
@@ -252,7 +252,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     }
 
     const credits = await service.files.credits();
-    const path = service.files.path(name);
+    const path = service.files.path(active, name);
     if (!(await ctx.store.reserve({ id: active.run.id, apiCreditsId: active.apiCreditsId, credits, path }))) {
       return c.json({ error: `${name} is already uploaded` }, 409);
     }
