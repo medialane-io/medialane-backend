@@ -2,10 +2,12 @@ import { buildAssetMetadata } from "@medialane/sdk";
 import { RUN_BATCH_SIZE } from "../../steps.js";
 import { canSubmit, isInFlight, pinnedValue, type Pinned, type StepState } from "../data-tokenization/progress.js";
 import type { IpTicketingSpec } from "./definition.js";
+import { collectionImage, type FileRef } from "../collection-metadata.js";
 
 export interface IpTicketingProgress {
   collection?: { baseUri?: string; tx?: StepState; address?: string };
   artwork?: Pinned;
+  collectionImage?: Pinned;
   tokenUri?: Pinned;
   tier?: { tx?: StepState; ticketId?: string };
   wallets: Record<string, Pinned>;
@@ -71,11 +73,25 @@ export function ticketMetadata(spec: IpTicketingSpec, progress: IpTicketingProgr
   });
 }
 
+export function ticketCollectionImage(spec: IpTicketingSpec): FileRef | null {
+  return collectionImage(spec.collection, spec.artwork ? [spec.artwork.name] : []);
+}
+
+export function collectionImageUri(spec: IpTicketingSpec, progress: IpTicketingProgress): string | null {
+  if (spec.collection.kind !== "new" || !spec.collection.image) return null;
+  if (spec.artwork?.name === spec.collection.image.name) return pinnedValue(progress.artwork);
+  return pinnedValue(progress.collectionImage);
+}
+
 export function nextStep(spec: IpTicketingSpec, progress: IpTicketingProgress): NextStep {
+  const missing: string[] = [];
+  if (spec.artwork && !pinnedValue(progress.artwork)) missing.push(spec.artwork.name);
+  const image = ticketCollectionImage(spec);
+  if (image && !pinnedValue(progress.collectionImage)) missing.push(image.name);
+  if (missing.length > 0) return { kind: "upload", files: missing };
   if (spec.collection.kind === "new" && !progress.collection?.address) {
     return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };
   }
-  if (spec.artwork && !pinnedValue(progress.artwork)) return { kind: "upload", files: [spec.artwork.name] };
   if (!pinnedValue(progress.tokenUri)) return { kind: "ticket-metadata" };
   if (!progress.tier?.ticketId) return isInFlight(progress.tier?.tx) ? { kind: "wait-tier" } : { kind: "tier" };
   if (spec.guests.some((guest) => !pinnedValue(progress.wallets[guest]))) return { kind: "wallets" };

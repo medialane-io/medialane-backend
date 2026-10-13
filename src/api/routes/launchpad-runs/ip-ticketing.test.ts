@@ -1,3 +1,4 @@
+import { normalizeAddress } from "../../../utils/starknet.js";
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
@@ -394,8 +395,10 @@ describe("a run that creates its own collection", () => {
     return w;
   }
 
-  test("the collection comes first, and its address from the factory's event unlocks the rest", async () => {
+  test("the collection comes after the artwork, and its address from the factory's event unlocks the rest", async () => {
     const w = await newCollectionRun();
+    expect((await nextOf(w)).kind).toBe("upload");
+    await uploadArtwork(w);
     expect((await nextOf(w)).kind).toBe("collection");
     expect((await sponsor(w, "tier")).status).toBe(409);
 
@@ -407,7 +410,7 @@ describe("a run that creates its own collection", () => {
     const confirmed = await json(w.app, "POST", "/run1/collection/confirm");
     const { data } = (await confirmed.json()) as { data: { collectionAddress: string } };
     expect(BigInt(data.collectionAddress)).toBe(BigInt(NEW_COLLECTION));
-    expect((await nextOf(w)).kind).toBe("upload");
+    expect((await nextOf(w)).kind).toBe("ticket-metadata");
   });
 
   test("the ticket type is created on the new collection", async () => {
@@ -425,5 +428,31 @@ describe("a run that creates its own collection", () => {
   test("a run on an existing collection has no collection step", async () => {
     const w = await paid();
     expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(409);
+  });
+});
+
+describe("a new event collection's metadata", () => {
+  test("is the app's standard JSON with the uploaded collection image", async () => {
+    const w = world();
+    await json(w.app, "POST", "/", {
+      service: "ip-ticketing",
+      spec: {
+        ...spec,
+        collection: { kind: "new", name: "Gala", symbol: "GALA", description: "Gala night", image: { name: "logo.png", size: 4, type: "image/png" } },
+      },
+    });
+    await json(w.app, "POST", "/run1/checkout", { method: "credits" });
+    await uploadArtwork(w);
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(409);
+    expect((await json(w.app, "POST", "/run1/files/upload-url", { name: "logo.png" })).status).toBe(201);
+    w.pins.set("bafy-logo-cid", { size: 4, keyvalues: {} });
+    expect((await json(w.app, "POST", "/run1/files/uploaded", { name: "logo.png", cid: "bafy-logo-cid" })).status).toBe(201);
+    expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(200);
+    expect(w.pinned.at(-1)).toEqual({
+      name: "Gala",
+      description: "Gala night",
+      image: "ipfs://bafy-logo-cid",
+      external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}`,
+    });
   });
 });

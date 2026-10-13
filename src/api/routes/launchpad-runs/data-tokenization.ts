@@ -157,7 +157,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
     files: {
       expected: (active, name) => expectedFile(active.spec, name),
       uri: (active, name) => uploadedUri(active.progress, name),
-      path: (name) => ["files", name],
+      path: (_active, name) => ["files", name],
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {

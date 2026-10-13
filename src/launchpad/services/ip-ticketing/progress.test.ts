@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ipTicketing } from "./definition.js";
-import { batchGuests, nextStep, readProgress, runInFlight, ticketMetadata } from "./progress.js";
+import { batchGuests, nextStep, readProgress, runInFlight, ticketMetadata, collectionImageUri } from "./progress.js";
 
 const terms = {
   licenseType: "All Rights Reserved", commercialUse: "No", derivatives: "Allowed",
@@ -18,12 +18,28 @@ const parse = (extra: Record<string, unknown> = {}) => ipTicketing.parseSpec({ .
 const progress = (p: Record<string, unknown> = {}) => readProgress(p);
 
 describe("the next step of an IP Ticketing run", () => {
-  test("a new collection comes first, then waits for its transaction", () => {
-    const spec = parse({ collection: { kind: "new", name: "Gala", symbol: "GALA" } });
-    expect(nextStep(spec, progress())).toEqual({ kind: "collection" });
-    expect(nextStep(spec, progress({ collection: { tx: { status: "SUBMITTED", txHash: "0x1" } } }))).toEqual({
+  test("a new collection comes after the uploads, then waits for its transaction", () => {
+    const spec = parse({
+      collection: { kind: "new", name: "Gala", symbol: "GALA", image: { name: "logo.png", size: 4, type: "image/png" } },
+      artwork: { name: "a.png", size: 3, type: "image/png" },
+    });
+    expect(nextStep(spec, progress())).toEqual({ kind: "upload", files: ["a.png", "logo.png"] });
+    expect(nextStep(spec, progress({ artwork: "ipfs://art" }))).toEqual({ kind: "upload", files: ["logo.png"] });
+    const uploaded = { artwork: "ipfs://art", collectionImage: "ipfs://logo" };
+    expect(nextStep(spec, progress(uploaded))).toEqual({ kind: "collection" });
+    expect(nextStep(spec, progress({ ...uploaded, collection: { tx: { status: "SUBMITTED", txHash: "0x1" } } }))).toEqual({
       kind: "wait-collection",
     });
+  });
+
+  test("a collection image named like the artwork is the artwork", () => {
+    const spec = parse({
+      collection: { kind: "new", name: "Gala", symbol: "GALA", image: { name: "a.png", size: 3, type: "image/png" } },
+      artwork: { name: "a.png", size: 3, type: "image/png" },
+    });
+    expect(nextStep(spec, progress())).toEqual({ kind: "upload", files: ["a.png"] });
+    expect(nextStep(spec, progress({ artwork: "ipfs://art" }))).toEqual({ kind: "collection" });
+    expect(collectionImageUri(spec, progress({ artwork: "ipfs://art" }))).toBe("ipfs://art");
   });
 
   test("artwork is uploaded before the ticket's metadata is stored", () => {

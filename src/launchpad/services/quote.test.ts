@@ -125,4 +125,15 @@ describe("ip ticketing quote", () => {
     });
     expect(quote.total).toBe(2 + 2 + 5 + 5 + 5 + 5 + 3 * 5 + 2 * 1 + 2 * 2);
   });
+  test("a new collection's image is charged as one more file", async () => {
+    const run = parseRunSpec("ip-ticketing", {
+      collection: { kind: "new", name: "Gala", symbol: "GALA", image: { name: "logo.png", size: 10, type: "image/png" } },
+      terms: { ...terms, transferable: "Allowed" },
+      name: "Ticket",
+      artwork: { name: "a.png", size: 10, type: "image/png" },
+      guests: ["a@x.com"],
+    });
+    const quote = await quoteRun(run, { priceOf, countProvisioned: async () => 1 });
+    expect(byAction(quote.lines)["metadata:upload-file"]).toBe(2);
+  });
 });
