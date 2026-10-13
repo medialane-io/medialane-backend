@@ -7,6 +7,7 @@ import {
   batchCount,
   emptyProgress,
   expectedFile,
+  expectedFiles,
   itemMetadata,
   mintCount,
   mintsInBatch,
@@ -125,9 +126,9 @@ describe("batches and resume", () => {
 });
 
 describe("runs that create their own collection", () => {
-  test("the collection is the first step and waits while its transaction lands", () => {
+  test("the collection comes after the uploads and waits while its transaction lands", () => {
     const run = parseRunSpec("data-tokenization-erc721", {
-      collection: { kind: "new", name: "Archive", symbol: "ARC" },
+      collection: { kind: "new", name: "Archive", symbol: "ARC", image: { name: "cover.png", size: 9, type: "image/png" } },
       terms: {
         licenseType: "CC BY-SA", commercialUse: "Yes", derivatives: "Share-Alike",
         attribution: "Required", territory: "Worldwide", aiPolicy: "Allowed", royalty: 0,
@@ -136,6 +137,9 @@ describe("runs that create their own collection", () => {
     });
     if (run.service !== "data-tokenization-erc721") throw new Error("unexpected service");
     const progress = emptyProgress();
+    expect(nextStep(run.spec, progress)).toEqual({ kind: "upload", files: ["p.jpg", "cover.png"] });
+
+    progress.files = { "p.jpg": "ipfs://photo", "cover.png": "ipfs://cover" };
     expect(nextStep(run.spec, progress)).toEqual({ kind: "collection" });
 
     progress.collection = { baseUri: "ipfs://c", tx: { txHash: "0x1", status: "SUBMITTED" } };
@@ -145,7 +149,20 @@ describe("runs that create their own collection", () => {
     expect(nextStep(run.spec, progress)).toEqual({ kind: "collection" });
 
     progress.collection = { baseUri: "ipfs://c", tx: { txHash: "0x2", status: "SUCCEEDED" }, collectionId: "9" };
-    expect(nextStep(run.spec, progress).kind).toBe("upload");
+    expect(nextStep(run.spec, progress).kind).toBe("metadata");
+  });
+
+  test("a collection image named like an item's file is that same file", () => {
+    const run = parseRunSpec("data-tokenization-erc721", {
+      collection: { kind: "new", name: "Archive", symbol: "ARC", image: { name: "p.jpg", size: 14, type: "image/jpeg" } },
+      terms: {
+        licenseType: "CC BY-SA", commercialUse: "Yes", derivatives: "Share-Alike",
+        attribution: "Required", territory: "Worldwide", aiPolicy: "Allowed", royalty: 0,
+      },
+      items: [photo],
+    });
+    if (run.service !== "data-tokenization-erc721") throw new Error("unexpected service");
+    expect([...expectedFiles(run.spec).keys()]).toEqual(["p.jpg"]);
   });
 });
 
