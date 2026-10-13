@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fetchJson } from "./fetcher.js";
+import { fetchJson, retryDelayMs } from "./fetcher.js";
 
 function mockFetchOnce(responses: Record<string, Response>) {
   const original = globalThis.fetch;
@@ -90,5 +90,64 @@ describe("fetchJson redirect handling", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("fetchJson rate limiting", () => {
+  function mockFetchSequence(responses: Response[]) {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      const res = responses[calls++];
+      if (!res) throw new Error("Unexpected extra fetch");
+      return res;
+    }) as unknown as typeof fetch;
+    return { restore: () => void (globalThis.fetch = original), calls: () => calls };
+  }
+  const limited = () => new Response("slow down", { status: 429, headers: { "Retry-After": "0" } });
+
+  test("waits and retries when the gateway answers 429", async () => {
+    const mock = mockFetchSequence([limited(), new Response(JSON.stringify({ name: "A" }))]);
+    try {
+      expect(await fetchJson("https://1.1.1.1/rate-limited-once")).toEqual({ name: "A" });
+      expect(mock.calls()).toBe(2);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("gives up after two retries so the next gateway can be tried", async () => {
+    const mock = mockFetchSequence([limited(), limited(), limited()]);
+    try {
+      expect(await fetchJson("https://1.1.1.1/rate-limited")).toBeNull();
+      expect(mock.calls()).toBe(3);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("does not retry other errors", async () => {
+    const mock = mockFetchSequence([new Response("gone", { status: 404 })]);
+    try {
+      expect(await fetchJson("https://1.1.1.1/missing")).toBeNull();
+      expect(mock.calls()).toBe(1);
+    } finally {
+      mock.restore();
+    }
+  });
+});
+
+describe("retryDelayMs", () => {
+  const now = Date.parse("2026-10-13T00:00:00Z");
+  test("reads Retry-After seconds or date, capped at 5 seconds", () => {
+    expect(retryDelayMs("2", now)).toBe(2000);
+    expect(retryDelayMs("0", now)).toBe(0);
+    expect(retryDelayMs("120", now)).toBe(5000);
+    expect(retryDelayMs("Tue, 13 Oct 2026 00:00:03 GMT", now)).toBe(3000);
+  });
+
+  test("waits one second when the header is missing or unreadable", () => {
+    expect(retryDelayMs(null, now)).toBe(1000);
+    expect(retryDelayMs("soon", now)).toBe(1000);
   });
 });
