@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
-import paymaster, { deploymentCalls, deploymentIsMediaWallet, type PaymasterClient } from "./paymaster.js";
+import paymaster, { deploymentCalls, deploymentIsMediaWallet, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 
@@ -28,7 +28,11 @@ function sponsoredOutsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
   return { message: { Calls: calls.map(outsideCall) } };
 }
 
-function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
+function appWith(
+  client: Partial<PaymasterClient>,
+  calls: unknown[] = [],
+  session: { accountId?: string; attached?: unknown[]; attach?: AttachWallet } = { accountId: "acct-1" },
+) {
   const stub: PaymasterClient = {
     buildTransaction: async (req, opts) => {
       calls.push({ fn: "build", req, opts });
@@ -40,8 +44,12 @@ function appWith(client: Partial<PaymasterClient>, calls: unknown[] = []) {
     },
     ...client,
   };
+  const attach: AttachWallet = session.attach ?? (async (input) => { session.attached?.push(input); });
   const app = new Hono<AppEnv>();
-  app.route("/", paymaster(() => stub, (_c, next) => next()));
+  app.route("/", paymaster(() => stub, (c, next) => {
+    if (session.accountId) c.set("sessionAccountId", session.accountId);
+    return next();
+  }, undefined, attach));
   return app;
 }
 
@@ -156,6 +164,46 @@ describe("POST /deploy/execute", () => {
     });
     expect(res.status).toBe(400);
     expect(executed).toBe(false);
+  });
+
+  const deployBody = () => JSON.stringify({
+    ownerAddress: OWNER_ADDRESS,
+    typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)),
+    signature: ["0x1"],
+    deployment: { address: OWNER_ADDRESS, class_hash: getCoordinates("STARKNET").mediaWalletClassHash! },
+  });
+  const post = { method: "POST", headers: { "Content-Type": "application/json" } };
+
+  test("attaches the deployed wallet to the signed-in account", async () => {
+    const attached: unknown[] = [];
+    const res = await appWith({}, [], { accountId: "acct-1", attached }).request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(200);
+    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS }]);
+  });
+
+  test("refuses a caller with no account session without calling AVNU", async () => {
+    let executed = false;
+    const attached: unknown[] = [];
+    const app = appWith({ executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } }, [], { attached });
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(401);
+    expect(executed).toBe(false);
+    expect(attached).toEqual([]);
+  });
+
+  test("attaches nothing when AVNU refuses the deploy", async () => {
+    const attached: unknown[] = [];
+    const app = appWith({ executeTransaction: async () => { throw new Error("TRANSACTION_EXECUTION_ERROR"); } }, [], { accountId: "acct-1", attached });
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(422);
+    expect(attached).toEqual([]);
+  });
+
+  test("still returns the transaction when attaching fails after AVNU accepted", async () => {
+    const app = appWith({}, [], { accountId: "acct-1", attach: async () => { throw new Error("db down"); } });
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ transactionHash: "0xtx" });
   });
 
   test("refuses a signature for other calls without calling AVNU", async () => {
