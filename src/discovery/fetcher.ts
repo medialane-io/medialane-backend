@@ -8,10 +8,23 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 const MAX_METADATA_BYTES = 512 * 1024;
 
+const MAX_RATE_LIMIT_RETRIES = 2;
+const DEFAULT_RETRY_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 5000;
+
+export function retryDelayMs(retryAfter: string | null, now = Date.now()): number {
+  if (retryAfter === null) return DEFAULT_RETRY_DELAY_MS;
+  const seconds = Number(retryAfter);
+  const ms = Number.isFinite(seconds) && retryAfter.trim() !== "" ? seconds * 1000 : Date.parse(retryAfter) - now;
+  if (!Number.isFinite(ms)) return DEFAULT_RETRY_DELAY_MS;
+  return Math.min(Math.max(ms, 0), MAX_RETRY_DELAY_MS);
+}
+
 export async function fetchJson(
   url: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
-  allowRedirect = true
+  allowRedirect = true,
+  rateLimitRetries = 0,
 ): Promise<Record<string, unknown> | null> {
   if (url.startsWith("data:application/json")) {
     return decodeDataUri(url);
@@ -42,6 +55,15 @@ export async function fetchJson(
 
       log.debug({ url, target }, "Following single-hop redirect");
       return fetchJson(target, timeoutMs, false);
+    }
+
+    if (res.status === 429 && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+      const delay = retryDelayMs(res.headers.get("retry-after"));
+      log.warn({ url, delay }, "Rate limited, retrying");
+      clearTimeout(timer);
+      await res.body?.cancel();
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return fetchJson(url, timeoutMs, allowRedirect, rateLimitRetries + 1);
     }
 
     if (!res.ok) {
