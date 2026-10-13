@@ -17,7 +17,7 @@ export async function handleStatsUpdate(payload: {
   const [collection, [balances], floorRows, volumeRows] = await Promise.all([
     prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress } },
-      select: { standard: true, image: true, description: true },
+      select: { standard: true },
     }),
     prisma.$queryRaw<[{ holders: bigint; supply: bigint }]>`
       SELECT COUNT(DISTINCT owner)::bigint AS holders,
@@ -92,24 +92,6 @@ export async function handleStatsUpdate(payload: {
       volumeCurrency,
     },
   });
-
-  if (!collection?.image || !collection?.description) {
-    const firstToken = await prisma.token.findFirst({
-      where: { chain, contractAddress, metadataStatus: "FETCHED" },
-      orderBy: { tokenId: "asc" },
-      select: { image: true, description: true },
-    });
-
-    if (firstToken && (firstToken.image || firstToken.description)) {
-      await prisma.collection.update({
-        where: { chain_contractAddress: { chain, contractAddress } },
-        data: {
-          image: collection?.image ?? firstToken.image,
-          description: collection?.description ?? firstToken.description,
-        },
-      });
-    }
-  }
 
   log.debug(
     { chain, contractAddress, holderCount, totalSupply, floorPrice },

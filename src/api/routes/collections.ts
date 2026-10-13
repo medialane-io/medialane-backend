@@ -5,7 +5,7 @@ import { chainWhere, parseChainFilter, parseSingleChain } from "../utils/chainFi
 import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
-import { serializeToken, serializeCollection } from "../utils/serialize.js";
+import { batchFallbackImages, serializeToken, serializeCollection, serializeCollections } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
 import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
@@ -75,7 +75,7 @@ collections.get("/", async (c) => {
     ]);
 
     return c.json({
-      data:  data.map(serializeCollection),
+      data:  await serializeCollections(data),
       meta:  { page, limit, total: Number(rawTotal[0].count) },
     });
   }
@@ -112,7 +112,7 @@ collections.get("/", async (c) => {
     prisma.collection.count({ where }),
   ]);
 
-  return c.json({ data: data.map(serializeCollection), meta: { page, limit, total } });
+  return c.json({ data: await serializeCollections(data), meta: { page, limit, total } });
 });
 
 collections.get("/by-slug/:slug", async (c) => {
@@ -154,7 +154,8 @@ collections.get("/by-slug/:slug", async (c) => {
 
   if (!col || col.deletedAt) return c.json({ error: "Collection not found" }, 404);
 
-  return c.json({ data: { ...serializeCollection(col), profile: col.profile } });
+  const fallback = (await batchFallbackImages([col])).get(col.contractAddress);
+  return c.json({ data: { ...serializeCollection(col, fallback), profile: col.profile } });
 });
 
 collections.get("/:contract", async (c) => {
@@ -178,9 +179,10 @@ collections.get("/:contract", async (c) => {
     }
   }
 
+  const fallback = (await batchFallbackImages([col])).get(col.contractAddress);
   return c.json({
     data: {
-      ...serializeCollection(col),
+      ...serializeCollection(col, fallback),
       ...(include === "profile" ? { profile: profileData } : {}),
     },
   });
