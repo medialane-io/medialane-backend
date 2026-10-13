@@ -20,6 +20,7 @@ import {
 import type { MintIntentBody, CreateCollectionIntentBody, CreateTierIntentBody } from "../../types/api.js";
 import prisma from "../../db/client.js";
 import { uploadJson } from "../metadataPin.js";
+import { buildCollectionMetadata } from "@medialane/sdk";
 import { resolveServiceForContract } from "../../utils/collection.js";
 import { log, encodeByteArray, resolveCollectionContract } from "./shared.js";
 import { isListableToken, toIntentCall } from "./calls.js";
@@ -154,12 +155,14 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
   if (!baseUri) {
     try {
 
-      const metadata: Record<string, unknown> = { name: body.name };
-      if (body.description) metadata.description = body.description;
-      if (body.image) metadata.image = body.image;
-      metadata.external_link = "https://medialane.io";
-
-      baseUri = await uploadJson(metadata);
+      baseUri = await uploadJson(
+        buildCollectionMetadata({
+          name: body.name,
+          description: body.description,
+          image: body.image,
+          owner: normalizeAddress("STARKNET", body.owner),
+        }),
+      );
       log.info({ name: body.name, baseUri }, "Collection metadata uploaded to IPFS");
     } catch (err) {
       log.warn({ err }, "Failed to upload collection metadata to IPFS — proceeding with empty base_uri");

@@ -1,25 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { collectionImage, collectionMetadata, newCollectionFields, type NewCollection } from "./collection-metadata.js";
+import { collectionImage, newCollectionFields, type NewCollection } from "./collection-metadata.js";
 import { parseRunSpec } from "./index.js";
 
-const OWNER = "0x0123";
 const base: NewCollection = { kind: "new", name: "Archive", symbol: "ARC" };
-
-describe("collectionMetadata", () => {
-  test("has exactly the standard keys of a collection created in the app", () => {
-    expect(
-      collectionMetadata({ ...base, description: "All my work", externalLink: "https://me.example" }, "ipfs://img", OWNER),
-    ).toEqual({ name: "Archive", description: "All my work", image: "ipfs://img", external_link: "https://me.example" });
-  });
-
-  test("leaves out an empty description and a missing image, and links to the owner's account by default", () => {
-    expect(collectionMetadata({ ...base, description: "" }, null, OWNER)).toEqual({
-      name: "Archive",
-      external_link: `https://medialane.io/account/${OWNER}`,
-    });
-  });
-});
 
 describe("collectionImage", () => {
   const image = { name: "cover.png", size: 3, type: "image/png" };

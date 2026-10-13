@@ -9,7 +9,22 @@ mock.module("../../utils/collection.js", () => ({
   resolveServiceForContract: async (_db: unknown, _chain: string, _contractAddress: string) => "pop-protocol",
 }));
 
-const { buildMintIntent } = await import("./collection.js");
+const pinned: unknown[] = [];
+mock.module("../metadataPin.js", () => ({
+  uploadJson: async (metadata: unknown) => (pinned.push(metadata), "ipfs://pinned"),
+}));
+
+const { buildMintIntent, buildCreateCollectionIntent } = await import("./collection.js");
+
+describe("buildCreateCollectionIntent without a base URI", () => {
+  test("pins the standard collection metadata, linking to the owner's account page", async () => {
+    pinned.length = 0;
+    await buildCreateCollectionIntent({ owner: "0x0123", name: "Club", symbol: "CLB", description: "d", service: "pop-protocol" } as never);
+    expect(pinned).toEqual([
+      { name: "Club", description: "d", external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", "0x0123")}` },
+    ]);
+  });
+});
 
 describe("buildMintIntent for a pop-protocol collection", () => {
   test("calls issue with an empty token URI by default", async () => {
