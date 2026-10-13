@@ -27,6 +27,7 @@ export function createRequireSession(deps: SessionGuardDeps): MiddlewareHandler<
     const fromAccount = async (raw: string) => {
       const accountId = await deps.accountFromSession(raw);
       if (!accountId) return false;
+      c.set("sessionAccountId", accountId);
       const wallet = await deps.walletOf(accountId);
       if (wallet) c.set("sponsorWallet", normalizeAddress("STARKNET", wallet));
       return true;

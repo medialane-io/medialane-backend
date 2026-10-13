@@ -82,3 +82,30 @@ describe("sponsor wallet", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("session account", () => {
+  async function accountApp() {
+    const { createRequireSession } = await import("./sessionGuard.js");
+    const guard = createRequireSession({
+      accountFromSession: async (raw) => (raw === "acct-session" ? "acct-1" : null),
+      walletOf: async () => null,
+      siwsIdentity: (raw) => (raw === "siws" ? { chain: "STARKNET", address: "0x1" } : null),
+    });
+    const app = new Hono<AppEnv>();
+    app.use("*", guard);
+    app.post("/", (c) => c.json({ accountId: c.get("sessionAccountId") ?? null }));
+    return app;
+  }
+
+  test("an account session exposes its account id", async () => {
+    const app = await accountApp();
+    const res = await app.request("/", { method: "POST", headers: { "x-account-session": "acct-session" } });
+    expect(await res.json()).toEqual({ accountId: "acct-1" });
+  });
+
+  test("a SIWS-only request has no account id", async () => {
+    const app = await accountApp();
+    const res = await app.request("/", { method: "POST", headers: { authorization: "Bearer siws" } });
+    expect(await res.json()).toEqual({ accountId: null });
+  });
+});

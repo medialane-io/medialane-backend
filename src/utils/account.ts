@@ -99,6 +99,7 @@ export async function replaceWallet(params: {
       where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET },
       select: { address: true },
     });
+    if (previous?.address === address) return;
     await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET } });
     await tx.identity.create({
       data: {
@@ -117,6 +118,25 @@ export async function replaceWallet(params: {
       appId: params.appId,
     });
   });
+}
+
+export async function attachDeployedWallet(params: {
+  accountId: string;
+  appId: string;
+  chain: Chain;
+  address: string;
+}): Promise<void> {
+  if (!(await accountWallet(params.accountId, params.chain))) {
+    await ensureAccountForWallet({
+      chain: params.chain,
+      address: params.address,
+      provider: "mediawallet",
+      appId: params.appId,
+      linkToAccountId: params.accountId,
+    });
+    return;
+  }
+  await replaceWallet(params);
 }
 
 export async function replaceEmail(params: { accountId: string; appId: string; email: string }): Promise<void> {

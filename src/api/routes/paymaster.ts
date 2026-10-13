@@ -5,6 +5,8 @@ import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
+import { attachDeployedWallet } from "../../utils/account.js";
+import { callerApp } from "../../utils/caller.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:paymaster");
@@ -17,6 +19,10 @@ export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
   executeTransaction(req: unknown, opts: unknown): Promise<unknown>;
 }
+
+export type AttachWallet = (input: { accountId: string; appId: string; chain: "STARKNET"; address: string }) => Promise<void>;
+
+const SIGN_IN_TO_DEPLOY = { error: "Sign in to create your wallet", code: "invalid_request_auth" } as const;
 
 export function defaultClient(): PaymasterClient {
   const apiKey = process.env.AVNU_PAYMASTER_API_KEY;
@@ -264,6 +270,7 @@ export default function paymaster(
   clientFactory: () => PaymasterClient = defaultClient,
   guard: MiddlewareHandler<AppEnv> = requireSession,
   intentDeps: SponsorIntentDeps = prismaSponsorIntentDeps,
+  attachWallet: AttachWallet = attachDeployedWallet,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use("*", guard);
@@ -328,6 +335,8 @@ export default function paymaster(
   });
 
   app.post("/deploy/execute", async (c) => {
+    const accountId = c.get("sessionAccountId");
+    if (!accountId) return c.json(SIGN_IN_TO_DEPLOY, 401);
     const body = (await c.req.json().catch(() => null)) as
       | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown }
       | null;
@@ -342,6 +351,7 @@ export default function paymaster(
     ) {
       return c.json({ error: "Only a Media Wallet deployment can be sponsored", code: "invalid_request" }, 400);
     }
+    let transactionHash: string;
     try {
       const result = await clientFactory().executeTransaction(
         {
@@ -355,12 +365,17 @@ export default function paymaster(
         },
         SPONSORED,
       );
-      return c.json({ transactionHash: txHashOf(result) });
+      transactionHash = txHashOf(result);
     } catch (err) {
       const failure = classifyPaymasterError(err, "execute");
       log.warn({ err, status: failure.status }, "sponsored deploy execute failed");
       return c.json({ error: failure.message, code: failure.code }, failure.status);
     }
+    const address = body.ownerAddress;
+    await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address }).catch((err) =>
+      log.error({ err, accountId, address, transactionHash }, "sponsored wallet could not be attached to its account"),
+    );
+    return c.json({ transactionHash });
   });
 
   return app;
