@@ -2,10 +2,11 @@ import { z } from "zod";
 import { GAS, MAX_RUN_ITEMS, batchSizes, type CostTable, type PlannedStep } from "../../steps.js";
 import { fileRef, terms, type RunServiceDefinition } from "../shared-spec.js";
 import { nextStep, readProgress, runInFlight } from "./progress.js";
+import { newCollectionFields } from "../collection-metadata.js";
 
 const group = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing"), contractAddress: z.string().min(1) }),
-  z.object({ kind: z.literal("new"), name: z.string().min(1).max(80), symbol: z.string().min(1).max(12) }),
+  z.object({ kind: z.literal("new"), ...newCollectionFields }),
 ]);
 
 const spec = z.object({
