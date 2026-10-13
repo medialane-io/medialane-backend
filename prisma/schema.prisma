@@ -207,6 +207,7 @@ model Collection {
   symbol          String?
   description     String?
   image           String?
+  attributes      Json?
   baseUri         String?
   owner           String?
   metadataStatus  MetadataStatus     @default(PENDING)

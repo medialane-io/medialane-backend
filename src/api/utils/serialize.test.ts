@@ -121,3 +121,22 @@ describe("collection image fallback", () => {
     expect(queryRaw).not.toHaveBeenCalled();
   });
 });
+
+describe("collection attributes", () => {
+  const collection = {
+    id: "c1", chain: "STARKNET", contractAddress: "0xabc", collectionId: null, name: "Gala", symbol: "GALA",
+    description: null, image: null, owner: null, startBlock: 1n, metadataStatus: "FETCHED", standard: "ERC721",
+    isFeatured: false, isHidden: false, service: "pop-protocol", claimedBy: null, floorPrice: null,
+    floorCurrency: null, totalVolume: null, volumeCurrency: null, holderCount: 0, totalSupply: 0,
+    createdAt: new Date(0), updatedAt: new Date(0),
+  };
+
+  test("are returned as indexed from the collection metadata", () => {
+    const attributes = [{ trait_type: "Visibility", value: "Private" }];
+    expect(serializeCollection({ ...collection, attributes } as never).attributes).toEqual(attributes);
+  });
+
+  test("are null when none were indexed", () => {
+    expect(serializeCollection({ ...collection, attributes: null } as never).attributes).toBeNull();
+  });
+});

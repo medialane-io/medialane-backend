@@ -111,6 +111,7 @@ export function serializeCollection(
     symbol: c.symbol,
     description: c.description,
     image: c.image ?? fallbackImage ?? null,
+    attributes: c.attributes ?? null,
     owner: c.owner ?? null,
     startBlock: c.startBlock.toString(),
     metadataStatus: c.metadataStatus,

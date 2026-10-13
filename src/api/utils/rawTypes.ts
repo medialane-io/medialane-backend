@@ -1,4 +1,4 @@
-import type { Chain, OrderStatus, MetadataStatus, TokenStandard } from "@prisma/client";
+import type { Chain, OrderStatus, MetadataStatus, Prisma, TokenStandard } from "@prisma/client";
 
 export interface RawOrderRow {
   id: string;
@@ -47,6 +47,7 @@ export interface RawCollectionRow {
   symbol: string | null;
   description: string | null;
   image: string | null;
+  attributes: Prisma.JsonValue | null;
   baseUri: string | null;
   owner: string | null;
   metadataStatus: MetadataStatus;
