@@ -13,7 +13,10 @@ import {
   readProgress,
   certificateMetadata,
   type CertificateEmissionProgress,
+  certificateCollectionImage,
+  certificateCollectionImageUri,
 } from "../../../launchpad/services/certificate-emission/progress.js";
+import { collectionMetadata } from "../../../launchpad/services/collection-metadata.js";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
 import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
@@ -61,6 +64,9 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
     return normalizeAddress("STARKNET", address);
   };
 
+  const issuesWithCollectionUri = (active: ActiveRun) =>
+    active.spec.collection.kind === "new" && !!active.progress.collection?.address && !active.progress.collection?.baseUri;
+
   const sponsored: SponsoredStep<ActiveRun>[] = [
     {
       route: "collection",
@@ -68,15 +74,15 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
       path: () => ["collection", "tx"],
       credits: () => stepCredits(SERVICE, "collection", 0, ctx.priceOf),
       open: (active) => !active.progress.collection?.address && canSubmit(active.progress.collection?.tx),
-      async calls(active) {
+      async calls(active, _index, owner) {
         const choice = active.spec.collection;
         if (choice.kind !== "new") throw new NotReady("This run uses an existing collection");
-        // The certificate's metadata is the collection URI, so each issue stores no per-token URI.
-        const baseUri = pinnedValue(active.progress.tokenUri);
-        if (!baseUri) throw new NotReady("The certificate's metadata is not stored yet");
-        if (!active.progress.collection) {
-          // The step's tx and address are recorded under `collection`, which must exist first.
-          active.progress.collection = {};
+        let baseUri = active.progress.collection?.baseUri;
+        if (!baseUri) {
+          const imageUri = certificateCollectionImageUri(active.spec, active.progress);
+          if (choice.image && !imageUri) throw new NotReady("The collection image is not uploaded yet");
+          baseUri = await ex().pinJson(collectionMetadata(choice, imageUri, normalizeAddress("STARKNET", owner)));
+          active.progress.collection = { ...active.progress.collection, baseUri };
           await record(active, ["collection"], active.progress.collection);
         }
         return [
@@ -122,7 +128,7 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         return (recipients as string[]).map((recipient) => ({
           contractAddress: collection,
           entrypoint: "issue",
-          calldata: [recipient, ...encodeByteArray(active.spec.collection.kind === "new" ? "" : tokenUri)],
+          calldata: [recipient, ...encodeByteArray(issuesWithCollectionUri(active) ? "" : tokenUri)],
         }));
       },
       state: (active, index) => active.progress.batches[String(index)],
@@ -154,9 +160,14 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
     },
     sponsored,
     files: {
-      expected: (active, name) => (active.spec.artwork?.name === name ? active.spec.artwork : null),
-      uri: (active) => pinnedValue(active.progress.artwork),
-      path: () => ["artwork"],
+      expected: (active, name) => {
+        if (active.spec.artwork?.name === name) return active.spec.artwork;
+        const image = certificateCollectionImage(active.spec);
+        return image?.name === name ? image : null;
+      },
+      uri: (active, name) =>
+        active.spec.artwork?.name === name ? pinnedValue(active.progress.artwork) : pinnedValue(active.progress.collectionImage),
+      path: (active, name) => (active.spec.artwork?.name === name ? ["artwork"] : ["collectionImage"]),
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {

@@ -2,10 +2,12 @@ import { buildAssetMetadata } from "@medialane/sdk";
 import { RUN_BATCH_SIZE } from "../../steps.js";
 import { canSubmit, isInFlight, pinnedValue, type Pinned, type StepState } from "../data-tokenization/progress.js";
 import type { CertificateEmissionSpec } from "./definition.js";
+import { collectionImage, type FileRef } from "../collection-metadata.js";
 
 export interface CertificateEmissionProgress {
-  collection?: { tx?: StepState; address?: string };
+  collection?: { baseUri?: string; tx?: StepState; address?: string };
   artwork?: Pinned;
+  collectionImage?: Pinned;
   tokenUri?: Pinned;
   wallets: Record<string, Pinned>;
   batches: Record<string, StepState>;
@@ -66,8 +68,22 @@ export function certificateMetadata(spec: CertificateEmissionSpec, progress: Cer
   });
 }
 
+export function certificateCollectionImage(spec: CertificateEmissionSpec): FileRef | null {
+  return collectionImage(spec.collection, spec.artwork ? [spec.artwork.name] : []);
+}
+
+export function certificateCollectionImageUri(spec: CertificateEmissionSpec, progress: CertificateEmissionProgress): string | null {
+  if (spec.collection.kind !== "new" || !spec.collection.image) return null;
+  if (spec.artwork?.name === spec.collection.image.name) return pinnedValue(progress.artwork);
+  return pinnedValue(progress.collectionImage);
+}
+
 export function nextStep(spec: CertificateEmissionSpec, progress: CertificateEmissionProgress): NextStep {
-  if (spec.artwork && !pinnedValue(progress.artwork)) return { kind: "upload", files: [spec.artwork.name] };
+  const missing: string[] = [];
+  if (spec.artwork && !pinnedValue(progress.artwork)) missing.push(spec.artwork.name);
+  const image = certificateCollectionImage(spec);
+  if (image && !pinnedValue(progress.collectionImage)) missing.push(image.name);
+  if (missing.length > 0) return { kind: "upload", files: missing };
   if (!pinnedValue(progress.tokenUri)) return { kind: "certificate-metadata" };
   if (spec.collection.kind === "new" && !progress.collection?.address) {
     return isInFlight(progress.collection?.tx) ? { kind: "wait-collection" } : { kind: "collection" };

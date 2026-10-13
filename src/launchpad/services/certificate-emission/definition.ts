@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { GAS, MAX_RUN_ITEMS, batchSizes, type CostTable, type PlannedStep } from "../../steps.js";
 import { fileRef, collection, terms, type RunServiceDefinition } from "../shared-spec.js";
-import { nextStep, readProgress, runInFlight } from "./progress.js";
+import { certificateCollectionImage, nextStep, readProgress, runInFlight } from "./progress.js";
 
 const spec = z.object({
   collection,
@@ -36,6 +36,7 @@ export const certificateEmission: RunServiceDefinition<CertificateEmissionSpec> 
   plan(value, { provisioned }) {
     const steps: PlannedStep[] = [];
     if (value.artwork) steps.push({ kind: "file", items: 1 });
+    if (certificateCollectionImage(value)) steps.push({ kind: "file", items: 1 });
     steps.push({ kind: "metadata", items: 1 });
     if (value.collection.kind === "new") steps.push({ kind: "collection", items: 0 });
     for (let i = 0; i < Math.max(0, value.guests.length - provisioned); i++) steps.push({ kind: "wallet", items: 1 });

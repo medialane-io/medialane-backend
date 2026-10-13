@@ -69,3 +69,14 @@ describe("a certificate's metadata", () => {
     expect(traitTypes).not.toContain("Royalty");
   });
 });
+
+describe("a new certificate collection's image", () => {
+  test("is uploaded with the artwork before the collection", () => {
+    const spec = parse({
+      collection: { kind: "new", name: "Cohort", symbol: "C1", image: { name: "logo.png", size: 4, type: "image/png" } },
+      artwork: { name: "a.png", size: 3, type: "image/png" },
+    });
+    expect(nextStep(spec, readProgress({}))).toEqual({ kind: "upload", files: ["a.png", "logo.png"] });
+    expect(nextStep(spec, readProgress({ artwork: "ipfs://a", collectionImage: "ipfs://l", tokenUri: "ipfs://m" }))).toEqual({ kind: "collection" });
+  });
+});
