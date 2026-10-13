@@ -13,11 +13,42 @@ describe("collectionMetadata SSRF guard", () => {
     try {
 
       const result = await fetchCollectionMetadataJson("http://127.0.0.1:9999/collection.json");
-      expect(result).toEqual({ description: null, image: null });
+      expect(result).toBeNull();
       expect(fetchWasCalled).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("fetchCollectionMetadataJson", () => {
+  async function withFetch(responses: Record<string, Response>, run: () => Promise<void>) {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const res = responses[input.toString()];
+      if (!res) throw new Error("network error");
+      return res;
+    }) as unknown as typeof fetch;
+    try {
+      await run();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  test("reads collection.json from a directory base URI", async () => {
+    const { fetchCollectionMetadataJson } = await import("./collectionMetadata.js");
+    const body = { name: "C", description: "d", image: "ipfs://img" };
+    await withFetch({ "https://1.1.1.1/dir/collection.json": new Response(JSON.stringify(body)) }, async () => {
+      expect(await fetchCollectionMetadataJson("https://1.1.1.1/dir/")).toEqual(body);
+    });
+  });
+
+  test("is null when the document cannot be fetched, so the collection is marked FAILED and retried", async () => {
+    const { fetchCollectionMetadataJson } = await import("./collectionMetadata.js");
+    await withFetch({}, async () => {
+      expect(await fetchCollectionMetadataJson("https://1.1.1.1/unreachable.json")).toBeNull();
+    });
   });
 });
 

@@ -4,14 +4,9 @@ import { callRpc, normalizeAddress } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
-import { ipfsToHttp } from "../utils/ipfs.js";
-import { IPFS_GATEWAYS } from "../config/constants.js";
-import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
-import { readTextCapped } from "../utils/httpBody.js";
+import { resolveMetadata } from "../discovery/index.js";
 
 const log = createLogger("orchestrator:collection-metadata");
-
-const MAX_METADATA_BYTES = 512 * 1024;
 
 const INTERFACE_ID_SRC5_ERC721  = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16d3d20a2a";
 const INTERFACE_ID_SRC5_ERC1155 = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
@@ -144,17 +139,19 @@ export async function handleCollectionMetadataFetch(payload: {
 
     let resolvedImage: string | null = existing.image ?? null;
     let resolvedDescription: string | null = existing.description ?? null;
+    let metadataFetched = true;
     if (canonicalBaseUri && (!resolvedImage || !resolvedDescription)) {
       const fetched = await fetchCollectionMetadataJson(canonicalBaseUri);
-      resolvedImage = resolvedImage ?? fetched.image;
-      resolvedDescription = resolvedDescription ?? fetched.description;
+      metadataFetched = fetched !== null;
+      resolvedImage = resolvedImage ?? metadataString(fetched, "image");
+      resolvedDescription = resolvedDescription ?? metadataString(fetched, "description");
     }
 
     await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress } },
       data: {
         standard: "ERC1155",
-        metadataStatus: "FETCHED",
+        metadataStatus: metadataFetched ? "FETCHED" : "FAILED",
         name: existing?.name || onchainName || undefined,
         symbol: existing?.symbol || onchainSymbol || undefined,
         baseUri: canonicalBaseUri || undefined,
@@ -163,7 +160,7 @@ export async function handleCollectionMetadataFetch(payload: {
         description: resolvedDescription ?? undefined,
       },
     });
-    log.debug({ chain, contractAddress, resolvedImage }, "ERC1155 collection metadata marked FETCHED");
+    log.debug({ chain, contractAddress, resolvedImage, metadataFetched }, "ERC1155 collection metadata updated");
     worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
     return;
   }
@@ -188,7 +185,7 @@ export async function handleCollectionMetadataFetch(payload: {
       throw new Error("On-chain name/symbol read failed for own collection — no legacy fallback available");
     }
 
-    const collectionMetadata = await fetchCollectionMetadataJson(baseUri);
+    const collectionMetadata = baseUri ? await fetchCollectionMetadataJson(baseUri) : null;
 
     const resolvedName = name || existing?.name || "";
     const { description, image, owner: intentOwner } = await findIntentMetadata(resolvedName);
@@ -213,11 +210,11 @@ export async function handleCollectionMetadataFetch(payload: {
         name: name || existing?.name || null,
         symbol: symbol || existing?.symbol || null,
         baseUri: baseUri || null,
-        description: collectionMetadata.description ?? description ?? undefined,
-        image: collectionMetadata.image ?? existing?.image ?? image ?? undefined,
+        description: metadataString(collectionMetadata, "description") ?? description ?? undefined,
+        image: metadataString(collectionMetadata, "image") ?? existing?.image ?? image ?? undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
         standard,
-        metadataStatus: "FETCHED",
+        metadataStatus: baseUri && !collectionMetadata ? "FAILED" : "FETCHED",
       },
     });
 
@@ -238,55 +235,16 @@ export async function handleCollectionMetadataFetch(payload: {
   }
 }
 
-export async function fetchCollectionMetadataJson(
-  baseUri: string
-): Promise<{ description: string | null; image: string | null }> {
-  if (!baseUri) return { description: null, image: null };
+export async function fetchCollectionMetadataJson(baseUri: string): Promise<Record<string, unknown> | null> {
+  if (!baseUri.endsWith("/")) return resolveMetadata(baseUri);
+  const inDirectory = await resolveMetadata(`${baseUri}collection.json`);
+  if (inDirectory || !baseUri.startsWith("ipfs://")) return inDirectory;
+  return resolveMetadata(baseUri.replace(/\/+$/, ""));
+}
 
-  const isDirectory = baseUri.endsWith("/");
-  const cid = baseUri.startsWith("ipfs://") ? baseUri.slice(7) : null;
-  const bareCid = cid?.replace(/\/+$/, "") ?? null;
-  const directoryUrls = cid
-    ? IPFS_GATEWAYS.map((gateway) => `${gateway}/${cid}${isDirectory ? "collection.json" : ""}`)
-    : [isDirectory ? `${ipfsToHttp(baseUri)}collection.json` : ipfsToHttp(baseUri)];
-  const bareFallbackUrls = isDirectory && bareCid
-    ? IPFS_GATEWAYS.map((gateway) => `${gateway}/${bareCid}`)
-    : [];
-  const urls = [...directoryUrls, ...bareFallbackUrls];
-
-  for (const url of urls) {
-    if (!url) continue;
-
-    if (isPrivateOrInsecureUrl(url, false)) {
-      log.warn({ url }, "Blocked SSRF attempt in collection metadata fetch");
-      continue;
-    }
-
-    const hostname = new URL(url).hostname;
-    if (await resolvesToPrivateHost(hostname)) {
-      log.warn({ url, hostname }, "Blocked SSRF attempt — hostname resolves to a private address");
-      continue;
-    }
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: "manual" });
-      if (res.status >= 300 && res.status < 400) continue;
-      if (!res.ok) continue;
-      const { text, truncated } = await readTextCapped(res, MAX_METADATA_BYTES);
-      if (truncated) {
-        log.warn({ url, maxBytes: MAX_METADATA_BYTES }, "Collection metadata body exceeded size cap — rejecting");
-        continue;
-      }
-      const meta = JSON.parse(text) as Record<string, unknown>;
-      return {
-        description: typeof meta.description === "string" && meta.description ? meta.description : null,
-        image: typeof meta.image === "string" && meta.image ? meta.image : null,
-      };
-    } catch {
-
-    }
-  }
-
-  return { description: null, image: null };
+function metadataString(metadata: Record<string, unknown> | null, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value ? value : null;
 }
 
 function resolveStandardByService(
