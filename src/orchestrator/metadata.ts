@@ -1,18 +1,11 @@
 import { Contract, shortString } from "starknet";
 import { type Chain } from "@prisma/client";
-import { z } from "zod";
 import { callRpc } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
+import { attributesArraySchema } from "../utils/metadataAttributes.js";
 
-const attributeSchema = z.object({
-  trait_type: z.string(),
-  value: z.union([z.string(), z.number(), z.boolean()]),
-  display_type: z.string().optional(),
-}).passthrough();
-
-const attributesArraySchema = z.array(attributeSchema);
 
 const log = createLogger("orchestrator:metadata");
 

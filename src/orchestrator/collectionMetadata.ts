@@ -5,6 +5,7 @@ import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
 import { resolveMetadata } from "../discovery/index.js";
+import { metadataAttributes } from "../utils/metadataAttributes.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
@@ -82,7 +83,7 @@ export async function handleCollectionMetadataFetch(payload: {
 
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, service: true, standard: true, baseUri: true, description: true },
+    select: { metadataStatus: true, name: true, symbol: true, owner: true, image: true, attributes: true, service: true, standard: true, baseUri: true, description: true },
   });
 
   const alreadyComplete =
@@ -140,9 +141,11 @@ export async function handleCollectionMetadataFetch(payload: {
     let resolvedImage: string | null = existing.image ?? null;
     let resolvedDescription: string | null = existing.description ?? null;
     let metadataFetched = true;
-    if (canonicalBaseUri && (!resolvedImage || !resolvedDescription)) {
+    let resolvedAttributes = metadataAttributes(existing.attributes ? { attributes: existing.attributes } : null);
+    if (canonicalBaseUri && (!resolvedImage || !resolvedDescription || !resolvedAttributes)) {
       const fetched = await fetchCollectionMetadataJson(canonicalBaseUri);
       metadataFetched = fetched !== null;
+      resolvedAttributes = resolvedAttributes ?? metadataAttributes(fetched);
       resolvedImage = resolvedImage ?? metadataString(fetched, "image");
       resolvedDescription = resolvedDescription ?? metadataString(fetched, "description");
     }
@@ -158,6 +161,7 @@ export async function handleCollectionMetadataFetch(payload: {
         owner: existing?.owner || onchainOwner || undefined,
         image: resolvedImage ?? undefined,
         description: resolvedDescription ?? undefined,
+        attributes: (resolvedAttributes ?? undefined) as Prisma.InputJsonValue | undefined,
       },
     });
     log.debug({ chain, contractAddress, resolvedImage, metadataFetched }, "ERC1155 collection metadata updated");
@@ -212,6 +216,7 @@ export async function handleCollectionMetadataFetch(payload: {
         baseUri: baseUri || null,
         description: metadataString(collectionMetadata, "description") ?? description ?? undefined,
         image: metadataString(collectionMetadata, "image") ?? existing?.image ?? image ?? undefined,
+        attributes: (metadataAttributes(collectionMetadata) ?? undefined) as Prisma.InputJsonValue | undefined,
         owner: existing?.owner ?? intentOwner ?? onChainOwner ?? undefined,
         standard,
         metadataStatus: baseUri && !collectionMetadata ? "FAILED" : "FETCHED",
