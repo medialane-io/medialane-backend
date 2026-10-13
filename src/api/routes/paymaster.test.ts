@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
+import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import paymaster, { deploymentCalls, deploymentIsMediaWallet, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
@@ -125,8 +126,14 @@ describe("POST /deploy/build", () => {
   });
 });
 
+const MEDIA_WALLET_CLASS = getCoordinates("STARKNET").mediaWalletClassHash!;
+const OWNER_PUBKEY = "0x02c1a3f0d5b7e9c8a4d6f2b1e3c5a7098d4f6b2e1c3a5079b8d6f4e2c1a30597";
+const OWNER_CALLDATA = ownerConstructorCalldata(OWNER_PUBKEY).map((v) => num.toHex(v));
+const DERIVED_ADDRESS = hash.calculateContractAddressFromHash("0x0", MEDIA_WALLET_CLASS, OWNER_CALLDATA, 0);
+const walletDeployment = (address = DERIVED_ADDRESS) => ({ address, class_hash: MEDIA_WALLET_CLASS, salt: "0x0", calldata: OWNER_CALLDATA, version: 1 });
+
 describe("POST /deploy/execute", () => {
-  const OWNER_ADDRESS = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
+  const OWNER_ADDRESS = DERIVED_ADDRESS;
 
   test("executes a deploy_and_invoke and returns the transaction hash", async () => {
     const classHash = getCoordinates("STARKNET").mediaWalletClassHash!;
@@ -137,7 +144,7 @@ describe("POST /deploy/execute", () => {
         ownerAddress: OWNER_ADDRESS,
         typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)),
         signature: ["0x1"],
-        deployment: { address: OWNER_ADDRESS, class_hash: classHash },
+        deployment: { ...walletDeployment(), class_hash: classHash },
         calls: deploymentCalls(OWNER_ADDRESS),
       }),
     });
@@ -160,7 +167,7 @@ describe("POST /deploy/execute", () => {
     const res = await app.request("/deploy/execute", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)), signature: ["0x1"], deployment: { address: OWNER_ADDRESS, class_hash: "0x123" } }),
+      body: JSON.stringify({ ownerAddress: OWNER_ADDRESS, typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)), signature: ["0x1"], deployment: { ...walletDeployment(), class_hash: "0x123" } }),
     });
     expect(res.status).toBe(400);
     expect(executed).toBe(false);
@@ -170,15 +177,48 @@ describe("POST /deploy/execute", () => {
     ownerAddress: OWNER_ADDRESS,
     typedData: outsideExecutionTypedData(deploymentCalls(OWNER_ADDRESS)),
     signature: ["0x1"],
-    deployment: { address: OWNER_ADDRESS, class_hash: getCoordinates("STARKNET").mediaWalletClassHash! },
+    deployment: walletDeployment(),
   });
   const post = { method: "POST", headers: { "Content-Type": "application/json" } };
 
-  test("attaches the deployed wallet to the signed-in account", async () => {
+  test("links the wallet to the signed-in account before AVNU creates it", async () => {
     const attached: unknown[] = [];
-    const res = await appWith({}, [], { accountId: "acct-1", attached }).request("/deploy/execute", { ...post, body: deployBody() });
+    let linkedWhenExecuted = -1;
+    const app = appWith(
+      { executeTransaction: async () => { linkedWhenExecuted = attached.length; return { transaction_hash: "0xtx" } as never; } },
+      [],
+      { accountId: "acct-1", attached },
+    );
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
     expect(res.status).toBe(200);
     expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS }]);
+    expect(linkedWhenExecuted).toBe(1);
+  });
+
+  test("refuses without calling AVNU when the wallet cannot be linked", async () => {
+    let executed = false;
+    const app = appWith(
+      { executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } },
+      [],
+      { accountId: "acct-1", attach: async () => { throw new Error("db down"); } },
+    );
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(500);
+    expect(executed).toBe(false);
+  });
+
+  test("refuses an address that does not come from the deployment's key, without linking or calling AVNU", async () => {
+    let executed = false;
+    const attached: unknown[] = [];
+    const other = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
+    const app = appWith({ executeTransaction: async () => { executed = true; return { transaction_hash: "0x1" } as never; } }, [], { accountId: "acct-1", attached });
+    const res = await app.request("/deploy/execute", {
+      ...post,
+      body: JSON.stringify({ ownerAddress: other, typedData: outsideExecutionTypedData(deploymentCalls(other)), signature: ["0x1"], deployment: walletDeployment(other) }),
+    });
+    expect(res.status).toBe(400);
+    expect(executed).toBe(false);
+    expect(attached).toEqual([]);
   });
 
   test("refuses a caller with no account session without calling AVNU", async () => {
@@ -191,19 +231,12 @@ describe("POST /deploy/execute", () => {
     expect(attached).toEqual([]);
   });
 
-  test("attaches nothing when AVNU refuses the deploy", async () => {
+  test("keeps the link when AVNU refuses, so a retry creates the same wallet", async () => {
     const attached: unknown[] = [];
     const app = appWith({ executeTransaction: async () => { throw new Error("TRANSACTION_EXECUTION_ERROR"); } }, [], { accountId: "acct-1", attached });
     const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
     expect(res.status).toBe(422);
-    expect(attached).toEqual([]);
-  });
-
-  test("still returns the transaction when attaching fails after AVNU accepted", async () => {
-    const app = appWith({}, [], { accountId: "acct-1", attach: async () => { throw new Error("db down"); } });
-    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ transactionHash: "0xtx" });
+    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS }]);
   });
 
   test("refuses a signature for other calls without calling AVNU", async () => {
@@ -221,17 +254,23 @@ describe("POST /deploy/execute", () => {
 });
 
 describe("Media Wallet deployment check", () => {
-  const CH = getCoordinates("STARKNET").mediaWalletClassHash!;
-  const OWNER = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  const CH = MEDIA_WALLET_CLASS;
+  const OWNER = DERIVED_ADDRESS;
 
-  test("accepts a Media Wallet deployment at the owner address", () => {
-    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: CH }, OWNER, CH)).toBe(true);
+  test("accepts a Media Wallet deployment at the address its key produces", () => {
+    expect(deploymentIsMediaWallet(walletDeployment(), OWNER, CH)).toBe(true);
   });
 
   test("refuses another class or another address", () => {
-    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: "0x123" }, OWNER, CH)).toBe(false);
-    expect(deploymentIsMediaWallet({ address: "0x9", class_hash: CH }, OWNER, CH)).toBe(false);
+    expect(deploymentIsMediaWallet({ ...walletDeployment(), class_hash: "0x123" }, OWNER, CH)).toBe(false);
+    expect(deploymentIsMediaWallet(walletDeployment("0x9"), OWNER, CH)).toBe(false);
     expect(deploymentIsMediaWallet(null, OWNER, CH)).toBe(false);
+  });
+
+  test("refuses an address that its salt and constructor data do not produce", () => {
+    const other = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    expect(deploymentIsMediaWallet(walletDeployment(other), other, CH)).toBe(false);
+    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: CH }, OWNER, CH)).toBe(false);
   });
 });
 

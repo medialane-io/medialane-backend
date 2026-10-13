@@ -23,6 +23,7 @@ export interface PaymasterClient {
 export type AttachWallet = (input: { accountId: string; appId: string; chain: "STARKNET"; address: string }) => Promise<void>;
 
 const SIGN_IN_TO_DEPLOY = { error: "Sign in to create your wallet", code: "invalid_request_auth" } as const;
+const WALLET_NOT_LINKED = { error: "We couldn't set up your wallet. Please try again.", code: "wallet_link_failed" } as const;
 
 export function defaultClient(): PaymasterClient {
   const apiKey = process.env.AVNU_PAYMASTER_API_KEY;
@@ -221,8 +222,14 @@ export function deploymentCalls(ownerAddress: string) {
 }
 
 export function deploymentIsMediaWallet(deployment: unknown, ownerAddress: string, classHash: string): boolean {
-  const d = deployment as { address?: unknown; class_hash?: unknown } | null;
-  return sameFelt(d?.address, ownerAddress) && sameFelt(d?.class_hash, classHash);
+  const d = deployment as { address?: unknown; class_hash?: unknown; salt?: unknown; calldata?: unknown } | null;
+  if (!sameFelt(d?.address, ownerAddress) || !sameFelt(d?.class_hash, classHash)) return false;
+  if (typeof d?.salt !== "string" || !Array.isArray(d.calldata) || !d.calldata.every((v) => typeof v === "string")) return false;
+  try {
+    return sameFelt(hash.calculateContractAddressFromHash(d.salt, classHash, d.calldata, 0), ownerAddress);
+  } catch {
+    return false;
+  }
 }
 
 export async function buildDeployment(
@@ -351,7 +358,13 @@ export default function paymaster(
     ) {
       return c.json({ error: "Only a Media Wallet deployment can be sponsored", code: "invalid_request" }, 400);
     }
-    let transactionHash: string;
+    const address = body.ownerAddress;
+    try {
+      await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address });
+    } catch (err) {
+      log.error({ err, accountId, address }, "wallet could not be linked to its account before deploy");
+      return c.json(WALLET_NOT_LINKED, 500);
+    }
     try {
       const result = await clientFactory().executeTransaction(
         {
@@ -365,17 +378,12 @@ export default function paymaster(
         },
         SPONSORED,
       );
-      transactionHash = txHashOf(result);
+      return c.json({ transactionHash: txHashOf(result) });
     } catch (err) {
       const failure = classifyPaymasterError(err, "execute");
       log.warn({ err, status: failure.status }, "sponsored deploy execute failed");
       return c.json({ error: failure.message, code: failure.code }, failure.status);
     }
-    const address = body.ownerAddress;
-    await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address }).catch((err) =>
-      log.error({ err, accountId, address, transactionHash }, "sponsored wallet could not be attached to its account"),
-    );
-    return c.json({ transactionHash });
   });
 
   return app;
