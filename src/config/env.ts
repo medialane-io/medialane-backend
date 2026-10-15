@@ -47,6 +47,7 @@ const envSchema = z.object({
     .default("info"),
   MAIL_RELAY_URL: z.string().default(""),
   MAIL_RELAY_SECRET: z.string().default(""),
+  APP_SECRET_MODE: z.enum(["log", "enforce"]).default("log"),
 });
 
 function parseEnv() {
