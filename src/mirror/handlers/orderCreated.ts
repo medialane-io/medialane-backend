@@ -1,7 +1,6 @@
-import { Contract, hash, num } from "starknet";
+import { Contract, num } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "@medialane/sdk/starknet";
-import { postRpc } from "../../utils/rpcFetch.js";
 import {
   STARKNET_MARKETPLACE_721_CONTRACT,
   STARKNET_MARKETPLACE_1155_CONTRACT,
@@ -232,8 +231,6 @@ function parseOrderDetails721(raw: any): OnChainOrderDetails {
   };
 }
 
-const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
-
 export async function handleOrderCreated1155(
   event: RawStarknetEvent,
   tx: Prisma.TransactionClient,
@@ -267,21 +264,12 @@ export async function handleOrderCreated1155(
 }
 
 async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDetails> {
-  const { result } = await postRpc<string[]>(
-    {
-      jsonrpc: "2.0",
-      method: "starknet_call",
-      params: {
-        request: {
-          contract_address: STARKNET_MARKETPLACE_1155_CONTRACT,
-          entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
-          calldata: [orderHash],
-        },
-        block_id: "latest",
-      },
-      id: 1,
-    },
-    { orderHash },
+  const result = await callRpc((provider) =>
+    provider.callContract({
+      contractAddress: STARKNET_MARKETPLACE_1155_CONTRACT,
+      entrypoint: "get_order_details",
+      calldata: [orderHash],
+    }),
   );
   if (!result || result.length < 15) {
     throw new Error(`get_order_details returned an unexpected response for order ${orderHash}`);

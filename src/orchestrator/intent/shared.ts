@@ -1,16 +1,12 @@
 
 
-import { cairo, hash, num } from "starknet";
+import { cairo, num } from "starknet";
 import { getService } from "@medialane/sdk";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT, STARKNET_COLLECTION_721_CONTRACT } from "../../config/constants.js";
-import { postRpc } from "../../utils/rpcFetch.js";
 import { createLogger } from "../../utils/logger.js";
 
 export const log = createLogger("intent");
-
-const GET_COUNTER_SELECTOR = hash.getSelectorFromName("get_counter");
-const ROYALTY_INFO_SELECTOR = hash.getSelectorFromName("royalty_info");
 
 export async function fetchCounter1155(address: string): Promise<string> {
   return fetchCounterFromContract(STARKNET_MARKETPLACE_1155_CONTRACT, address);
@@ -33,21 +29,12 @@ export async function fetchCounter(address: string): Promise<string> {
 }
 
 async function fetchCounterFromContract(contractAddress: string, address: string): Promise<string> {
-  const { result } = await postRpc<string[]>(
-    {
-      jsonrpc: "2.0",
-      method: "starknet_call",
-      params: {
-        request: {
-          contract_address: contractAddress,
-          entry_point_selector: GET_COUNTER_SELECTOR,
-          calldata: [normalizeAddress("STARKNET", address)],
-        },
-        block_id: "latest",
-      },
-      id: 1,
-    },
-    { contractAddress },
+  const result = await callRpc((provider) =>
+    provider.callContract({
+      contractAddress,
+      entrypoint: "get_counter",
+      calldata: [normalizeAddress("STARKNET", address)],
+    }),
   );
   if (!result?.[0]) throw new Error("Counter RPC returned no result");
   return BigInt(result[0]).toString();
@@ -62,21 +49,12 @@ export function royaltyInfoCalldata(tokenId: string): string[] {
 export async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): Promise<string> {
   const calldata = royaltyInfoCalldata(tokenId);
   try {
-    const { result } = await postRpc<string[]>(
-      {
-        jsonrpc: "2.0",
-        method: "starknet_call",
-        params: {
-          request: {
-            contract_address: normalizeAddress("STARKNET", nftContract),
-            entry_point_selector: ROYALTY_INFO_SELECTOR,
-            calldata,
-          },
-          block_id: "latest",
-        },
-        id: 1,
-      },
-      { nftContract },
+    const result = await callRpc((provider) =>
+      provider.callContract({
+        contractAddress: normalizeAddress("STARKNET", nftContract),
+        entrypoint: "royalty_info",
+        calldata,
+      }),
     );
 
     if (result?.[1] !== undefined) return BigInt(result[1]).toString();
