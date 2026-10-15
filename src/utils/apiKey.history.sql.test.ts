@@ -30,8 +30,8 @@ describe.skipIf(!databaseUrl)("API key changes are recorded", () => {
 
   test("creating a key records it and the key it replaced", async () => {
     const credits = await newCredits();
-    const first = await keys.replaceApiKey(credits, { prefix: "ml_live_aaaa", keyHash: `h1-${n}` });
-    const second = await keys.replaceApiKey(credits, { prefix: "ml_live_bbbb", keyHash: `h2-${n}` }, "main");
+    const first = (await keys.replaceApiKey(credits, null, { prefix: "ml_live_aaaa", keyHash: `h1-${n}` }))!;
+    const second = (await keys.replaceApiKey(credits, first.id, { prefix: "ml_live_bbbb", keyHash: `h2-${n}` }, "main"))!;
 
     expect(second.label).toBe("main");
     expect(await prisma.apiKey.findMany({ where: { apiCreditsId: credits.id }, select: { id: true } })).toEqual([{ id: second.id }]);
@@ -42,9 +42,16 @@ describe.skipIf(!databaseUrl)("API key changes are recorded", () => {
     ]);
   });
 
+  test("a replacement over a key that is no longer current changes nothing", async () => {
+    const credits = await newCredits();
+    const first = (await keys.replaceApiKey(credits, null, { prefix: "ml_live_ffff", keyHash: `h6-${n}` }))!;
+    expect(await keys.replaceApiKey(credits, null, { prefix: "ml_live_gggg", keyHash: `h7-${n}` })).toBeNull();
+    expect(await prisma.apiKey.findMany({ where: { apiCreditsId: credits.id }, select: { id: true } })).toEqual([{ id: first.id }]);
+  });
+
   test("deleting a key records it", async () => {
     const credits = await newCredits();
-    const key = await keys.replaceApiKey(credits, { prefix: "ml_live_cccc", keyHash: `h3-${n}` });
+    const key = (await keys.replaceApiKey(credits, null, { prefix: "ml_live_cccc", keyHash: `h3-${n}` }))!;
 
     expect(await keys.deleteApiKey(credits, key.id)).toBe(true);
     expect(await prisma.apiKey.count({ where: { apiCreditsId: credits.id } })).toBe(0);
@@ -54,7 +61,7 @@ describe.skipIf(!databaseUrl)("API key changes are recorded", () => {
   test("deleting a key of another account changes nothing", async () => {
     const owner = await newCredits();
     const other = await newCredits();
-    const key = await keys.replaceApiKey(owner, { prefix: "ml_live_dddd", keyHash: `h4-${n}` });
+    const key = (await keys.replaceApiKey(owner, null, { prefix: "ml_live_dddd", keyHash: `h4-${n}` }))!;
 
     expect(await keys.deleteApiKey(other, key.id)).toBe(false);
     expect(await prisma.apiKey.count({ where: { id: key.id } })).toBe(1);

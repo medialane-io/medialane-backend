@@ -4,8 +4,8 @@ import { randomBytes } from "crypto";
 import type { AppVariables } from "../../types/hono.js";
 import { portalSubject } from "../middleware/portalSubject.js";
 import { launchpadRuns } from "./launchpad-runs/index.js";
-import { freshSignature } from "../middleware/freshSignature.js";
 import prisma from "../../db/client.js";
+import { confirmKeyChange, productionKeyConfirmationDeps } from "../../portal/apiKeyConfirmation.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
 import { deleteApiKey, generateApiKey, replaceApiKey } from "../../utils/apiKey.js";
 import { createLogger } from "../../utils/logger.js";
@@ -146,27 +146,43 @@ portal.get("/keys", async (c) => {
 
 const createKeySchema = z.object({
   label: z.string().max(64).optional(),
-
+  confirmation: z.unknown(),
 });
 
-portal.post("/keys", freshSignature, async (c) => {
+const CONFIRMATION_REQUIRED = {
+  error: "confirmation_required",
+  message: "Approve this change with your wallet.",
+} as const;
+
+portal.post("/keys", async (c) => {
   const apiCredits = c.get("apiCredits");
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = createKeySchema.safeParse(body);
+  const parsed = createKeySchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) {
     return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
   }
 
+  const current = (await prisma.apiKey.findFirst({ where: { apiCreditsId: apiCredits.id }, select: { id: true } }))?.id ?? null;
+  const change = { action: "replace_api_key", key: current ?? "none" } as const;
+  if (!(await confirmKeyChange(productionKeyConfirmationDeps, apiCredits.accountId, change, parsed.data.confirmation))) {
+    return c.json(CONFIRMATION_REQUIRED, 403);
+  }
+
   const generated = generateApiKey();
-  const key = await replaceApiKey(apiCredits, generated, parsed.data.label);
+  const key = await replaceApiKey(apiCredits, current, generated, parsed.data.label);
+  if (!key) return c.json(CONFIRMATION_REQUIRED, 403);
 
   log.info({ keyId: key.id, apiCreditsId: apiCredits.id }, "API key created, replacing any earlier key");
   return c.json({ data: { id: key.id, prefix: key.prefix, label: key.label, plaintext: generated.plaintext } }, 201);
 });
 
-portal.delete("/keys/:id", freshSignature, async (c) => {
+portal.delete("/keys/:id", async (c) => {
   const apiCredits = c.get("apiCredits");
   const { id } = c.req.param();
+  const body = (await c.req.json().catch(() => ({}))) as { confirmation?: unknown };
+  const change = { action: "delete_api_key", key: id } as const;
+  if (!(await confirmKeyChange(productionKeyConfirmationDeps, apiCredits.accountId, change, body?.confirmation))) {
+    return c.json(CONFIRMATION_REQUIRED, 403);
+  }
 
   if (!(await deleteApiKey(apiCredits, id))) return c.json({ error: "API key not found" }, 404);
   log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key removed via portal");

@@ -1,71 +1,25 @@
 import type { MiddlewareHandler } from "hono";
-import { normalizeAddress } from "@medialane/sdk";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { verifyToken } from "../../utils/siwsToken.js";
 import { sessionVerdict, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { ensureAccountForWallet, ensureApiCredits } from "../../utils/account.js";
-import { callerApp } from "../../utils/caller.js";
+import { ensureApiCredits } from "../../utils/account.js";
 
-const accountSelect = {
-  id: true,
-  status: true,
-  apiCredits: { select: { id: true, accountId: true, creditBalance: true } },
-} as const;
-
+/** Portal routes act for the account of the forwarded session, and only that. */
 export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const forwarded = c.req.header("x-account-session");
-  const header = c.req.header("Authorization");
-  const raw = forwarded ?? (header?.startsWith("Bearer ") ? header.slice(7) : null);
-  if (!raw) {
-    return c.json({ error: "Sign in to use the portal" }, 401);
-  }
+  const raw = c.req.header("x-account-session");
+  if (!raw) return c.json({ error: "Sign in to use the portal" }, 401);
 
   const accountId = verifyAccountSessionToken(raw);
-  if (accountId) {
-    const account = await prisma.account.findUnique({ where: { id: accountId }, select: accountSelect });
-    if (!account) return c.json({ error: "No account for this session" }, 404);
-    if (sessionVerdict(account) === "inactive") return c.json({ error: "Account is not active" }, 403);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
 
-    c.set("account", { id: account.id, status: account.status });
-    c.set("apiCredits", account.apiCredits ?? (await ensureApiCredits(account.id)));
-    return next();
-  }
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { id: true, status: true, apiCredits: { select: { id: true, accountId: true, creditBalance: true } } },
+  });
+  if (!account) return c.json({ error: "No account for this session" }, 404);
+  if (sessionVerdict(account) === "inactive") return c.json({ error: "Account is not active" }, 403);
 
-  const identity = verifyToken(raw);
-  if (!identity) return c.json({ error: "Invalid or expired token" }, 401);
-
-  const address = normalizeAddress(identity.chain, identity.address);
-  const appId = callerApp(c);
-  const keyAccountId = c.get("apiKey")?.apiCredits?.accountId;
-  let wallet = keyAccountId
-    ? await prisma.identity.findFirst({
-        where: { accountId: keyAccountId, chain: identity.chain, address },
-        select: { account: { select: accountSelect } },
-      })
-    : null;
-
-  if (!wallet) {
-    wallet = await prisma.identity.findUnique({
-      where: { appId_chain_address: { appId, chain: identity.chain, address } },
-      select: { account: { select: accountSelect } },
-    });
-  }
-
-  if (!wallet) {
-    await ensureAccountForWallet({ chain: identity.chain, address, appId });
-    wallet = await prisma.identity.findUnique({
-      where: { appId_chain_address: { appId, chain: identity.chain, address } },
-      select: { account: { select: accountSelect } },
-    });
-  }
-
-  if (!wallet) return c.json({ error: "No account for this wallet" }, 404);
-  if (wallet.account.status === "INACTIVE") return c.json({ error: "Account is not active" }, 403);
-  const apiCredits = wallet.account.apiCredits ?? (await ensureApiCredits(wallet.account.id));
-
-  c.set("walletAddress", address);
-  c.set("account", { id: wallet.account.id, status: wallet.account.status });
-  c.set("apiCredits", apiCredits);
+  c.set("account", { id: account.id, status: account.status });
+  c.set("apiCredits", account.apiCredits ?? (await ensureApiCredits(account.id)));
   return next();
 };

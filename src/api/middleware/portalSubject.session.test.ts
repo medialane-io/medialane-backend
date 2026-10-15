@@ -19,9 +19,9 @@ async function appFor(status: string) {
   const app = new Hono<AppEnv>();
   app.use("*", portalSubject);
   app.get("/me", (c) => c.json({ ok: true }));
-  const request = (token: string) => app.request("/me", { headers: { Authorization: `Bearer ${token}` } });
-  const forwarded = (token: string) => app.request("/me", { headers: { "x-account-session": token } });
-  return { request, forwarded, token: issueAccountSessionToken("a1") };
+  const request = (token: string) => app.request("/me", { headers: { "x-account-session": token } });
+  const bearer = (token: string) => app.request("/me", { headers: { Authorization: `Bearer ${token}` } });
+  return { request, bearer, token: issueAccountSessionToken("a1") };
 }
 
 describe("account sessions on the portal", () => {
@@ -39,8 +39,13 @@ describe("account sessions on the portal", () => {
     expect(await res.json()).toEqual({ error: "Account is not active" });
   });
 
-  test("the forwarded session header signs the portal request in", async () => {
-    const { forwarded, token } = await appFor("ACTIVE");
-    expect((await forwarded(token)).status).toBe(200);
+  test("only the forwarded session signs in; a token in Authorization does not", async () => {
+    const { bearer, token } = await appFor("ACTIVE");
+    const { issueToken } = await import("../../utils/siwsToken.js");
+    for (const t of [token, issueToken("STARKNET", "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7")]) {
+      const res = await bearer(t);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "Sign in to use the portal" });
+    }
   });
 });

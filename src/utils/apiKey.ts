@@ -21,13 +21,16 @@ export function hashApiKey(plaintext: string): string {
 
 type KeyOwner = { id: string; accountId: string };
 
+/** Replaces the owner's key only if its current key is still `current` (null: none); otherwise returns null. */
 export async function replaceApiKey(
   owner: KeyOwner,
+  current: string | null,
   generated: { prefix: string; keyHash: string },
   label?: string,
-): Promise<{ id: string; prefix: string; label: string | null }> {
+): Promise<{ id: string; prefix: string; label: string | null } | null> {
   return prisma.$transaction(async (tx) => {
-    const replaced = await tx.apiKey.findFirst({ where: { apiCreditsId: owner.id }, select: { prefix: true } });
+    const replaced = await tx.apiKey.findFirst({ where: { apiCreditsId: owner.id }, select: { id: true, prefix: true } });
+    if ((replaced?.id ?? null) !== current) return null;
     await tx.apiKey.deleteMany({ where: { apiCreditsId: owner.id } });
     const key = await tx.apiKey.create({
       data: { apiCreditsId: owner.id, prefix: generated.prefix, keyHash: generated.keyHash, label },
