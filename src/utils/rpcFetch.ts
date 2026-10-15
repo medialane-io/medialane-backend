@@ -46,22 +46,6 @@ export function redactRpcUrl(url: string): string {
   }
 }
 
-export async function postRpc<T = unknown>(
-  body: object,
-  ctx: Record<string, unknown> = {},
-): Promise<{ result?: T; error?: unknown }> {
-  const json = (await (await rpcFetch()(rpcEndpoints()[0]!, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })).json()) as { result?: T; error?: unknown };
-
-  if (json.result === undefined || json.result === null) {
-    log.warn({ ...ctx, rpcError: json.error }, "RPC returned no result");
-  }
-  return json;
-}
-
 export async function reportRpcEndpoints(
   fetchImpl: typeof fetch = timedFetch as typeof fetch,
 ): Promise<{ url: string; ok: boolean; status?: number }[]> {

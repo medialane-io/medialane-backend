@@ -8,8 +8,8 @@ export function createProvider(): RpcProvider {
     _provider = new RpcProvider({
       nodeUrl: rpcEndpoints()[0],
       blockIdentifier: "latest",
-      fetch: rpcFetch(),
-    } as any);
+      baseFetch: rpcFetch(),
+    });
   }
   return _provider;
 }

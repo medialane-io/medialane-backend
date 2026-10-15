@@ -1,6 +1,4 @@
-import { hash } from "starknet";
-import { postRpc } from "./rpcFetch.js";
-import { normalizeAddress, normalizeHash } from "./starknet.js";
+import { callRpc, normalizeAddress, normalizeHash } from "./starknet.js";
 import { STARKNET_MARKETPLACE_721_CONTRACT, STARKNET_MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
 import { createLogger } from "./logger.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -180,14 +178,9 @@ export async function fetchReceiptEvents(txHash: string): Promise<RawStarknetEve
 }
 
 async function fetchReceipt(txHash: string): Promise<{ result?: Record<string, unknown>; error?: unknown }> {
-  return postRpc<Record<string, unknown>>(
-    {
-      jsonrpc: "2.0",
-      method: "starknet_getTransactionReceipt",
-      params: { transaction_hash: txHash },
-      id: 1,
-    },
-    { txHash },
+  return callRpc((provider) => provider.channel.getTransactionReceipt(txHash)).then(
+    (result) => ({ result: result as unknown as Record<string, unknown> }),
+    (error: unknown) => ({ error }),
   );
 }
 
@@ -201,28 +194,14 @@ function safeNormalizeAddress(address?: string): string {
 }
 
 const ORDER_STATUS_INDEX = { erc721: 14, erc1155: 14 };
-const GET_ORDER_DETAILS_SELECTOR = hash.getSelectorFromName("get_order_details");
 
 export async function checkOnChainOrderCancelled(orderHash: string, is1155: boolean): Promise<boolean> {
   const contractAddress = is1155 ? STARKNET_MARKETPLACE_1155_CONTRACT : STARKNET_MARKETPLACE_721_CONTRACT;
   const statusIndex = is1155 ? ORDER_STATUS_INDEX.erc1155 : ORDER_STATUS_INDEX.erc721;
 
   try {
-    const { result } = await postRpc<string[]>(
-      {
-        jsonrpc: "2.0",
-        method: "starknet_call",
-        params: {
-          request: {
-            contract_address: contractAddress,
-            entry_point_selector: GET_ORDER_DETAILS_SELECTOR,
-            calldata: [orderHash],
-          },
-          block_id: "latest",
-        },
-        id: 1,
-      },
-      { orderHash },
+    const result = await callRpc((provider) =>
+      provider.callContract({ contractAddress, entrypoint: "get_order_details", calldata: [orderHash] }),
     );
     if (!result || result.length <= statusIndex) return false;
 
@@ -239,17 +218,9 @@ export interface TransactionOwnership {
 }
 
 export async function fetchTransactionOwnership(txHash: string): Promise<TransactionOwnership> {
-  const json = await postRpc<Record<string, unknown>>(
-    {
-      jsonrpc: "2.0",
-      method: "starknet_getTransactionByHash",
-      params: { transaction_hash: txHash },
-      id: 1,
-    },
-    { txHash },
-  ).catch(() => null);
-
-  const result = json?.result as Record<string, unknown> | undefined;
+  const result = (await callRpc((provider) => provider.channel.getTransactionByHash(txHash)).catch(() => null)) as
+    | Record<string, unknown>
+    | null;
   const sender = typeof result?.sender_address === "string" ? result.sender_address : null;
   const calldata = Array.isArray(result?.calldata)
     ? (result.calldata as unknown[]).filter((entry): entry is string => typeof entry === "string")

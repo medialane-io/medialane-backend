@@ -88,6 +88,26 @@ describe("where a Starknet call goes", () => {
     expect(seen).toEqual(rpcEndpoints());
   });
 
+  test("a contract read through callRpc falls through a failing primary to the next endpoint", async () => {
+    const seen: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      seen.push(String(url));
+      return seen.length === 1
+        ? new Response(JSON.stringify({ error: { code: 429, message: "Monthly capacity limit exceeded" } }), { status: 429 })
+        : new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: ["0x7"] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const result = await callRpc((provider) =>
+        provider.callContract({ contractAddress: "0x1", entrypoint: "get_counter", calldata: ["0x2"] }),
+      );
+      expect(result).toEqual(["0x7"]);
+      expect(seen).toEqual(rpcEndpoints());
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   test("the endpoints are tried in order, primary first", () => {
     expect(rpcEndpoints()[0]).toBe(String(process.env.ALCHEMY_RPC_URL));
     expect(rpcEndpoints()).toHaveLength(2);

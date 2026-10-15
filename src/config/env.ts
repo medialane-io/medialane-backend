@@ -6,8 +6,6 @@ const envSchema = z.object({
 
   STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
 
-  STARKNET_RPC_URL: z.string().url().optional(),
-
   ALCHEMY_API_KEY: z.string().default(""),
 
   STARKNET_USDC_CONTRACT: z
