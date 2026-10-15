@@ -2,8 +2,8 @@ import type { MiddlewareHandler } from "hono";
 import { normalizeAddress } from "@medialane/sdk";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { tokenIssuedAt, verifyToken } from "../../utils/siwsToken.js";
-import { accountSessionIssuedAt, sessionVerdict, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { verifyToken } from "../../utils/siwsToken.js";
+import { sessionVerdict, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { ensureAccountForWallet, ensureApiCredits } from "../../utils/account.js";
 import { callerApp } from "../../utils/caller.js";
 
@@ -27,7 +27,6 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (!account) return c.json({ error: "No account for this session" }, 404);
     if (sessionVerdict(account) === "inactive") return c.json({ error: "Account is not active" }, 403);
 
-    c.set("subjectTokenIssuedAt", accountSessionIssuedAt(raw) ?? undefined);
     c.set("account", { id: account.id, status: account.status });
     c.set("apiCredits", account.apiCredits ?? (await ensureApiCredits(account.id)));
     return next();
@@ -66,7 +65,6 @@ export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const apiCredits = wallet.account.apiCredits ?? (await ensureApiCredits(wallet.account.id));
 
   c.set("walletAddress", address);
-  c.set("subjectTokenIssuedAt", tokenIssuedAt(raw) ?? undefined);
   c.set("account", { id: wallet.account.id, status: wallet.account.status });
   c.set("apiCredits", apiCredits);
   return next();
