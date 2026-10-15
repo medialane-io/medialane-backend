@@ -13,7 +13,6 @@ async function signIn(account: ReturnType<typeof accountRow> | null) {
     default: { account: { findUnique: mock(async () => account) } },
   }));
   mock.module("../../utils/account.js", () => ({
-    ensureAccountForWallet: async () => ({ accountId: "a1", created: false }),
     ensureApiCredits,
   }));
   const { portalSubject } = await import("./portalSubject.js");
@@ -21,7 +20,7 @@ async function signIn(account: ReturnType<typeof accountRow> | null) {
   const app = new Hono<AppEnv>();
   app.use("*", portalSubject);
   app.get("/me", (c) => c.json({ apiCredits: c.get("apiCredits").id }));
-  const res = await app.request("/me", { headers: { Authorization: `Bearer ${issueAccountSessionToken("a1")}` } });
+  const res = await app.request("/me", { headers: { "x-account-session": issueAccountSessionToken("a1") } });
   return { res, ensureApiCredits };
 }
 

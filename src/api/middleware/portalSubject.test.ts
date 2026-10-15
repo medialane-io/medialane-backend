@@ -21,10 +21,10 @@ test("without a token nobody is signed in, so the app's own account is not serve
   expect(await res.json()).toEqual({ error: "Sign in to use the portal" });
 });
 
-test("a forged or expired token is refused rather than falling back to the key", async () => {
+test("a forged or expired session is refused rather than falling back to the key", async () => {
   const res = await appWithSubject().request("/me", {
-    headers: { Authorization: "Bearer not-a-real-token" },
+    headers: { "x-account-session": "not-a-real-session" },
   });
   expect(res.status).toBe(401);
-  expect(await res.json()).toEqual({ error: "Invalid or expired token" });
+  expect(await res.json()).toEqual({ error: "Invalid or expired session" });
 });
