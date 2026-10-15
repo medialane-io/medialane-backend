@@ -28,7 +28,6 @@ export type AppVariables = {
   sponsorWallet?: string;
   sessionAccountId?: string;
 
-  subjectTokenIssuedAt?: number;
 
   billedUnits?: number;
 };

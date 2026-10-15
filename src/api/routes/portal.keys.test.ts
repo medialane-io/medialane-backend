@@ -30,16 +30,19 @@ async function appWith(opts: { ownedKeyId?: string } = {}) {
         })),
       },
       apiKey: { findMany: mock(async () => []) },
+      identity: { findFirst: mock(async () => ({ id: "i1" })) },
       $transaction: mock(async (run: (tx: unknown) => Promise<unknown>) =>
         run({ apiKey: { findFirst, deleteMany, create, delete: del }, accountEvent: { create: event } })),
     },
   }));
   const { default: portal } = await import("./portal.js");
   const { issueAccountSessionToken } = await import("../../utils/accountSessionToken.js");
+  const { issueToken } = await import("../../utils/siwsToken.js");
   const app = new Hono<AppEnv>();
   app.route("/", portal);
-  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${issueAccountSessionToken("a1")}` };
-  return { app, headers, deleteMany, create, del, event, order };
+  const session = { "Content-Type": "application/json", "x-account-session": issueAccountSessionToken("a1") };
+  const headers = { ...session, "x-fresh-signature": issueToken("STARKNET", "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7") };
+  return { app, session, headers, deleteMany, create, del, event, order };
 }
 
 describe("an account has one API key", () => {
@@ -62,6 +65,14 @@ describe("an account has one API key", () => {
     expect(await res.json()).toEqual({ data: { id: "k1" } });
     expect(del).toHaveBeenCalledWith({ where: { id: "k1" } });
     expect(event).toHaveBeenCalledWith({ data: { accountId: "a1", type: "API_KEY_DELETED", data: { prefix: "ml_live_old1" } } });
+  });
+
+  test("a session alone, without a fresh signature, cannot replace or delete the key", async () => {
+    const { app, session, create, del } = await appWith({ ownedKeyId: "k1" });
+    expect((await app.request("/keys", { method: "POST", headers: session, body: JSON.stringify({}) })).status).toBe(401);
+    expect((await app.request("/keys/k1", { method: "DELETE", headers: session })).status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
   });
 
   test("deleting a key that is not the account's is a 404 and removes nothing", async () => {
