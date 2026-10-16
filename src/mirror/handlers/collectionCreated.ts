@@ -1,7 +1,6 @@
 import { num } from "starknet";
 import type { ParsedCollectionCreated } from "../../types/marketplace.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
-import { STARKNET_COLLECTION_721_CONTRACT } from "../../config/constants.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("handler:collectionCreated");
@@ -61,14 +60,14 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
 export async function resolveCollectionCreated(
   event: ParsedCollectionCreated
 ): Promise<ResolvedCollection | null> {
-  const { collectionId, owner, blockNumber } = event;
+  const { collectionId, owner, blockNumber, factoryAddress } = event;
 
   try {
     const id = BigInt(collectionId);
     const low = id & ((1n << 128n) - 1n);
     const high = id >> 128n;
     const raw = (await callRpc((provider) => provider.callContract({
-      contractAddress: STARKNET_COLLECTION_721_CONTRACT,
+      contractAddress: factoryAddress,
       entrypoint: "get_collection",
       calldata: [num.toHex(low), num.toHex(high)],
     }))) as unknown as string[];

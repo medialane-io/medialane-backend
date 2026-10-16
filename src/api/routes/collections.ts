@@ -7,12 +7,8 @@ import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
 import { batchFallbackImages, serializeToken, serializeCollection, serializeCollections } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
-import { num as starkNum } from "starknet";
-import { STARKNET_COLLECTION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
-import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
-import { callRpc } from "../../utils/starknet.js";
 import { parseStandardFilter } from "./collections.standardFilter.js";
 import { registerCollectionSyncRoutes } from "./collections-sync.js";
 
