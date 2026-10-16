@@ -7,6 +7,9 @@ import {
   ORDER_FULFILLED_SELECTOR,
   TRANSFER_SELECTOR,
   TRANSFER_SINGLE_SELECTOR,
+  COLLECTION_CREATED_SELECTOR,
+  STARKNET_COLLECTION_721_CONTRACT,
+  STARKNET_DATA_TOKENIZATION_721_CONTRACT,
 } from "../config/constants.js";
 import { parseEvent, findTransferTo } from "./parser.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
@@ -114,6 +117,21 @@ describe("parseEvent — ERC-1155 TransferSingle", () => {
     expect((parsed as any).operator).toBe(
       "0x0000000000000000000000000000000000000000000000000000000000000aaa",
     );
+  });
+});
+
+describe("parseEvent — CollectionCreated", () => {
+  const created = (from_address: string) =>
+    rawEvent({ from_address, keys: [COLLECTION_CREATED_SELECTOR, "0x1", "0x0"], data: [OFFERER] });
+
+  test("is a collection event when a Medialane collection factory emits it", () => {
+    for (const factory of [STARKNET_COLLECTION_721_CONTRACT, STARKNET_DATA_TOKENIZATION_721_CONTRACT]) {
+      expect(parseEvent(created(factory), 0)).toMatchObject({ type: "CollectionCreated", collectionId: "1" });
+    }
+  });
+
+  test("is not a collection event when any other contract emits it", () => {
+    expect(parseEvent(created(COLLECTION), 0)).toBeNull();
   });
 });
 

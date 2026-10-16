@@ -4,94 +4,16 @@ import { type Collection, type PrismaClient } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { num as starkNum } from "starknet";
-import { STARKNET_COLLECTION_721_CONTRACT,
-  STARKNET_DATA_TOKENIZATION_721_CONTRACT, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
+import { STARKNET_COLLECTION_FACTORIES, COLLECTION_CREATED_SELECTOR } from "../../config/constants.js";
 import { resolveCollectionCreated, decodeCollectionCreatedEvent } from "../../mirror/handlers/collectionCreated.js";
 import { worker } from "../../orchestrator/worker.js";
+import { upsertCollectionFromFactory } from "../../utils/collection.js";
+import { serviceForFactory } from "../../utils/factoryService.js";
 import { callRpc } from "../../utils/starknet.js";
 import { serializeCollection } from "../utils/serialize.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:collections");
-
-type ResolvedCollectionForSync = {
-  contractAddress: string;
-  owner: string;
-  name: string | null;
-  symbol: string | null;
-  baseUri: string | null;
-  startBlock: bigint;
-};
-
-function decodeByteArray(felts: string[], offset: number): { value: string; nextOffset: number } {
-  if (offset >= felts.length) return { value: "", nextOffset: offset };
-  const dataLen = Number(BigInt(felts[offset]));
-  if (felts.length < offset + 1 + dataLen + 2) return { value: "", nextOffset: felts.length };
-
-  const pendingWord = BigInt(felts[offset + 1 + dataLen] ?? "0x0");
-  const pendingWordLen = Number(BigInt(felts[offset + 1 + dataLen + 1] ?? "0"));
-  const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
-  let byteOffset = 0;
-
-  for (let i = 0; i < dataLen; i++) {
-    const value = BigInt(felts[offset + 1 + i]);
-    for (let j = 0; j < 31; j++) {
-      bytes[byteOffset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
-    }
-  }
-
-  for (let j = 0; j < pendingWordLen; j++) {
-    bytes[byteOffset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
-  }
-
-  return {
-    value: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
-    nextOffset: offset + 1 + dataLen + 2,
-  };
-}
-
-function safeNormalizeAddress(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    return normalizeAddress("STARKNET", value);
-  } catch {
-    return null;
-  }
-}
-
-function resolveCollectionFromReceipt(
-  collectionEvent: any,
-  allEvents: any[],
-  registryAddress: string,
-  owner: string,
-  blockNumber: bigint
-): ResolvedCollectionForSync | null {
-  const dataFelts = ((collectionEvent.data ?? []) as string[]).map((d) => starkNum.toHex(d));
-  if (dataFelts.length < 6) return null;
-
-  const { value: name, nextOffset: afterName } = decodeByteArray(dataFelts, 3);
-  const { value: symbol, nextOffset: afterSymbol } = decodeByteArray(dataFelts, afterName);
-  const { value: baseUri } = decodeByteArray(dataFelts, afterSymbol);
-
-  const deployedEvent = allEvents.find((event: any) => {
-    const fromAddress = safeNormalizeAddress(event.from_address);
-    if (!fromAddress || fromAddress === registryAddress) return false;
-    const data = (event.data ?? []) as string[];
-    return data.some((felt) => safeNormalizeAddress(felt) === registryAddress);
-  });
-
-  const contractAddress = safeNormalizeAddress(deployedEvent?.from_address);
-  if (!contractAddress) return null;
-
-  return {
-    contractAddress,
-    owner,
-    name: name || null,
-    symbol: symbol || null,
-    baseUri: baseUri || null,
-    startBlock: blockNumber,
-  };
-}
 
 export async function refreshIndexedCollection(
   db: Pick<PrismaClient, "collection">,
@@ -115,11 +37,7 @@ collections.post("/sync-tx", async (c) => {
     const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
-    const factoryAddresses = new Set(
-      [STARKNET_COLLECTION_721_CONTRACT, STARKNET_DATA_TOKENIZATION_721_CONTRACT].map((a) =>
-        normalizeAddress("STARKNET", a),
-      ),
-    );
+    const factoryAddresses = new Set(STARKNET_COLLECTION_FACTORIES.map((a) => normalizeAddress("STARKNET", a)));
     const events = (receipt as any).events ?? [];
     const collectionEvents = events.filter(
       (e: any) =>
@@ -140,7 +58,7 @@ collections.post("/sync-tx", async (c) => {
       const { collectionId, owner } = decoded;
       const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
 
-      let resolved = await resolveCollectionCreated({
+      const resolved = await resolveCollectionCreated({
         type: "CollectionCreated",
         collectionId,
         owner,
@@ -151,37 +69,21 @@ collections.post("/sync-tx", async (c) => {
       });
 
       if (!resolved) {
-        resolved = resolveCollectionFromReceipt(event, events, normalizeAddress("STARKNET", event.from_address), owner, blockNumber);
-      }
-
-      if (!resolved) {
         unresolved++;
         continue;
       }
 
-      await prisma.collection.upsert({
-        where: { chain_contractAddress: { chain: "STARKNET", contractAddress: resolved.contractAddress } },
-        create: {
-          chain: "STARKNET",
-          contractAddress: resolved.contractAddress,
-          collectionId,
-          name: resolved.name ?? undefined,
-          symbol: resolved.symbol ?? undefined,
-          baseUri: resolved.baseUri ?? undefined,
-          owner: resolved.owner,
-          startBlock: resolved.startBlock,
-          service: "mip-erc721",
-          standard: "ERC721",
-          metadataStatus: "PENDING",
-        },
-        update: {
-          collectionId,
-          name: resolved.name ?? undefined,
-          symbol: resolved.symbol ?? undefined,
-          owner: resolved.owner,
-          service: "mip-erc721",
-          standard: "ERC721",
-        },
+      await upsertCollectionFromFactory(prisma, {
+        chain: "STARKNET",
+        contractAddress: resolved.contractAddress,
+        service: serviceForFactory(event.from_address),
+        standard: "ERC721",
+        collectionId,
+        name: resolved.name,
+        symbol: resolved.symbol,
+        baseUri: resolved.baseUri,
+        owner: resolved.owner,
+        startBlock: resolved.startBlock,
       });
 
       worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress: resolved.contractAddress });

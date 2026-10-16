@@ -8,6 +8,7 @@ import {
   TRANSFER_SINGLE_SELECTOR,
   TRANSFER_BATCH_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
+  STARKNET_COLLECTION_FACTORIES,
 } from "../config/constants.js";
 import type {
   ParsedEvent,
@@ -36,6 +37,8 @@ const SEL_TRANSFER_SINGLE      = num.toHex(TRANSFER_SINGLE_SELECTOR);
 const SEL_TRANSFER_BATCH       = num.toHex(TRANSFER_BATCH_SELECTOR);
 const SEL_COLLECTION_CREATED   = num.toHex(COLLECTION_CREATED_SELECTOR);
 const SEL_COUNTER_INCREMENTED  = num.toHex(COUNTER_INCREMENTED_SELECTOR);
+
+const COLLECTION_FACTORIES = new Set(STARKNET_COLLECTION_FACTORIES.map((a) => normalizeAddress("STARKNET", a)));
 
 export function parseEvent(
   event: RawStarknetEvent,
@@ -206,7 +209,7 @@ export function parseEvent(
       }
     }
 
-    if (selector === SEL_COLLECTION_CREATED) {
+    if (selector === SEL_COLLECTION_CREATED && COLLECTION_FACTORIES.has(contractAddress)) {
       const decoded = decodeCollectionCreatedEvent({ keys, data: event.data });
       if (!decoded) return null;
       return {
