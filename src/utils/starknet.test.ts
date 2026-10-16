@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createFailoverFetch } from "@medialane/sdk";
+import { createFailoverFetch } from "./rpcFailover.js";
 import { normalizeAddress, normalizeHash, callRpc, isContractNotFound } from "./starknet.js";
 import { rpcEndpoints } from "./rpcFetch.js";
 
