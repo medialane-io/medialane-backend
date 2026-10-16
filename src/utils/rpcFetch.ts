@@ -1,4 +1,4 @@
-import { createFailoverFetch } from "@medialane/sdk";
+import { createFailoverFetch } from "./rpcFailover.js";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
 
