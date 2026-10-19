@@ -10,6 +10,7 @@ import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
 import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFilter.js";
 import { readTokenFromChain } from "./tokens.readThrough.js";
+import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -263,6 +264,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
     include: { collection: { select: { standard: true } } },
   });
 
+  let liveTokenUri: string | null = null;
   if (!token) {
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress } },
@@ -273,10 +275,11 @@ tokens.get("/:contract/:tokenId", async (c) => {
     if (!onChain) {
       return c.json({ error: "Token not found" }, 404);
     }
+    liveTokenUri = onChain.tokenUri;
 
     await prisma.token.upsert({
       where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-      create: { chain, contractAddress, tokenId, tokenUri: onChain.tokenUri, metadataStatus: "PENDING" },
+      create: { chain, contractAddress, tokenId, tokenUri: storedTokenUri(onChain.tokenUri), metadataStatus: "PENDING" },
       update: {},
     });
     log.info({ contractAddress, tokenId }, "read-through: adopted a token the indexer had not reached yet");
@@ -289,10 +292,11 @@ tokens.get("/:contract/:tokenId", async (c) => {
   }
 
   if (token.metadataStatus === "PENDING" || token.metadataStatus === "FAILED") {
-    if (wait && token.tokenUri) {
+    const metadataUri = token.tokenUri ?? liveTokenUri;
+    if (wait && metadataUri) {
 
       const metadata = await Promise.race([
-        resolveMetadata(token.tokenUri).then((m) => m),
+        resolveMetadata(metadataUri).then((m) => m),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
       ]);
       if (metadata) {
@@ -302,7 +306,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
             metadataStatus: "FETCHED",
             name: (metadata.name as string) ?? null,
             description: (metadata.description as string) ?? null,
-            image: (metadata.image as string) ?? null,
+            image: storedImage(metadata.image, chain, contractAddress, tokenId),
             animationUrl: (metadata.animation_url as string) ?? null,
             attributes: (metadata.attributes as any) ?? undefined,
           },
