@@ -64,6 +64,8 @@ function isFactoryFamilyService(service: string | null): service is FactoryFamil
   return service != null && Object.prototype.hasOwnProperty.call(FACTORY_FAMILY_SERVICES, service);
 }
 
+const NOT_COLLECTION_OWNER = "This collection belongs to another account. Choose one of your collections and try again.";
+
 async function assertFactoryCollectionOwner(collectionAddress: string, expectedOwner: string): Promise<void> {
   const result = await callRpc((provider) => provider.callContract({
     contractAddress: collectionAddress,
@@ -72,7 +74,7 @@ async function assertFactoryCollectionOwner(collectionAddress: string, expectedO
   }));
   const onChainOwner = normalizeAddress("STARKNET", result[0]);
   if (onChainOwner !== expectedOwner) {
-    throw new Error(`Address ${expectedOwner} is not the owner of collection ${collectionAddress}`);
+    throw new IntentRefusal(NOT_COLLECTION_OWNER);
   }
 }
 
@@ -134,7 +136,7 @@ export async function buildMintIntent(body: MintIntentBody) {
     calldata: [id.low.toString(), id.high.toString(), owner],
   }));
   if (!ownershipResult[0] || BigInt(ownershipResult[0]) === 0n) {
-    throw new Error(`Address ${body.owner} is not the owner of collection ${body.collectionId}`);
+    throw new IntentRefusal(NOT_COLLECTION_OWNER);
   }
 
   const calldata = [
