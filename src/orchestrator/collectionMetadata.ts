@@ -9,7 +9,7 @@ import { metadataAttributes } from "../utils/metadataAttributes.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
-const INTERFACE_ID_SRC5_ERC721  = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16d3d20a2a";
+const INTERFACE_ID_SRC5_ERC721  = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16ea3175bd943";
 const INTERFACE_ID_SRC5_ERC1155 = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
 
 const INTERFACE_ID_ERC165_ERC721  = "0x80ac58cd";

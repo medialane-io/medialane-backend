@@ -68,3 +68,37 @@ describe("resolveCollectionBaseUri", () => {
     expect(resolveCollectionBaseUri("", null)).toBe("");
   });
 });
+
+describe("detectTokenStandard", () => {
+  const OZ_IERC721_ID = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16ea3175bd943";
+  const OZ_IERC1155_ID = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
+
+  async function detectWith(supported: string[]) {
+    const realStarknet = await import("../utils/starknet.js");
+    const provider = {
+      callContract: async (call: { calldata: string[] }) => {
+        const id = BigInt(call.calldata[0]);
+        return [supported.some((s) => BigInt(s) === id) ? "0x1" : "0x0"];
+      },
+    };
+    const { mock } = await import("bun:test");
+    mock.module("../utils/starknet.js", () => ({
+      ...realStarknet,
+      callRpc: (fn: (p: unknown) => unknown) => Promise.resolve(fn(provider)),
+    }));
+    const { detectTokenStandard } = await import("./collectionMetadata.js");
+    return detectTokenStandard("0xc0de");
+  }
+
+  test("an OpenZeppelin ERC-721 is detected by its SRC5 interface id", async () => {
+    expect(await detectWith([OZ_IERC721_ID])).toBe("ERC721");
+  });
+
+  test("an OpenZeppelin ERC-1155 is detected by its SRC5 interface id", async () => {
+    expect(await detectWith([OZ_IERC1155_ID])).toBe("ERC1155");
+  });
+
+  test("a contract that supports neither is not a collection", async () => {
+    expect(await detectWith([])).toBeNull();
+  });
+});
