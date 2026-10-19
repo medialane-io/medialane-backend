@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { PinataSDK } from "pinata";
+import { UPLOAD_LIMITS, type UploadKind } from "@medialane/sdk";
 import { env } from "../../config/env.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
@@ -17,41 +18,15 @@ const pinata = new PinataSDK({
   pinataGateway: env.PINATA_GATEWAY,
 });
 
-const SIGNED_URL_MIME_TYPES: Record<"image" | "document" | "media", string[]> = {
-  image: ["image/jpeg", "image/png", "image/gif", "image/svg+xml", "image/webp"],
-  document: [
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.oasis.opendocument.text",
-    "application/rtf",
-    "text/plain",
-    "text/markdown",
-
-    "application/octet-stream",
-  ],
-  media: [
-    "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
-    "video/mp4", "video/webm", "video/ogg",
-    "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
-    "application/pdf",
-  ],
-};
-const SIGNED_URL_MAX_BYTES: Record<"image" | "document" | "media", number> = {
-  image: 10 * 1024 * 1024,
-  document: 20 * 1024 * 1024,
-  media: 100 * 1024 * 1024,
-};
-
 metadata.get("/signed-url", async (c) => {
   const kindParam = c.req.query("kind");
-  const kind: "image" | "document" | "media" =
+  const kind: UploadKind =
     kindParam === "document" ? "document" : kindParam === "media" ? "media" : "image";
   try {
     const url = await pinata.upload.public.createSignedURL({
       expires: 120,
-      maxFileSize: SIGNED_URL_MAX_BYTES[kind],
-      mimeTypes: SIGNED_URL_MIME_TYPES[kind],
+      maxFileSize: UPLOAD_LIMITS[kind].maxBytes,
+      mimeTypes: [...UPLOAD_LIMITS[kind].mimeTypes],
     });
     return c.json({ data: { url } });
   } catch (err: unknown) {
