@@ -37,7 +37,7 @@ export async function retryFailedMetadata(deps: RetryDeps = defaultDeps): Promis
   const tokens = await forEachPage(
     (page) =>
       deps.token.findMany({
-        where: { metadataStatus: "FAILED" },
+        where: { metadataStatus: { in: ["PENDING", "FAILED"] } },
         select: { id: true, chain: true, contractAddress: true, tokenId: true },
         orderBy: { id: "asc" },
         ...page,
