@@ -42,6 +42,16 @@ describe("retryFailedMetadata", () => {
     expect(collectionTable.calls).toHaveLength(2);
   });
 
+  test("re-queues tokens still waiting for metadata as well as failed ones", async () => {
+    const tokenTable = pagedTable(tokens(1));
+    await retryFailedMetadata({
+      token: { findMany: tokenTable.findMany as never },
+      collection: { findMany: pagedTable([]).findMany as never },
+      enqueue: () => {},
+    });
+    expect(tokenTable.calls[0]).toMatchObject({ where: { metadataStatus: { in: ["PENDING", "FAILED"] } } });
+  });
+
   test("does nothing when nothing has failed", async () => {
     const queued: WorkItem[] = [];
     const result = await retryFailedMetadata({
