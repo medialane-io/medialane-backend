@@ -5,6 +5,7 @@ import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
 import { attributesArraySchema } from "../utils/metadataAttributes.js";
+import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
 
 
 const log = createLogger("orchestrator:metadata");
@@ -128,11 +129,11 @@ export async function handleMetadataFetch(payload: {
     await prisma.token.updateMany({
       where: { chain, contractAddress, tokenId },
       data: {
-        tokenUri,
+        tokenUri: storedTokenUri(tokenUri),
         metadataStatus: metadata ? "FETCHED" : "FAILED",
         name: metadata?.name ?? null,
         description: metadata?.description ?? null,
-        image: metadata?.image ?? null,
+        image: storedImage(metadata?.image, chain, contractAddress, tokenId),
         animationUrl: (metadata?.animation_url as string | undefined) ?? null,
         attributes: _attrs.length > 0 ? (_attrs as any) : undefined,
         ipType:
@@ -162,7 +163,7 @@ export async function handleMetadataFetch(payload: {
   }
 }
 
-async function fetchTokenUri(
+export async function fetchTokenUri(
   contractAddress: string,
   tokenId: string,
   chain: Chain

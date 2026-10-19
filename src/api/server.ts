@@ -9,6 +9,7 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("http");
 import health from "./routes/health.js";
+import media from "./routes/media.js";
 import orders from "./routes/orders.js";
 import tokens from "./routes/tokens.js";
 import collections from "./routes/collections.js";
@@ -56,6 +57,7 @@ export function createApp(): Hono<AppEnv> {
   app.use("*", loggerMiddleware);
 
   app.route("/health", health);
+  app.route("/media", media);
 
   app.route("/", x402Discovery);
 

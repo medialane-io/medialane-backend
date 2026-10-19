@@ -31,6 +31,7 @@ const envSchema = z.object({
   SIWS_SECRET: z.string().min(32),
   PROVISIONING_SECRET: z.string().default(""),
   IO_APP_URL: z.string().default("https://www.medialane.io"),
+  PUBLIC_API_URL: z.string().default("https://api.medialane.io"),
   CORS_ORIGINS: z
     .string()
     .default("https://medialane.io,https://www.medialane.io,https://starknet.medialane.io,https://accounts.medialane.io,https://api.medialane.io,https://services.medialane.io,https://medialane.xyz,https://mediolano.app,http://localhost:3000,http://localhost:3001"),
