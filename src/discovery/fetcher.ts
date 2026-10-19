@@ -100,8 +100,33 @@ function decodeDataUri(uri: string): Record<string, unknown> | null {
     const decoded = header.includes(";base64")
       ? Buffer.from(payload, "base64").toString("utf-8")
       : decodeURIComponent(payload);
-    return JSON.parse(decoded);
+    try {
+      return JSON.parse(decoded);
+    } catch {
+      return JSON.parse(escapeControlCharactersInStrings(decoded));
+    }
   } catch {
     return null;
   }
+}
+
+function escapeControlCharactersInStrings(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      else if (ch < " ") {
+        out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`;
+        continue;
+      }
+    } else if (ch === '"') {
+      inString = true;
+    }
+    out += ch;
+  }
+  return out;
 }
