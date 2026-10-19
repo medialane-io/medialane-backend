@@ -336,6 +336,8 @@ const chainTransferCatchUp = (chain: "STARKNET"): TransferCatchUpDeps => ({
   },
 });
 
+const CATCH_UP_BATCH = 200;
+
 export async function catchUpCollectionTransfers(
   collections: Iterable<string>,
   deps: TransferCatchUpDeps = chainTransferCatchUp("STARKNET"),
@@ -352,6 +354,8 @@ export async function catchUpCollectionTransfers(
       toBlock: Number(cursor),
       keys: [TRANSFER_SELECTORS],
     });
-    if (events.length) await deps.apply(events);
+    for (let i = 0; i < events.length; i += CATCH_UP_BATCH) {
+      await deps.apply(events.slice(i, i + CATCH_UP_BATCH));
+    }
   }
 }

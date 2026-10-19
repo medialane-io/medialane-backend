@@ -141,7 +141,7 @@ test("drop sources start at the drop factory's first block", () => {
 describe("catchUpCollectionTransfers", () => {
   const event = { block_number: 120, transaction_hash: "0x1", from_address: "0xc", keys: [], data: [], block_hash: "0x0" };
 
-  const deps = (over: { startBlock?: bigint; service?: string; cursors?: Record<string, bigint | null> } = {}) => {
+  const deps = (over: { startBlock?: bigint; service?: string; cursors?: Record<string, bigint | null>; events?: (typeof event)[] } = {}) => {
     const polled: { address: string; fromBlock: number; toBlock: number; keys: string[][] }[] = [];
     const applied: unknown[][] = [];
     return {
@@ -150,7 +150,7 @@ describe("catchUpCollectionTransfers", () => {
       deps: {
         collection: async () => ({ startBlock: over.startBlock ?? 100n, service: over.service ?? "mip-erc721" }),
         cursor: async (sourceId: string) => (over.cursors ?? { [CORE_TRANSFERS]: 150n })[sourceId] ?? null,
-        poll: async (p: { address: string; fromBlock: number; toBlock: number; keys: string[][] }) => { polled.push(p); return [event]; },
+        poll: async (p: { address: string; fromBlock: number; toBlock: number; keys: string[][] }) => { polled.push(p); return over.events ?? [event]; },
         apply: async (events: unknown[]) => { applied.push(events); },
       },
     };
@@ -184,5 +184,21 @@ describe("catchUpCollectionTransfers", () => {
     const d = deps({ service: EXTERNAL_SERVICES[0], cursors: { [CORE_TRANSFERS]: 150n, [CORE_TRANSFERS_EXTERNAL]: 130n } });
     await catchUpCollectionTransfers(["0xc"], d.deps);
     expect(d.polled.map((p) => p.toBlock)).toEqual([130]);
+  });
+
+  test("a long history is saved in batches of 200 events, in order", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const events = Array.from({ length: 450 }, (_, i) => ({ ...event, transaction_hash: `0x${i}` }));
+    const d = deps({ events });
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.applied.map((batch) => batch.length)).toEqual([200, 200, 50]);
+    expect(d.applied.flat()).toEqual(events);
+  });
+
+  test("no events means nothing is saved", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const d = deps({ events: [] });
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.applied).toEqual([]);
   });
 });
