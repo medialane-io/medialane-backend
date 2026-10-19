@@ -1,6 +1,7 @@
 import prisma from "../../db/client.js";
 import { Prisma, type Chain, type Collection, type Order, type Token, type TokenStandard } from "@prisma/client";
 import type { RawCollectionRow, RawOrderRow, RawTokenRow } from "./rawTypes.js";
+import { batchCollectionStats, type CollectionStats } from "./collectionStats.js";
 
 export type SerializableOrder = Order | RawOrderRow;
 
@@ -17,14 +18,6 @@ const CURRENCY_DECIMALS: Record<string, number> = {
   STRK: 18,
   WBTC: 8,
 };
-
-export function composeAmountDisplay(
-  value: string | null | undefined,
-  currency: string | null | undefined
-): string | null {
-  if (value == null || value === "") return null;
-  return currency ? `${value} ${currency}` : value;
-}
 
 export async function batchTokenMeta(
   orders: { chain: import("@prisma/client").Chain; nftContract: string | null; nftTokenId: string | null }[]
@@ -99,6 +92,7 @@ export async function batchFallbackImages(
 
 export function serializeCollection(
   c: (Collection | RawCollectionRow) & { profile?: SerializableCollectionProfile },
+  stats: CollectionStats | undefined,
   fallbackImage?: string | null,
 ) {
   const profile = c.profile ?? null;
@@ -120,10 +114,10 @@ export function serializeCollection(
     isHidden: c.isHidden,
     service: c.service ?? null,
     claimedBy: c.claimedBy ?? null,
-    floorPrice: composeAmountDisplay(c.floorPrice, c.floorCurrency),
-    totalVolume: composeAmountDisplay(c.totalVolume, c.volumeCurrency),
-    holderCount: c.holderCount,
-    totalSupply: c.totalSupply,
+    floorPrice: stats?.floorPrice ?? null,
+    totalVolume: stats?.totalVolume ?? null,
+    holderCount: stats?.holderCount ?? 0,
+    totalSupply: stats?.totalSupply ?? 0,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     profile: profile
@@ -143,8 +137,8 @@ export async function serializeCollections<T extends (Collection | RawCollection
   rows: T[],
   db: Pick<typeof prisma, "$queryRaw"> = prisma,
 ) {
-  const fallbacks = await batchFallbackImages(rows, db);
-  return rows.map((row) => serializeCollection(row, fallbacks.get(row.contractAddress)));
+  const [fallbacks, stats] = await Promise.all([batchFallbackImages(rows, db), batchCollectionStats(rows, db)]);
+  return rows.map((row) => serializeCollection(row, stats.get(row.contractAddress), fallbacks.get(row.contractAddress)));
 }
 
 export function serializeToken(

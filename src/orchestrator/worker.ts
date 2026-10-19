@@ -1,6 +1,5 @@
 import { type Chain } from "@prisma/client";
 import { handleMetadataFetch } from "./metadata.js";
-import { handleStatsUpdate } from "./stats.js";
 import { handleCollectionMetadataFetch } from "./collectionMetadata.js";
 import { syncWalletActivityProd } from "../walletActivity/sync.js";
 import { createLogger } from "../utils/logger.js";
@@ -9,7 +8,6 @@ const log = createLogger("worker");
 
 export type WorkItem =
   | { type: "METADATA_FETCH"; chain: Chain; contractAddress: string; tokenId: string }
-  | { type: "STATS_UPDATE"; chain: Chain; contractAddress: string }
   | { type: "COLLECTION_METADATA_FETCH"; chain: Chain; contractAddress: string }
   | { type: "WALLET_ACTIVITY_SYNC"; chain: Chain; accountAddress: string };
 
@@ -32,7 +30,6 @@ class InMemoryWorker {
     switch (item.type) {
       case "METADATA_FETCH":
         return `${item.type}:${item.chain}:${item.contractAddress}:${item.tokenId}`;
-      case "STATS_UPDATE":
       case "COLLECTION_METADATA_FETCH":
         return `${item.type}:${item.chain}:${item.contractAddress}`;
       case "WALLET_ACTIVITY_SYNC":
@@ -104,9 +101,6 @@ class InMemoryWorker {
     switch (item.type) {
       case "METADATA_FETCH":
         await handleMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress, tokenId: item.tokenId });
-        break;
-      case "STATS_UPDATE":
-        await handleStatsUpdate({ chain: item.chain, contractAddress: item.contractAddress });
         break;
       case "COLLECTION_METADATA_FETCH":
         await handleCollectionMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress });

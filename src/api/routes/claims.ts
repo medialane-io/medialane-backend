@@ -39,7 +39,6 @@ async function indexCollection(chain: Chain, contractAddress: string): Promise<b
       for (const token of pendingTokens) {
         worker.enqueue({ type: "METADATA_FETCH", chain, contractAddress, tokenId: token.tokenId });
       }
-      worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
     })
     .catch((err) => log.error({ err, contractAddress }, "Claimed collection transfers could not be read"));
   return true;

@@ -1,23 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { composeAmountDisplay, batchOrdersByToken, batchFallbackImages, serializeCollection, serializeCollections, serializeCreatorProfile } from "./serialize.js";
-
-describe("composeAmountDisplay", () => {
-  test("joins value and currency into the API display shape", () => {
-    expect(composeAmountDisplay("1.500000", "USDC")).toBe("1.500000 USDC");
-    expect(composeAmountDisplay("0.010000000000000000", "ETH")).toBe("0.010000000000000000 ETH");
-  });
-
-  test("null/empty value → null (no floor / no volume)", () => {
-    expect(composeAmountDisplay(null, "USDC")).toBeNull();
-    expect(composeAmountDisplay(undefined, null)).toBeNull();
-    expect(composeAmountDisplay("", "USDC")).toBeNull();
-  });
-
-  test("value without currency passes through (pre-split legacy rows)", () => {
-    expect(composeAmountDisplay("1.500000", null)).toBe("1.500000");
-    expect(composeAmountDisplay("1.500000", undefined)).toBe("1.500000");
-  });
-});
+import { batchOrdersByToken, batchFallbackImages, serializeCollection, serializeCollections, serializeCreatorProfile } from "./serialize.js";
 
 describe("batchOrdersByToken", () => {
   test("groups active orders by contractAddress:tokenId, one query for all tokens", async () => {
@@ -86,15 +68,14 @@ describe("collection image fallback", () => {
   const collection = {
     id: "c1", chain: "STARKNET", contractAddress: "0xabc", collectionId: null, name: "C", symbol: "C",
     description: null, image: null, owner: null, startBlock: 1n, metadataStatus: "FETCHED", standard: "ERC721",
-    isFeatured: false, isHidden: false, service: "external-erc721", claimedBy: null, floorPrice: null,
-    floorCurrency: null, totalVolume: null, volumeCurrency: null, holderCount: 0, totalSupply: 0,
+    isFeatured: false, isHidden: false, service: "external-erc721", claimedBy: null,
     createdAt: new Date(0), updatedAt: new Date(0),
   } as never;
 
   test("shows the first token's image only when the collection has none, and never its description", () => {
-    expect(serializeCollection(collection, "ipfs://token")).toMatchObject({ image: "ipfs://token", description: null });
-    expect(serializeCollection({ ...(collection as object), image: "ipfs://own" } as never, "ipfs://token").image).toBe("ipfs://own");
-    expect(serializeCollection(collection).image).toBeNull();
+    expect(serializeCollection(collection, undefined, "ipfs://token")).toMatchObject({ image: "ipfs://token", description: null });
+    expect(serializeCollection({ ...(collection as object), image: "ipfs://own" } as never, undefined, "ipfs://token").image).toBe("ipfs://own");
+    expect(serializeCollection(collection, undefined).image).toBeNull();
   });
 
   test("looks up first-token images in one query, only for collections without an image", async () => {
@@ -126,17 +107,16 @@ describe("collection attributes", () => {
   const collection = {
     id: "c1", chain: "STARKNET", contractAddress: "0xabc", collectionId: null, name: "Gala", symbol: "GALA",
     description: null, image: null, owner: null, startBlock: 1n, metadataStatus: "FETCHED", standard: "ERC721",
-    isFeatured: false, isHidden: false, service: "pop-protocol", claimedBy: null, floorPrice: null,
-    floorCurrency: null, totalVolume: null, volumeCurrency: null, holderCount: 0, totalSupply: 0,
+    isFeatured: false, isHidden: false, service: "pop-protocol", claimedBy: null,
     createdAt: new Date(0), updatedAt: new Date(0),
   };
 
   test("are returned as indexed from the collection metadata", () => {
     const attributes = [{ trait_type: "Visibility", value: "Private" }];
-    expect(serializeCollection({ ...collection, attributes } as never).attributes).toEqual(attributes);
+    expect(serializeCollection({ ...collection, attributes } as never, undefined).attributes).toEqual(attributes);
   });
 
   test("are null when none were indexed", () => {
-    expect(serializeCollection({ ...collection, attributes: null } as never).attributes).toBeNull();
+    expect(serializeCollection({ ...collection, attributes: null } as never, undefined).attributes).toBeNull();
   });
 });

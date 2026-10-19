@@ -214,12 +214,6 @@ model Collection {
   startBlock      BigInt
   isFeatured      Boolean            @default(false)
   isHidden        Boolean            @default(false)
-  floorPrice      String?
-  floorCurrency   String?
-  totalVolume     String?
-  volumeCurrency  String?
-  holderCount     Int                @default(0)
-  totalSupply     Int                @default(0)
   tokens          Token[]
   standard        TokenStandard
   service         String

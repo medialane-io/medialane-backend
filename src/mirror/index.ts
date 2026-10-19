@@ -153,10 +153,6 @@ async function tick(tickId: string): Promise<number> {
     worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: CHAIN, contractAddress: col.contractAddress });
   }
 
-  for (const contract of allAffectedContracts) {
-    worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress: contract });
-  }
-
   tlog.info(
     {
       fromBlock,

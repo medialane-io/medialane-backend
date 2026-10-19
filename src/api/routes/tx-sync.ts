@@ -173,10 +173,6 @@ txSync.post("/", async (c) => {
 
   await catchUpCollectionTransfers(createdCollections);
 
-  for (const contractAddress of affectedContracts) {
-    worker.enqueue({ type: "STATS_UPDATE", chain: CHAIN, contractAddress });
-  }
-
   const pendingTokens = await prisma.token.findMany({
     where: {
       chain: CHAIN,

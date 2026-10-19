@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import type { RawSearchTokenRow, RawSearchCollectionRow } from "../utils/rawTypes.js";
-import { composeAmountDisplay } from "../utils/serialize.js";
+import { batchCollectionStats } from "../utils/collectionStats.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
 
 const search = new Hono();
@@ -35,7 +35,7 @@ search.get("/", async (c) => {
       LIMIT ${limit}
     `,
     prisma.$queryRaw<RawSearchCollectionRow[]>`
-      SELECT "contractAddress", name, image, "totalSupply", "floorPrice", "floorCurrency", "holderCount", "collectionId",
+      SELECT "contractAddress", name, image, "collectionId",
              ts_rank(
                to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress"),
                plainto_tsquery('english', ${q})
@@ -66,10 +66,16 @@ search.get("/", async (c) => {
   ]);
 
   const tokens = tokenRows.map(({ rank: _rank, ...rest }) => rest);
-  const collections = collectionRows.map(({ rank: _rank, floorCurrency, ...rest }) => ({
-    ...rest,
-    floorPrice: composeAmountDisplay(rest.floorPrice, floorCurrency),
-  }));
+  const stats = await batchCollectionStats(collectionRows.map((r) => ({ chain, contractAddress: r.contractAddress })));
+  const collections = collectionRows.map(({ rank: _rank, ...rest }) => {
+    const s = stats.get(rest.contractAddress);
+    return {
+      ...rest,
+      totalSupply: s?.totalSupply ?? 0,
+      floorPrice: s?.floorPrice ?? null,
+      holderCount: s?.holderCount ?? 0,
+    };
+  });
 
   return c.json({
     data: {
