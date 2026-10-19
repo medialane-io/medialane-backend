@@ -354,8 +354,12 @@ export async function catchUpCollectionTransfers(
       toBlock: Number(cursor),
       keys: [TRANSFER_SELECTORS],
     });
-    for (let i = 0; i < events.length; i += CATCH_UP_BATCH) {
-      await deps.apply(events.slice(i, i + CATCH_UP_BATCH));
+    let start = 0;
+    while (start < events.length) {
+      let end = Math.min(start + CATCH_UP_BATCH, events.length);
+      while (end < events.length && events[end]!.transaction_hash === events[end - 1]!.transaction_hash) end++;
+      await deps.apply(events.slice(start, end));
+      start = end;
     }
   }
 }

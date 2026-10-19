@@ -195,6 +195,15 @@ describe("catchUpCollectionTransfers", () => {
     expect(d.applied.flat()).toEqual(events);
   });
 
+  test("a batch never splits the events of one transaction", async () => {
+    const { catchUpCollectionTransfers } = await import("./sources.js");
+    const events = Array.from({ length: 450 }, (_, i) => ({ ...event, transaction_hash: i === 199 || i === 200 ? "0xsplit" : `0x${i}` }));
+    const d = deps({ events });
+    await catchUpCollectionTransfers(["0xc"], d.deps);
+    expect(d.applied.map((batch) => batch.length)).toEqual([201, 200, 49]);
+    expect(d.applied.flat()).toEqual(events);
+  });
+
   test("no events means nothing is saved", async () => {
     const { catchUpCollectionTransfers } = await import("./sources.js");
     const d = deps({ events: [] });
