@@ -10,6 +10,7 @@ import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
 import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFilter.js";
 import { readTokenFromChain } from "./tokens.readThrough.js";
+import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 
 const log = createLogger("routes:tokens");
@@ -322,20 +323,24 @@ tokens.get("/:contract/:tokenId", async (c) => {
     }
   }
 
-  const [activeOrders, balances] = await Promise.all([
+  const [activeOrders, { holders, holderCount, supply }] = await Promise.all([
     prisma.order.findMany({
       where: { chain, nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
       take: 5,
     }),
-    prisma.tokenBalance.findMany({
-      where: { chain, contractAddress, tokenId, amount: { not: "0" } },
-      select: { owner: true, amount: true },
-      orderBy: { amount: "desc" },
-      take: 50,
-    }),
+    tokenHolders(chain, contractAddress, tokenId),
   ]);
 
-  return c.json({ data: serializeToken(token, activeOrders, balances) });
+  return c.json({ data: { ...serializeToken(token, activeOrders, holders), holderCount, supply } });
+});
+
+tokens.get("/:contract/:tokenId/balances/:owner", async (c) => {
+  const { contract, tokenId, owner } = c.req.param();
+  const chain = parseSingleChain(c.req.query("chain"));
+  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const holder = normalizeAddress(chain, owner);
+  const amount = await tokenBalanceOf(chain, normalizeAddress(chain, contract), tokenId, holder);
+  return c.json({ data: { owner: holder, amount } });
 });
 
 tokens.get("/:contract/:tokenId/history", async (c) => {
