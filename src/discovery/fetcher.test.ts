@@ -39,6 +39,21 @@ describe("fetchJson data: URI handling", () => {
   test("returns null for a malformed data URI", async () => {
     expect(await fetchJson("data:application/json,")).toBeNull();
   });
+
+  test("decodes JSON whose strings hold raw line breaks and tabs", async () => {
+    const json = '{"name":"\\"Blood Growl\\" Ent",\n  "description":"The Beasts are a collection.\n            \n\tBorn onchain.",\n  "attributes":[{"trait_type":"Tier","value":"1"}]}';
+    const uri = `data:application/json;base64,${Buffer.from(json, "utf-8").toString("base64")}`;
+    expect(await fetchJson(uri)).toEqual({
+      name: '"Blood Growl" Ent',
+      description: "The Beasts are a collection.\n            \n\tBorn onchain.",
+      attributes: [{ trait_type: "Tier", value: "1" }],
+    });
+  });
+
+  test("still returns null for JSON that is broken in other ways", async () => {
+    const uri = `data:application/json;base64,${Buffer.from('{"name":"Foo",', "utf-8").toString("base64")}`;
+    expect(await fetchJson(uri)).toBeNull();
+  });
 });
 
 describe("fetchJson redirect handling", () => {
