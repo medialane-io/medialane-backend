@@ -7,6 +7,9 @@ import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("handler:transfer");
 
+export const EXTERNAL_TOKEN_LIMIT = 100;
+export const EXTERNAL_TRANSFER_LIMIT = 100;
+
 async function incrementBalance(
   tx: Prisma.TransactionClient,
   chain: Chain,
@@ -41,20 +44,60 @@ async function decrementBalance(
   `;
 }
 
-async function upsertTokenAndCollection(
+async function storesTransfer(
   tx: Prisma.TransactionClient,
   chain: Chain,
   contractAddress: string,
   tokenId: string,
   blockNumber: bigint,
   standard: TokenStandard,
-): Promise<void> {
+): Promise<boolean> {
+  await ensureCollectionFromActivity(tx, { chain, contractAddress, standard, blockNumber });
+  const collection = await tx.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { service: true },
+  });
+  if (collection?.service.startsWith("external-")) {
+    const token = await tx.token.findUnique({
+      where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
+      select: { id: true },
+    });
+    if (!token && (await tx.token.count({ where: { chain, contractAddress } })) >= EXTERNAL_TOKEN_LIMIT) return false;
+    const [oldestKept] = await tx.transfer.findMany({
+      where: { chain, contractAddress },
+      orderBy: [{ blockNumber: "desc" }, { logIndex: "desc" }],
+      skip: EXTERNAL_TRANSFER_LIMIT - 1,
+      take: 1,
+      select: { blockNumber: true },
+    });
+    if (oldestKept && blockNumber < oldestKept.blockNumber) return false;
+  }
   await tx.token.upsert({
     where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
     create: { chain, contractAddress, tokenId, metadataStatus: "PENDING" },
     update: {},
   });
-  await ensureCollectionFromActivity(tx, { chain, contractAddress, standard, blockNumber });
+  return true;
+}
+
+async function keepLatestExternalTransfers(
+  tx: Prisma.TransactionClient,
+  chain: Chain,
+  contractAddress: string,
+): Promise<void> {
+  const collection = await tx.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { service: true },
+  });
+  if (!collection?.service.startsWith("external-")) return;
+  await tx.$executeRaw`
+    DELETE FROM "Transfer" WHERE id IN (
+      SELECT id FROM "Transfer"
+      WHERE chain = ${chain}::"Chain" AND "contractAddress" = ${contractAddress}
+      ORDER BY "blockNumber" DESC, "logIndex" DESC
+      OFFSET ${EXTERNAL_TRANSFER_LIMIT}
+    )
+  `;
 }
 
 async function createTransferIfNew(
@@ -101,7 +144,7 @@ export async function handleTransfer(
 ): Promise<void> {
   const { contractAddress, tokenId, from, to, blockNumber, txHash, logIndex } = event;
 
-  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC721");
+  if (!(await storesTransfer(tx, chain, contractAddress, tokenId, blockNumber, "ERC721"))) return;
 
   const isNew = await createTransferIfNew(tx, {
     chain,
@@ -118,6 +161,7 @@ export async function handleTransfer(
 
   await decrementBalance(tx, chain, contractAddress, tokenId, from, 1n);
   await incrementBalance(tx, chain, contractAddress, tokenId, to, 1n);
+  await keepLatestExternalTransfers(tx, chain, contractAddress);
 
   log.debug({ chain, contractAddress, tokenId, from, to }, "ERC-721 Transfer processed");
 }
@@ -130,7 +174,7 @@ export async function handleTransferSingle(
   const { contractAddress, tokenId, from, to, amount, blockNumber, txHash, logIndex } = event;
   const qty = BigInt(amount);
 
-  await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
+  if (!(await storesTransfer(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155"))) return;
 
   const isNew = await createTransferIfNew(tx, {
     chain,
@@ -147,6 +191,7 @@ export async function handleTransferSingle(
 
   await decrementBalance(tx, chain, contractAddress, tokenId, from, qty);
   await incrementBalance(tx, chain, contractAddress, tokenId, to, qty);
+  await keepLatestExternalTransfers(tx, chain, contractAddress);
 
   log.debug({ chain, contractAddress, tokenId, from, to, amount }, "ERC-1155 TransferSingle processed");
 }
@@ -164,7 +209,7 @@ export async function handleTransferBatch(
 
     const itemLogIndex = logIndex * 10000 + i;
 
-    await upsertTokenAndCollection(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155");
+    if (!(await storesTransfer(tx, chain, contractAddress, tokenId, blockNumber, "ERC1155"))) continue;
 
     const isNew = await createTransferIfNew(tx, {
       chain,
@@ -182,6 +227,7 @@ export async function handleTransferBatch(
     await decrementBalance(tx, chain, contractAddress, tokenId, from, qty);
     await incrementBalance(tx, chain, contractAddress, tokenId, to, qty);
   }
+  await keepLatestExternalTransfers(tx, chain, contractAddress);
 
   log.debug({ chain, contractAddress, from, to, count: transfers.length }, "ERC-1155 TransferBatch processed");
 }

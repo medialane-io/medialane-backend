@@ -9,6 +9,7 @@ const { handleTransfer } = await import("./transfer.js");
 function fakeTx() {
   const owners: string[] = [];
   const tx = {
+    collection: { findUnique: async () => ({ service: "mip-erc721" }) },
     token: { upsert: async () => ({}) },
     transfer: { findFirst: async () => null, create: async () => ({}) },
     $executeRaw: async (_sql: TemplateStringsArray, ...values: unknown[]) => {
