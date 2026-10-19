@@ -165,7 +165,6 @@ export async function handleCollectionMetadataFetch(payload: {
       },
     });
     log.debug({ chain, contractAddress, resolvedImage, metadataFetched }, "ERC1155 collection metadata updated");
-    worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
     return;
   }
 
@@ -227,8 +226,6 @@ export async function handleCollectionMetadataFetch(payload: {
       { chain, contractAddress, name, symbol, baseUri, description },
       "Collection on-chain metadata fetched"
     );
-
-    worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
   } catch (err) {
     log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
 

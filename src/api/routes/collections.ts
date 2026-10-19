@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { Prisma, type Collection } from "@prisma/client";
-import { chainWhere, parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
-import type { RawCollectionRow, RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
+import { parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
+import type { RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
-import { batchFallbackImages, serializeToken, serializeCollection, serializeCollections } from "../utils/serialize.js";
+import { serializeToken, serializeCollections } from "../utils/serialize.js";
+import { collectionHasTokens, collectionStatsJoin, collectionTotalSupply } from "../utils/collectionStats.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
@@ -37,79 +38,57 @@ collections.get("/", async (c) => {
 
   const skip = (page - 1) * limit;
 
-  if (sort === "floor" || sort === "volume") {
-    const conditions: Prisma.Sql[] = [Prisma.sql`"isHidden" = false`];
-    if (chainFilter !== "all") conditions.push(Prisma.sql`chain = ${chainFilter.chain}::"Chain"`);
-    if (isFeatured === "true")  conditions.push(Prisma.sql`"isFeatured" = true`);
-    if (isFeatured === "false") conditions.push(Prisma.sql`"isFeatured" = false`);
-    if (owner) {
-      if (chainFilter === "all") return c.json({ error: "owner filter requires a single chain" }, 400);
-      conditions.push(Prisma.sql`owner = ${normalizeAddress(chainFilter.chain, owner)}`);
-    }
-    if (service)   conditions.push(Prisma.sql`service = ${service}`);
-    if (standardFilter) {
-
-      const casted = standardFilter.map((s) => Prisma.sql`${s}::"TokenStandard"`);
-      conditions.push(Prisma.sql`standard IN (${Prisma.join(casted)})`);
-    }
-    if (hideEmpty) conditions.push(Prisma.sql`"totalSupply" > 0`);
-    const whereClause = Prisma.join(conditions, " AND ");
-
-    const orderExpr = sort === "floor"
-      ? Prisma.sql`("floorCurrency" = 'USDC') DESC NULLS LAST, "floorCurrency" ASC NULLS LAST, "floorPrice"::numeric ASC NULLS LAST`
-      : Prisma.sql`("volumeCurrency" = 'USDC') DESC NULLS LAST, "volumeCurrency" ASC NULLS LAST, "totalVolume"::numeric DESC NULLS LAST`;
-
-    const [data, rawTotal] = await Promise.all([
-      prisma.$queryRaw<RawCollectionRow[]>`
-        SELECT * FROM "Collection"
-        WHERE ${whereClause}
-        ORDER BY ${orderExpr}
-        LIMIT ${limit} OFFSET ${skip}
-      `,
-      prisma.$queryRaw<RawCountRow[]>`
-        SELECT COUNT(*) AS count FROM "Collection" WHERE ${whereClause}
-      `,
-    ]);
-
-    return c.json({
-      data:  await serializeCollections(data),
-      meta:  { page, limit, total: Number(rawTotal[0].count) },
-    });
-  }
-
-  const where: any = { ...chainWhere(chainFilter), isHidden: false };
-  if (isFeatured === "true")  where.isFeatured = true;
-  if (isFeatured === "false") where.isFeatured = false;
+  const conditions: Prisma.Sql[] = [Prisma.sql`c."isHidden" = false`];
+  if (chainFilter !== "all") conditions.push(Prisma.sql`c.chain = ${chainFilter.chain}::"Chain"`);
+  if (isFeatured === "true")  conditions.push(Prisma.sql`c."isFeatured" = true`);
+  if (isFeatured === "false") conditions.push(Prisma.sql`c."isFeatured" = false`);
   if (owner) {
     if (chainFilter === "all") return c.json({ error: "owner filter requires a single chain" }, 400);
-    where.owner = normalizeAddress(chainFilter.chain, owner);
+    conditions.push(Prisma.sql`c.owner = ${normalizeAddress(chainFilter.chain, owner)}`);
   }
-  if (service)   where.service = service;
-  if (standardFilter) where.standard = { in: standardFilter };
-  if (hideEmpty) where.totalSupply = { gt: 0 };
+  if (service)   conditions.push(Prisma.sql`c.service = ${service}`);
+  if (standardFilter) {
 
-  const orderBy =
-    sort === "supply" ? { totalSupply: "desc" as const } :
-    sort === "name"   ? { name: "asc"  as const }        :
-                        { createdAt: "desc" as const };
+    const casted = standardFilter.map((s) => Prisma.sql`${s}::"TokenStandard"`);
+    conditions.push(Prisma.sql`c.standard IN (${Prisma.join(casted)})`);
+  }
+  if (hideEmpty) conditions.push(collectionHasTokens);
+  const whereClause = Prisma.join(conditions, " AND ");
 
-  const [data, total] = await Promise.all([
-    prisma.collection.findMany({
-      where,
-      orderBy,
-      skip,
-      take: limit,
-      include: {
-        profile: {
+  const orderExpr =
+    sort === "floor"  ? Prisma.sql`(fl."floorCurrency" = 'USDC') DESC NULLS LAST, fl."floorCurrency" ASC NULLS LAST, fl."floorRaw"::numeric ASC NULLS LAST` :
+    sort === "volume" ? Prisma.sql`(vol."volumeCurrency" = 'USDC') DESC NULLS LAST, vol."volumeCurrency" ASC NULLS LAST, vol."volumeRaw"::numeric DESC NULLS LAST` :
+    sort === "supply" ? Prisma.sql`${collectionTotalSupply} DESC` :
+    sort === "name"   ? Prisma.sql`c.name ASC` :
+                        Prisma.sql`c."createdAt" DESC`;
+  const statsJoin = sort === "floor" || sort === "volume" || sort === "supply" ? collectionStatsJoin() : Prisma.empty;
 
-          select: { hasGatedContent: true, gatedContentTitle: true, slug: true, image: true, displayName: true, description: true },
-        },
-      },
-    }),
-    prisma.collection.count({ where }),
+  const [idRows, rawTotal] = await Promise.all([
+    prisma.$queryRaw<{ id: string }[]>`
+      SELECT c.id FROM "Collection" c
+      ${statsJoin}
+      WHERE ${whereClause}
+      ORDER BY ${orderExpr}, c.id
+      LIMIT ${limit} OFFSET ${skip}
+    `,
+    prisma.$queryRaw<RawCountRow[]>`
+      SELECT COUNT(*) AS count FROM "Collection" c WHERE ${whereClause}
+    `,
   ]);
 
-  return c.json({ data: await serializeCollections(data), meta: { page, limit, total } });
+  const rows = await prisma.collection.findMany({
+    where: { id: { in: idRows.map((r) => r.id) } },
+    include: {
+      profile: {
+
+        select: { hasGatedContent: true, gatedContentTitle: true, slug: true, image: true, displayName: true, description: true },
+      },
+    },
+  });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const data = idRows.flatMap((r) => byId.get(r.id) ?? []);
+
+  return c.json({ data: await serializeCollections(data), meta: { page, limit, total: Number(rawTotal[0].count) } });
 });
 
 collections.get("/by-slug/:slug", async (c) => {
@@ -151,8 +130,8 @@ collections.get("/by-slug/:slug", async (c) => {
 
   if (!col || col.deletedAt) return c.json({ error: "Collection not found" }, 404);
 
-  const fallback = (await batchFallbackImages([col])).get(col.contractAddress);
-  return c.json({ data: { ...serializeCollection(col, fallback), profile: col.profile } });
+  const [data] = await serializeCollections([col]);
+  return c.json({ data: { ...data, profile: col.profile } });
 });
 
 collections.get("/:contract", async (c) => {
@@ -176,10 +155,10 @@ collections.get("/:contract", async (c) => {
     }
   }
 
-  const fallback = (await batchFallbackImages([col])).get(col.contractAddress);
+  const [data] = await serializeCollections([col]);
   return c.json({
     data: {
-      ...serializeCollection(col, fallback),
+      ...data,
       ...(include === "profile" ? { profile: profileData } : {}),
     },
   });
@@ -232,11 +211,11 @@ collections.get("/:contract/tokens", async (c) => {
               AND o."offerItemType" IN ('ERC721', 'ERC1155')
           ) AS "minPrice"
         FROM "Token" t
-        WHERE t.chain = ${chain}::"Chain" AND t."contractAddress" = ${addr} AND t."isHidden" = false AND t."metadataStatus" = 'FETCHED'
+        WHERE t.chain = ${chain}::"Chain" AND t."contractAddress" = ${addr} AND t."isHidden" = false
         ORDER BY "minPrice"::numeric ASC NULLS LAST
         LIMIT ${limit} OFFSET ${skip}
       `,
-      prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" } }),
+      prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
     ]);
 
     const balancesByToken = includeBalances(collection?.standard) ? await batchTokenBalances(chain, addr, data.map((t) => t.tokenId)) : null;
@@ -254,7 +233,7 @@ collections.get("/:contract/tokens", async (c) => {
 
   const [data, total] = await Promise.all([
     prisma.token.findMany({
-      where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" },
+      where: { chain, contractAddress: addr, isHidden: false },
       orderBy:
         sort === "oldest"
           ? { createdAt: "asc" }
@@ -265,7 +244,7 @@ collections.get("/:contract/tokens", async (c) => {
       take: limit,
       include: { collection: { select: { standard: true } } },
     }),
-    prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" } }),
+    prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
   ]);
 
   const balancesByToken = includeBalances(collection?.standard) ? await batchTokenBalances(chain, addr, data.map((t) => t.tokenId)) : null;

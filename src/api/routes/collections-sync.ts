@@ -10,7 +10,7 @@ import { worker } from "../../orchestrator/worker.js";
 import { upsertCollectionFromFactory } from "../../utils/collection.js";
 import { serviceForFactory } from "../../utils/factoryService.js";
 import { callRpc } from "../../utils/starknet.js";
-import { serializeCollection } from "../utils/serialize.js";
+import { serializeCollections } from "../utils/serialize.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("routes:collections");
@@ -128,7 +128,8 @@ collections.post("/register", async (c) => {
     return c.json({ error: "This collection is not indexed yet" }, 404);
   }
   worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain: "STARKNET", contractAddress });
-  return c.json({ data: serializeCollection(collection) });
+  const [data] = await serializeCollections([collection]);
+  return c.json({ data });
 });
 
 }

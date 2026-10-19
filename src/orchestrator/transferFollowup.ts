@@ -1,7 +1,6 @@
 import { type Chain } from "@prisma/client";
 import prisma from "../db/client.js";
 import { worker } from "./worker.js";
-import { handleStatsUpdate } from "./stats.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../types/marketplace.js";
 
@@ -11,7 +10,6 @@ export interface TransferFollowupResult {
   contracts: string[];
   metadataJobs: number;
   collectionMetadataJobs: number;
-  statsUpdated: number;
 }
 
 export async function runTransferFollowups(
@@ -20,7 +18,7 @@ export async function runTransferFollowups(
 ): Promise<TransferFollowupResult> {
   const contracts = Array.from(new Set(events.map((event) => normalizeAddress("STARKNET", event.contractAddress))));
   if (contracts.length === 0) {
-    return { contracts: [], metadataJobs: 0, collectionMetadataJobs: 0, statsUpdated: 0 };
+    return { contracts: [], metadataJobs: 0, collectionMetadataJobs: 0 };
   }
 
   const pendingTokens = await prisma.token.findMany({
@@ -63,14 +61,9 @@ export async function runTransferFollowups(
     });
   }
 
-  for (const contractAddress of contracts) {
-    await handleStatsUpdate({ chain, contractAddress });
-  }
-
   return {
     contracts,
     metadataJobs: pendingTokens.length,
     collectionMetadataJobs: pendingCollections.length,
-    statsUpdated: contracts.length,
   };
 }

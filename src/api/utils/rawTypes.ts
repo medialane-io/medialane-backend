@@ -59,12 +59,6 @@ export interface RawCollectionRow {
   claimedBy: string | null;
   deletedAt: Date | null;
   deletedBy: string | null;
-  floorPrice: string | null;
-  floorCurrency: string | null;
-  totalVolume: string | null;
-  volumeCurrency: string | null;
-  holderCount: number;
-  totalSupply: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -108,10 +102,6 @@ export interface RawSearchCollectionRow {
   contractAddress: string;
   name: string | null;
   image: string | null;
-  totalSupply: number;
-  floorPrice: string | null;
-  floorCurrency: string | null;
-  holderCount: number;
   collectionId: string | null;
   rank: number;
 }
