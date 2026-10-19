@@ -8,9 +8,42 @@ import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
 import crypto from "crypto";
+import type { Chain } from "@prisma/client";
 import { worker } from "../../orchestrator/worker.js";
+import { detectTokenStandard } from "../../orchestrator/collectionMetadata.js";
+import { catchUpCollectionTransfers } from "../../mirror/sources.js";
+import { ensureCollectionFromActivity } from "../../utils/collection.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("routes:claims");
 
 const claims = new Hono<AppEnv>();
+
+async function indexCollection(chain: Chain, contractAddress: string): Promise<boolean> {
+  const existing = await prisma.collection.findUnique({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    select: { contractAddress: true },
+  });
+  if (existing) return true;
+
+  const standard = await detectTokenStandard(contractAddress);
+  if (!standard) return false;
+
+  await ensureCollectionFromActivity(prisma, { chain, contractAddress, standard, blockNumber: 0n });
+  void catchUpCollectionTransfers([contractAddress])
+    .then(async () => {
+      const pendingTokens = await prisma.token.findMany({
+        where: { chain, contractAddress, metadataStatus: "PENDING" },
+        select: { tokenId: true },
+      });
+      for (const token of pendingTokens) {
+        worker.enqueue({ type: "METADATA_FETCH", chain, contractAddress, tokenId: token.tokenId });
+      }
+      worker.enqueue({ type: "STATS_UPDATE", chain, contractAddress });
+    })
+    .catch((err) => log.error({ err, contractAddress }, "Claimed collection transfers could not be read"));
+  return true;
+}
 
 
 
@@ -55,11 +88,8 @@ claims.post(
       return c.json({ verified: false, reason: "owner_check_failed" });
     }
 
-    const existingCollection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain, contractAddress: normContract } },
-    });
-    if (!existingCollection) {
-      return c.json({ verified: false, reason: "collection_not_indexed" });
+    if (!(await indexCollection(chain, normContract))) {
+      return c.json({ verified: false, reason: "not_an_nft_collection" });
     }
     const collection = await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress: normContract } },
@@ -173,11 +203,8 @@ claims.post(
 
     await prisma.claimChallenge.delete({ where: { challenge } });
 
-    const existingCollection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain, contractAddress: normContract } },
-    });
-    if (!existingCollection) {
-      return c.json({ verified: false, reason: "collection_not_indexed" });
+    if (!(await indexCollection(chain, normContract))) {
+      return c.json({ verified: false, reason: "not_an_nft_collection" });
     }
     const collection = await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress: normContract } },
