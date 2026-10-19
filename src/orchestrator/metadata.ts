@@ -107,14 +107,7 @@ export async function handleMetadataFetch(payload: {
   try {
     const tokenUri = await fetchTokenUri(contractAddress, tokenId, chain);
 
-    if (!tokenUri) {
-      log.warn({ chain, contractAddress, tokenId }, "No tokenURI found");
-      await prisma.token.updateMany({
-        where: { chain, contractAddress, tokenId },
-        data: { metadataStatus: "FAILED" },
-      });
-      return;
-    }
+    if (!tokenUri) throw new Error("No tokenURI found");
 
     const metadata = await resolveMetadata(tokenUri);
 
