@@ -7,7 +7,13 @@ const CONTRACT = realStarknet.normalizeAddress("STARKNET", "0xc0de");
 const OWNER = realStarknet.normalizeAddress("STARKNET", "0xa11ce");
 const OTHER = realStarknet.normalizeAddress("STARKNET", "0xbad");
 
-async function setup(opts: { owner: string | Error; signatureValid?: boolean; wallet: string }) {
+async function setup(opts: {
+  owner: string | Error;
+  signatureValid?: boolean;
+  wallet: string;
+  indexed?: boolean;
+  standard?: "ERC721" | "ERC1155" | null;
+}) {
   const challengeRecord = {
     challenge: "ch1",
     contractAddress: CONTRACT,
@@ -21,11 +27,15 @@ async function setup(opts: { owner: string | Error; signatureValid?: boolean; wa
       deleteMany: mock(() => Promise.resolve({ count: 0 })),
     },
     collection: {
-      findUnique: mock(() => Promise.resolve({ startBlock: 1n })),
+      findUnique: mock(() => Promise.resolve(opts.indexed === false ? null : { contractAddress: CONTRACT })),
       update: mock(() => Promise.resolve({ startBlock: 1n, claimedBy: opts.wallet })),
     },
     collectionClaim: { create: mock(() => Promise.resolve({})) },
+    token: { findMany: mock(() => Promise.resolve([])) },
   };
+  const catchUp = mock(() => Promise.resolve());
+  const ensureCollection = mock(() => Promise.resolve());
+  const detect = mock(() => Promise.resolve(opts.standard === undefined ? "ERC721" : opts.standard));
   mock.module("../../db/client.js", () => ({ default: db }));
   mock.module("../../utils/starknet.js", () => ({
     ...realStarknet,
@@ -37,6 +47,9 @@ async function setup(opts: { owner: string | Error; signatureValid?: boolean; wa
     ),
   }));
   mock.module("../../orchestrator/worker.js", () => ({ worker: { enqueue: mock(() => {}) } }));
+  mock.module("../../orchestrator/collectionMetadata.js", () => ({ detectTokenStandard: detect }));
+  mock.module("../../mirror/sources.js", () => ({ catchUpCollectionTransfers: catchUp }));
+  mock.module("../../utils/collection.js", () => ({ ensureCollectionFromActivity: ensureCollection }));
 
   const { default: claims } = await import("./claims.js");
   const app = new Hono<AppEnv>();
@@ -52,7 +65,7 @@ async function setup(opts: { owner: string | Error; signatureValid?: boolean; wa
         signature: { r: "0x1", s: "0x2" },
       }),
     });
-  return { db, verify };
+  return { db, verify, catchUp, detect, ensureCollection };
 }
 
 describe("POST /verify", () => {
@@ -92,5 +105,39 @@ describe("POST /verify", () => {
     const body = (await (await verify()).json()) as { reason?: string };
     expect(body.reason).toBe("invalid_signature");
     expect(db.collection.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /verify on a collection that is not indexed", () => {
+  test("the owner's claim indexes the collection and reads its transfers", async () => {
+    const { db, verify, catchUp, ensureCollection } = await setup({ owner: OWNER, wallet: OWNER, indexed: false, standard: "ERC1155" });
+    const body = (await (await verify()).json()) as { verified: boolean };
+    expect(body.verified).toBe(true);
+    expect(ensureCollection).toHaveBeenCalledWith(db, {
+      chain: "STARKNET",
+      contractAddress: CONTRACT,
+      standard: "ERC1155",
+      blockNumber: 0n,
+    });
+    expect(catchUp).toHaveBeenCalledWith([CONTRACT]);
+    expect(db.collection.update).toHaveBeenCalledTimes(1);
+    expect(db.collectionClaim.create).toHaveBeenCalledTimes(1);
+  });
+
+  test("a contract that is not an NFT collection is refused", async () => {
+    const { db, verify, catchUp, ensureCollection } = await setup({ owner: OWNER, wallet: OWNER, indexed: false, standard: null });
+    const body = (await (await verify()).json()) as { verified: boolean; reason?: string };
+    expect(body).toEqual({ verified: false, reason: "not_an_nft_collection" });
+    expect(ensureCollection).not.toHaveBeenCalled();
+    expect(catchUp).not.toHaveBeenCalled();
+    expect(db.collectionClaim.create).not.toHaveBeenCalled();
+  });
+
+  test("an indexed collection is not read again", async () => {
+    const { verify, catchUp, detect, ensureCollection } = await setup({ owner: OWNER, wallet: OWNER });
+    await verify();
+    expect(detect).not.toHaveBeenCalled();
+    expect(ensureCollection).not.toHaveBeenCalled();
+    expect(catchUp).not.toHaveBeenCalled();
   });
 });
