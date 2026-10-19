@@ -10,6 +10,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import { parseStandardFilter } from "./collections.standardFilter.js";
+import { includeBalances } from "./collections.tokenBalances.js";
 import { registerCollectionSyncRoutes } from "./collections-sync.js";
 
 const log = createLogger("routes:collections");
@@ -238,13 +239,13 @@ collections.get("/:contract/tokens", async (c) => {
       prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" } }),
     ]);
 
-    const balancesByToken = await batchTokenBalances(chain, addr, data.map((t) => t.tokenId));
+    const balancesByToken = includeBalances(collection?.standard) ? await batchTokenBalances(chain, addr, data.map((t) => t.tokenId)) : null;
     return c.json({
       data: data.map((t) =>
         serializeToken(
           { ...t, collection: { standard: collection?.standard ?? null } },
           [],
-          balancesByToken.get(t.tokenId) ?? []
+          balancesByToken ? balancesByToken.get(t.tokenId) ?? [] : undefined
         )
       ),
       meta: { page, limit, total },
@@ -267,10 +268,10 @@ collections.get("/:contract/tokens", async (c) => {
     prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false, metadataStatus: "FETCHED" } }),
   ]);
 
-  const balancesByToken = await batchTokenBalances(chain, addr, data.map((t) => t.tokenId));
+  const balancesByToken = includeBalances(collection?.standard) ? await batchTokenBalances(chain, addr, data.map((t) => t.tokenId)) : null;
 
   return c.json({
-    data: data.map((t) => serializeToken(t, [], balancesByToken.get(t.tokenId) ?? [])),
+    data: data.map((t) => serializeToken(t, [], balancesByToken ? balancesByToken.get(t.tokenId) ?? [] : undefined)),
     meta: { page, limit, total },
   });
 });
