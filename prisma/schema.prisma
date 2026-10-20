@@ -179,7 +179,7 @@ model Token {
   metadataStatus  MetadataStatus @default(PENDING)
   isHidden        Boolean        @default(false)
   name            String?
-  description     String?
+  description     String?        @ignore
   image           String?
   animationUrl    String?
   attributes      Json?

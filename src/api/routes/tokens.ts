@@ -12,7 +12,7 @@ import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFi
 import { readTokenFromChain } from "./tokens.readThrough.js";
 import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
-import { ownDescription } from "../../utils/tokenDescription.js";
+import { liveDescription } from "../utils/liveDescription.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -72,7 +72,7 @@ tokens.get("/", async (c) => {
       orderBy: sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" },
       skip,
       take: limit,
-      include: { collection: { select: { standard: true, description: true } } },
+      include: { collection: { select: { standard: true } } },
     }),
     prisma.token.count({ where }),
   ]);
@@ -127,7 +127,7 @@ tokens.get("/batch", async (c) => {
         tokenId: p.tokenId,
       })),
     },
-    include: { collection: { select: { standard: true, description: true } } },
+    include: { collection: { select: { standard: true } } },
   });
 
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
@@ -156,7 +156,7 @@ tokens.get("/owned/:address", async (c) => {
   const data = pairs.length > 0
     ? await prisma.token.findMany({
         where: { chain, isHidden: false, OR: pairs },
-        include: { collection: { select: { standard: true, description: true } } },
+        include: { collection: { select: { standard: true } } },
       })
     : [];
 
@@ -263,7 +263,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
 
   let token = await prisma.token.findUnique({
     where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-    include: { collection: { select: { standard: true, description: true } } },
+    include: { collection: { select: { standard: true } } },
   });
 
   let liveTokenUri: string | null = null;
@@ -288,7 +288,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
 
     token = await prisma.token.findUnique({
       where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-      include: { collection: { select: { standard: true, description: true } } },
+      include: { collection: { select: { standard: true } } },
     });
     if (!token) return c.json({ error: "Token not found" }, 404);
   }
@@ -307,7 +307,6 @@ tokens.get("/:contract/:tokenId", async (c) => {
           data: {
             metadataStatus: "FETCHED",
             name: (metadata.name as string) ?? null,
-            description: ownDescription(metadata.description, token.collection?.description),
             image: storedImage(metadata.image, chain, contractAddress, tokenId),
             animationUrl: (metadata.animation_url as string) ?? null,
             attributes: (metadata.attributes as any) ?? undefined,
@@ -315,7 +314,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
         });
         token = await prisma.token.findUnique({
           where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-          include: { collection: { select: { standard: true, description: true } } },
+          include: { collection: { select: { standard: true } } },
         }) ?? token;
       }
     } else {
@@ -324,15 +323,16 @@ tokens.get("/:contract/:tokenId", async (c) => {
     }
   }
 
-  const [activeOrders, { holders, holderCount, supply }] = await Promise.all([
+  const [activeOrders, { holders, holderCount, supply }, description] = await Promise.all([
     prisma.order.findMany({
       where: { chain, nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
       take: 5,
     }),
     tokenHolders(chain, contractAddress, tokenId),
+    liveDescription(chain, contractAddress, tokenId, token.tokenUri ?? liveTokenUri),
   ]);
 
-  return c.json({ data: { ...serializeToken(token, activeOrders, holders), holderCount, supply } });
+  return c.json({ data: { ...serializeToken(token, activeOrders, holders, description), holderCount, supply } });
 });
 
 tokens.get("/:contract/:tokenId/balances/:owner", async (c) => {
