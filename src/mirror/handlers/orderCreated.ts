@@ -161,6 +161,20 @@ async function findCounterOfferParent(
   return originalOrder?.orderHash ?? null;
 }
 
+export async function fetchOrderDetails721(orderHash: string): Promise<OnChainOrderDetails> {
+  const raw = await callRpc((provider) => {
+    const contract = new Contract({
+      abi: IPMarketplaceABI as any,
+      address: STARKNET_MARKETPLACE_721_CONTRACT,
+      providerOrAccount: provider,
+    });
+    return contract.get_order_details(orderHash);
+  });
+  const parsed = parseOrderDetails721(raw);
+  assertOrderPopulated(parsed, orderHash);
+  return parsed;
+}
+
 export async function handleOrderCreated(
   event: ParsedOrderCreated,
   tx: Prisma.TransactionClient,
@@ -168,24 +182,7 @@ export async function handleOrderCreated(
 ): Promise<string | null> {
   let details: OnChainOrderDetails;
   try {
-
-    details = await withRetry(
-      async () => {
-        const raw = await callRpc((provider) => {
-          const contract = new Contract({
-            abi: IPMarketplaceABI as any,
-            address: STARKNET_MARKETPLACE_721_CONTRACT,
-            providerOrAccount: provider,
-          });
-          return contract.get_order_details(event.orderHash);
-        });
-        const parsed = parseOrderDetails721(raw);
-        assertOrderPopulated(parsed, event.orderHash);
-        return parsed;
-      },
-      3,
-      500,
-    );
+    details = await withRetry(() => fetchOrderDetails721(event.orderHash), 3, 500);
   } catch (err) {
     log.error(
       { err, orderHash: event.orderHash },
@@ -263,7 +260,7 @@ export async function handleOrderCreated1155(
   });
 }
 
-async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDetails> {
+export async function fetchOrderDetails1155(orderHash: string): Promise<OnChainOrderDetails> {
   const result = await callRpc((provider) =>
     provider.callContract({
       contractAddress: STARKNET_MARKETPLACE_1155_CONTRACT,

@@ -14,6 +14,24 @@ export async function holdsToken(
   return starknetHoldsToken(contract, owner, standard, knownTokenIds);
 }
 
+export async function holdsTokenId(
+  chain: Chain,
+  contract: string,
+  owner: string,
+  standard: "ERC721" | "ERC1155",
+  tokenId: string,
+): Promise<boolean> {
+  if (chain !== "STARKNET") throw new Error(`Ownership checks not implemented for chain "${chain}"`);
+  if (standard === "ERC1155") return starknetHoldsToken(contract, owner, standard, [tokenId]);
+  const id = cairo.uint256(tokenId);
+  const res = await callRpc((provider) => provider.callContract({
+    contractAddress: contract,
+    entrypoint: "owner_of",
+    calldata: [id.low.toString(), id.high.toString()],
+  }));
+  return res.length > 0 && normalizeAddress("STARKNET", res[0]!) === normalizeAddress("STARKNET", owner);
+}
+
 export async function getCollectionOwner(chain: Chain, contract: string): Promise<string> {
   if (chain !== "STARKNET") throw new Error(`Owner reads not implemented for chain "${chain}"`);
   return starknetCollectionOwner(contract);

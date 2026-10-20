@@ -4,6 +4,8 @@ import { zValidator } from "@hono/zod-validator";
 import type { RemixOffer, RemixOfferStatus, Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { remixLinkDeps } from "./remix-offers.chain.js";
+import { isParticipant, verifyRemixLink } from "./remix-offers.rules.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
 import { parseSingleChain } from "../utils/chainFilter.js";
@@ -161,13 +163,10 @@ async function loadActionableOffer(
 }
 
 function serializeOffer(offer: RemixOffer, callerWallet?: string) {
-  const isParticipant =
-    !callerWallet ||
-    offer.creatorAddress === callerWallet ||
-    offer.requesterAddress === callerWallet;
+  const participant = isParticipant(offer, callerWallet);
 
   let price: object | undefined;
-  if (isParticipant && offer.proposedPrice && offer.proposedCurrency) {
+  if (participant && offer.proposedPrice && offer.proposedCurrency) {
     const token = getTokenByAddress(offer.proposedCurrency);
     price = token
       ? {
@@ -190,7 +189,7 @@ function serializeOffer(offer: RemixOffer, callerWallet?: string) {
     commercial: offer.commercial,
     derivatives: offer.derivatives,
     royaltyPct: offer.royaltyPct,
-    ...(isParticipant ? { price, message: offer.message } : {}),
+    ...(participant ? { price, message: offer.message } : {}),
     approvedCollection: offer.approvedCollection,
     remixContract: offer.remixContract,
     remixTokenId: offer.remixTokenId,
@@ -441,6 +440,13 @@ remixOffers.post(
 
     const guard = await loadActionableOffer(id, walletAddress, "creatorAddress", "creator", "confirm");
     if (!guard.ok) return c.json({ error: guard.error }, guard.status);
+
+    const verdict = await verifyRemixLink(remixLinkDeps, walletAddress, {
+      remixContract: normalizeAddress(chain, body.remixContract),
+      remixTokenId: body.remixTokenId,
+      orderHash: body.orderHash,
+    });
+    if (!verdict.ok) return c.json({ error: verdict.error }, verdict.status);
 
     const updated = await prisma.remixOffer.update({
       where: { id },
