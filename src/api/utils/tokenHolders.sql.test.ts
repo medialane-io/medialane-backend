@@ -39,6 +39,14 @@ describe.skipIf(!databaseUrl)("token holders", () => {
     expect(supply).toBe(String((n * (n + 1)) / 2));
   });
 
+  test("pages through every holder in the same order", async () => {
+    const first = await mod.tokenHolders("STARKNET", "0xb", "1", { page: 1, limit: 20 });
+    const second = await mod.tokenHolders("STARKNET", "0xb", "1", { page: 2, limit: 20 });
+    expect(first.holders).toHaveLength(20);
+    expect(second.holders[0].amount).toBe(String(mod.TOKEN_HOLDERS_LIMIT + 5 - 20));
+    expect(first.holderCount).toBe(mod.TOKEN_HOLDERS_LIMIT + 5);
+  });
+
   test("balance of an owner outside the listed holders", async () => {
     expect(await mod.tokenBalanceOf("STARKNET", "0xb", "1", "0x1")).toBe("1");
     expect(await mod.tokenBalanceOf("STARKNET", "0xb", "1", "0xdead")).toBe("0");

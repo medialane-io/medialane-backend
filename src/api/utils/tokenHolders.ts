@@ -5,7 +5,19 @@ export const TOKEN_HOLDERS_LIMIT = 50;
 
 type Db = Pick<PrismaClient, "$queryRaw" | "tokenBalance">;
 
-export async function tokenHolders(chain: Chain, contractAddress: string, tokenId: string, db: Db = prisma) {
+export interface TokenHoldersPage {
+  page?: number;
+  limit?: number;
+}
+
+export async function tokenHolders(
+  chain: Chain,
+  contractAddress: string,
+  tokenId: string,
+  { page = 1, limit = TOKEN_HOLDERS_LIMIT }: TokenHoldersPage = {},
+  db: Db = prisma,
+) {
+  const offset = (page - 1) * limit;
   const [holders, [totals]] = await Promise.all([
     db.$queryRaw<{ owner: string; amount: string }[]>`
       SELECT "owner", "amount" FROM "TokenBalance"
@@ -14,7 +26,7 @@ export async function tokenHolders(chain: Chain, contractAddress: string, tokenI
         AND "tokenId" = ${tokenId}
         AND "amount" <> '0'
       ORDER BY "amount"::numeric DESC, "owner" ASC
-      LIMIT ${TOKEN_HOLDERS_LIMIT}
+      LIMIT ${limit} OFFSET ${offset}
     `,
     db.$queryRaw<[{ holderCount: number; supply: string }]>`
       SELECT COUNT(*)::int AS "holderCount", COALESCE(SUM("amount"::numeric), 0)::text AS "supply"
