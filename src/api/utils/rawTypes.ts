@@ -76,7 +76,6 @@ export interface RawTokenRow {
   metadataStatus: MetadataStatus;
   isHidden: boolean;
   name: string | null;
-  description: string | null;
   image: string | null;
   animationUrl: string | null;
   attributes: unknown;

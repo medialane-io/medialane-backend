@@ -6,7 +6,6 @@ import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
 import { attributesArraySchema } from "../utils/metadataAttributes.js";
 import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
-import { ownDescription } from "../utils/tokenDescription.js";
 
 
 const log = createLogger("orchestrator:metadata");
@@ -112,10 +111,6 @@ export async function handleMetadataFetch(payload: {
     if (!tokenUri) throw new Error("No tokenURI found");
 
     const metadata = await resolveMetadata(tokenUri);
-    const collection = await prisma.collection.findUnique({
-      where: { chain_contractAddress: { chain, contractAddress } },
-      select: { description: true },
-    });
 
     const _findAttr = (attrs: unknown[], name: string): string | null =>
       ((attrs ?? []).find(
@@ -137,7 +132,6 @@ export async function handleMetadataFetch(payload: {
         tokenUri: storedTokenUri(tokenUri),
         metadataStatus: metadata ? "FETCHED" : "FAILED",
         name: metadata?.name ?? null,
-        description: ownDescription(metadata?.description, collection?.description),
         image: storedImage(metadata?.image, chain, contractAddress, tokenId),
         animationUrl: (metadata?.animation_url as string | undefined) ?? null,
         attributes: _attrs.length > 0 ? (_attrs as any) : undefined,

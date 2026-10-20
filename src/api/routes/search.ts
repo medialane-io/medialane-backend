@@ -21,7 +21,7 @@ search.get("/", async (c) => {
     prisma.$queryRaw<RawSearchTokenRow[]>`
       SELECT "contractAddress", "tokenId", name, image, "metadataStatus",
              ts_rank(
-               to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId"),
+               to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress" || ' ' || "tokenId"),
                plainto_tsquery('english', ${q})
              ) AS rank
       FROM "Token"
@@ -29,7 +29,7 @@ search.get("/", async (c) => {
         AND "isHidden" = false
         AND "metadataStatus" = 'FETCHED'
         AND "contractAddress" NOT IN (SELECT "contractAddress" FROM "Collection" WHERE "isHidden" = true)
-        AND to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,'') || ' ' || "contractAddress" || ' ' || "tokenId")
+        AND to_tsvector('english', coalesce(name,'') || ' ' || "contractAddress" || ' ' || "tokenId")
             @@ plainto_tsquery('english', ${q})
       ORDER BY rank DESC
       LIMIT ${limit}

@@ -122,18 +122,18 @@ describe("collection attributes", () => {
 });
 
 describe("a token's description", () => {
-  const token = (description: string | null) => ({
+  const token = {
     id: "t1", chain: "STARKNET", contractAddress: "0xc", tokenId: "1", tokenUri: null, metadataStatus: "FETCHED",
-    name: "One", description, image: null, animationUrl: null, attributes: null, ipType: null, licenseType: null,
+    name: "One", image: null, animationUrl: null, attributes: null, ipType: null, licenseType: null,
     commercialUse: null, author: null, isHidden: false, createdAt: new Date(0), updatedAt: new Date(0),
-    collection: { standard: "ERC721", description: "About the collection" },
-  }) as any;
+    collection: { standard: "ERC721" },
+  } as any;
 
-  test("is the token's own when it has one", () => {
-    expect(serializeToken(token("About this token"), []).metadata.description).toBe("About this token");
+  test("is the one read from the token's metadata", () => {
+    expect(serializeToken(token, [], undefined, "About this token").metadata.description).toBe("About this token");
   });
 
-  test("is the collection's when the token has none of its own", () => {
-    expect(serializeToken(token(null), []).metadata.description).toBe("About the collection");
+  test("is empty in lists, where none is read", () => {
+    expect(serializeToken(token, []).metadata.description).toBeNull();
   });
 });
