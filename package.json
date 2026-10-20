@@ -21,6 +21,8 @@
     "app:secret": "bun run src/scripts/app-secret.ts",
     "app:secret:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run src/scripts/app-secret.ts \"$@\"' secret",
     "credits:grant:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run src/scripts/grant-credits.ts \"$@\"' grant",
+    "owners:repair": "bun run src/scripts/repair-ownership.ts",
+    "owners:repair:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run src/scripts/repair-ownership.ts \"$@\"' repair",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",

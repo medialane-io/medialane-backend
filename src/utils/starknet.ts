@@ -20,6 +20,15 @@ export function isContractNotFound(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === CONTRACT_NOT_FOUND;
 }
 
+const ENTRYPOINT_NOT_FOUND = 21;
+const CONTRACT_ERROR = 40;
+
+/** True when the contract itself refused the call (missing, no such entrypoint, or reverted). */
+export function isContractError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === CONTRACT_NOT_FOUND || code === ENTRYPOINT_NOT_FOUND || code === CONTRACT_ERROR;
+}
+
 export async function callRpc<T>(fn: (provider: RpcProvider) => Promise<T>): Promise<T> {
   return fn(createProvider());
 }

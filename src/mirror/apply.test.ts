@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isMarketplace1155Event, deduplicateTransfers } from "./apply.js";
-import { STARKNET_MARKETPLACE_1155_CONTRACT } from "../config/constants.js";
+import { isMarketplace1155Event, deduplicateTransfers, prepareOwnership } from "./apply.js";
+import { STARKNET_MARKETPLACE_1155_CONTRACT, TRANSFER_SELECTOR } from "../config/constants.js";
+import type { OwnershipKey } from "../chainRead/ownership.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
+import { normalizeAddress } from "../utils/starknet.js";
 
 function rawEvent(from: string): RawStarknetEvent {
   return {
@@ -62,5 +64,39 @@ describe("a transfer reported twice is applied once", () => {
   test("events that are not transfers pass through untouched", () => {
     const order = { type: "OrderCreated", orderHash: "0x1" };
     expect(deduplicateTransfers([order] as never)).toEqual([order] as never);
+  });
+});
+
+describe("ownership is read before a batch is written", () => {
+  const contract = "0x0c0ffee";
+  const erc721Transfer = {
+    from_address: contract,
+    keys: [TRANSFER_SELECTOR, "0xa", "0xb", "0x7", "0x0"],
+    data: [],
+    block_number: 1,
+    transaction_hash: "0x1",
+  } as unknown as RawStarknetEvent;
+
+  test("ownership is read for the transfers in the raw events", async () => {
+    const asked: OwnershipKey[][] = [];
+    await prepareOwnership([erc721Transfer], async (keys) => {
+      asked.push(keys);
+      return [];
+    });
+    expect(asked).toEqual([[{ standard: "ERC721", contractAddress: normalizeAddress("STARKNET", contract), tokenId: "7" }]]);
+  });
+
+  test("a failed ownership read fails before anything is written", async () => {
+    await expect(prepareOwnership([erc721Transfer], async () => { throw new Error("fetch failed"); })).rejects.toThrow("fetch failed");
+  });
+
+  test("a batch with no transfers reads nothing", async () => {
+    const asked: OwnershipKey[][] = [];
+    const unrelated = { ...erc721Transfer, keys: ["0x1"] } as RawStarknetEvent;
+    await prepareOwnership([unrelated], async (keys) => {
+      asked.push(keys);
+      return [];
+    });
+    expect(asked).toEqual([[]]);
   });
 });

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
 import { fetchDueSources, catchUpCollectionTransfers, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, TRANSFER_SOURCE_IDS, type SourceFetch } from "./sources.js";
-import { applyEvents, applyCollectionsCreated, type ApplyOutcome } from "./apply.js";
+import { applyEvents, applyCollectionsCreated, prepareOwnership, type ApplyOutcome } from "./apply.js";
 import { worker } from "../orchestrator/worker.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
@@ -74,10 +74,11 @@ async function tick(tickId: string): Promise<number> {
   );
 
   let outcome!: ApplyOutcome;
+  const ownership = await prepareOwnership(rawEvents);
 
   await prisma.$transaction(
     async (tx) => {
-      outcome = await applyEvents(rawEvents, tx, CHAIN);
+      outcome = await applyEvents(rawEvents, tx, CHAIN, ownership);
 
       await saveCursor({ lastBlock: BigInt(toBlock) }, CHAIN, tx);
 

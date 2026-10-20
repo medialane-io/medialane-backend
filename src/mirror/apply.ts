@@ -7,6 +7,8 @@ import { handleOrderCancelled } from "./handlers/orderCancelled.js";
 import { handleCounterIncremented } from "./handlers/counterIncremented.js";
 import { cleanupGhostListings } from "./handlers/ghostListingCleanup.js";
 import { dispatchTransfer } from "./handlers/transfer.js";
+import { writeOwnership } from "./handlers/ownership.js";
+import { ownershipKeys, readOwnership, type OwnershipFact } from "../chainRead/ownership.js";
 import { resolveCollectionCreated } from "./handlers/collectionCreated.js";
 import { upsertCollectionFromFactory } from "../utils/collection.js";
 import { serviceForFactory } from "../utils/factoryService.js";
@@ -61,10 +63,20 @@ export function deduplicateTransfers(
   });
 }
 
+/** Reads current on-chain ownership for every token the events touch. Runs before the write transaction. */
+export async function prepareOwnership(
+  raw: RawStarknetEvent[],
+  read: typeof readOwnership = readOwnership,
+): Promise<OwnershipFact[]> {
+  const parsed = deduplicateTransfers(parseEvents(raw.filter((e) => !isMarketplace1155Event(e))));
+  return read(ownershipKeys(parsed));
+}
+
 export async function applyEvents(
   raw: RawStarknetEvent[],
   tx: Prisma.TransactionClient,
   chain: Chain,
+  ownership: OwnershipFact[],
 ): Promise<ApplyOutcome> {
   const marketplace1155 = raw.filter(isMarketplace1155Event);
   const rest = raw.filter((e) => !isMarketplace1155Event(e));
@@ -107,6 +119,8 @@ export async function applyEvents(
     orderNftContracts,
     fulfilledOrCancelledHashes,
   });
+
+  await writeOwnership(tx, chain, ownership);
 
   return { parsed, affectedContracts, orderNftContracts, fulfilledOrCancelledHashes };
 }
