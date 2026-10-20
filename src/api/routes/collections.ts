@@ -222,7 +222,7 @@ collections.get("/:contract/tokens", async (c) => {
     return c.json({
       data: data.map((t) =>
         serializeToken(
-          { ...t, collection: { standard: collection?.standard ?? null } },
+          { ...t, collection: { standard: collection?.standard ?? null, description: collection?.description ?? null } },
           [],
           balancesByToken ? balancesByToken.get(t.tokenId) ?? [] : undefined
         )
@@ -242,7 +242,7 @@ collections.get("/:contract/tokens", async (c) => {
             : { createdAt: "desc" },
       skip,
       take: limit,
-      include: { collection: { select: { standard: true } } },
+      include: { collection: { select: { standard: true, description: true } } },
     }),
     prisma.token.count({ where: { chain, contractAddress: addr, isHidden: false } }),
   ]);

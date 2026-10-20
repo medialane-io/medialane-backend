@@ -6,7 +6,7 @@ import { batchCollectionStats, type CollectionStats } from "./collectionStats.js
 export type SerializableOrder = Order | RawOrderRow;
 
 export type SerializableToken = (Token | RawTokenRow) & {
-  collection?: { standard: TokenStandard | null } | null;
+  collection?: { standard: TokenStandard | null; description?: string | null } | null;
   owner?: string | null;
 };
 
@@ -30,13 +30,13 @@ export async function batchTokenMeta(
 
   const tokens = await prisma.token.findMany({
     where: { OR: pairs },
-    select: { contractAddress: true, tokenId: true, name: true, image: true, description: true, animationUrl: true },
+    select: { contractAddress: true, tokenId: true, name: true, image: true, description: true, animationUrl: true, collection: { select: { description: true } } },
   });
 
   return new Map(
     tokens.map((t) => [
       `${t.contractAddress}-${t.tokenId}`,
-      { name: t.name, image: t.image, description: t.description, animationUrl: t.animationUrl },
+      { name: t.name, image: t.image, description: t.description ?? t.collection?.description ?? null, animationUrl: t.animationUrl },
     ])
   );
 }
@@ -157,7 +157,7 @@ export function serializeToken(
     standard: (token.collection?.standard ?? null) as "ERC721" | "ERC1155" | null,
     metadata: {
       name: token.name,
-      description: token.description,
+      description: token.description ?? token.collection?.description ?? null,
       image: token.image,
       animationUrl: token.animationUrl,
       attributes: token.attributes,
