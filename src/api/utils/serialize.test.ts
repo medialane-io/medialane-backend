@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { batchOrdersByToken, batchFallbackImages, serializeCollection, serializeCollections, serializeCreatorProfile } from "./serialize.js";
+import { batchOrdersByToken, batchFallbackImages, serializeCollection, serializeCollections, serializeCreatorProfile, serializeToken } from "./serialize.js";
 
 describe("batchOrdersByToken", () => {
   test("groups active orders by contractAddress:tokenId, one query for all tokens", async () => {
@@ -118,5 +118,22 @@ describe("collection attributes", () => {
 
   test("are null when none were indexed", () => {
     expect(serializeCollection({ ...collection, attributes: null } as never, undefined).attributes).toBeNull();
+  });
+});
+
+describe("a token's description", () => {
+  const token = (description: string | null) => ({
+    id: "t1", chain: "STARKNET", contractAddress: "0xc", tokenId: "1", tokenUri: null, metadataStatus: "FETCHED",
+    name: "One", description, image: null, animationUrl: null, attributes: null, ipType: null, licenseType: null,
+    commercialUse: null, author: null, isHidden: false, createdAt: new Date(0), updatedAt: new Date(0),
+    collection: { standard: "ERC721", description: "About the collection" },
+  }) as any;
+
+  test("is the token's own when it has one", () => {
+    expect(serializeToken(token("About this token"), []).metadata.description).toBe("About this token");
+  });
+
+  test("is the collection's when the token has none of its own", () => {
+    expect(serializeToken(token(null), []).metadata.description).toBe("About the collection");
   });
 });

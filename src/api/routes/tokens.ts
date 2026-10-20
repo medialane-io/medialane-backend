@@ -12,6 +12,7 @@ import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFi
 import { readTokenFromChain } from "./tokens.readThrough.js";
 import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
+import { ownDescription } from "../../utils/tokenDescription.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -71,7 +72,7 @@ tokens.get("/", async (c) => {
       orderBy: sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" },
       skip,
       take: limit,
-      include: { collection: { select: { standard: true } } },
+      include: { collection: { select: { standard: true, description: true } } },
     }),
     prisma.token.count({ where }),
   ]);
@@ -126,7 +127,7 @@ tokens.get("/batch", async (c) => {
         tokenId: p.tokenId,
       })),
     },
-    include: { collection: { select: { standard: true } } },
+    include: { collection: { select: { standard: true, description: true } } },
   });
 
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
@@ -155,7 +156,7 @@ tokens.get("/owned/:address", async (c) => {
   const data = pairs.length > 0
     ? await prisma.token.findMany({
         where: { chain, isHidden: false, OR: pairs },
-        include: { collection: { select: { standard: true } } },
+        include: { collection: { select: { standard: true, description: true } } },
       })
     : [];
 
@@ -262,7 +263,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
 
   let token = await prisma.token.findUnique({
     where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-    include: { collection: { select: { standard: true } } },
+    include: { collection: { select: { standard: true, description: true } } },
   });
 
   let liveTokenUri: string | null = null;
@@ -287,7 +288,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
 
     token = await prisma.token.findUnique({
       where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-      include: { collection: { select: { standard: true } } },
+      include: { collection: { select: { standard: true, description: true } } },
     });
     if (!token) return c.json({ error: "Token not found" }, 404);
   }
@@ -306,7 +307,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
           data: {
             metadataStatus: "FETCHED",
             name: (metadata.name as string) ?? null,
-            description: (metadata.description as string) ?? null,
+            description: ownDescription(metadata.description, token.collection?.description),
             image: storedImage(metadata.image, chain, contractAddress, tokenId),
             animationUrl: (metadata.animation_url as string) ?? null,
             attributes: (metadata.attributes as any) ?? undefined,
@@ -314,7 +315,7 @@ tokens.get("/:contract/:tokenId", async (c) => {
         });
         token = await prisma.token.findUnique({
           where: { chain_contractAddress_tokenId: { chain, contractAddress, tokenId } },
-          include: { collection: { select: { standard: true } } },
+          include: { collection: { select: { standard: true, description: true } } },
         }) ?? token;
       }
     } else {
