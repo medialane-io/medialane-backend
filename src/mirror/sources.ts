@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { pollContractEvents } from "./poller.js";
 import { loadSourceCursor } from "./cursor.js";
-import { applyEvents } from "./apply.js";
+import { applyEvents, prepareOwnership } from "./apply.js";
 import { mapWithConcurrency } from "../utils/retry.js";
 import {
   STARKNET_MARKETPLACE_721_CONTRACT,
@@ -332,7 +332,8 @@ const chainTransferCatchUp = (chain: "STARKNET"): TransferCatchUpDeps => ({
   cursor: (sourceId) => loadSourceCursor(chain, sourceId),
   poll: (p) => pollContractEvents(p),
   apply: async (events) => {
-    await prisma.$transaction((tx) => applyEvents(events, tx, chain), { timeout: 60000 });
+    const ownership = await prepareOwnership(events);
+    await prisma.$transaction((tx) => applyEvents(events, tx, chain, ownership), { timeout: 60000 });
   },
 });
 

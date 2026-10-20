@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { callRpc } from "../../utils/starknet.js";
-import { applyEvents, applyCollectionsCreated } from "../../mirror/apply.js";
+import { applyEvents, applyCollectionsCreated, prepareOwnership } from "../../mirror/apply.js";
 import { CHAIN } from "../../mirror/index.js";
 import {
   CORE_FACTORY_DATA_TOKENIZATION,
@@ -159,8 +159,9 @@ txSync.post("/", async (c) => {
 
   let applied = deployed.reduce((n, batch) => n + batch.events.length, 0);
   if (events.length > 0) {
+    const ownership = await prepareOwnership(events);
     const outcome = await prisma.$transaction(
-      (tx) => applyEvents(events, tx, CHAIN),
+      (tx) => applyEvents(events, tx, CHAIN, ownership),
       { timeout: 30000 },
     );
     for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN)) {
