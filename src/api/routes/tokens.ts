@@ -10,7 +10,7 @@ import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
 import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFilter.js";
 import { readTokenFromChain } from "./tokens.readThrough.js";
-import { tokenHolders, tokenBalanceOf, TOKEN_HOLDERS_LIMIT } from "../utils/tokenHolders.js";
+import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 import { liveDescription } from "../utils/liveDescription.js";
 
@@ -333,17 +333,6 @@ tokens.get("/:contract/:tokenId", async (c) => {
   ]);
 
   return c.json({ data: { ...serializeToken(token, activeOrders, holders, description), holderCount, supply } });
-});
-
-tokens.get("/:contract/:tokenId/owners", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const contract = normalizeAddress(chain, c.req.param("contract"));
-  const tokenId = c.req.param("tokenId");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1) || 1);
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? TOKEN_HOLDERS_LIMIT) || TOKEN_HOLDERS_LIMIT));
-  const { holders, holderCount } = await tokenHolders(chain, contract, tokenId, { page, limit });
-  return c.json({ data: holders, meta: { page, limit, total: holderCount } });
 });
 
 tokens.get("/:contract/:tokenId/balances/:owner", async (c) => {
