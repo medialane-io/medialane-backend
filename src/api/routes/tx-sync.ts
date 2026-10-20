@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "../../db/client.js";
 import { callRpc } from "../../utils/starknet.js";
 import { applyEvents, applyCollectionsCreated, prepareOwnership } from "../../mirror/apply.js";
+import { chainCallAt, readOwnership } from "../../chainRead/ownership.js";
 import { CHAIN } from "../../mirror/index.js";
 import {
   CORE_FACTORY_DATA_TOKENIZATION,
@@ -159,7 +160,7 @@ txSync.post("/", async (c) => {
 
   let applied = deployed.reduce((n, batch) => n + batch.events.length, 0);
   if (events.length > 0) {
-    const ownership = await prepareOwnership(events);
+    const ownership = await prepareOwnership(events, (keys) => readOwnership(keys, chainCallAt("pre_confirmed")));
     const outcome = await prisma.$transaction(
       (tx) => applyEvents(events, tx, CHAIN, ownership),
       { timeout: 30000 },

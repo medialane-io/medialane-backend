@@ -17,7 +17,7 @@ import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "../../../mirro
 import { handleOrderCancelled } from "../../../mirror/handlers/orderCancelled.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { writeOwnership } from "../../../mirror/handlers/ownership.js";
-import { ownershipKeys, readOwnership } from "../../../chainRead/ownership.js";
+import { chainCallAt, ownershipKeys, readOwnership } from "../../../chainRead/ownership.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { getTokenByAddress } from "../../../config/constants.js";
 import { runTransferFollowups } from "../../../orchestrator/transferFollowup.js";
@@ -185,7 +185,7 @@ export async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
   const rawFulfilledEvents = rawEvents.filter(
     (event) => num.toHex(event.keys[0] ?? "0x0") === ORDER_FULFILLED_SELECTOR_HEX
   );
-  const ownership = await readOwnership(ownershipKeys(transferEvents));
+  const ownership = await readOwnership(ownershipKeys(transferEvents), chainCallAt("pre_confirmed"));
 
   await prisma.$transaction(async (tx) => {
     for (const event of rawFulfilledEvents) {
@@ -264,7 +264,7 @@ export async function hydrateTransfersFromTx(txHash: string): Promise<void> {
   const rawEvents = await fetchReceiptEvents(txHash);
   const parsedEvents = parseEvents(rawEvents);
   const transferEvents = parsedEvents.filter(isNftTransferEvent);
-  const ownership = await readOwnership(ownershipKeys(transferEvents));
+  const ownership = await readOwnership(ownershipKeys(transferEvents), chainCallAt("pre_confirmed"));
 
   await prisma.$transaction(async (tx) => {
     for (const event of transferEvents) {

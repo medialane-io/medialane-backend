@@ -1,4 +1,4 @@
-import { cairo } from "starknet";
+import { cairo, type BlockIdentifier } from "starknet";
 import { ZERO_ADDRESS } from "../config/constants.js";
 import type { ParsedEvent } from "../types/marketplace.js";
 import { mapWithConcurrency } from "../utils/retry.js";
@@ -16,8 +16,13 @@ export type CallContract = (contractAddress: string, entrypoint: string, calldat
 
 const READ_CONCURRENCY = 8;
 
-const chainCall: CallContract = (contractAddress, entrypoint, calldata) =>
-  callRpc((provider) => provider.callContract({ contractAddress, entrypoint, calldata }));
+/** Chain reads at a given block: "latest" for the indexer, "pre_confirmed" right after a transaction is confirmed. */
+export function chainCallAt(blockIdentifier: BlockIdentifier, rpc: typeof callRpc = callRpc): CallContract {
+  return (contractAddress, entrypoint, calldata) =>
+    rpc((provider) => provider.callContract({ contractAddress, entrypoint, calldata }, blockIdentifier));
+}
+
+const chainCall = chainCallAt("latest");
 
 /** The tokens and holders whose current ownership a set of transfer events changed. */
 export function ownershipKeys(events: ParsedEvent[]): OwnershipKey[] {
