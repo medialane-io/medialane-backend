@@ -4,14 +4,16 @@ import { writeOwnership } from "../mirror/handlers/ownership.js";
 
 type StoredRow = { contractAddress: string; tokenId: string; owner: string; amount: string };
 type Differences = { changed: number; removed: number; added: number };
+type Comparison = Differences & { stale: OwnershipFact[] };
 
 const CHAIN = "STARKNET" as const;
 const BATCH = 200;
 const PROGRESS_EVERY = 1000;
+const WRITE_BATCH = 20;
 
-/** How the stored rows for the facts' tokens differ from what the chain reports. */
-export function ownershipDifferences(rows: StoredRow[], facts: OwnershipFact[]): Differences {
-  const diff: Differences = { changed: 0, removed: 0, added: 0 };
+/** How the stored rows for the facts' tokens differ from what the chain reports, and which facts to write. */
+export function ownershipDifferences(rows: StoredRow[], facts: OwnershipFact[]): Comparison {
+  const diff: Comparison = { changed: 0, removed: 0, added: 0, stale: [] };
   const byToken = new Map<string, StoredRow[]>();
   for (const row of rows) {
     const key = `${row.contractAddress}:${row.tokenId}`;
@@ -20,20 +22,22 @@ export function ownershipDifferences(rows: StoredRow[], facts: OwnershipFact[]):
 
   for (const fact of facts) {
     const stored = byToken.get(`${fact.contractAddress}:${fact.tokenId}`) ?? [];
+    const before = diff.changed + diff.removed + diff.added;
     if (fact.standard === "ERC721") {
       if (fact.owner === null) diff.removed += stored.length;
       else if (stored.length === 0) diff.added++;
       else if (stored.length !== 1 || stored[0]!.owner !== fact.owner || stored[0]!.amount !== "1") diff.changed++;
-      continue;
+    } else {
+      const row = stored.find((r) => r.owner === fact.owner);
+      if (!row) {
+        if (fact.amount > 0n) diff.added++;
+      } else if (fact.amount === 0n) {
+        diff.removed++;
+      } else if (BigInt(row.amount) !== fact.amount) {
+        diff.changed++;
+      }
     }
-    const row = stored.find((r) => r.owner === fact.owner);
-    if (!row) {
-      if (fact.amount > 0n) diff.added++;
-    } else if (fact.amount === 0n) {
-      diff.removed++;
-    } else if (BigInt(row.amount) !== fact.amount) {
-      diff.changed++;
-    }
+    if (diff.changed + diff.removed + diff.added > before) diff.stale.push(fact);
   }
   return diff;
 }
@@ -64,8 +68,11 @@ async function repairCollection(contractAddress: string, standard: "ERC721" | "E
     total.changed += diff.changed;
     total.removed += diff.removed;
     total.added += diff.added;
-    if (apply && diff.changed + diff.removed + diff.added > 0) {
-      await prisma.$transaction((tx) => writeOwnership(tx, CHAIN, facts), { timeout: 60000 });
+    if (apply) {
+      for (let w = 0; w < diff.stale.length; w += WRITE_BATCH) {
+        const chunk = diff.stale.slice(w, w + WRITE_BATCH);
+        await prisma.$transaction((tx) => writeOwnership(tx, CHAIN, chunk), { maxWait: 10000, timeout: 60000 });
+      }
     }
     const done = Math.min(start + BATCH, keys.length);
     if (done % PROGRESS_EVERY < BATCH || done === keys.length) {
