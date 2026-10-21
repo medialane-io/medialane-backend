@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../types/hono.js";
-import { bill, billedUnits, drift } from "./usage.js";
+import { bill, billedCredits, billedUnits, drift } from "./usage.js";
 
 async function run(fn: (c: Parameters<typeof bill>[0]) => void) {
   const app = new Hono<AppEnv>();
@@ -30,6 +30,16 @@ test("a handler reporting its real size overrides the route", async () => {
 test("a negative or fractional count cannot be billed", async () => {
   expect(await run((c) => bill(c, -4))).toBe(0);
   expect(await run((c) => bill(c, 2.9))).toBe(2);
+});
+
+test("a handler can name the credits it keeps", async () => {
+  const app = new Hono<AppEnv>();
+  const seen: Array<number | undefined> = [];
+  app.get("/none", (c) => { bill(c, 0); seen.push(billedCredits(c)); return c.json({}); });
+  app.get("/one", (c) => { bill(c, 0, 1); seen.push(billedCredits(c)); return c.json({}); });
+  app.get("/odd", (c) => { bill(c, 0, -2.5); seen.push(billedCredits(c)); return c.json({}); });
+  for (const path of ["/none", "/one", "/odd"]) await app.request(path);
+  expect(seen).toEqual([undefined, 1, 0]);
 });
 
 test("a balance that matches the ledger has no drift", () => {

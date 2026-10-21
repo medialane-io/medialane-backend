@@ -76,7 +76,7 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
     if (result.status === 502) return c.json({ error: "deploy_failed", message: result.message }, 502);
     const data = { chain: input.chain, walletAddress: result.walletAddress };
     if (result.reused) {
-      bill(c, 0);
+      bill(c, 0, 1);
       return c.json({ data, reusedExistingWallet: true }, 200);
     }
     return c.json({ data }, 201);

@@ -3,7 +3,7 @@ import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
 import { chargeForRequest as defaultChargeForRequest } from "../../payments/pricing.js";
 import { settleUsage as defaultSettleUsage, spend as defaultSpend } from "../../payments/ledger.js";
-import { billedUnits } from "../../payments/usage.js";
+import { billedCredits, billedUnits } from "../../payments/usage.js";
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -80,8 +80,8 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const settle = (units: number, status: number) => {
-      const kept = charge.unitCredits * units;
+    const settle = (units: number, status: number, credits?: number) => {
+      const kept = Math.min(cost, credits ?? charge.unitCredits * units);
       const owed = cost - kept;
       if (kept > 0) {
         c.header("X-Credits-Remaining", String(Math.max(0, apiCredits.creditBalance - kept)));
@@ -111,7 +111,8 @@ export function meter(deps: MeterDeps = {
       settle(0, 500);
       throw err;
     }
-    settle(c.res.status >= 500 ? 0 : billedUnits(c, charge.units), c.res.status);
+    if (c.res.status >= 500) settle(0, c.res.status, 0);
+    else settle(billedUnits(c, charge.units), c.res.status, billedCredits(c));
   };
 }
 

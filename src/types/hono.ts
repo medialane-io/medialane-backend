@@ -30,6 +30,7 @@ export type AppVariables = {
 
 
   billedUnits?: number;
+  billedCredits?: number;
 };
 
 export type AppEnv = { Variables: AppVariables };

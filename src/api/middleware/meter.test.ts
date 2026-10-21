@@ -41,6 +41,18 @@ function app(d: MeterDeps) {
     bill(c, 0);
     return c.json({ reusedExistingWallet: true });
   });
+  a.get("/v1/reused-read", (c) => {
+    bill(c, 0, 1);
+    return c.json({ reusedExistingWallet: true });
+  });
+  a.get("/v1/over", (c) => {
+    bill(c, 0, 99);
+    return c.json({ ok: true });
+  });
+  a.get("/v1/fail-named", (c) => {
+    bill(c, 0, 1);
+    return c.json({ error: "server error" }, 500);
+  });
   a.get("/v1/fail", (c) => c.json({ error: "server error" }, 500));
   a.get("/v1/boom", () => {
     throw new Error("handler blew up");
@@ -118,6 +130,50 @@ describe("meter", () => {
     expect(res.status).toBe(200);
     expect(refunded).toBe(5);
     expect(rows[0].units).toBe(0);
+    expect(rows[0].credits).toBe(0);
+  });
+
+  test("a handler that names its credits keeps exactly those", async () => {
+    let refunded = 0;
+    const rows: UsageRecord[] = [];
+    const d = deps({
+      chargeForRequest: async () => ({ actionKey: "wallet:deploy", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 1 }),
+      onRefund: async (_id, cost) => { refunded += cost; },
+      onUsage: async (row) => { rows.push(row); },
+    });
+    const res = await app(d).request("/v1/reused-read");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Credits-Remaining")).toBe("99");
+    expect(refunded).toBe(4);
+    expect(rows[0].units).toBe(0);
+    expect(rows[0].credits).toBe(1);
+  });
+
+  test("named credits never exceed the hold", async () => {
+    let refunded = 0;
+    const rows: UsageRecord[] = [];
+    const d = deps({
+      chargeForRequest: async () => ({ actionKey: "wallet:deploy", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 1 }),
+      onRefund: async (_id, cost) => { refunded += cost; },
+      onUsage: async (row) => { rows.push(row); },
+    });
+    await app(d).request("/v1/over");
+
+    expect(refunded).toBe(0);
+    expect(rows[0].credits).toBe(5);
+  });
+
+  test("a server error keeps nothing even when credits were named", async () => {
+    let refunded = 0;
+    const rows: UsageRecord[] = [];
+    const d = deps({
+      onRefund: async (_id, cost) => { refunded += cost; },
+      onUsage: async (row) => { rows.push(row); },
+    });
+    await app(d).request("/v1/fail-named");
+
+    expect(refunded).toBe(1);
     expect(rows[0].credits).toBe(0);
   });
 
