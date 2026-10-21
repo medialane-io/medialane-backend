@@ -5,12 +5,12 @@ import { createAppAccess } from "./appAccess.js";
 
 function build(verdicts: Record<string, "ok" | "inactive">) {
   const app = new Hono<AppEnv>();
-  app.use("/v1/*", async (c, next) => {
+  app.use("*", async (c, next) => {
     c.set("appId", c.req.header("x-app-id") ?? "MEDIALANE_API");
     return next();
   });
-  app.use("/v1/*", createAppAccess({ session: async (raw) => verdicts[raw] ?? "invalid" }));
-  app.all("/v1/*", (c) => c.json({ ok: true }));
+  app.use("*", createAppAccess({ session: async (raw) => verdicts[raw] ?? "invalid" }));
+  app.all("*", (c) => c.json({ ok: true }));
   return app;
 }
 
@@ -46,6 +46,10 @@ describe("app access", () => {
     expect((await app.request(`/v1/drops/0x${"d".repeat(64)}/state`, { headers: io() })).status).toBe(200);
     expect((await app.request("/v1/auth/email/register-account", { method: "POST", headers: io() })).status).toBe(200);
     expect((await app.request("/v1/users/register", { method: "POST", headers: { "x-app-id": "MEDIALANE_STARKNET" } })).status).toBe(200);
+  });
+
+  test("an on-chain image is open without a session", async () => {
+    expect((await app.request(`/media/starknet/0x${"d".repeat(64)}/1/image`, { headers: io() })).status).toBe(200);
   });
 
   test("a request without an app id is untouched", async () => {

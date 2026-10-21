@@ -15,7 +15,7 @@ const INACTIVE = { error: "Account is not active", code: "account_inactive" } as
 export function createAppAccess(deps: AppAccessDeps): MiddlewareHandler<AppEnv> {
   return async function appAccess(c, next) {
     if (callerApp(c) === DEFAULT_APP) return next();
-    const path = c.req.path.replace(/^\/v1\//, "");
+    const path = c.req.path.replace(/^\/(v1\/)?/, "");
     if (isPublicAppRoute(c.req.method, path)) return next();
     const raw = c.req.header("x-account-session");
     const verdict = raw ? await deps.session(raw) : "invalid";
