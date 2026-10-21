@@ -93,6 +93,29 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
     expect(await store.reserve({ id: run.id, apiCreditsId, credits: 2, path, retryReverted: true })).toBe(true);
   });
 
+  test("a reverted step charges one credit to the balance and returns its step credits", async () => {
+    const run = await paidRun();
+    expect(await store.reserve({ id: run.id, apiCreditsId, credits: 4, path: ["files", "r.pdf"] })).toBe(true);
+    const before = await store.balance(apiCreditsId);
+    await store.chargeReverted({ id: run.id, apiCreditsId, credits: 4, requestPath: "/reverted" });
+    expect(await store.balance(apiCreditsId)).toBe(before - 1);
+    expect((await read(run.id))!.creditsSpent).toBe(0);
+    const usage = await prisma.usageEvent.findFirst({ where: { apiCreditsId, path: "/reverted" } });
+    expect(usage).toMatchObject({ actionKey: "launchpad:reverted-step", credits: 1 });
+  });
+
+  test("a reverted step keeps its one credit from the run when the balance is empty", async () => {
+    const run = await paidRun();
+    expect(await store.reserve({ id: run.id, apiCreditsId, credits: 4, path: ["files", "e.pdf"] })).toBe(true);
+    const balance = await store.balance(apiCreditsId);
+    await prisma.apiCredits.update({ where: { id: apiCreditsId }, data: { creditBalance: 0 } });
+    await store.chargeReverted({ id: run.id, apiCreditsId, credits: 4, requestPath: "/reverted-empty" });
+    expect(await store.balance(apiCreditsId)).toBe(0);
+    expect((await read(run.id))!.creditsSpent).toBe(1);
+    expect(await prisma.usageEvent.count({ where: { apiCreditsId, path: "/reverted-empty" } })).toBe(0);
+    await prisma.apiCredits.update({ where: { id: apiCreditsId }, data: { creditBalance: balance } });
+  });
+
   test("completing refunds the unspent hold once, as a negative usage line", async () => {
     const run = await paidRun();
     await store.reserve({ id: run.id, apiCreditsId, credits: 3, path: ["tokenUris", "0"] });

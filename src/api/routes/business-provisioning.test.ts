@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { provisioningKeyWith } from "../../utils/provisioningKey.js";
+import { billedCredits, billedUnits } from "../../payments/usage.js";
 import { createBusinessProvisioningRoutes, type BusinessProvisioningDeps } from "./business-provisioning.js";
 
 const SECRET = "c".repeat(64);
@@ -15,6 +16,17 @@ function makeApp(deps: BusinessProvisioningDeps) {
   });
   app.route("/v1/business/provisioning", createBusinessProvisioningRoutes(deps));
   return app;
+}
+
+function billingApp(deps: BusinessProvisioningDeps) {
+  const app = new Hono<AppEnv>();
+  const billed: Array<{ units: number; credits: number | undefined }> = [];
+  app.use("*", async (c, next) => {
+    await next();
+    billed.push({ units: billedUnits(c, 1), credits: billedCredits(c) });
+  });
+  app.route("/", makeApp(deps));
+  return { app, billed };
 }
 
 function fakeDeps(overrides: Partial<BusinessProvisioningDeps> = {}) {
@@ -64,13 +76,15 @@ describe("POST /v1/business/provisioning", () => {
     expect(linked).toEqual([{ walletAddress: data.walletAddress, accountId: "acct-ana@example.com" }]);
   });
 
-  test("reuses the wallet the account already has", async () => {
+  test("reuses the wallet the account already has, for one credit", async () => {
     const { deps, accounts, deployed } = fakeDeps();
     accounts.set("ana@example.com", { accountId: "acct-ana", walletAddress: "0xabc" });
-    const res = await issue(makeApp(deps), "ana@example.com");
+    const { app, billed } = billingApp(deps);
+    const res = await issue(app, "ana@example.com");
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ reusedExistingWallet: true });
     expect(deployed).toHaveLength(0);
+    expect(billed).toEqual([{ units: 0, credits: 1 }]);
   });
 
   test("deploys a wallet for an existing account without one", async () => {
@@ -114,27 +128,44 @@ describe("POST /v1/business/provisioning", () => {
     expect(linked).toHaveLength(1);
   });
 
-  test("links nothing when the deploy fails", async () => {
+  test("links nothing when the deploy fails, and keeps one credit for the sent deploy", async () => {
     const { deps, linked } = fakeDeps({
       deployWallet: async () => {
         throw new Error("paymaster down");
       },
     });
-    const res = await issue(makeApp(deps), "ana@example.com");
+    const { app, billed } = billingApp(deps);
+    const res = await issue(app, "ana@example.com");
     expect(res.status).toBe(502);
     expect(linked).toHaveLength(0);
+    expect(billed).toEqual([{ units: 0, credits: 1 }]);
   });
 
-  test("a failed deployment check deploys nothing and links nothing", async () => {
+  test("a failed deployment check deploys nothing, links nothing and names no credits", async () => {
     const { deps, deployed, linked } = fakeDeps({
       isDeployed: async () => {
         throw new Error("rpc unavailable");
       },
     });
-    const res = await issue(makeApp(deps), "ana@example.com");
+    const { app, billed } = billingApp(deps);
+    const res = await issue(app, "ana@example.com");
     expect(res.status).toBe(502);
     expect(deployed).toHaveLength(0);
     expect(linked).toHaveLength(0);
+    expect(billed).toEqual([{ units: 1, credits: undefined }]);
+  });
+
+  test("a deployment that could not be built names no credits", async () => {
+    const { deps, deployed } = fakeDeps({
+      buildDeployment: async () => {
+        throw new Error("sponsor unavailable");
+      },
+    });
+    const { app, billed } = billingApp(deps);
+    const res = await issue(app, "ana@example.com");
+    expect(res.status).toBe(502);
+    expect(deployed).toHaveLength(0);
+    expect(billed).toEqual([{ units: 1, credits: undefined }]);
   });
 
   test("refuses anything that is not an email", async () => {

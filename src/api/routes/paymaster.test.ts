@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { billedCredits } from "../../payments/usage.js";
 import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
@@ -27,6 +28,17 @@ function outsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
 
 function sponsoredOutsideExecutionTypedData(calls: typeof SPONSORABLE_CALL[]) {
   return { message: { Calls: calls.map(outsideCall) } };
+}
+
+function billing(app: Hono<AppEnv>) {
+  const credits: Array<number | undefined> = [];
+  const outer = new Hono<AppEnv>();
+  outer.use("*", async (c, next) => {
+    await next();
+    credits.push(billedCredits(c));
+  });
+  outer.route("/", app);
+  return { app: outer, credits };
 }
 
 function appWith(
@@ -195,6 +207,20 @@ describe("POST /deploy/execute", () => {
     expect(linkedWhenExecuted).toBe(1);
   });
 
+  test("a wallet deploy that may have been sent keeps one credit", async () => {
+    const { app, credits } = billing(appWith({ executeTransaction: async () => { throw new Error("socket hang up"); } }));
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(502);
+    expect(credits).toEqual([1]);
+  });
+
+  test("a wallet deploy the sponsor refused to run names no credits", async () => {
+    const { app, credits } = billing(appWith({ executeTransaction: async () => { throw new Error("TRANSACTION_EXECUTION_ERROR"); } }));
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(422);
+    expect(credits).toEqual([undefined]);
+  });
+
   test("refuses without calling AVNU when the wallet cannot be linked", async () => {
     let executed = false;
     const app = appWith(
@@ -339,6 +365,25 @@ const signedRow: SponsorIntentRow = {
   id: "i1", type: "MINT", accountId: "app", requester: WALLET, status: "SIGNED", expiresAt: new Date(Date.now() + 60_000), calls: [SPONSORABLE_CALL],
 };
 const postJson = (body: unknown) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+describe("work that was sent is charged even when the response is an error", () => {
+  test("an invoke that may have been sent keeps one credit and its intents", async () => {
+    const log: string[] = [];
+    const { app, credits } = billing(intentApp([signedRow], { executeTransaction: async () => { throw new Error("socket hang up"); } }, log));
+    const res = await app.request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { code?: string }).code).toBe("may_have_broadcast");
+    expect(credits).toEqual([1]);
+    expect(log.some((l) => l.startsWith("release:"))).toBe(false);
+  });
+
+  test("an invoke the sponsor refused to run names no credits", async () => {
+    const { app, credits } = billing(intentApp([signedRow], { executeTransaction: async () => { throw new Error("TRANSACTION_EXECUTION_ERROR"); } }, []));
+    const res = await app.request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
+    expect(res.status).toBe(422);
+    expect(credits).toEqual([undefined]);
+  });
+});
 
 describe("intent sponsorship", () => {
   test("build sponsors the stored calls for the caller's wallet", async () => {

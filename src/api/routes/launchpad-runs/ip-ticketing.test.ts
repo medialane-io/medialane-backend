@@ -68,7 +68,7 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
     ],
     resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: known[g] ?? null })),
     registerWallet: async (input) => {
-      if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
+      if (options.deploy === "fail") return { status: 502, message: "deploy failed", sent: false };
       registered.push(input.email);
       const walletAddress = `0xa${registered.length}`;
       known[input.email] = walletAddress;
@@ -258,16 +258,31 @@ describe("the ticket type", () => {
     expect((await nextOf(w)).kind).not.toBe("wallets");
   });
 
-  test("a reverted ticket type returns its credits and can run again", async () => {
+  test("a reverted ticket type charges one credit to the balance, returns its step credits, and can run again", async () => {
     const w = await paid();
     await uploadArtwork(w);
     await metadata(w);
     await sponsor(w, "tier");
     const before = w.runs[0]!.creditsSpent;
+    const balance = w.balances.get("ac1")!;
     w.setReceipt("REVERTED");
     await json(w.app, "POST", "/run1/tier/confirm");
     expect(w.runs[0]!.creditsSpent).toBe(before - PRICE * 3);
+    expect(w.balances.get("ac1")).toBe(balance - 1);
     expect((await sponsor(w, "tier")).status).toBe(200);
+  });
+
+  test("a reverted ticket type keeps its one credit from the run when the balance is empty", async () => {
+    const w = await paid();
+    await uploadArtwork(w);
+    await metadata(w);
+    await sponsor(w, "tier");
+    const before = w.runs[0]!.creditsSpent;
+    w.balances.set("ac1", 0);
+    w.setReceipt("REVERTED");
+    await json(w.app, "POST", "/run1/tier/confirm");
+    expect(w.runs[0]!.creditsSpent).toBe(before - PRICE * 3 + 1);
+    expect(w.balances.get("ac1")).toBe(0);
   });
 });
 

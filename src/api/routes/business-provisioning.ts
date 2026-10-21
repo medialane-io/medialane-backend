@@ -34,7 +34,7 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 
 export type RegisterResult =
   | { status: 200 | 201; walletAddress: string; reused: boolean }
-  | { status: 502; message: string };
+  | { status: 502; message: string; sent: boolean };
 
 export async function registerProvisioning(deps: BusinessProvisioningDeps, input: RegisterInput): Promise<RegisterResult> {
   const { chain } = input;
@@ -49,9 +49,11 @@ export async function registerProvisioning(deps: BusinessProvisioningDeps, input
   const key = deps.keyFor(accountId);
   const walletAddress = normalizeAddress(chain, key.walletAddress);
 
+  let sent = false;
   try {
     if (!(await deps.isDeployed(walletAddress))) {
       const built = await deps.buildDeployment({ ownerPubkey: key.publicKey, ownerAddress: walletAddress });
+      sent = true;
       await deps.deployWallet({
         ownerAddress: walletAddress,
         typedData: built.typedData,
@@ -60,7 +62,7 @@ export async function registerProvisioning(deps: BusinessProvisioningDeps, input
       });
     }
   } catch (err) {
-    return { status: 502, message: err instanceof Error ? err.message : "deploy_failed" };
+    return { status: 502, message: err instanceof Error ? err.message : "deploy_failed", sent };
   }
 
   await deps.linkWallet({ chain, walletAddress, accountId });
@@ -73,10 +75,13 @@ export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps)
   app.post("/", zValidator("json", registerSchema), async (c) => {
     const input = c.req.valid("json");
     const result = await registerProvisioning(deps, input);
-    if (result.status === 502) return c.json({ error: "deploy_failed", message: result.message }, 502);
+    if (result.status === 502) {
+      if (result.sent) bill(c, 0, 1);
+      return c.json({ error: "deploy_failed", message: result.message }, 502);
+    }
     const data = { chain: input.chain, walletAddress: result.walletAddress };
     if (result.reused) {
-      bill(c, 0);
+      bill(c, 0, 1);
       return c.json({ data, reusedExistingWallet: true }, 200);
     }
     return c.json({ data }, 201);
