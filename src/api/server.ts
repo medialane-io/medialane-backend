@@ -57,6 +57,8 @@ export function createApp(): Hono<AppEnv> {
   app.use("*", loggerMiddleware);
 
   app.route("/health", health);
+
+  app.use("/media/*", ...apiKeyGate);
   app.route("/media", media);
 
   app.route("/", x402Discovery);

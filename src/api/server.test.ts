@@ -38,3 +38,10 @@ describe("request body limits", () => {
     expect((await post("/v1/metadata/upload", 600 * 1024)).status).toBe(413);
   });
 });
+
+describe("on-chain images", () => {
+  test("an image request without an API key is refused", async () => {
+    const res = await createApp().request(`/media/starknet/0x${"a".repeat(64)}/1/image`);
+    expect(res.status).toBe(401);
+  });
+});
