@@ -111,8 +111,7 @@ export function meter(deps: MeterDeps = {
       settle(0, 500);
       throw err;
     }
-    if (c.res.status >= 500) settle(0, c.res.status, 0);
-    else settle(billedUnits(c, charge.units), c.res.status, billedCredits(c));
+    settle(billedUnits(c, c.res.status >= 500 ? 0 : charge.units), c.res.status, billedCredits(c));
   };
 }
 

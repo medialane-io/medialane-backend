@@ -1,4 +1,4 @@
-import type { RunStore, StoredRun } from "../run-store.js";
+import { REVERTED_STEP_CREDITS, type RunStore, type StoredRun } from "../run-store.js";
 
 type Path = string[];
 
@@ -148,6 +148,18 @@ export function createMemoryRunStore(
       if (!run) return;
       run.creditsSpent = Math.max(0, run.creditsSpent - credits);
       deletePath(run.progress as Record<string, unknown>, path);
+    },
+
+    async chargeReverted({ id, apiCreditsId, credits }) {
+      const run = find(id, apiCreditsId);
+      if (!run) return;
+      const balance = balances.get(apiCreditsId) ?? 0;
+      const paid = balance >= REVERTED_STEP_CREDITS;
+      if (paid) {
+        balances.set(apiCreditsId, balance - REVERTED_STEP_CREDITS);
+        usage.push({ apiCreditsId, actionKey: "launchpad:reverted-step", credits: REVERTED_STEP_CREDITS });
+      }
+      run.creditsSpent = Math.max(0, run.creditsSpent - (paid ? credits : Math.max(0, credits - REVERTED_STEP_CREDITS)));
     },
 
     async ownsWallet(accountId, address) {

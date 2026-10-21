@@ -30,7 +30,7 @@ const ticketing: TicketingDeps = {
   tierCalls: async () => [],
   mintCalls: async () => [],
   resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: null })),
-  registerWallet: async () => ({ status: 502, message: "no" }),
+  registerWallet: async () => ({ status: 502, message: "no", sent: false }),
 };
 
 async function world() {

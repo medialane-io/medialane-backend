@@ -67,7 +67,7 @@ function world(options: { known?: Record<string, string>; deploy?: "ok" | "fail"
   const certificateEmission: CertificateEmissionDeps = {
     resolveWallets: async (guests) => guests.map((g) => ({ email: g, walletAddress: known[g] ?? null })),
     registerWallet: async (input) => {
-      if (options.deploy === "fail") return { status: 502, message: "deploy failed" };
+      if (options.deploy === "fail") return { status: 502, message: "deploy failed", sent: false };
       registered.push(input.email);
       const walletAddress = `0xa${registered.length}`;
       known[input.email] = walletAddress;

@@ -6,6 +6,8 @@ import { refund, spend } from "../payments/ledger.js";
 import type { RunQuote } from "./steps.js";
 import { resolveRecipientWallets } from "../utils/recipientWallets.js";
 
+export const REVERTED_STEP_CREDITS = 1;
+
 export interface StoredRun {
   id: string;
   apiCreditsId: string;
@@ -51,6 +53,7 @@ export interface RunStore {
   record(id: string, apiCreditsId: string, path: string[], value: unknown): Promise<void>;
   sweepStale(input: { id: string; apiCreditsId: string; paths: string[][]; olderThanMs: number }): Promise<number>;
   release(input: { id: string; apiCreditsId: string; credits: number; path: string[] }): Promise<void>;
+  chargeReverted(input: { id: string; apiCreditsId: string; credits: number; requestPath: string }): Promise<void>;
   ownsWallet(accountId: string, address: string): Promise<boolean>;
   complete(input: {
     id: string;
@@ -226,6 +229,34 @@ export const prismaRunStore: RunStore = {
           "progress" = "progress" #- ${path}::text[],
           "updatedAt" = now()
       WHERE "id" = ${id} AND "apiCreditsId" = ${apiCreditsId}`;
+  },
+
+  async chargeReverted({ id, apiCreditsId, credits, requestPath }) {
+    await prisma.$transaction(async (tx) => {
+      const run = await tx.launchpadRun.findFirst({ where: { id, apiCreditsId }, select: { service: true } });
+      if (!run) return;
+      const paid = await spend(apiCreditsId, REVERTED_STEP_CREDITS, tx, { launchpadRunId: id });
+      const returned = paid ? credits : Math.max(0, credits - REVERTED_STEP_CREDITS);
+      await tx.$executeRaw`
+        UPDATE "LaunchpadRun"
+        SET "creditsSpent" = GREATEST("creditsSpent" - ${returned}, 0), "updatedAt" = now()
+        WHERE "id" = ${id} AND "apiCreditsId" = ${apiCreditsId}`;
+      if (!paid) return;
+      await tx.usageEvent.create({
+        data: {
+          apiCreditsId,
+          actionKey: "launchpad:reverted-step",
+          chain: "STARKNET",
+          service: run.service,
+          unitCredits: REVERTED_STEP_CREDITS,
+          units: 1,
+          credits: REVERTED_STEP_CREDITS,
+          method: "POST",
+          path: requestPath,
+          status: 200,
+        },
+      });
+    });
   },
 
   async complete({ id, apiCreditsId, status, path }) {

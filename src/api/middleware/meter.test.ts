@@ -164,17 +164,19 @@ describe("meter", () => {
     expect(rows[0].credits).toBe(5);
   });
 
-  test("a server error keeps nothing even when credits were named", async () => {
+  test("a server error keeps the credits the handler named", async () => {
     let refunded = 0;
     const rows: UsageRecord[] = [];
     const d = deps({
+      chargeForRequest: async () => ({ actionKey: "paymaster:invoke-execute", chain: "STARKNET", service: "ALL", unitCredits: 2, units: 1 }),
       onRefund: async (_id, cost) => { refunded += cost; },
       onUsage: async (row) => { rows.push(row); },
     });
-    await app(d).request("/v1/fail-named");
+    const res = await app(d).request("/v1/fail-named");
 
+    expect(res.status).toBe(500);
     expect(refunded).toBe(1);
-    expect(rows[0].credits).toBe(0);
+    expect(rows[0].credits).toBe(1);
   });
 
   test("every metered request leaves one usage row", async () => {

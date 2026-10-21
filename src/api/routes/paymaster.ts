@@ -7,6 +7,7 @@ import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
 import { attachDeployedWallet } from "../../utils/account.js";
 import { callerApp } from "../../utils/caller.js";
+import { bill } from "../../payments/usage.js";
 import type { AppEnv } from "../../types/hono.js";
 
 const log = createLogger("routes:paymaster");
@@ -318,7 +319,8 @@ export default function paymaster(
     }
     const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
     if (outcome.status !== 200) {
-      if (outcome.body.code !== "may_have_broadcast") await intentDeps.release(composed.ids);
+      if (outcome.body.code === "may_have_broadcast") bill(c, 0, 1);
+      else await intentDeps.release(composed.ids);
       return c.json(outcome.body, outcome.status);
     }
     await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
@@ -382,6 +384,7 @@ export default function paymaster(
     } catch (err) {
       const failure = classifyPaymasterError(err, "execute");
       log.warn({ err, status: failure.status }, "sponsored deploy execute failed");
+      if (failure.code === "may_have_broadcast") bill(c, 0, 1);
       return c.json({ error: failure.message, code: failure.code }, failure.status);
     }
   });
