@@ -190,7 +190,7 @@ export async function issueVerificationCodeWithDeps(
   const code = String(randomInt(100_000, 1_000_000));
   await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
   deps.sendCode(email, code, appId).catch((err: unknown) => {
-    log.error({ err, email }, "Failed to send verification code");
+    log.error({ err }, "Failed to send verification code");
   });
 }
 

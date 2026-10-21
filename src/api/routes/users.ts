@@ -134,7 +134,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
         },
       });
       issueVerificationCode(parsed.data.email, appId).catch((err: unknown) => {
-        log.error({ err, email: parsed.data.email }, "Failed to auto-send verification code");
+        log.error({ err }, "Failed to auto-send verification code");
       });
     }
 
