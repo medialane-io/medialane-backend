@@ -1,6 +1,5 @@
 export const RUN_BATCH_SIZE = 25;
 export const MAX_RUN_ITEMS = 500;
-export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export type PriceOf = (action: string) => Promise<number>;
 

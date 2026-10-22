@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_FILE_BYTES, MAX_RUN_ITEMS } from "../steps.js";
+import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
+import { MAX_RUN_ITEMS } from "../steps.js";
 import { parseRunSpec } from "./index.js";
 
 const terms = {
@@ -44,8 +45,13 @@ describe("data tokenization runs", () => {
     expect(() => parseRunSpec("data-tokenization-erc721", catalog([item(1), item(1)]))).toThrow();
   });
 
+  test("a file of the upload size is accepted", () => {
+    const full = { ...item(1), file: { name: "full.pdf", size: MAX_UPLOAD_BYTES, type: "application/pdf" } };
+    expect(() => parseRunSpec("data-tokenization-erc721", catalog([full]))).not.toThrow();
+  });
+
   test("a file over the upload limit is refused", () => {
-    const big = { ...item(1), file: { name: "big.pdf", size: MAX_FILE_BYTES + 1, type: "application/pdf" } };
+    const big = { ...item(1), file: { name: "big.pdf", size: MAX_UPLOAD_BYTES + 1, type: "application/pdf" } };
     expect(() => parseRunSpec("data-tokenization-erc721", catalog([big]))).toThrow();
   });
 

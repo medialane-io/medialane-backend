@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { MAX_FILE_BYTES } from "../steps.js";
+import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
 
 const fileRef = z.object({
   name: z.string().min(1).max(255),
-  size: z.number().int().min(1).max(MAX_FILE_BYTES),
+  size: z.number().int().min(1).max(MAX_UPLOAD_BYTES),
   type: z.string().max(120),
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
 import { createApp } from "./server.js";
 
 const MB = 1024 * 1024;
@@ -29,15 +30,13 @@ describe("request body limits", () => {
     expect((await post("/v1/rpc", 1024)).status).toBe(401);
   });
 
-  test("upload-file accepts up to 11 MB and refuses more", async () => {
-    expect((await post("/v1/metadata/upload-file", 2 * MB)).status).toBe(401);
-    expect((await post("/v1/metadata/upload-file", 12 * MB)).status).toBe(413);
-  });
-
-  test("metadata json upload accepts up to 90 MB and refuses more", async () => {
-    expect((await post("/v1/metadata/upload", 2 * MB)).status).toBe(401);
-    expect((await post("/v1/metadata/upload", 91 * MB)).status).toBe(413);
-  });
+  test.each(["/v1/metadata/upload", "/v1/metadata/upload-file", "/v1/metadata/upload-directory"])(
+    "%s accepts the upload size and refuses one byte more",
+    async (path) => {
+      expect((await post(path, MAX_UPLOAD_BYTES)).status).toBe(401);
+      expect((await post(path, MAX_UPLOAD_BYTES + 1)).status).toBe(413);
+    },
+  );
 });
 
 describe("on-chain images", () => {

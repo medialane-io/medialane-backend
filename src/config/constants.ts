@@ -85,8 +85,6 @@ export const ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR = hash.getSelectorFromName("Es
 export const OWNER_ESCAPED_GUID_SELECTOR = hash.getSelectorFromName("OwnerEscapedGuid");
 export const ESCAPE_CANCELED_SELECTOR = hash.getSelectorFromName("EscapeCanceled");
 
-export const MAX_METADATA_BYTES = 90 * 1024 * 1024;
-
 export const IPFS_GATEWAYS = [
   "https://gateway.pinata.cloud/ipfs",
   "https://ipfs.filebase.io/ipfs",
