@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
 import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
@@ -63,13 +64,9 @@ export function createApp(): Hono<AppEnv> {
 
   app.route("/", x402Discovery);
 
-  app.use("/v1/metadata/upload-file", bodyLimit({ maxSize: 11 * 1024 * 1024, onError: tooLarge }));
-  app.use("/v1/metadata/upload-directory", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: tooLarge }));
-  app.use("/v1/metadata/upload", bodyLimit({ maxSize: 512 * 1024, onError: tooLarge }));
-
   app.use("/v1/*", async (c, next) => {
-    if (c.req.path.startsWith("/v1/metadata/upload")) return next();
-    return bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge })(c, next);
+    const maxSize = c.req.path.startsWith("/v1/metadata/upload") ? MAX_UPLOAD_BYTES : 1024 * 1024;
+    return bodyLimit({ maxSize, onError: tooLarge })(c, next);
   });
 
   app.use("/v1/*", ...apiKeyGate);

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { PinataSDK } from "pinata";
 import { env } from "../../config/env.js";
+import { UPLOAD_LIMITS, MAX_UPLOAD_BYTES, type UploadKind } from "@medialane/sdk";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -9,50 +10,26 @@ import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 const log = createLogger("routes:metadata");
 const metadata = new Hono();
 
-const MAX_JSON_BYTES = 512 * 1024;
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const pinata = new PinataSDK({
   pinataJwt: env.PINATA_JWT,
   pinataGateway: env.PINATA_GATEWAY,
 });
 
-const SIGNED_URL_MIME_TYPES: Record<"image" | "document" | "media", string[]> = {
-  image: ["image/jpeg", "image/png", "image/gif", "image/svg+xml", "image/webp"],
-  document: [
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.oasis.opendocument.text",
-    "application/rtf",
-    "text/plain",
-    "text/markdown",
-
-    "application/octet-stream",
-  ],
-  media: [
-    "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
-    "video/mp4", "video/webm", "video/ogg",
-    "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
-    "application/pdf",
-  ],
-};
-const SIGNED_URL_MAX_BYTES: Record<"image" | "document" | "media", number> = {
-  image: 10 * 1024 * 1024,
-  document: 20 * 1024 * 1024,
-  media: 100 * 1024 * 1024,
-};
+export function signedUrlOptions(kind: UploadKind) {
+  return {
+    expires: 120,
+    maxFileSize: MAX_UPLOAD_BYTES,
+    mimeTypes: [...UPLOAD_LIMITS[kind].mimeTypes],
+  };
+}
 
 metadata.get("/signed-url", async (c) => {
   const kindParam = c.req.query("kind");
-  const kind: "image" | "document" | "media" =
+  const kind: UploadKind =
     kindParam === "document" ? "document" : kindParam === "media" ? "media" : "image";
   try {
-    const url = await pinata.upload.public.createSignedURL({
-      expires: 120,
-      maxFileSize: SIGNED_URL_MAX_BYTES[kind],
-      mimeTypes: SIGNED_URL_MIME_TYPES[kind],
-    });
+    const url = await pinata.upload.public.createSignedURL(signedUrlOptions(kind));
     return c.json({ data: { url } });
   } catch (err: unknown) {
     log.error({ err }, "Failed to create signed URL");
@@ -63,15 +40,8 @@ metadata.get("/signed-url", async (c) => {
 });
 
 metadata.post("/upload", async (c) => {
-  const contentLength = Number(c.req.header("content-length") ?? 0);
-  if (contentLength > MAX_JSON_BYTES) {
-    return c.json({ error: "Payload too large (max 512 KB)" }, 413);
-  }
   try {
     const raw = await c.req.text();
-    if (raw.length > MAX_JSON_BYTES) {
-      return c.json({ error: "Payload too large (max 512 KB)" }, 413);
-    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -113,20 +83,12 @@ export function isAllowedUpload(fileName: string, mimeType: string): boolean {
 }
 
 metadata.post("/upload-file", async (c) => {
-  const contentLength = Number(c.req.header("content-length") ?? 0);
-  if (contentLength > MAX_FILE_BYTES) {
-    return c.json({ error: "Payload too large (max 10 MB)" }, 413);
-  }
   try {
     const formData = await c.req.formData();
     const file = formData.get("file") as File | null;
     if (!file) {
       return c.json({ error: "file field required" }, 400);
     }
-    if (file.size > MAX_FILE_BYTES) {
-      return c.json({ error: "File too large (max 10 MB)" }, 413);
-    }
-
     if (!isAllowedUpload(file.name, file.type)) {
       return c.json({ error: "File type not allowed" }, 415);
     }
@@ -138,9 +100,6 @@ metadata.post("/upload-file", async (c) => {
     return c.json({ error: "That file could not be uploaded. Please try again." }, 500);
   }
 });
-
-const MAX_DIRECTORY_FILES = 2001;
-const MAX_DIRECTORY_BYTES = 5 * 1024 * 1024;
 
 export function buildDirectoryPinForm(
   files: { name: string; content: unknown }[],
@@ -167,9 +126,6 @@ metadata.post("/upload-directory", async (c) => {
   if (!Array.isArray(files) || files.length === 0) {
     return c.json({ error: "files[] required" }, 400);
   }
-  if (files.length > MAX_DIRECTORY_FILES) {
-    return c.json({ error: `Max ${MAX_DIRECTORY_FILES} files per directory` }, 400);
-  }
   for (const f of files) {
     if (!f?.name?.trim() || !/^[\w.-]+$/.test(f.name)) {
       return c.json({ error: "Every file needs a name (letters, digits, dot, dash, underscore only)" }, 400);
@@ -177,10 +133,6 @@ metadata.post("/upload-directory", async (c) => {
     if (f.content === undefined) {
       return c.json({ error: `File "${f.name}" is missing content` }, 400);
     }
-  }
-  const totalBytes = files.reduce((sum, f) => sum + JSON.stringify(f.content).length, 0);
-  if (totalBytes > MAX_DIRECTORY_BYTES) {
-    return c.json({ error: "Payload too large (max 5 MB total)" }, 413);
   }
 
   try {

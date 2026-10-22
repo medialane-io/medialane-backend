@@ -2,11 +2,10 @@ import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
 import { readTextCapped } from "../utils/httpBody.js";
 import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
+import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
 
 const log = createLogger("fetcher");
 const DEFAULT_TIMEOUT_MS = 10_000;
-
-const MAX_METADATA_BYTES = 512 * 1024;
 
 const MAX_RATE_LIMIT_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 1000;
@@ -71,9 +70,9 @@ export async function fetchJson(
       return null;
     }
 
-    const { text, truncated } = await readTextCapped(res, MAX_METADATA_BYTES);
+    const { text, truncated } = await readTextCapped(res, MAX_UPLOAD_BYTES);
     if (truncated) {
-      log.warn({ url, maxBytes: MAX_METADATA_BYTES }, "Metadata body exceeded size cap — rejecting");
+      log.warn({ url, maxBytes: MAX_UPLOAD_BYTES }, "Metadata body exceeded size cap — rejecting");
       return null;
     }
     return JSON.parse(text) as Record<string, unknown>;

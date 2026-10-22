@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { buildDirectoryPinForm, isAllowedUpload } from "./metadata";
+import { MAX_UPLOAD_BYTES, UPLOAD_LIMITS } from "@medialane/sdk";
+import { buildDirectoryPinForm, isAllowedUpload, signedUrlOptions } from "./metadata";
 
 test("buildDirectoryPinForm names every file under the given folder prefix", () => {
   const form = buildDirectoryPinForm(
@@ -48,4 +49,10 @@ test("an allowed MIME type cannot carry a file with a disallowed extension", () 
 test("3D models keep uploading with their own MIME types", () => {
   expect(isAllowedUpload("model.glb", "model/gltf-binary")).toBe(true);
   expect(isAllowedUpload("model.gltf", "model/gltf+json")).toBe(true);
+});
+
+test.each(["image", "document", "media"] as const)("a %s signed URL allows the upload size and the kind's types", (kind) => {
+  const options = signedUrlOptions(kind);
+  expect(options.maxFileSize).toBe(MAX_UPLOAD_BYTES);
+  expect(options.mimeTypes).toEqual([...UPLOAD_LIMITS[kind].mimeTypes]);
 });
