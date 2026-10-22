@@ -65,12 +65,12 @@ metadata.get("/signed-url", async (c) => {
 metadata.post("/upload", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? 0);
   if (contentLength > MAX_METADATA_BYTES) {
-    return c.json({ error: "Payload too large (max 100 MB)" }, 413);
+    return c.json({ error: "Payload too large (max 90 MB)" }, 413);
   }
   try {
     const raw = await c.req.text();
     if (raw.length > MAX_METADATA_BYTES) {
-      return c.json({ error: "Payload too large (max 100 MB)" }, 413);
+      return c.json({ error: "Payload too large (max 90 MB)" }, 413);
     }
     let parsed: unknown;
     try {
