@@ -2,11 +2,10 @@ import { createLogger } from "../utils/logger.js";
 import { toErrorMessage } from "../utils/error.js";
 import { readTextCapped } from "../utils/httpBody.js";
 import { isPrivateOrInsecureUrl, resolvesToPrivateHost } from "../utils/ssrf.js";
+import { MAX_METADATA_BYTES } from "../config/constants.js";
 
 const log = createLogger("fetcher");
 const DEFAULT_TIMEOUT_MS = 10_000;
-
-const MAX_METADATA_BYTES = 512 * 1024;
 
 const MAX_RATE_LIMIT_RETRIES = 2;
 const DEFAULT_RETRY_DELAY_MS = 1000;

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { PinataSDK } from "pinata";
 import { env } from "../../config/env.js";
+import { MAX_METADATA_BYTES } from "../../config/constants.js";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -9,7 +10,6 @@ import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 const log = createLogger("routes:metadata");
 const metadata = new Hono();
 
-const MAX_JSON_BYTES = 512 * 1024;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const pinata = new PinataSDK({
@@ -64,13 +64,13 @@ metadata.get("/signed-url", async (c) => {
 
 metadata.post("/upload", async (c) => {
   const contentLength = Number(c.req.header("content-length") ?? 0);
-  if (contentLength > MAX_JSON_BYTES) {
-    return c.json({ error: "Payload too large (max 512 KB)" }, 413);
+  if (contentLength > MAX_METADATA_BYTES) {
+    return c.json({ error: "Payload too large (max 100 MB)" }, 413);
   }
   try {
     const raw = await c.req.text();
-    if (raw.length > MAX_JSON_BYTES) {
-      return c.json({ error: "Payload too large (max 512 KB)" }, 413);
+    if (raw.length > MAX_METADATA_BYTES) {
+      return c.json({ error: "Payload too large (max 100 MB)" }, 413);
     }
     let parsed: unknown;
     try {

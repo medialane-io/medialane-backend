@@ -34,8 +34,9 @@ describe("request body limits", () => {
     expect((await post("/v1/metadata/upload-file", 12 * MB)).status).toBe(413);
   });
 
-  test("metadata json upload is capped at 512 KB", async () => {
-    expect((await post("/v1/metadata/upload", 600 * 1024)).status).toBe(413);
+  test("metadata json upload accepts up to 100 MB and refuses more", async () => {
+    expect((await post("/v1/metadata/upload", 2 * MB)).status).toBe(401);
+    expect((await post("/v1/metadata/upload", 101 * MB)).status).toBe(413);
   });
 });
 

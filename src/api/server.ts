@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { MAX_METADATA_BYTES } from "../config/constants.js";
 import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
@@ -65,7 +66,7 @@ export function createApp(): Hono<AppEnv> {
 
   app.use("/v1/metadata/upload-file", bodyLimit({ maxSize: 11 * 1024 * 1024, onError: tooLarge }));
   app.use("/v1/metadata/upload-directory", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: tooLarge }));
-  app.use("/v1/metadata/upload", bodyLimit({ maxSize: 512 * 1024, onError: tooLarge }));
+  app.use("/v1/metadata/upload", bodyLimit({ maxSize: MAX_METADATA_BYTES, onError: tooLarge }));
 
   app.use("/v1/*", async (c, next) => {
     if (c.req.path.startsWith("/v1/metadata/upload")) return next();
