@@ -58,6 +58,39 @@ describe("validated json", () => {
   });
 });
 
+describe("validated json does not depend on the Content-Type header", () => {
+  const body = new TextEncoder().encode('{"name":"a","count":3}');
+
+  test("a JSON body sent as text/plain is read", async () => {
+    const res = await app().request("/", { method: "POST", body, headers: { "content-type": "text/plain" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ body: { name: "a", count: 3 } });
+  });
+
+  test("a JSON body sent with no Content-Type is read", async () => {
+    const res = await app().request("/", { method: "POST", body });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ body: { name: "a", count: 3 } });
+  });
+
+  test("a body that is not JSON is malformed whatever the header says", async () => {
+    const res = await app().request("/", { method: "POST", body: new TextEncoder().encode("not json"), headers: { "content-type": "text/plain" } });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Malformed JSON in request body" });
+  });
+
+  test("an invalid body is still refused with the usual error", async () => {
+    const res = await app().request("/", { method: "POST", body: new TextEncoder().encode('{"count":"x"}') });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("Invalid body");
+  });
+
+  test("a message option applies to this path too", async () => {
+    const res = await app().request("/custom", { method: "POST", body: new TextEncoder().encode("{}") });
+    expect(await res.json()).toEqual({ error: "userAddress is required" });
+  });
+});
+
 describe("validated json with its own message", () => {
   test("a failing body answers with exactly that message and no details", async () => {
     const res = await app().request("/custom", { method: "POST", body: "{}", headers: json });
