@@ -1,4 +1,7 @@
-import { expect, mock, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
+
+const actual = await import("../utils/starknet.js");
+afterAll(() => mock.module("../utils/starknet.js", () => actual));
 
 const updates: unknown[] = [];
 
@@ -9,8 +12,8 @@ mock.module("../db/client.js", () => ({
   },
 }));
 mock.module("../utils/starknet.js", () => ({
+  ...actual,
   callRpc: mock(async () => { throw Object.assign(new Error("Entry point not found"), { code: 21 }); }),
-  isContractError: (err: unknown) => (err as { code?: unknown } | null)?.code === 21,
 }));
 
 test("a token whose tokenURI is not readable yet fails the job so the worker retries it", async () => {

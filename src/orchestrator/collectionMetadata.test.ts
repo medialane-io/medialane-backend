@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
+
+const actualStarknet = await import("../utils/starknet.js");
+afterAll(() => mock.module("../utils/starknet.js", () => actualStarknet));
 
 describe("collectionMetadata SSRF guard", () => {
   test("fetchCollectionMetadataJson blocks a URL that resolves to a private address", async () => {
@@ -74,16 +77,14 @@ describe("detectTokenStandard", () => {
   const OZ_IERC1155_ID = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
 
   async function detectWith(supported: string[]) {
-    const realStarknet = await import("../utils/starknet.js");
     const provider = {
       callContract: async (call: { calldata: string[] }) => {
         const id = BigInt(call.calldata[0]);
         return [supported.some((s) => BigInt(s) === id) ? "0x1" : "0x0"];
       },
     };
-    const { mock } = await import("bun:test");
     mock.module("../utils/starknet.js", () => ({
-      ...realStarknet,
+      ...actualStarknet,
       callRpc: (fn: (p: unknown) => unknown) => Promise.resolve(fn(provider)),
     }));
     const { detectTokenStandard } = await import("./collectionMetadata.js");
