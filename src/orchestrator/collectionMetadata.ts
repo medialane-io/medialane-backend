@@ -9,8 +9,6 @@ import { metadataAttributes } from "../utils/metadataAttributes.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
-const bestEffort = <T>(read: Promise<T>, fallback: T): Promise<T> => read.catch(() => fallback);
-
 /** The on-chain base URI when the contract exposes one, else the one indexed from its factory event. */
 export function resolveCollectionBaseUri(onchain: string, stored: string | null | undefined): string {
   return onchain || stored || "";
@@ -40,66 +38,71 @@ export async function handleCollectionMetadataFetch(payload: {
   }
 
   if (existing?.service === "mip-erc1155" || existing?.standard === "ERC1155") {
-    const isOwnCollection = isOwnService(existing?.service);
-    const missingCanonicalFields =
-      !existing?.name ||
-      !existing?.symbol ||
-      !existing?.baseUri ||
-      !existing?.owner;
+    try {
+      const isOwnCollection = isOwnService(existing?.service);
+      const missingCanonicalFields =
+        !existing?.name ||
+        !existing?.symbol ||
+        !existing?.baseUri ||
+        !existing?.owner;
 
-    let onchainName = "";
-    let onchainSymbol = "";
-    let onchainBaseUri = "";
-    let onchainOwner: string | null = null;
+      let onchainName = "";
+      let onchainSymbol = "";
+      let onchainBaseUri = "";
+      let onchainOwner: string | null = null;
 
-    if (missingCanonicalFields) {
-      const onchainInfo = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
-      onchainName = onchainInfo.name;
-      onchainSymbol = onchainInfo.symbol;
-      onchainBaseUri = onchainInfo.baseUri;
+      if (missingCanonicalFields) {
+        const onchainInfo = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
+        onchainName = onchainInfo.name;
+        onchainSymbol = onchainInfo.symbol;
+        onchainBaseUri = onchainInfo.baseUri;
 
-      if (isOwnCollection && !onchainName && !onchainSymbol && !existing?.name && !existing?.symbol) {
-        log.warn({ chain, contractAddress }, "On-chain name/symbol read failed for own ERC1155 collection");
-        await prisma.collection.update({
-          where: { chain_contractAddress: { chain, contractAddress } },
-          data: { metadataStatus: "FAILED" },
-        });
-        return;
+        if (isOwnCollection && !onchainName && !onchainSymbol && !existing?.name && !existing?.symbol) {
+          log.warn({ chain, contractAddress }, "On-chain name/symbol read failed for own ERC1155 collection");
+          await prisma.collection.update({
+            where: { chain_contractAddress: { chain, contractAddress } },
+            data: { metadataStatus: "FAILED" },
+          });
+          return;
+        }
+
+        onchainOwner = await readOwner(chainCallAt("latest"), contractAddress);
       }
 
-      onchainOwner = await bestEffort(readOwner(chainCallAt("latest"), contractAddress), null);
+      const canonicalBaseUri = existing?.baseUri || onchainBaseUri || "";
+
+      let resolvedImage: string | null = existing.image ?? null;
+      let resolvedDescription: string | null = existing.description ?? null;
+      let metadataFetched = true;
+      let resolvedAttributes = metadataAttributes(existing.attributes ? { attributes: existing.attributes } : null);
+      if (canonicalBaseUri && (!resolvedImage || !resolvedDescription || !resolvedAttributes)) {
+        const fetched = await fetchCollectionMetadataJson(canonicalBaseUri);
+        metadataFetched = fetched !== null;
+        resolvedAttributes = resolvedAttributes ?? metadataAttributes(fetched);
+        resolvedImage = resolvedImage ?? metadataString(fetched, "image");
+        resolvedDescription = resolvedDescription ?? metadataString(fetched, "description");
+      }
+
+      await prisma.collection.update({
+        where: { chain_contractAddress: { chain, contractAddress } },
+        data: {
+          standard: "ERC1155",
+          metadataStatus: metadataFetched ? "FETCHED" : "FAILED",
+          name: existing?.name || onchainName || undefined,
+          symbol: existing?.symbol || onchainSymbol || undefined,
+          baseUri: canonicalBaseUri || undefined,
+          owner: existing?.owner || onchainOwner || undefined,
+          image: resolvedImage ?? undefined,
+          description: resolvedDescription ?? undefined,
+          attributes: (resolvedAttributes ?? undefined) as Prisma.InputJsonValue | undefined,
+        },
+      });
+      log.debug({ chain, contractAddress, resolvedImage, metadataFetched }, "ERC1155 collection metadata updated");
+      return;
+    } catch (err) {
+      await failCollection(chain, contractAddress, err);
+      throw err;
     }
-
-    const canonicalBaseUri = existing?.baseUri || onchainBaseUri || "";
-
-    let resolvedImage: string | null = existing.image ?? null;
-    let resolvedDescription: string | null = existing.description ?? null;
-    let metadataFetched = true;
-    let resolvedAttributes = metadataAttributes(existing.attributes ? { attributes: existing.attributes } : null);
-    if (canonicalBaseUri && (!resolvedImage || !resolvedDescription || !resolvedAttributes)) {
-      const fetched = await fetchCollectionMetadataJson(canonicalBaseUri);
-      metadataFetched = fetched !== null;
-      resolvedAttributes = resolvedAttributes ?? metadataAttributes(fetched);
-      resolvedImage = resolvedImage ?? metadataString(fetched, "image");
-      resolvedDescription = resolvedDescription ?? metadataString(fetched, "description");
-    }
-
-    await prisma.collection.update({
-      where: { chain_contractAddress: { chain, contractAddress } },
-      data: {
-        standard: "ERC1155",
-        metadataStatus: metadataFetched ? "FETCHED" : "FAILED",
-        name: existing?.name || onchainName || undefined,
-        symbol: existing?.symbol || onchainSymbol || undefined,
-        baseUri: canonicalBaseUri || undefined,
-        owner: existing?.owner || onchainOwner || undefined,
-        image: resolvedImage ?? undefined,
-        description: resolvedDescription ?? undefined,
-        attributes: (resolvedAttributes ?? undefined) as Prisma.InputJsonValue | undefined,
-      },
-    });
-    log.debug({ chain, contractAddress, resolvedImage, metadataFetched }, "ERC1155 collection metadata updated");
-    return;
   }
 
   if (!existing) {
@@ -127,7 +130,7 @@ export async function handleCollectionMetadataFetch(payload: {
     const resolvedName = name || existing?.name || "";
     const { description, image, owner: intentOwner } = await findIntentMetadata(resolvedName);
 
-    const onChainOwner = await bestEffort(readOwner(chainCallAt("latest"), contractAddress), null);
+    const onChainOwner = await readOwner(chainCallAt("latest"), contractAddress);
 
     const detected = await detectTokenStandard(contractAddress);
     const standard = existing?.service
@@ -154,14 +157,17 @@ export async function handleCollectionMetadataFetch(payload: {
       "Collection on-chain metadata fetched"
     );
   } catch (err) {
-    log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
-
-    await prisma.collection.update({
-      where: { chain_contractAddress: { chain, contractAddress } },
-      data: { metadataStatus: "FAILED" },
-    });
+    await failCollection(chain, contractAddress, err);
     throw err;
   }
+}
+
+async function failCollection(chain: Chain, contractAddress: string, err: unknown): Promise<void> {
+  log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
+  await prisma.collection.update({
+    where: { chain_contractAddress: { chain, contractAddress } },
+    data: { metadataStatus: "FAILED" },
+  });
 }
 
 export async function fetchCollectionMetadataJson(baseUri: string): Promise<Record<string, unknown> | null> {
@@ -189,7 +195,7 @@ function resolveStandardByService(
 }
 
 export function detectTokenStandard(contractAddress: string): Promise<TokenStandard | null> {
-  return bestEffort(detectStandard(chainCallAt("latest"), contractAddress), null);
+  return detectStandard(chainCallAt("latest"), contractAddress);
 }
 
 function isOwnService(service: string | null | undefined): boolean {
@@ -200,10 +206,7 @@ function fetchCollectionOnChainInfo(
   contractAddress: string,
   allowLegacyFallback: boolean
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
-  return bestEffort(
-    readCollectionInfo(chainCallAt("latest"), contractAddress, { legacy: allowLegacyFallback }),
-    { name: "", symbol: "", baseUri: "" },
-  );
+  return readCollectionInfo(chainCallAt("latest"), contractAddress, { legacy: allowLegacyFallback });
 }
 
 async function findIntentMetadata(
