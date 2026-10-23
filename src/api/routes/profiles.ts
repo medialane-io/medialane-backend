@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
-import { parseSingleChain } from "../utils/chainFilter.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -12,6 +11,7 @@ import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/
 import { createLogger } from "../../utils/logger.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
 import type { AppEnv } from "../../types/hono.js";
+import { chainScope } from "../http/chain.js";
 
 const log = createLogger("routes:profiles");
 
@@ -53,9 +53,8 @@ const creatorProfileSchema = z.object({
   telegramUrl: urlField,
 });
 
-profiles.get("/collections/:contract/profile", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+profiles.get("/collections/:contract/profile", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const contract = normalizeAddress(chain, c.req.param("contract"));
 
   const collection = await prisma.collection.findUnique({
@@ -79,9 +78,9 @@ profiles.patch(
   "/collections/:contract/profile",
   identityAuth,
   zValidator("json", collectionProfileSchema),
+  chainScope(),
   async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+    const chain = c.get("chain");
 
     const contract = normalizeAddress(chain, c.req.param("contract"));
     const data = c.req.valid("json");
@@ -131,9 +130,9 @@ profiles.patch(
 profiles.get(
   "/collections/:contract/gated-content",
   async (c, next) => identityAuth(c, next),
+  chainScope(),
   async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+    const chain = c.get("chain");
 
     const contract = normalizeAddress(chain, c.req.param("contract"));
     const walletAddress = c.get("walletAddress") as string;
@@ -194,9 +193,8 @@ profiles.get(
   }
 );
 
-profiles.get("/creators", async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+profiles.get("/creators", chainScope(), async (c) => {
+    const chain = c.get("chain");
 
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
@@ -257,9 +255,8 @@ profiles.get("/creators", async (c) => {
   return c.json({ creators: enriched, total, page, limit });
 });
 
-profiles.get("/creators/by-username/:username", async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+profiles.get("/creators/by-username/:username", chainScope(), async (c) => {
+    const chain = c.get("chain");
 
   const username = c.req.param("username").toLowerCase().trim();
   const profile = await prisma.accountProfile.findUnique({
@@ -274,9 +271,8 @@ profiles.get("/creators/by-username/:username", async (c) => {
   return c.json(serializeCreatorProfile(profile, profile.account.identities[0].address));
 });
 
-profiles.get("/creators/:wallet/hidden", async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+profiles.get("/creators/:wallet/hidden", chainScope(), async (c) => {
+    const chain = c.get("chain");
 
   const normalizedAddress = normalizeAddress(chain, c.req.param("wallet"));
   const row = await prisma.hiddenCreator.findUnique({
@@ -285,9 +281,8 @@ profiles.get("/creators/:wallet/hidden", async (c) => {
   return c.json({ isHidden: row !== null });
 });
 
-profiles.get("/creators/:wallet/profile", async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+profiles.get("/creators/:wallet/profile", chainScope(), async (c) => {
+    const chain = c.get("chain");
 
   const wallet = normalizeAddress(chain, c.req.param("wallet"));
   const accountId = await resolveAccountIdFromWallet(callerApp(c), chain, wallet);
@@ -301,9 +296,9 @@ profiles.patch(
   "/creators/:wallet/profile",
   identityAuth,
   zValidator("json", creatorProfileSchema),
+  chainScope(),
   async (c) => {
-    const chain = parseSingleChain(c.req.query("chain"));
-    if (!chain) return c.json({ error: "Invalid chain" }, 400);
+    const chain = c.get("chain");
 
     const wallet = normalizeAddress(chain, c.req.param("wallet"));
     const jwtWallet = c.get("walletAddress") as string;

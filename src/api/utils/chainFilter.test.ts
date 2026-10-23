@@ -45,3 +45,13 @@ describe("parseSingleChain", () => {
     expect(parseSingleChain("dogecoin")).toBeNull();
   });
 });
+
+describe("enabled chains", () => {
+  test("a chain in the enabled list is accepted", () => {
+    expect(parseSingleChain("base", ["STARKNET", "BASE"])).toBe("BASE");
+    expect(parseChainFilter("BASE", ["STARKNET", "BASE"])).toEqual({ chain: "BASE" });
+  });
+  test("the real list serves only STARKNET", () => {
+    expect(parseSingleChain("base")).toBeNull();
+  });
+});

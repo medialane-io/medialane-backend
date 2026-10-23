@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
 import { serializeOrder, batchTokenMeta, counterOfferFlags } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
+import { chainFilterScope, chainScope } from "../http/chain.js";
 
 const orders = new Hono();
 
@@ -67,7 +67,7 @@ const listQuerySchema = z.object({
   { message: "minPrice must be less than or equal to maxPrice", path: ["minPrice"] }
 );
 
-orders.get("/", async (c) => {
+orders.get("/", chainFilterScope(), async (c) => {
   const query = listQuerySchema.safeParse(c.req.query());
   if (!query.success) {
     return c.json({ error: "Invalid query", details: query.error.flatten() }, 400);
@@ -75,8 +75,7 @@ orders.get("/", async (c) => {
 
   const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } =
     query.data;
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const chainFilter = c.get("chainFilter");
   if (offerer && chainFilter === "all") {
     return c.json({ error: "offerer filter requires a single chain" }, 400);
   }
@@ -116,7 +115,7 @@ orders.get("/", async (c) => {
   });
 });
 
-orders.get("/counter-offers", async (c) => {
+orders.get("/counter-offers", chainScope(), async (c) => {
   const originalOrderHash = c.req.query("originalOrderHash");
   const sellerAddress = c.req.query("sellerAddress");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
@@ -126,8 +125,7 @@ orders.get("/counter-offers", async (c) => {
     return c.json({ error: "originalOrderHash or sellerAddress is required" }, 400);
   }
 
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const where: Record<string, unknown> = { chain, parentOrderHash: { not: null } };
   if (originalOrderHash) where.parentOrderHash = originalOrderHash;
   if (sellerAddress) where.offerer = normalizeAddress(chain, sellerAddress);
@@ -149,10 +147,9 @@ orders.get("/counter-offers", async (c) => {
   });
 });
 
-orders.get("/:orderHash", async (c) => {
+orders.get("/:orderHash", chainScope(), async (c) => {
   const { orderHash } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const order = await prisma.order.findUnique({
     where: { chain_orderHash: { chain, orderHash } },
   });
@@ -161,10 +158,9 @@ orders.get("/:orderHash", async (c) => {
   return c.json({ data: serializeOrder(order, undefined, counterFlags.has(order.orderHash)) });
 });
 
-orders.get("/token/:contract/:tokenId", async (c) => {
+orders.get("/token/:contract/:tokenId", chainScope(), async (c) => {
   const { contract, tokenId } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const normalizedContract = normalizeAddress(chain, contract);
 
   const [hiddenToken, hiddenCollection] = await Promise.all([
@@ -194,10 +190,9 @@ orders.get("/token/:contract/:tokenId", async (c) => {
   return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
-orders.get("/received/:address", async (c) => {
+orders.get("/received/:address", chainScope(), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const normalizedAddress = normalizeAddress(chain, address);
@@ -245,10 +240,9 @@ orders.get("/received/:address", async (c) => {
   });
 });
 
-orders.get("/user/:address", async (c) => {
+orders.get("/user/:address", chainScope(), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const offererAddr = normalizeAddress(chain, address);

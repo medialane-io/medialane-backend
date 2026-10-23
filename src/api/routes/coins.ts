@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
@@ -15,6 +14,7 @@ import { getTokenBySymbol } from "@medialane/sdk";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere, buildCoinListOrderBy } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
+import { chainScope } from "../http/chain.js";
 
 const log = createLogger("routes:coins");
 const coins = new Hono<AppEnv>();
@@ -48,9 +48,8 @@ export async function verifiedCreator(
   }
 }
 
-coins.post("/sync", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.post("/sync", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
@@ -109,15 +108,14 @@ coins.post("/sync", async (c) => {
   }
 });
 
-coins.get("/", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const service = c.req.query("service");
   const creator = c.req.query("creator") ?? undefined;
-  const where = buildCoinListWhere({ chainFilter: parseChainFilter(c.req.query("chain")) ?? undefined, service: service ?? undefined, creator });
+  const where = buildCoinListWhere({ chainFilter: { chain }, service: service ?? undefined, creator });
   const orderBy = buildCoinListOrderBy(c.req.query("sort"));
   const [rows, total, grouped] = await Promise.all([
     prisma.coin.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit }),
@@ -132,9 +130,8 @@ coins.get("/", async (c) => {
   return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total, counts } });
 });
 
-coins.post("/claim", identityAuth, async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.post("/claim", identityAuth, chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const body = await c.req.json().catch(() => ({}));
   const parsed = z
@@ -196,9 +193,8 @@ coins.post("/claim", identityAuth, async (c) => {
   return c.json({ verified: true, coin: coin ? serializeCoin(coin) : null });
 });
 
-coins.get("/claims", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/claims", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const status = z.enum(["PENDING", "AUTO_APPROVED", "APPROVED", "REJECTED"]).safeParse(c.req.query("status") ?? "PENDING");
   if (!status.success) return c.json({ error: "Invalid status" }, 400);
@@ -220,9 +216,8 @@ coins.get("/claims", async (c) => {
   return c.json({ data: claims });
 });
 
-coins.get("/prices", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/prices", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const rows = await prisma.coin.findMany({
     where: { isHidden: false },
@@ -238,9 +233,8 @@ coins.get("/prices", async (c) => {
   return c.json({ data: prices });
 });
 
-coins.get("/:contract", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/:contract", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const contract = normalizeAddress(chain, c.req.param("contract"));
   const coin = await prisma.coin.findUnique({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
@@ -249,9 +243,8 @@ coins.get("/:contract", async (c) => {
   return c.json({ data: serializeCoin(coin) });
 });
 
-coins.patch("/:contract", identityAuth, async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.patch("/:contract", identityAuth, chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const contract = normalizeAddress(chain, c.req.param("contract") ?? "");
   const jwtWallet = c.get("walletAddress") as string;

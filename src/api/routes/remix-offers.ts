@@ -8,7 +8,6 @@ import { remixLinkDeps } from "./remix-offers.chain.js";
 import { isParticipant, verifyRemixLink } from "./remix-offers.rules.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import type { AppEnv } from "../../types/hono.js";
-import { parseSingleChain } from "../utils/chainFilter.js";
 
 import { SUPPORTED_TOKENS, getTokenByAddress } from "../../config/constants.js";
 import { formatAmount } from "../../utils/bigint.js";
@@ -21,6 +20,7 @@ const remixOffers = new Hono<AppEnv>();
 import { createSlidingWindow } from "../../utils/slidingWindow.js";
 import { verifyTransactionSucceeded, fetchReceiptEvents } from "../../utils/txVerifier.js";
 import { findTransferTo } from "../../mirror/parser.js";
+import { chainScope } from "../http/chain.js";
 
 const checkOfferRateLimit = createSlidingWindow(20, 60_000);
 
@@ -205,9 +205,9 @@ remixOffers.post(
 
   (c, next) => identityAuth(c, next),
   zValidator("json", createOfferSchema),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const body = c.req.valid("json");
     const requesterAddress = c.get("walletAddress") as string;
@@ -283,9 +283,9 @@ remixOffers.post(
 
   (c, next) => identityAuth(c, next),
   zValidator("json", autoOfferSchema),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const body = c.req.valid("json");
     const requesterAddress = c.get("walletAddress") as string;
@@ -368,9 +368,9 @@ remixOffers.post(
 
   (c, next) => identityAuth(c, next),
   zValidator("json", selfConfirmSchema),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const body = c.req.valid("json");
     const walletAddress = c.get("walletAddress") as string;
@@ -430,9 +430,9 @@ remixOffers.post(
 
   (c, next) => identityAuth(c, next),
   zValidator("json", confirmSchema),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { id } = c.req.param();
     const body = c.req.valid("json");
@@ -468,9 +468,9 @@ remixOffers.post(
   "/:id/reject",
 
   (c, next) => identityAuth(c, next),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
@@ -492,9 +492,9 @@ remixOffers.post(
   "/:id/extend",
 
   (c, next) => identityAuth(c, next),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
@@ -531,9 +531,9 @@ remixOffers.get(
 
   (c, next) => identityAuth(c, next),
   zValidator("query", listSchema),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { role, status, page, limit } = c.req.valid("query");
     const walletAddress = c.get("walletAddress") as string;
@@ -560,9 +560,8 @@ remixOffers.get(
   }
 );
 
-remixOffers.get("/:id", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+remixOffers.get("/:id", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const { id } = c.req.param();
 

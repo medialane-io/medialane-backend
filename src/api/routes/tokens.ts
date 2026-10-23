@@ -8,11 +8,12 @@ import { serializeOrder, serializeToken, batchOrdersByToken } from "../utils/ser
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { isOrderSale } from "../utils/orderSale.js";
-import { parseChainFilter, chainWhere, parseSingleChain } from "../utils/chainFilter.js";
+import { chainWhere } from "../utils/chainFilter.js";
 import { readTokenFromChain } from "./tokens.readThrough.js";
 import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 import { liveDescription } from "../utils/liveDescription.js";
+import { chainFilterScope, chainScope } from "../http/chain.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -32,15 +33,14 @@ const SLUG_TO_IP_TYPE: Record<string, string> = {
 
 };
 
-tokens.get("/", async (c) => {
+tokens.get("/", chainFilterScope(), async (c) => {
   const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
   const limit = Math.min(48, Math.max(1, Number(c.req.query("limit") ?? 24)));
   const sort  = c.req.query("sort") === "oldest" ? "oldest" : "recent";
   const ipTypeSlug = (c.req.query("ipType") ?? "").toLowerCase().trim();
   const derivatives = (c.req.query("derivatives") ?? "").toLowerCase().trim();
   const skip  = (page - 1) * limit;
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const chainFilter = c.get("chainFilter");
 
   const where: Prisma.TokenWhereInput = { ...chainWhere(chainFilter), isHidden: false, metadataStatus: "FETCHED" };
 
@@ -89,9 +89,8 @@ tokens.get("/", async (c) => {
   });
 });
 
-tokens.get("/batch", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+tokens.get("/batch", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const itemsParam = c.req.query("items") ?? "";
   const pairs = itemsParam
     .split(",")
@@ -133,10 +132,9 @@ tokens.get("/batch", async (c) => {
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
 });
 
-tokens.get("/owned/:address", async (c) => {
+tokens.get("/owned/:address", chainScope(), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const owner = normalizeAddress(chain, address);
@@ -172,9 +170,8 @@ tokens.get("/owned/:address", async (c) => {
   });
 });
 
-tokens.get("/:contract/:tokenId/comments", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+tokens.get("/:contract/:tokenId/comments", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const contract = normalizeAddress(chain, c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
@@ -253,10 +250,9 @@ tokens.get("/:contract/:tokenId/remixes", async (c) => {
   return c.json({ data: remixes, meta: { page, limit, total } });
 });
 
-tokens.get("/:contract/:tokenId", async (c) => {
+tokens.get("/:contract/:tokenId", chainScope(), async (c) => {
   const { contract, tokenId } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const waitParam = c.req.query("wait");
   const wait = waitParam === "true" || waitParam === "1";
   const contractAddress = normalizeAddress(chain, contract);
@@ -335,19 +331,17 @@ tokens.get("/:contract/:tokenId", async (c) => {
   return c.json({ data: { ...serializeToken(token, activeOrders, holders, description), holderCount, supply } });
 });
 
-tokens.get("/:contract/:tokenId/balances/:owner", async (c) => {
+tokens.get("/:contract/:tokenId/balances/:owner", chainScope(), async (c) => {
   const { contract, tokenId, owner } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const holder = normalizeAddress(chain, owner);
   const amount = await tokenBalanceOf(chain, normalizeAddress(chain, contract), tokenId, holder);
   return c.json({ data: { owner: holder, amount } });
 });
 
-tokens.get("/:contract/:tokenId/history", async (c) => {
+tokens.get("/:contract/:tokenId/history", chainScope(), async (c) => {
   const { contract, tokenId } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const contractLower = normalizeAddress(chain, contract);

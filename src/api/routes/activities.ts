@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
-import { parseSingleChain, chainWhere, parseChainFilter } from "../utils/chainFilter.js";
+import { chainWhere } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
@@ -11,6 +11,7 @@ import {
 } from "../utils/orderSale.js";
 import { batchTokenMeta } from "../utils/serialize.js";
 import { mergeFeed, activityItemToken, MAX_FEED_DEPTH, type ActivityFeedItem } from "./activities.feed.js";
+import { chainFilterScope, chainScope } from "../http/chain.js";
 
 const activities = new Hono();
 
@@ -126,7 +127,7 @@ export function buildActivityWhere(params: {
   return { transferWhere, orderWhere };
 }
 
-activities.get("/", async (c) => {
+activities.get("/", chainFilterScope(), async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const type = c.req.query("type");
@@ -140,8 +141,7 @@ activities.get("/", async (c) => {
   const wantTransfers = !type || type === "transfer" || type === "mint";
   const wantOrders = !type || ["sale", "listing", "offer", "cancelled"].includes(type);
 
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const chainFilter = c.get("chainFilter");
   const rawContract = c.req.query("contract");
   const contract = rawContract
     ? normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, rawContract)
@@ -163,10 +163,9 @@ activities.get("/", async (c) => {
   return c.json({ data, meta: { page, limit, total: Math.min(transferCount + orderCount, MAX_FEED_DEPTH) } });
 });
 
-activities.get("/:address", async (c) => {
+activities.get("/:address", chainScope(), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
   const skip = (page - 1) * limit;

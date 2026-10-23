@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import prisma from "../../db/client.js";
-import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
+import { chainWhere } from "../utils/chainFilter.js";
 import { createLogger } from "../../utils/logger.js";
 import {
   eventsBroadcaster,
@@ -9,6 +9,7 @@ import {
   buildOrderEvent,
   type SseEvent,
 } from "../events/broadcaster.js";
+import { chainFilterScope } from "../http/chain.js";
 
 const log = createLogger("routes:events");
 const events = new Hono();
@@ -16,9 +17,8 @@ const events = new Hono();
 const SSE_MAX_DURATION_MS = 10 * 60 * 1000;
 const SSE_KEEPALIVE_INTERVAL_MS = 15000;
 
-events.get("/", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+events.get("/", chainFilterScope(), async (c) => {
+  const chainFilter = c.get("chainFilter");
   const chainClause = chainWhere(chainFilter);
   const subChain = chainFilter === "all" ? ("all" as const) : chainFilter.chain;
   const lastEventId = c.req.header("Last-Event-ID") ?? c.req.query("since");

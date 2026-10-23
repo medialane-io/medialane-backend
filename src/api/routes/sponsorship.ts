@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
 import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
+import { chainFilterScope, chainScope } from "../http/chain.js";
 
 const sponsorship = new Hono<AppEnv>();
 
@@ -54,9 +54,8 @@ export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db:
   return held.map((t) => t.tokenId);
 }
 
-sponsorship.get("/offers", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/offers", chainFilterScope(), async (c) => {
+  const chainFilter = c.get("chainFilter");
   const { page, limit } = parsePage(c);
   const openRaw = c.req.query("open");
   const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
@@ -75,17 +74,15 @@ sponsorship.get("/offers", async (c) => {
   return c.json({ data: rows.map(serializeOffer), meta: { page, limit, total } });
 });
 
-sponsorship.get("/offers/:offerId", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/offers/:offerId", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const offer = await prisma.sponsorshipOffer.findFirst({ where: { chain, offerId: c.req.param("offerId") } });
   if (!offer) return c.json({ error: "Offer not found" }, 404);
   return c.json({ data: serializeOffer(offer) });
 });
 
-sponsorship.get("/offers/:offerId/bids", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/offers/:offerId/bids", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const bids = await prisma.sponsorshipBid.findMany({
     where: { chain, offerId: c.req.param("offerId") },
     orderBy: { placedAtChain: "desc" },
@@ -93,9 +90,8 @@ sponsorship.get("/offers/:offerId/bids", async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-sponsorship.get("/proposals", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/proposals", chainFilterScope(), async (c) => {
+  const chainFilter = c.get("chainFilter");
   const { page, limit } = parsePage(c);
   const openRaw = c.req.query("open");
   const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
@@ -114,17 +110,15 @@ sponsorship.get("/proposals", async (c) => {
   return c.json({ data: rows.map(serializeProposal), meta: { page, limit, total } });
 });
 
-sponsorship.get("/proposals/:proposalId", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/proposals/:proposalId", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const proposal = await prisma.sponsorshipProposal.findFirst({ where: { chain, proposalId: c.req.param("proposalId") } });
   if (!proposal) return c.json({ error: "Proposal not found" }, 404);
   return c.json({ data: serializeProposal(proposal) });
 });
 
-sponsorship.get("/licenses", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/licenses", chainFilterScope(), async (c) => {
+  const chainFilter = c.get("chainFilter");
   const { page, limit } = parsePage(c);
   const holderRaw = c.req.query("holder");
 
@@ -151,9 +145,8 @@ sponsorship.get("/licenses", async (c) => {
   return c.json({ data: rows.map(serializeLicense), meta: { page, limit, total } });
 });
 
-sponsorship.get("/licenses/:tokenId", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/licenses/:tokenId", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const tokenId = c.req.param("tokenId");
   const license = await prisma.sponsorshipLicense.findFirst({ where: { chain, tokenId } });
   if (!license) return c.json({ error: "License not found" }, 404);

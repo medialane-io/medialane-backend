@@ -1,6 +1,7 @@
 import { Hono } from "hono";
-import { chainWhere, parseChainFilter } from "../utils/chainFilter.js";
+import { chainWhere } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
+import { chainFilterScope } from "../http/chain.js";
 
 const stats = new Hono();
 
@@ -8,9 +9,8 @@ const CACHE_MS = 30_000;
 type StatsData = { collections: number; tokens: number; sales: number };
 const cached = new Map<string, { data: StatsData; at: number }>();
 
-stats.get("/", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+stats.get("/", chainFilterScope(), async (c) => {
+  const chainFilter = c.get("chainFilter");
   const cacheKey = chainFilter === "all" ? "all" : chainFilter.chain;
 
   const hit = cached.get(cacheKey);
