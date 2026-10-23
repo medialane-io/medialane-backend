@@ -6,6 +6,7 @@ import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
 import { serializeOrder, batchTokenMeta, counterOfferFlags } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { normalizedForms } from "../utils/chainFilter.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
 import { pageQuery } from "../http/page.js";
@@ -29,7 +30,10 @@ function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
   if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
   if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
   if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, offerer)}`);
+  if (offerer) {
+    const forms = normalizedForms(chainFilter, offerer);
+    conditions.push(forms.length === 0 ? Prisma.sql`FALSE` : Prisma.sql`offerer IN (${Prisma.join(forms)})`);
+  }
   if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
   if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
   conditions.push(Prisma.sql`NOT EXISTS (

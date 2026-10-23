@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { validated } from "../http/validate.js";
 import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
-import { chainWhere } from "../utils/chainFilter.js";
+import { addressWhere, chainWhere } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
@@ -96,7 +96,7 @@ export async function loadHiddenContentFilter(
 export function buildActivityWhere(params: {
   chainFilter: { chain: Chain } | "all";
   type?: string;
-  contract?: string | null;
+  contract?: string | { in: string[] } | null;
   hiddenContractFilter?: { notIn: string[] };
 }): { transferWhere: Prisma.TransferWhereInput; orderWhere: Prisma.OrderWhereInput } {
   const { chainFilter, type, contract, hiddenContractFilter } = params;
@@ -143,9 +143,7 @@ activities.get("/", chainFilterScope(), validated("query", pageQuery()), async (
 
   const chainFilter = c.get("chainFilter");
   const rawContract = c.req.query("contract");
-  const contract = rawContract
-    ? normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, rawContract)
-    : null;
+  const contract = rawContract ? addressWhere(chainFilter, rawContract) : null;
   const { transferWhere, orderWhere } = buildActivityWhere({ chainFilter, type, contract, hiddenContractFilter });
 
   const [transfers, orders, transferCount, orderCount] = await Promise.all([

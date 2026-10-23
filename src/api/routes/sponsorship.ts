@@ -2,9 +2,9 @@ import { validated } from "../http/validate.js";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { addressWhere, chainWhere, type ChainFilter } from "../utils/chainFilter.js";
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
-import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
+import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense } from "@prisma/client";
 import { chainFilterScope, chainScope } from "../http/chain.js";
 import { pageQuery } from "../http/page.js";
 
@@ -27,11 +27,10 @@ function serializeLicense(l: SponsorshipLicense) {
   return l;
 }
 
-export async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined, db: Db = prisma) {
+export async function resolveOwnedPairs(filter: ChainFilter, ownerRaw: string | undefined, db: Db = prisma) {
   if (!ownerRaw) return undefined;
-  const owner = normalizeAddress(chain, ownerRaw);
   const held = await db.tokenBalance.findMany({
-    where: { chain, owner, amount: { not: "0" } },
+    where: { ...chainWhere(filter), owner: addressWhere(filter, ownerRaw), amount: { not: "0" } },
     orderBy: { updatedAt: "desc" },
     take: MAX_OWNED_TOKEN_LOOKUP,
     select: { contractAddress: true, tokenId: true },
@@ -39,10 +38,9 @@ export async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefin
   return held.map((t) => ({ contractAddress: t.contractAddress, tokenId: t.tokenId }));
 }
 
-export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db: Db = prisma) {
-  const holder = normalizeAddress(chain, holderRaw);
+export async function resolveHolderTokenIds(filter: ChainFilter, holderRaw: string, db: Db = prisma) {
   const held = await db.tokenBalance.findMany({
-    where: { chain, owner: holder, amount: { not: "0" } },
+    where: { ...chainWhere(filter), owner: addressWhere(filter, holderRaw), amount: { not: "0" } },
     orderBy: { updatedAt: "desc" },
     take: MAX_OWNED_TOKEN_LOOKUP,
     select: { tokenId: true },
@@ -54,8 +52,7 @@ sponsorship.get("/offers", chainFilterScope(), validated("query", pageQuery({ de
   const chainFilter = c.get("chainFilter");
   const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
-  const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-  const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
+  const ownedPairs = await resolveOwnedPairs(chainFilter, c.req.query("owner") ?? undefined);
   const where = buildOfferListWhere({
     chainFilter,
     nftContract: c.req.query("nftContract") ?? undefined,
@@ -90,8 +87,7 @@ sponsorship.get("/proposals", chainFilterScope(), validated("query", pageQuery({
   const chainFilter = c.get("chainFilter");
   const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
-  const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-  const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
+  const ownedPairs = await resolveOwnedPairs(chainFilter, c.req.query("owner") ?? undefined);
   const where = buildProposalListWhere({
     chainFilter,
     nftContract: c.req.query("nftContract") ?? undefined,
@@ -120,8 +116,7 @@ sponsorship.get("/licenses", chainFilterScope(), validated("query", pageQuery({ 
 
   let tokenIdFilter: { in: string[] } | undefined;
   if (holderRaw) {
-    const chain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-    tokenIdFilter = { in: await resolveHolderTokenIds(chain, holderRaw) };
+    tokenIdFilter = { in: await resolveHolderTokenIds(chainFilter, holderRaw) };
   }
 
   const where = {
