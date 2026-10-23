@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import type { RemixOffer, RemixOfferStatus, Prisma as PrismaTypes } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -204,7 +204,7 @@ remixOffers.post(
   "/",
 
   (c, next) => identityAuth(c, next),
-  zValidator("json", createOfferSchema),
+  validated("json", createOfferSchema),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");
@@ -282,7 +282,7 @@ remixOffers.post(
   "/auto",
 
   (c, next) => identityAuth(c, next),
-  zValidator("json", autoOfferSchema),
+  validated("json", autoOfferSchema),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");
@@ -367,7 +367,7 @@ remixOffers.post(
   "/self/confirm",
 
   (c, next) => identityAuth(c, next),
-  zValidator("json", selfConfirmSchema),
+  validated("json", selfConfirmSchema),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");
@@ -429,7 +429,7 @@ remixOffers.post(
   "/:id/confirm",
 
   (c, next) => identityAuth(c, next),
-  zValidator("json", confirmSchema),
+  validated("json", confirmSchema),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");
@@ -530,7 +530,7 @@ remixOffers.get(
   "/",
 
   (c, next) => identityAuth(c, next),
-  zValidator("query", listSchema),
+  validated("query", listSchema),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -37,7 +37,7 @@ collectionSlugClaims.get("/check/:slug", chainScope(), async (c) => {
 collectionSlugClaims.post(
   "/",
   identityAuth,
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     slug: z.string(),
     notifyEmail: z.string().email().optional(),

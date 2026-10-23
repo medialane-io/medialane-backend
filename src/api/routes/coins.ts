@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
@@ -50,22 +50,20 @@ export async function verifiedCreator(
   }
 }
 
-coins.post("/sync", chainScope(), async (c) => {
+const syncBody = z.object({
+  coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address"),
+  owner: z.string().optional(),
+});
+
+coins.post("/sync", chainScope(), validated("json", syncBody, { message: "coinAddress required" }), async (c) => {
   const chain = c.get("chain");
 
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = z
-    .object({
-      coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address"),
-      owner: z.string().optional(),
-    })
-    .safeParse(body);
-  if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
+  const parsed = c.req.valid("json");
 
   if (!STARKNET_CREATOR_COIN_FACTORY_CONTRACT) {
     return c.json({ error: "Creator Coin factory not configured" }, 503);
   }
-  const coinAddress = normalizeAddress(chain, parsed.data.coinAddress);
+  const coinAddress = normalizeAddress(chain, parsed.coinAddress);
 
   try {
 
@@ -95,7 +93,7 @@ coins.post("/sync", chainScope(), async (c) => {
       chain,
       contractAddress: coinAddress,
       ...resolved.coin,
-      creator: await verifiedCreator(chain, coinAddress, parsed.data.owner),
+      creator: await verifiedCreator(chain, coinAddress, parsed.owner),
       startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
@@ -110,7 +108,7 @@ coins.post("/sync", chainScope(), async (c) => {
   }
 });
 
-coins.get("/", chainScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+coins.get("/", chainScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chain = c.get("chain");
 
   const { page, limit } = c.req.valid("query");
@@ -131,16 +129,14 @@ coins.get("/", chainScope(), zValidator("query", pageQuery({ defaultLimit: 24 })
   return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total, counts } });
 });
 
-coins.post("/claim", identityAuth, chainScope(), async (c) => {
+const claimBody = z.object({ coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address") });
+
+coins.post("/claim", identityAuth, chainScope(), validated("json", claimBody, { message: "coinAddress required" }), async (c) => {
   const chain = c.get("chain");
 
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = z
-    .object({ coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address") })
-    .safeParse(body);
-  if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
+  const parsed = c.req.valid("json");
 
-  const coinAddress = normalizeAddress(chain, parsed.data.coinAddress);
+  const coinAddress = normalizeAddress(chain, parsed.coinAddress);
   const wallet = c.get("walletAddress") as string;
 
   let owner: string;
@@ -194,13 +190,14 @@ coins.post("/claim", identityAuth, chainScope(), async (c) => {
   return c.json({ verified: true, coin: coin ? serializeCoin(coin) : null });
 });
 
-coins.get("/claims", chainScope(), async (c) => {
+const claimsQuery = z.object({ status: z.enum(["PENDING", "AUTO_APPROVED", "APPROVED", "REJECTED"]).default("PENDING") });
+
+coins.get("/claims", chainScope(), validated("query", claimsQuery, { message: "Invalid status" }), async (c) => {
   const chain = c.get("chain");
 
-  const status = z.enum(["PENDING", "AUTO_APPROVED", "APPROVED", "REJECTED"]).safeParse(c.req.query("status") ?? "PENDING");
-  if (!status.success) return c.json({ error: "Invalid status" }, 400);
+  const { status } = c.req.valid("query");
   const claims = await prisma.collectionClaim.findMany({
-    where: { status: status.data },
+    where: { status },
     orderBy: { createdAt: "desc" },
     take: 100,
     select: {
@@ -244,19 +241,17 @@ coins.get("/:contract", chainScope(), async (c) => {
   return c.json({ data: serializeCoin(coin) });
 });
 
-coins.patch("/:contract", identityAuth, chainScope(), async (c) => {
+const patchBody = z.object({
+  image: z.string().max(400).nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+});
+
+coins.patch("/:contract", identityAuth, chainScope(), validated("json", patchBody, { message: "Invalid body" }), async (c) => {
   const chain = c.get("chain");
 
   const contract = normalizeAddress(chain, c.req.param("contract") ?? "");
   const jwtWallet = c.get("walletAddress") as string;
-  const parsed = z
-    .object({
-
-      image: z.string().max(400).nullable().optional(),
-      description: z.string().max(500).nullable().optional(),
-    })
-    .safeParse(await c.req.json().catch(() => ({})));
-  if (!parsed.success) return c.json({ error: "Invalid body" }, 400);
+  const parsed = c.req.valid("json");
 
   const coin = await prisma.coin.findUnique({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
@@ -269,8 +264,8 @@ coins.patch("/:contract", identityAuth, chainScope(), async (c) => {
   const updated = await prisma.coin.update({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
     data: {
-      ...(parsed.data.image !== undefined ? { image: parsed.data.image } : {}),
-      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+      ...(parsed.image !== undefined ? { image: parsed.image } : {}),
+      ...(parsed.description !== undefined ? { description: parsed.description } : {}),
     },
   });
   return c.json({ data: serializeCoin(updated) });

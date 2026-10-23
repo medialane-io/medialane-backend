@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppEnv } from "../../types/hono.js";
 import { createIntent, settleIntent } from "../../funding/core.js";
 import type { FundingMethod, FundingStore } from "../../funding/types.js";
+import { validated } from "../http/validate.js";
 
 export interface FundingRouteDeps {
   store: FundingStore;
@@ -20,13 +21,12 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     c.json({ data: deps.methods.filter((m) => m.available()).map((m) => ({ id: m.id, ...m.describe() })) }),
   );
 
-  app.post("/", async (c) => {
-    const body = createBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "Choose a payment method" }, 400);
-    const method = methodFor(body.data.method);
+  app.post("/", validated("json", createBody, { message: "Choose a payment method" }), async (c) => {
+    const body = c.req.valid("json");
+    const method = methodFor(body.method);
     if (!method) return c.json({ error: "That payment method is not available" }, 404);
 
-    const params = method.parseParams(body.data.params);
+    const params = method.parseParams(body.params);
     if (!params.ok) return c.json({ error: params.error }, 400);
 
     const intent = await createIntent(deps.store, {

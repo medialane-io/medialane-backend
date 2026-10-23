@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
 import { chainWhere } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
@@ -129,7 +129,7 @@ export function buildActivityWhere(params: {
   return { transferWhere, orderWhere };
 }
 
-activities.get("/", chainFilterScope(), zValidator("query", pageQuery()), async (c) => {
+activities.get("/", chainFilterScope(), validated("query", pageQuery()), async (c) => {
   const { page, limit, skip } = c.req.valid("query");
   const type = c.req.query("type");
 
@@ -163,7 +163,7 @@ activities.get("/", chainFilterScope(), zValidator("query", pageQuery()), async 
   return c.json({ data, meta: { page, limit, total: Math.min(transferCount + orderCount, MAX_FEED_DEPTH) } });
 });
 
-activities.get("/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
+activities.get("/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
   const { page, limit, skip } = c.req.valid("query");

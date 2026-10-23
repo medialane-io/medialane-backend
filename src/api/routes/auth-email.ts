@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { createHmac, timingSafeEqual, randomInt } from "crypto";
 import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
@@ -60,13 +60,13 @@ const INVALID_LINK = { error: "invalid_or_expired", message: "This link is inval
 export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.post("/request-code", zValidator("json", requestCodeSchema), async (c) => {
+  app.post("/request-code", validated("json", requestCodeSchema), async (c) => {
     const { email } = c.req.valid("json");
     await issueVerificationCodeWithDeps(deps, email, callerApp(c));
     return c.json({ ok: true });
   });
 
-  app.post("/verify-code", zValidator("json", verifyCodeSchema), async (c) => {
+  app.post("/verify-code", validated("json", verifyCodeSchema), async (c) => {
     const appId = callerApp(c);
 
     const { email, code } = c.req.valid("json");
@@ -106,7 +106,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
-  app.get("/exists", zValidator("query", existsQuerySchema), async (c) => {
+  app.get("/exists", validated("query", existsQuerySchema), async (c) => {
     const appId = callerApp(c);
 
     const { email } = c.req.valid("query");
@@ -114,7 +114,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     return c.json({ exists });
   });
 
-  app.post("/register-account", zValidator("json", registerAccountSchema), async (c) => {
+  app.post("/register-account", validated("json", registerAccountSchema), async (c) => {
     const { email } = c.req.valid("json");
     const appId = callerApp(c);
 
@@ -125,7 +125,7 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     return c.json({ accountToken: issueAccountSessionToken(accountId) });
   });
 
-  app.post("/confirm", zValidator("json", confirmSchema), async (c) => {
+  app.post("/confirm", validated("json", confirmSchema), async (c) => {
     const appId = callerApp(c);
 
     const claims = verifyConfirmToken(env.SIWS_SECRET, c.req.valid("json").token);

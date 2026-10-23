@@ -19,6 +19,7 @@ import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
+import { validated } from "../http/validate.js";
 
 const log = createLogger("routes:tx-sync");
 
@@ -117,12 +118,10 @@ export function blockNumberOf(receipt: unknown): number | null {
 
 const txSync = new Hono<AppEnv>();
 
-txSync.post("/", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = z.object({ txHash: z.string().min(1) }).safeParse(body);
-  if (!parsed.success) return c.json({ error: "txHash required" }, 400);
+const syncBody = z.object({ txHash: z.string().min(1) });
 
-  const { txHash } = parsed.data;
+txSync.post("/", validated("json", syncBody, { message: "txHash required" }), async (c) => {
+  const { txHash } = c.req.valid("json");
 
   let receipt: unknown;
   try {

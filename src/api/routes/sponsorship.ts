@@ -1,4 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
@@ -50,7 +50,7 @@ export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db:
   return held.map((t) => t.tokenId);
 }
 
-sponsorship.get("/offers", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+sponsorship.get("/offers", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chainFilter = c.get("chainFilter");
   const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
@@ -86,7 +86,7 @@ sponsorship.get("/offers/:offerId/bids", chainScope(), async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-sponsorship.get("/proposals", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+sponsorship.get("/proposals", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chainFilter = c.get("chainFilter");
   const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
@@ -113,7 +113,7 @@ sponsorship.get("/proposals/:proposalId", chainScope(), async (c) => {
   return c.json({ data: serializeProposal(proposal) });
 });
 
-sponsorship.get("/licenses", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+sponsorship.get("/licenses", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chainFilter = c.get("chainFilter");
   const { page, limit } = c.req.valid("query");
   const holderRaw = c.req.query("holder");

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import prisma from "../../db/client.js";
@@ -46,7 +46,7 @@ function buildTypedData(wallet: string, nonce: string) {
 
 siws.post(
   "/nonce",
-  zValidator("json", z.object({ walletAddress: z.string().min(1) })),
+  validated("json", z.object({ walletAddress: z.string().min(1) })),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");
@@ -64,7 +64,7 @@ siws.post(
 
 siws.post(
   "/verify",
-  zValidator("json", z.object({
+  validated("json", z.object({
     walletAddress: z.string().min(1),
     nonce:         z.string().min(1),
     signature:     z.array(z.string()).min(1),

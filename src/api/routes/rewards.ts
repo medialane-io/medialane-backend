@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -112,7 +112,7 @@ rewards.get("/:address", async (c) => {
   });
 });
 
-rewards.get("/", zValidator("query", pageQuery({ defaultLimit: 50 })), async (c) => {
+rewards.get("/", validated("query", pageQuery({ defaultLimit: 50 })), async (c) => {
   const { page, limit, skip } = c.req.valid("query");
 
   const [total, scores] = await Promise.all([
@@ -150,7 +150,7 @@ rewards.get("/", zValidator("query", pageQuery({ defaultLimit: 50 })), async (c)
   });
 });
 
-rewards.get("/:address/events", zValidator("query", pageQuery()), async (c) => {
+rewards.get("/:address/events", validated("query", pageQuery()), async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
   const { page, limit, skip } = c.req.valid("query");
 

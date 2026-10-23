@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -49,7 +49,7 @@ async function indexCollection(chain: Chain, contractAddress: string): Promise<b
 claims.post(
   "/",
   identityAuth,
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
   })),
@@ -108,7 +108,7 @@ claims.post(
 
 claims.post(
   "/challenge",
-  zValidator("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
+  validated("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
   chainScope(),
   async (c) => {
   const chain = c.get("chain");
@@ -136,7 +136,7 @@ claims.post(
 
 claims.post(
   "/verify",
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
     challenge: z.string(),
@@ -223,7 +223,7 @@ claims.post(
 
 claims.post(
   "/request",
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string().optional(),
     email: z.string().email(),

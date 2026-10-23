@@ -1,7 +1,7 @@
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
@@ -78,7 +78,7 @@ profiles.get("/collections/:contract/profile", chainScope(), async (c) => {
 profiles.patch(
   "/collections/:contract/profile",
   identityAuth,
-  zValidator("json", collectionProfileSchema),
+  validated("json", collectionProfileSchema),
   chainScope(),
   async (c) => {
     const chain = c.get("chain");
@@ -194,7 +194,7 @@ profiles.get(
   }
 );
 
-profiles.get("/creators", chainScope(), zValidator("query", pageQuery({ maxLimit: 50 })), async (c) => {
+profiles.get("/creators", chainScope(), validated("query", pageQuery({ maxLimit: 50 })), async (c) => {
     const chain = c.get("chain");
 
   const { page, limit } = c.req.valid("query");
@@ -295,7 +295,7 @@ profiles.get("/creators/:wallet/profile", chainScope(), async (c) => {
 profiles.patch(
   "/creators/:wallet/profile",
   identityAuth,
-  zValidator("json", creatorProfileSchema),
+  validated("json", creatorProfileSchema),
   chainScope(),
   async (c) => {
     const chain = c.get("chain");

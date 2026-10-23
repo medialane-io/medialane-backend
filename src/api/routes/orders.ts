@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
@@ -69,14 +69,8 @@ const listQuerySchema = z.object({
   { message: "minPrice must be less than or equal to maxPrice", path: ["minPrice"] }
 );
 
-orders.get("/", chainFilterScope(), async (c) => {
-  const query = listQuerySchema.safeParse(c.req.query());
-  if (!query.success) {
-    return c.json({ error: "Invalid query", details: query.error.flatten() }, 400);
-  }
-
-  const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } =
-    query.data;
+orders.get("/", chainFilterScope(), validated("query", listQuerySchema), async (c) => {
+  const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } = c.req.valid("query");
   const chainFilter = c.get("chainFilter");
   if (offerer && chainFilter === "all") {
     return c.json({ error: "offerer filter requires a single chain" }, 400);
@@ -117,7 +111,7 @@ orders.get("/", chainFilterScope(), async (c) => {
   });
 });
 
-orders.get("/counter-offers", chainScope(), zValidator("query", pageQuery()), async (c) => {
+orders.get("/counter-offers", chainScope(), validated("query", pageQuery()), async (c) => {
   const originalOrderHash = c.req.query("originalOrderHash");
   const sellerAddress = c.req.query("sellerAddress");
   const { page, limit } = c.req.valid("query");
@@ -191,7 +185,7 @@ orders.get("/token/:contract/:tokenId", chainScope(), async (c) => {
   return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
-orders.get("/received/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
+orders.get("/received/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
   const { page, limit } = c.req.valid("query");
@@ -240,7 +234,7 @@ orders.get("/received/:address", chainScope(), zValidator("query", pageQuery()),
   });
 });
 
-orders.get("/user/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
+orders.get("/user/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
   const { page, limit } = c.req.valid("query");

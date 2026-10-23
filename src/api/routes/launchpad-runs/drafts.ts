@@ -6,6 +6,7 @@ import { STALE_PENDING_MS } from "../../../launchpad/run-store.js";
 import { pendingPaths } from "../../../launchpad/pending.js";
 import { RUN_SERVICES, definitionOf, parseRunSpec, quoteRun } from "../../../launchpad/services/index.js";
 import { specError, type RunContext } from "./context.js";
+import { validated } from "../../http/validate.js";
 
 const createBody = z.object({ service: z.enum(RUN_SERVICES), spec: z.unknown() });
 const updateBody = z.object({ spec: z.unknown() });
@@ -57,18 +58,17 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     return run;
   };
 
-  app.post("/", async (c) => {
-    const body = createBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "service and spec are required" }, 400);
+  app.post("/", validated("json", createBody, { message: "service and spec are required" }), async (c) => {
+    const body = c.req.valid("json");
     try {
-      parseRunSpec(body.data.service, body.data.spec);
+      parseRunSpec(body.service, body.spec);
     } catch (err) {
       return c.json(specError(err), 400);
     }
     const run = await ctx.store.create({
       apiCreditsId: c.get("apiCredits").id,
-      service: body.data.service,
-      spec: body.data.spec,
+      service: body.service,
+      spec: body.spec,
     });
     return c.json({ data: await present(run) }, 201);
   });
@@ -83,21 +83,20 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     return c.json({ data: await present(await sweepAbandoned(found)) });
   });
 
-  app.patch("/:id", async (c) => {
+  app.patch("/:id", validated("json", updateBody, { message: "spec is required" }), async (c) => {
     const apiCreditsId = c.get("apiCredits").id;
-    const body = updateBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "spec is required" }, 400);
+    const body = c.req.valid("json");
 
     const existing = await ctx.store.get(c.req.param("id"), apiCreditsId);
     if (!existing) return c.json({ error: "Run not found" }, 404);
     if (existing.status !== "DRAFT") return c.json({ error: "A run can only change while it is a draft" }, 409);
 
     try {
-      parseRunSpec(existing.service, body.data.spec);
+      parseRunSpec(existing.service, body.spec);
     } catch (err) {
       return c.json(specError(err), 400);
     }
-    const run = await ctx.store.updateDraft(existing.id, apiCreditsId, body.data.spec);
+    const run = await ctx.store.updateDraft(existing.id, apiCreditsId, body.spec);
     if (!run) return c.json({ error: "A run can only change while it is a draft" }, 409);
     return c.json({ data: await present(run) });
   });
@@ -126,10 +125,9 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     return c.json({ data: { ...(await ctx.store.get(existing.id, apiCreditsId)), refunded: closed.refunded } });
   });
 
-  app.post("/:id/checkout", async (c) => {
+  app.post("/:id/checkout", validated("json", checkoutBody, { message: "Choose to pay with credits or from your wallet" }), async (c) => {
     const apiCreditsId = c.get("apiCredits").id;
-    const body = checkoutBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "Choose to pay with credits or from your wallet" }, 400);
+    const body = c.req.valid("json");
 
     const existing = await ctx.store.get(c.req.param("id"), apiCreditsId);
     if (!existing) return c.json({ error: "Run not found" }, 404);
@@ -143,8 +141,8 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     }
 
     let paymentId: string | undefined;
-    if (body.data.method === "wallet") {
-      paymentId = (await ctx.intentPayment(body.data.intentId, apiCreditsId)) ?? undefined;
+    if (body.method === "wallet") {
+      paymentId = (await ctx.intentPayment(body.intentId, apiCreditsId)) ?? undefined;
       if (!paymentId) {
         return c.json({ error: "That payment has not reached your account yet. Try again in a moment." }, 402);
       }

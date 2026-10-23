@@ -82,6 +82,7 @@ import {
   swapIntentSchema,
   fundingTransferSchema,
 } from "./_shared.js";
+import { validated } from "../../http/validate.js";
 
 function expiresAt(): Date {
   return new Date(Date.now() + TTL_HOURS * 3600 * 1000);
@@ -104,16 +105,12 @@ function registerIntentRoute<T>(
   intents: Hono<AppEnv>,
   cfg: IntentRouteConfig<T>
 ): void {
-  intents.post(cfg.path, async (c: Context<AppEnv>) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = cfg.schema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
+  intents.post(cfg.path, validated("json", cfg.schema), async (c) => {
+    const parsed = c.req.valid("json");
 
-    const tokenStandard = (parsed.data as Record<string, unknown>).tokenStandard;
+    const tokenStandard = (parsed as Record<string, unknown>).tokenStandard;
     if (cfg.orderHashField && !tokenStandard) {
-      const orderHash = parsed.data[cfg.orderHashField] as unknown as string;
+      const orderHash = parsed[cfg.orderHashField] as unknown as string;
       const order = await prisma.order.findFirst({
         where: { chain: "STARKNET", orderHash },
         select: { id: true },
@@ -124,8 +121,8 @@ function registerIntentRoute<T>(
     }
 
     try {
-      const built = await cfg.build(parsed.data, { appId: callerApp(c) });
-      const requester = normalizeAddress("STARKNET", parsed.data[cfg.requesterField] as unknown as string);
+      const built = await cfg.build(parsed, { appId: callerApp(c) });
+      const requester = normalizeAddress("STARKNET", parsed[cfg.requesterField] as unknown as string);
       const ttl = expiresAt();
 
       const intent = await prisma.transactionIntent.create({
@@ -136,7 +133,7 @@ function registerIntentRoute<T>(
           typedData: (cfg.requiresSignature ? built.typedData : {}) as unknown as PrismaTypes.InputJsonValue,
           calls: built.calls as PrismaTypes.InputJsonValue,
           ...(cfg.requiresSignature ? {} : { status: "SIGNED" as const }),
-          ...(cfg.orderHashField ? { orderHash: parsed.data[cfg.orderHashField] as unknown as string } : {}),
+          ...(cfg.orderHashField ? { orderHash: parsed[cfg.orderHashField] as unknown as string } : {}),
           expiresAt: ttl,
         },
       });
@@ -318,25 +315,21 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     requiresSignature: false,
   });
 
-  intents.post("/offer", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = offerSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
+  intents.post("/offer", validated("json", offerSchema), async (c) => {
+    const parsed = c.req.valid("json");
 
-    if (!parsed.data.tokenStandard) {
-      log.warn({ nftContract: parsed.data.nftContract, offerer: parsed.data.offerer }, "tokenStandard omitted in offer intent — routing determined by DB lookup");
+    if (!parsed.tokenStandard) {
+      log.warn({ nftContract: parsed.nftContract, offerer: parsed.offerer }, "tokenStandard omitted in offer intent — routing determined by DB lookup");
     }
 
     try {
-      const { typedData, calls } = await buildMakeOfferIntent(parsed.data);
+      const { typedData, calls } = await buildMakeOfferIntent(parsed);
       const ttl = expiresAt();
 
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "MAKE_OFFER",
-          requester: normalizeAddress("STARKNET", parsed.data.offerer),
+          requester: normalizeAddress("STARKNET", parsed.offerer),
           accountId: c.get("account").id,
           typedData: typedData as unknown as PrismaTypes.InputJsonValue,
           calls: calls as PrismaTypes.InputJsonValue,
@@ -351,14 +344,10 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  intents.post("/counter-offer", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = counterOfferSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
+  intents.post("/counter-offer", validated("json", counterOfferSchema), async (c) => {
+    const parsed = c.req.valid("json");
 
-    const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed.data;
+    const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed;
     const normalizedSeller = normalizeAddress("STARKNET", sellerAddress);
 
     const originalOrder = await prisma.order.findFirst({
@@ -430,31 +419,27 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  intents.post("/create-collection", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = createCollectionSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
+  intents.post("/create-collection", validated("json", createCollectionSchema), async (c) => {
+    const parsed = c.req.valid("json");
 
     try {
       const { calls } = await buildCreateCollectionIntent({
-        ...parsed.data,
-        description: parsed.data.description,
-        image: parsed.data.image,
+        ...parsed,
+        description: parsed.description,
+        image: parsed.image,
       });
       const ttl = expiresAt();
 
       const intent = await prisma.transactionIntent.create({
         data: {
           type: "CREATE_COLLECTION",
-          requester: normalizeAddress("STARKNET", parsed.data.owner),
+          requester: normalizeAddress("STARKNET", parsed.owner),
           accountId: c.get("account").id,
           typedData: {
-            name: parsed.data.name,
-            description: parsed.data.description ?? null,
-            image: parsed.data.image ?? null,
-            owner: normalizeAddress("STARKNET", parsed.data.owner),
+            name: parsed.name,
+            description: parsed.description ?? null,
+            image: parsed.image ?? null,
+            owner: normalizeAddress("STARKNET", parsed.owner),
           },
           calls: calls as PrismaTypes.InputJsonValue,
           status: "SIGNED",
@@ -471,15 +456,11 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     }
   });
 
-  intents.post("/checkout", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = checkoutBodySchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid request body", details: parsed.error.flatten() }, 400);
-    }
+  intents.post("/checkout", validated("json", checkoutBodySchema), async (c) => {
+    const parsed = c.req.valid("json");
 
-    const { fulfiller } = parsed.data;
-    const items = normalizeCheckoutItems(parsed.data);
+    const { fulfiller } = parsed;
+    const items = normalizeCheckoutItems(parsed);
     const ttl = expiresAt();
     const normalizedFulfiller = normalizeAddress("STARKNET", fulfiller);
     const accountId = c.get("account").id;

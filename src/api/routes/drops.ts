@@ -1,4 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { Hono } from "hono";
 import type { Drop, DropMint, Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
@@ -87,7 +87,7 @@ const contractParam = (raw: string): string | null => {
 
 const drops = new Hono<AppEnv>();
 
-drops.get("/", zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+drops.get("/", validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const { page, limit } = c.req.valid("query");
   const status = c.req.query("status");
   const organizerRaw = c.req.query("organizer");
@@ -115,7 +115,7 @@ drops.get("/:contract", async (c) => {
   return c.json({ data: serializeDrop(row) });
 });
 
-drops.get("/:contract/mints", zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+drops.get("/:contract/mints", validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const collectionAddress = contractParam(c.req.param("contract"));
   if (!collectionAddress) return c.json({ error: "Invalid contract address" }, 400);
   const { page, limit } = c.req.valid("query");

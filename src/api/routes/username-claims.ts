@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
@@ -36,7 +36,7 @@ usernameClaims.get("/check/:username", async (c) => {
 usernameClaims.post(
   "/",
   identityAuth,
-  zValidator("json", z.object({ username: z.string(), notifyEmail: z.string().email().optional() })),
+  validated("json", z.object({ username: z.string(), notifyEmail: z.string().email().optional() })),
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;
     const { username, notifyEmail } = c.req.valid("json");

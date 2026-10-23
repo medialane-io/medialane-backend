@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import type { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { worker } from "../../orchestrator/worker.js";
@@ -35,7 +35,7 @@ const SLUG_TO_IP_TYPE: Record<string, string> = {
 
 };
 
-tokens.get("/", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24, maxLimit: 48 })), async (c) => {
+tokens.get("/", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24, maxLimit: 48 })), async (c) => {
   const { page, limit, skip } = c.req.valid("query");
   const sort  = c.req.query("sort") === "oldest" ? "oldest" : "recent";
   const ipTypeSlug = (c.req.query("ipType") ?? "").toLowerCase().trim();
@@ -132,7 +132,7 @@ tokens.get("/batch", chainScope(), async (c) => {
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
 });
 
-tokens.get("/owned/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
+tokens.get("/owned/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
   const { page, limit } = c.req.valid("query");
@@ -169,7 +169,7 @@ tokens.get("/owned/:address", chainScope(), zValidator("query", pageQuery()), as
   });
 });
 
-tokens.get("/:contract/:tokenId/comments", chainScope(), zValidator("query", pageQuery({ maxLimit: 50 })), async (c) => {
+tokens.get("/:contract/:tokenId/comments", chainScope(), validated("query", pageQuery({ maxLimit: 50 })), async (c) => {
   const chain = c.get("chain");
   const contract = normalizeAddress(chain, c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
@@ -336,7 +336,7 @@ tokens.get("/:contract/:tokenId/balances/:owner", chainScope(), async (c) => {
   return c.json({ data: { owner: holder, amount } });
 });
 
-tokens.get("/:contract/:tokenId/history", chainScope(), zValidator("query", pageQuery()), async (c) => {
+tokens.get("/:contract/:tokenId/history", chainScope(), validated("query", pageQuery()), async (c) => {
   const { contract, tokenId } = c.req.param();
   const chain = c.get("chain");
   const { page, limit } = c.req.valid("query");

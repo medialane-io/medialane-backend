@@ -19,6 +19,7 @@ import {
   hydrateCreatedOrdersFromTx,
   hydrateFulfillmentFromTx,
 } from "./settle.js";
+import { validated } from "../../http/validate.js";
 
 export function belongsToCaller(intentAccountId: string | null, callerAccountId: string): boolean {
   return intentAccountId !== null && intentAccountId === callerAccountId;
@@ -52,14 +53,9 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: intent });
   });
 
-  intents.patch("/:id/signature", async (c) => {
+  intents.patch("/:id/signature", validated("json", signatureSchema), async (c) => {
     const { id } = c.req.param();
-    const body = await c.req.json().catch(() => null);
-
-    const parsedBody = signatureSchema.safeParse(body);
-    if (!parsedBody.success) {
-      return c.json({ error: "Invalid body", details: parsedBody.error.flatten() }, 400);
-    }
+    const parsedBody = c.req.valid("json");
 
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
@@ -81,7 +77,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
         chain: intent.chain,
         address: intent.requester,
         typedData: intent.typedData,
-        signature: parsedBody.data.signature,
+        signature: parsedBody.signature,
       });
     } catch (err) {
       log.warn({ err, id, requester: intent.requester }, "Intent signature accepted unproven: the chain could not be read");
@@ -100,12 +96,12 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       intent.type,
       (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
       intent.calls as { contractAddress: string; entrypoint: string; calldata: string[] }[],
-      parsedBody.data.signature
+      parsedBody.signature
     );
 
     const updated = await prisma.transactionIntent.update({
       where: { id },
-      data: { signature: parsedBody.data.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
+      data: { signature: parsedBody.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
     });
 
     log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
@@ -150,16 +146,11 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: { id, txHash: intent.txHash, orderHashes } });
   });
 
-  intents.patch("/:id/confirm", async (c) => {
+  intents.patch("/:id/confirm", validated("json", confirmSchema), async (c) => {
     const { id } = c.req.param();
-    const body = await c.req.json().catch(() => null);
+    const parsed = c.req.valid("json");
 
-    const parsed = confirmSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    const { txHash } = parsed.data;
+    const { txHash } = parsed;
     const intent = await prisma.transactionIntent.findUnique({ where: { id } });
     if (!intent) return c.json({ error: "Intent not found" }, 404);
 

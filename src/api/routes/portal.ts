@@ -16,6 +16,7 @@ import { createFundingRoutes } from "./portal-funding.js";
 import { prismaFundingStore } from "../../funding/store.js";
 import { productionFundingMethods } from "../../funding/registry.js";
 import { mdlnMultiplier } from "../../payments/mdln.js";
+import { validated } from "../http/validate.js";
 
 const log = createLogger("routes:portal");
 const portal = new Hono<{ Variables: AppVariables }>();
@@ -42,13 +43,13 @@ portal.get("/me", async (c) => {
   });
 });
 
-portal.post("/credits/check", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = z.object({ txHash: z.string().min(3) }).safeParse(body);
-  if (!parsed.success) return c.json({ error: "txHash is required" }, 400);
+const creditsCheckBody = z.object({ txHash: z.string().min(3) });
+
+portal.post("/credits/check", validated("json", creditsCheckBody, { message: "txHash is required" }), async (c) => {
+  const parsed = c.req.valid("json");
 
   try {
-    const { credited } = await creditFromTransaction(parsed.data.txHash);
+    const { credited } = await creditFromTransaction(parsed.txHash);
     return c.json({ data: { deposits: credited } });
   } catch {
     return c.json({ data: { deposits: 0 } });
@@ -154,21 +155,18 @@ const CONFIRMATION_REQUIRED = {
   message: "Approve this change with your wallet.",
 } as const;
 
-portal.post("/keys", async (c) => {
+portal.post("/keys", validated("json", createKeySchema), async (c) => {
   const apiCredits = c.get("apiCredits");
-  const parsed = createKeySchema.safeParse(await c.req.json().catch(() => ({})));
-  if (!parsed.success) {
-    return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-  }
+  const parsed = c.req.valid("json");
 
   const current = (await prisma.apiKey.findFirst({ where: { apiCreditsId: apiCredits.id }, select: { id: true } }))?.id ?? null;
   const change = { action: "replace_api_key", key: current ?? "none" } as const;
-  if (!(await confirmKeyChange(productionKeyConfirmationDeps, apiCredits.accountId, change, parsed.data.confirmation))) {
+  if (!(await confirmKeyChange(productionKeyConfirmationDeps, apiCredits.accountId, change, parsed.confirmation))) {
     return c.json(CONFIRMATION_REQUIRED, 403);
   }
 
   const generated = generateApiKey();
-  const key = await replaceApiKey(apiCredits, current, generated, parsed.data.label);
+  const key = await replaceApiKey(apiCredits, current, generated, parsed.label);
   if (!key) return c.json(CONFIRMATION_REQUIRED, 403);
 
   log.info({ keyId: key.id, apiCreditsId: apiCredits.id }, "API key created, replacing any earlier key");

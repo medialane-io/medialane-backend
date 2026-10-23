@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { typedData as starknetTypedData } from "starknet";
 import type { Chain } from "@prisma/client";
 import type { AppEnv } from "../../types/hono.js";
@@ -72,7 +72,7 @@ export async function registerProvisioning(deps: BusinessProvisioningDeps, input
 export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.post("/", zValidator("json", registerSchema), async (c) => {
+  app.post("/", validated("json", registerSchema), async (c) => {
     const input = c.req.valid("json");
     const result = await registerProvisioning(deps, input);
     if (result.status === 502) {

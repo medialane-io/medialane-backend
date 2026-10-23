@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
 import { Prisma, type Collection } from "@prisma/client";
 import type { RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
@@ -23,7 +23,7 @@ const collections = new Hono();
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-collections.get("/", chainFilterScope(), zValidator("query", pageQuery()), async (c) => {
+collections.get("/", chainFilterScope(), validated("query", pageQuery()), async (c) => {
   const { page, limit } = c.req.valid("query");
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
   const owner     = c.req.query("owner");
@@ -163,7 +163,7 @@ collections.get("/:contract", chainScope(), async (c) => {
   });
 });
 
-collections.get("/:contract/tokens", chainScope(), zValidator("query", pageQuery()), async (c) => {
+collections.get("/:contract/tokens", chainScope(), validated("query", pageQuery()), async (c) => {
   const { contract } = c.req.param();
   const { page, limit } = c.req.valid("query");
   const sortParam = c.req.query("sort");
