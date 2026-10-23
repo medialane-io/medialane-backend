@@ -1,6 +1,6 @@
-import { Contract, shortString } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
-import { callRpc } from "../utils/starknet.js";
+import { chainCallAt } from "../chainRead/call.js";
+import { readTokenUri } from "../chainRead/tokenUri.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
@@ -9,88 +9,6 @@ import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
 
 
 const log = createLogger("orchestrator:metadata");
-
-const ERC721_METADATA_ABI_BYTEARRAY = [
-  {
-    type: "struct",
-    name: "core::byte_array::ByteArray",
-    members: [
-      { name: "data", type: "core::array::Array::<core::felt252>" },
-      { name: "pending_word", type: "core::felt252" },
-      { name: "pending_word_len", type: "core::integer::u32" },
-    ],
-  },
-  {
-    type: "function",
-    name: "token_uri",
-    inputs: [{ name: "token_id", type: "core::integer::u256" }],
-    outputs: [{ type: "core::byte_array::ByteArray" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "tokenURI",
-    inputs: [{ name: "token_id", type: "core::integer::u256" }],
-    outputs: [{ type: "core::byte_array::ByteArray" }],
-    state_mutability: "view",
-  },
-];
-
-const ERC721_METADATA_ABI_FELT_ARRAY = [
-  {
-    type: "function",
-    name: "token_uri",
-    inputs: [{ name: "token_id", type: "core::integer::u256" }],
-    outputs: [{ type: "core::array::Array::<core::felt252>" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "tokenURI",
-    inputs: [{ name: "token_id", type: "core::integer::u256" }],
-    outputs: [{ type: "core::array::Array::<core::felt252>" }],
-    state_mutability: "view",
-  },
-];
-
-const ERC1155_METADATA_ABI_BYTEARRAY = [
-  {
-    type: "struct",
-    name: "core::byte_array::ByteArray",
-    members: [
-      { name: "data", type: "core::array::Array::<core::felt252>" },
-      { name: "pending_word", type: "core::felt252" },
-      { name: "pending_word_len", type: "core::integer::u32" },
-    ],
-  },
-  {
-    type: "function",
-    name: "uri",
-    inputs: [{ name: "token_id", type: "core::integer::u256" }],
-    outputs: [{ type: "core::byte_array::ByteArray" }],
-    state_mutability: "view",
-  },
-];
-
-const ERC1155_METADATA_ABI_FELT_ARRAY = [
-  {
-    type: "function",
-    name: "uri",
-    inputs: [{ name: "token_id", type: "core::integer::u256" }],
-    outputs: [{ type: "core::array::Array::<core::felt252>" }],
-    state_mutability: "view",
-  },
-];
-
-const ABI_VARIANTS: Array<{ abi: any[]; fns: string[] }> = [
-  { abi: ERC721_METADATA_ABI_BYTEARRAY,   fns: ["token_uri", "tokenURI"] },
-  { abi: ERC721_METADATA_ABI_FELT_ARRAY,  fns: ["token_uri", "tokenURI"] },
-  { abi: ERC1155_METADATA_ABI_BYTEARRAY,  fns: ["uri"] },
-  { abi: ERC1155_METADATA_ABI_FELT_ARRAY, fns: ["uri"] },
-];
-
-type AbiCacheEntry = { abi: any[]; fn: string };
-const contractAbiCache = new Map<string, AbiCacheEntry>();
 
 export async function handleMetadataFetch(payload: {
   chain: string;
@@ -148,101 +66,9 @@ export async function fetchTokenUri(
   tokenId: string,
   chain: Chain
 ): Promise<string | null> {
-
-  const tokenIdBig = BigInt(tokenId);
-  const low = tokenIdBig & ((1n << 128n) - 1n);
-  const high = tokenIdBig >> 128n;
-  const u256 = { low: low.toString(), high: high.toString() };
-
   const col = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
     select: { standard: true, service: true },
   });
-
-  const isOwnCollection = col != null && !col.service?.startsWith("external-");
-  if (isOwnCollection) {
-    const abi = col.standard === "ERC1155" ? ERC1155_METADATA_ABI_BYTEARRAY : ERC721_METADATA_ABI_BYTEARRAY;
-    const fn = col.standard === "ERC1155" ? "uri" : "token_uri";
-    try {
-      const result = await callRpc((provider) => {
-        const contract = new Contract({ abi: abi as any, address: contractAddress, providerOrAccount: provider });
-        return (contract as any)[fn](u256);
-      });
-      if (result != null) {
-        let uri = decodeTokenUri(result);
-        if (uri) {
-          if (fn === "uri") uri = resolveErc1155Uri(uri, tokenId);
-          return uri;
-        }
-      }
-    } catch {
-
-    }
-    return null;
-  }
-
-  const cached = contractAbiCache.get(contractAddress);
-  if (cached) {
-    try {
-      const result = await callRpc((provider) => {
-        const contract = new Contract({ abi: cached.abi as any, address: contractAddress, providerOrAccount: provider });
-        return (contract as any)[cached.fn](u256);
-      });
-      if (result != null) {
-        let uri = decodeTokenUri(result);
-        if (uri) {
-          if (cached.fn === "uri") uri = resolveErc1155Uri(uri, tokenId);
-          return uri;
-        }
-      }
-    } catch {
-
-      contractAbiCache.delete(contractAddress);
-    }
-  }
-
-  for (const { abi, fns } of ABI_VARIANTS) {
-    for (const fn of fns) {
-      try {
-        const result = await callRpc((provider) => {
-          const contract = new Contract({ abi: abi as any, address: contractAddress, providerOrAccount: provider });
-          return (contract as any)[fn](u256);
-        });
-        if (result != null) {
-          let uri = decodeTokenUri(result);
-          if (uri) {
-            contractAbiCache.set(contractAddress, { abi, fn });
-            if (fn === "uri") uri = resolveErc1155Uri(uri, tokenId);
-            return uri;
-          }
-        }
-      } catch {
-
-      }
-    }
-  }
-
-  return null;
-}
-
-function resolveErc1155Uri(template: string, tokenId: string): string {
-  if (!template.includes("{id}")) return template;
-  const hex = BigInt(tokenId).toString(16).padStart(64, "0");
-  return template.replace("{id}", hex);
-}
-
-function decodeTokenUri(raw: unknown): string | null {
-  if (typeof raw === "string") return raw;
-  if (Array.isArray(raw)) {
-
-    try {
-      const parts = raw.map((f: any) =>
-        shortString.decodeShortString(f.toString())
-      );
-      return parts.join("");
-    } catch {
-      return raw.join("");
-    }
-  }
-  return null;
+  return readTokenUri(chainCallAt("latest"), contractAddress, tokenId, col);
 }
