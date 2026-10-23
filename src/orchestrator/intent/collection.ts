@@ -17,25 +17,18 @@ import {
   POPCollectionABI,
   dropCalls,
 } from "@medialane/sdk/starknet";
-import type { MintIntentBody, CreateCollectionIntentBody, CreateTierIntentBody } from "../../types/api.js";
+import type { MintIntentBody, CreateCollectionIntentBody, CreateTierIntentBody } from "../../types/intents.js";
 import prisma from "../../db/client.js";
 import { uploadJson } from "../metadataPin.js";
 import { buildCollectionMetadata } from "@medialane/sdk";
 import { resolveServiceForContract } from "../../utils/collection.js";
+import { starknet } from "@medialane/sdk/contract";
 import { log, encodeByteArray, resolveCollectionContract } from "./shared.js";
 import { isListableToken, toIntentCall } from "./calls.js";
 import { IntentRefusal } from "./refusal.js";
 
-export const FACTORY_FAMILY_SERVICE_IDS = ["mip-erc1155", "ip-tickets", "ip-ticketing", "ip-club"] as const;
-export const TIER_SERVICE_IDS = ["ip-tickets", "ip-ticketing", "ip-club"] as const;
+export const { FACTORY_FAMILY_SERVICE_IDS, TIER_SERVICE_IDS, COLLECTION_SERVICE_IDS } = starknet;
 type FactoryFamilyServiceId = typeof FACTORY_FAMILY_SERVICE_IDS[number];
-
-export const COLLECTION_SERVICE_IDS = [
-  ...FACTORY_FAMILY_SERVICE_IDS,
-  "pop-protocol",
-  "drop-collection",
-  "data-tokenization-erc721",
-] as const;
 
 const FACTORY_FAMILY_SERVICES: Record<FactoryFamilyServiceId, { factoryAddress: string; factoryAbi: unknown; collectionAbi: unknown }> = {
   "mip-erc1155": {

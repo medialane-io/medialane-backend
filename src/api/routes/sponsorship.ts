@@ -6,7 +6,7 @@ import { addressWhere, chainWhere, type ChainFilter } from "../utils/chainFilter
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
 import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense } from "@prisma/client";
 import { chainFilterScope, chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 
 const sponsorship = new Hono<AppEnv>();
 

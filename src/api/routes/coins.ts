@@ -16,7 +16,7 @@ import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere, buildCoinListOrderBy } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
 import { chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:coins");
 const coins = new Hono<AppEnv>();

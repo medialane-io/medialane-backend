@@ -6,7 +6,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp } from "../../utils/caller.js";
 import { dropFeeBps } from "../../orchestrator/intent/fee.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 import { chainScope } from "../http/chain.js";
 import { DEFAULT_CHAIN } from "../../config/chains.js";
 

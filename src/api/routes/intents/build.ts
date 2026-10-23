@@ -44,9 +44,10 @@ import { callerApp } from "../../../utils/caller.js";
 import type { IntentBuildContext } from "../../../orchestrator/intent/fee.js";
 import { IntentRefusal } from "../../../orchestrator/intent/refusal.js";
 import type { AppEnv } from "../../../types/hono.js";
-import {
-  log,
-  TTL_HOURS,
+import { starknet } from "@medialane/sdk/contract";
+import { log, TTL_HOURS, normalizeCheckoutItems } from "./_shared.js";
+
+const {
   listingSchema,
   offerSchema,
   fulfillSchema,
@@ -58,7 +59,6 @@ import {
   launchCoinSchema,
   counterOfferSchema,
   checkoutBodySchema,
-  normalizeCheckoutItems,
   sponsorshipOfferSchema,
   sponsorshipOfferOpenSchema,
   sponsorshipBidSchema,
@@ -81,7 +81,7 @@ import {
   walletManageSchema,
   swapIntentSchema,
   fundingTransferSchema,
-} from "./_shared.js";
+} = starknet;
 import { validated } from "../../http/validate.js";
 
 class CounterAlreadyExists extends Error {

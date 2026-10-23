@@ -3,7 +3,7 @@
 import { normalizeAddress } from "../../utils/starknet.js";
 import { buildCreateCreatorCoinCall, buildLaunchOnEkuboCalls, priceToEkuboParams, validatePrice } from "@medialane/sdk/starknet";
 import { getTokenByAddress } from "@medialane/sdk";
-import type { CreateCoinIntentBody, LaunchCoinIntentBody } from "../../types/api.js";
+import type { CreateCoinIntentBody, LaunchCoinIntentBody } from "../../types/intents.js";
 
 export async function buildCreateCoinIntent(body: CreateCoinIntentBody) {
   const owner = normalizeAddress("STARKNET", body.owner);

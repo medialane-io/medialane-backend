@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { validated } from "../http/validate.js";
 import type { AppEnv } from "../../types/hono.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
@@ -8,9 +7,10 @@ import { buildMintIntent } from "../../orchestrator/intent/index.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { resolveRecipientWallets, type RecipientWallet } from "../../utils/recipientWallets.js";
 import type { Chain } from "@prisma/client";
+import { DEFAULT_BATCH_SIZE, MAX_RECIPIENTS, emissionSchema } from "@medialane/sdk/contract";
 
-export const DEFAULT_BATCH_SIZE = 25;
-export const MAX_RECIPIENTS = 500;
+export { DEFAULT_BATCH_SIZE, MAX_RECIPIENTS };
+
 
 export type Call = { contractAddress: string; entrypoint: string; calldata: string[] };
 
@@ -54,30 +54,10 @@ export function registryForService(serviceId: string): string | undefined {
   return getService(serviceId)?.onchain?.STARKNET?.factoryAddress;
 }
 
-const mintCallsSchema = z
-  .object({
-    chain: z.enum(["STARKNET"]).default("STARKNET"),
-    service: z.string().min(1),
-    owner: z.string().min(1),
-    recipients: z.array(z.string().min(1)).min(1).max(MAX_RECIPIENTS),
-    tokenUri: z.string().optional(),
-    collectionId: z.string().optional(),
-    collectionContract: z.string().optional(),
-    tokenId: z.string().optional(),
-    amount: z.string().optional(),
-    batchSize: z.number().int().min(1).max(100).default(DEFAULT_BATCH_SIZE),
-  })
-  .refine((v) => v.collectionId || v.collectionContract, {
-    message: "collectionId or collectionContract is required",
-  })
-  .refine((v) => v.tokenUri || (v.tokenId && v.amount), {
-    message: "tokenUri, or tokenId and amount, is required",
-  });
-
 export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.post("/emission", validated("json", mintCallsSchema), async (c) => {
+  app.post("/emission", validated("json", emissionSchema), async (c) => {
     const body = c.req.valid("json");
 
     if (!serviceCanMint(body.service)) {

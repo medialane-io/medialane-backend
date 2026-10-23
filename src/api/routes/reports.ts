@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { validated } from "../http/validate.js";
-import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
+import { submitReportSchema } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:reports");
 
@@ -53,29 +53,6 @@ function validateTargetKey(
 }
 
 const reports = new Hono<AppEnv>();
-
-const submitReportSchema = z.object({
-  targetType: z.enum(["COLLECTION", "TOKEN", "CREATOR", "COMMENT"]),
-  targetKey: z.string().min(1),
-  targetContract: z.string().optional(),
-  targetTokenId: z.string().optional(),
-  targetAddress: z.string().optional(),
-  targetId: z.string().optional(),
-  categories: z
-    .array(
-      z.enum([
-        "COPYRIGHT_PIRACY",
-        "VIOLENCE_GRAPHIC",
-        "HATE_SPEECH",
-        "SCAM_FRAUD",
-        "SPAM",
-        "NSFW",
-        "OTHER",
-      ])
-    )
-    .min(1, "At least one category is required"),
-  description: z.string().max(500).optional(),
-});
 
 reports.post(
   "/",

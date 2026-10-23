@@ -4,7 +4,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { ACTIONS, BADGES, LEVELS } from "../../rewards/config.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:rewards");
 
