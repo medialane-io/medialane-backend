@@ -1,5 +1,6 @@
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
+import type { Loop } from "./schedule.js";
 
 const log = createLogger("orchestrator:reaper");
 
@@ -64,14 +65,4 @@ export async function runReaper(): Promise<void> {
   if (codesDeleted > 0) log.info({ count: codesDeleted }, "Reaper: purged spent email verification codes");
 }
 
-export async function startReaper(): Promise<void> {
-  log.info("Reaper started");
-  while (true) {
-    try {
-      await runReaper();
-    } catch (err) {
-      log.error({ err }, "Reaper error");
-    }
-    await new Promise((resolve) => setTimeout(resolve, REAPER_POLL_INTERVAL_MS));
-  }
-}
+export const reaperLoop: Loop = { name: "reaper", intervalMs: REAPER_POLL_INTERVAL_MS, tick: runReaper };

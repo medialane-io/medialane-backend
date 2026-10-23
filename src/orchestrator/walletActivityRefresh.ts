@@ -3,6 +3,7 @@ import prisma from "../db/client.js";
 import { worker } from "./worker.js";
 import { createLogger } from "../utils/logger.js";
 import { STALE_AFTER_MS } from "../api/routes/wallet-activity.js";
+import type { Loop } from "./schedule.js";
 
 const log = createLogger("orchestrator:wallet-activity-refresh");
 
@@ -42,16 +43,9 @@ export async function runWalletActivityRefreshOnce(deps: WalletActivityRefreshDe
   }
 }
 
-export async function startWalletActivityRefreshLoop(
-  deps: WalletActivityRefreshDeps = productionDeps,
-): Promise<void> {
-  log.info("Wallet-activity refresh loop starting...");
-  while (true) {
-    await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL_MS));
-    try {
-      await runWalletActivityRefreshOnce(deps);
-    } catch (err) {
-      log.error({ err }, "Wallet-activity refresh loop error");
-    }
-  }
-}
+export const walletActivityRefreshLoop: Loop = {
+  name: "wallet-activity-refresh",
+  intervalMs: CHECK_INTERVAL_MS,
+  bootDelayMs: CHECK_INTERVAL_MS,
+  tick: () => runWalletActivityRefreshOnce(productionDeps),
+};

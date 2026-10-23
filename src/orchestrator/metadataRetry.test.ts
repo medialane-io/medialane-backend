@@ -3,7 +3,7 @@ import type { WorkItem } from "./worker.js";
 
 mock.module("../db/client.js", () => ({ default: {} }));
 
-const { retryFailedMetadata, startMetadataRetryLoop } = await import("./metadataRetry.js");
+const { retryFailedMetadata } = await import("./metadataRetry.js");
 
 type Row = { id: string; chain: "STARKNET"; contractAddress: string; tokenId?: string };
 
@@ -61,37 +61,5 @@ describe("retryFailedMetadata", () => {
     });
     expect(result).toEqual({ tokens: 0, collections: 0 });
     expect(queued).toEqual([]);
-  });
-});
-
-describe("startMetadataRetryLoop", () => {
-  test("runs a pass as soon as it starts, then waits between passes", async () => {
-    const order: string[] = [];
-    const stop = new Error("stop");
-    let waits = 0;
-    await startMetadataRetryLoop({
-      pass: async () => void order.push("pass"),
-      wait: async () => {
-        order.push("wait");
-        if (++waits === 2) throw stop;
-      },
-    }).catch((e) => expect(e).toBe(stop));
-    expect(order).toEqual(["pass", "wait", "pass", "wait"]);
-  });
-
-  test("keeps going after a pass fails", async () => {
-    const order: string[] = [];
-    const stop = new Error("stop");
-    await startMetadataRetryLoop({
-      pass: async () => {
-        order.push("pass");
-        throw new Error("db down");
-      },
-      wait: async () => {
-        order.push("wait");
-        throw stop;
-      },
-    }).catch((e) => expect(e).toBe(stop));
-    expect(order).toEqual(["pass", "wait"]);
   });
 });

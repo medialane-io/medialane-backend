@@ -8,6 +8,7 @@ import { DAY_MS, IO_VERIFICATION_DAYS } from "../utils/accountLifecycle.js";
 import { IO_APP } from "../utils/caller.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
 import { recordAccountEvent } from "../utils/accountEvents.js";
+import type { Loop } from "./schedule.js";
 
 export { IO_VERIFICATION_DAYS, verificationDeadline } from "../utils/accountLifecycle.js";
 
@@ -37,13 +38,8 @@ export async function deactivateExpiredPending(now: Date = new Date(), ioApp: st
   return count;
 }
 
-export async function startUnverifiedAccountsLoop(): Promise<void> {
-  for (;;) {
-    try {
-      await deactivateExpiredPending();
-    } catch (err) {
-      log.error({ err }, "Deactivating expired pending accounts failed");
-    }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-}
+export const unverifiedAccountsLoop: Loop = {
+  name: "unverified-accounts",
+  intervalMs: POLL_INTERVAL_MS,
+  tick: deactivateExpiredPending,
+};

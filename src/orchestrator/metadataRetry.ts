@@ -1,6 +1,7 @@
 import prisma from "../db/client.js";
 import { worker, type WorkItem } from "./worker.js";
 import { createLogger } from "../utils/logger.js";
+import type { Loop } from "./schedule.js";
 
 const log = createLogger("orchestrator:metadata-retry");
 
@@ -58,17 +59,8 @@ export async function retryFailedMetadata(deps: RetryDeps = defaultDeps): Promis
   return { tokens, collections };
 }
 
-export async function startMetadataRetryLoop({
-  pass = () => retryFailedMetadata(),
-  wait = () => new Promise<void>((resolve) => setTimeout(resolve, RETRY_INTERVAL_MS)),
-}: { pass?: () => Promise<unknown>; wait?: () => Promise<void> } = {}): Promise<void> {
-  log.info("Metadata retry loop starting...");
-  while (true) {
-    try {
-      await pass();
-    } catch (err) {
-      log.error({ err }, "Metadata retry loop error");
-    }
-    await wait();
-  }
-}
+export const metadataRetryLoop: Loop = {
+  name: "metadata-retry",
+  intervalMs: RETRY_INTERVAL_MS,
+  tick: () => retryFailedMetadata(),
+};

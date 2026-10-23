@@ -1,5 +1,6 @@
 import { computeRewards, type ComputeSummary } from "../rewards/compute.js";
 import { createLogger } from "../utils/logger.js";
+import type { Loop } from "./schedule.js";
 
 const log = createLogger("orchestrator:rewards-compute");
 
@@ -20,18 +21,15 @@ export async function runComputeGuarded(dryRun = false): Promise<ComputeSummary 
   }
 }
 
-export async function startRewardsComputeLoop(): Promise<void> {
-  log.info({ intervalMs: INTERVAL_MS }, "Rewards compute loop starting...");
-  let nextDelay = BOOT_DELAY_MS;
-  while (true) {
-    await new Promise((resolve) => setTimeout(resolve, nextDelay));
-    nextDelay = INTERVAL_MS;
-    try {
-      const result = await runComputeGuarded(false);
-      if ("skipped" in result) log.warn("Rewards compute already in flight — skipped tick");
-      else log.info({ addresses: result.addresses, events: result.events }, "Rewards recomputed");
-    } catch (err) {
-      log.error({ err }, "Rewards compute loop error");
-    }
-  }
+async function recompute(): Promise<void> {
+  const result = await runComputeGuarded(false);
+  if ("skipped" in result) log.warn("Rewards compute already in flight — skipped tick");
+  else log.info({ addresses: result.addresses, events: result.events }, "Rewards recomputed");
 }
+
+export const rewardsComputeLoop: Loop = {
+  name: "rewards-compute",
+  intervalMs: INTERVAL_MS,
+  bootDelayMs: BOOT_DELAY_MS,
+  tick: recompute,
+};
