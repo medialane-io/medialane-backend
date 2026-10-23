@@ -18,7 +18,7 @@ import {
 } from "../../../launchpad/services/ip-ticketing/progress.js";
 import { buildCollectionMetadata } from "@medialane/sdk";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
-import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
+import { assertOwnsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
 
@@ -219,7 +219,7 @@ export function ipTicketingSteps(ctx: RunContext): RunServiceSteps<ActiveRun> {
         if (active instanceof Response) return active;
 
         const body = c.req.valid("json");
-        if (!(await ownsWallet(ctx, c, body.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        await assertOwnsWallet(ctx, c, body.userAddress);
 
         let metadata: Record<string, unknown>;
         try {

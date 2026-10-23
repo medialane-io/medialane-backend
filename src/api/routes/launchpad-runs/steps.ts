@@ -6,7 +6,7 @@ import type { StoredRun } from "../../../launchpad/run-store.js";
 import type { StepState } from "../../../launchpad/services/data-tokenization/progress.js";
 import type { Call } from "../../../launchpad/services/ip-ticketing/chain.js";
 import { buildSponsoredInvoke } from "../paymaster.js";
-import { executeBody, indexParam, ownsWallet, walletBody, type RunContext, type RunReceipt } from "./context.js";
+import { executeBody, assertOwnsWallet, indexParam, walletBody, type RunContext, type RunReceipt } from "./context.js";
 import { confirmStep, executeStep } from "./sponsored-step.js";
 import { validated } from "../../http/validate.js";
 
@@ -154,7 +154,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
       const { step, index } = found;
 
       const body = c.req.valid("json");
-      if (!(await ownsWallet(ctx, c, body.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+      await assertOwnsWallet(ctx, c, body.userAddress);
       if (!step.open(loaded.active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
 
       const calls = await prepare(c, step, loaded.active, index, body.userAddress);
@@ -171,7 +171,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
       const { step, index } = found;
 
       const body = c.req.valid("json");
-      if (!(await ownsWallet(ctx, c, body.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+      await assertOwnsWallet(ctx, c, body.userAddress);
       if (!step.open(loaded.active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
 
       const calls = await prepare(c, step, loaded.active, index, body.userAddress);

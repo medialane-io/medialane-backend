@@ -5,7 +5,7 @@ import type { StoredRun } from "../../../launchpad/run-store.js";
 import { STALE_PENDING_MS } from "../../../launchpad/run-store.js";
 import { pendingPaths } from "../../../launchpad/pending.js";
 import { RUN_SERVICES, definitionOf, parseRunSpec, quoteRun } from "../../../launchpad/services/index.js";
-import { specError, type RunContext } from "./context.js";
+import { ownRun, specError, type RunContext } from "./context.js";
 import { validated } from "../../http/validate.js";
 
 const createBody = z.object({ service: z.enum(RUN_SERVICES), spec: z.unknown() });
@@ -78,8 +78,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
   });
 
   app.get("/:id", async (c) => {
-    const found = await ctx.store.get(c.req.param("id"), c.get("apiCredits").id);
-    if (!found) return c.json({ error: "Run not found" }, 404);
+    const found = await ownRun(ctx, c.req.param("id"), c.get("apiCredits").id);
     return c.json({ data: await present(await sweepAbandoned(found)) });
   });
 
@@ -87,8 +86,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     const apiCreditsId = c.get("apiCredits").id;
     const body = c.req.valid("json");
 
-    const existing = await ctx.store.get(c.req.param("id"), apiCreditsId);
-    if (!existing) return c.json({ error: "Run not found" }, 404);
+    const existing = await ownRun(ctx, c.req.param("id"), apiCreditsId);
     if (existing.status !== "DRAFT") return c.json({ error: "A run can only change while it is a draft" }, 409);
 
     try {
@@ -103,8 +101,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
 
   app.post("/:id/cancel", async (c) => {
     const apiCreditsId = c.get("apiCredits").id;
-    const found = await ctx.store.get(c.req.param("id"), apiCreditsId);
-    if (!found) return c.json({ error: "Run not found" }, 404);
+    const found = await ownRun(ctx, c.req.param("id"), apiCreditsId);
     const existing = await sweepAbandoned(found);
 
     if (existing.status === "DRAFT") {
@@ -129,8 +126,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     const apiCreditsId = c.get("apiCredits").id;
     const body = c.req.valid("json");
 
-    const existing = await ctx.store.get(c.req.param("id"), apiCreditsId);
-    if (!existing) return c.json({ error: "Run not found" }, 404);
+    const existing = await ownRun(ctx, c.req.param("id"), apiCreditsId);
     if (existing.status !== "DRAFT") return c.json({ error: "This run is already paid" }, 409);
 
     let quote;

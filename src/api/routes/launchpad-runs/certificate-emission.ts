@@ -18,7 +18,7 @@ import {
 } from "../../../launchpad/services/certificate-emission/progress.js";
 import { buildCollectionMetadata } from "@medialane/sdk";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
-import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
+import { assertOwnsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
 
@@ -185,7 +185,7 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         if (active instanceof Response) return active;
 
         const body = c.req.valid("json");
-        if (!(await ownsWallet(ctx, c, body.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        await assertOwnsWallet(ctx, c, body.userAddress);
 
         let metadata: Record<string, unknown>;
         try {

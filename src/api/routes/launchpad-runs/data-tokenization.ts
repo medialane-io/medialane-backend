@@ -22,7 +22,7 @@ import {
 import { buildCollectionMetadata } from "@medialane/sdk";
 import { registryMintCalls, type RegistryCall } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { buildSponsoredInvoke } from "../paymaster.js";
-import { indexParam, ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
+import { assertOwnsWallet, indexParam, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
 
@@ -178,7 +178,7 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
         if (index === null || !active.spec.items[index]) return c.json({ error: "No such item in this run" }, 404);
 
         const body = c.req.valid("json");
-        if (!(await ownsWallet(ctx, c, body.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        await assertOwnsWallet(ctx, c, body.userAddress);
 
         let metadata: Record<string, unknown>;
         try {
@@ -253,9 +253,9 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
         const index = indexParam(c);
         const userAddress = c.req.query("userAddress");
         if (index === null) return c.json({ error: "No such batch in this run" }, 404);
-        if (!userAddress || !(await ownsWallet(ctx, c, userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        const owner = await assertOwnsWallet(ctx, c, userAddress);
         try {
-          return c.json({ data: { index, calls: await batchCalls(active, index, userAddress) } });
+          return c.json({ data: { index, calls: await batchCalls(active, index, owner) } });
         } catch (err) {
           return notReady(c, err);
         }
