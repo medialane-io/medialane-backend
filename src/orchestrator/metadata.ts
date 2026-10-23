@@ -1,5 +1,5 @@
 import { Contract, shortString } from "starknet";
-import { type Chain } from "@prisma/client";
+import { type Chain, type Prisma } from "@prisma/client";
 import { callRpc } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
@@ -127,7 +127,7 @@ export async function handleMetadataFetch(payload: {
         name: metadata?.name ?? null,
         image: storedImage(metadata?.image, chain, contractAddress, tokenId),
         animationUrl: (metadata?.animation_url as string | undefined) ?? null,
-        attributes: _attrs.length > 0 ? (_attrs as any) : undefined,
+        attributes: _attrs.length > 0 ? (_attrs as Prisma.InputJsonValue) : undefined,
         ...tokenFields(metadata, _attrs),
       },
     });

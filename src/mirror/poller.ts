@@ -32,5 +32,6 @@ export async function pollContractEvents(params: {
 
 export async function getLatestBlock(): Promise<number> {
   const block = await callRpc((provider) => provider.getBlockWithTxHashes("latest"));
-  return (block as any).block_number as number;
+  if (!("block_number" in block)) throw new Error("The latest block has no number");
+  return block.block_number;
 }

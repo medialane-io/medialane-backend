@@ -121,18 +121,18 @@ orders.get("/counter-offers", chainScope(), validated("query", pageQuery()), asy
   }
 
   const chain = c.get("chain");
-  const where: Record<string, unknown> = { chain, parentOrderHash: { not: null } };
+  const where: Prisma.OrderWhereInput = { chain, parentOrderHash: { not: null } };
   if (originalOrderHash) where.parentOrderHash = originalOrderHash;
   if (sellerAddress) where.offerer = normalizeAddress(chain, sellerAddress);
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
-      where: where as any,
+      where,
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where: where as any }),
+    prisma.order.count({ where }),
   ]);
 
   const tokenMeta = await batchTokenMeta(data);

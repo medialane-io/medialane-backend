@@ -1,4 +1,4 @@
-import { Contract, num } from "starknet";
+import { Contract, num, type Abi } from "starknet";
 import { type Chain, type Prisma } from "@prisma/client";
 import { IPMarketplaceABI } from "@medialane/sdk/starknet";
 import {
@@ -164,7 +164,7 @@ async function findCounterOfferParent(
 export async function fetchOrderDetails721(orderHash: string): Promise<OnChainOrderDetails> {
   const raw = await callRpc((provider) => {
     const contract = new Contract({
-      abi: IPMarketplaceABI as any,
+      abi: IPMarketplaceABI as Abi,
       address: STARKNET_MARKETPLACE_721_CONTRACT,
       providerOrAccount: provider,
     });

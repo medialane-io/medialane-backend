@@ -37,9 +37,9 @@ collections.post("/sync-tx", validated("json", syncTxBody, { message: "txHash re
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
     const factoryAddresses = new Set(STARKNET_COLLECTION_FACTORIES.map((a) => normalizeAddress("STARKNET", a)));
-    const events = (receipt as any).events ?? [];
+    const events = "events" in receipt ? receipt.events : [];
     const collectionEvents = events.filter(
-      (e: any) =>
+      (e) =>
         e.from_address &&
         factoryAddresses.has(normalizeAddress("STARKNET", e.from_address)) &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
@@ -55,7 +55,7 @@ collections.post("/sync-tx", validated("json", syncTxBody, { message: "txHash re
       const decoded = decodeCollectionCreatedEvent(event);
       if (!decoded) continue;
       const { collectionId, owner } = decoded;
-      const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
+      const blockNumber = BigInt(("block_number" in receipt ? receipt.block_number : undefined) ?? 0);
 
       const resolved = await resolveCollectionCreated({
         type: "CollectionCreated",

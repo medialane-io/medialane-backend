@@ -138,15 +138,13 @@ collections.get("/:contract", chainScope(), async (c) => {
   const { contract } = c.req.param();
   const chain = c.get("chain");
   const include = c.req.query("include");
-  const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain, contractAddress: normalizeAddress(chain, contract) } },
-    ...(include === "profile" ? { include: { profile: true } } : {}),
-  });
+  const where = { chain_contractAddress: { chain, contractAddress: normalizeAddress(chain, contract) } };
+  const col = await prisma.collection.findUnique({ where, include: { profile: include === "profile" } });
   if (!col) return c.json({ error: "Collection not found" }, 404);
 
   let profileData: Record<string, unknown> | null = null;
   if (include === "profile") {
-    const profile = (col as any).profile ?? null;
+    const profile = col.profile ?? null;
     if (profile) {
 
       const { gatedContentUrl: _url, gatedContentType: _type, ...safeProfile } = profile;

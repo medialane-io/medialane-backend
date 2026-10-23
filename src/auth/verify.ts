@@ -1,5 +1,6 @@
 import type { Chain } from "@prisma/client";
 import { callRpc } from "../utils/starknet.js";
+import type { TypedData } from "starknet";
 
 export type VerifyResult =
   | { ok: true }
@@ -51,7 +52,7 @@ async function verifyStarknet(
   return verifyStarknetWithRetry(() =>
     callRpc((provider) =>
 
-      provider.verifyMessageInStarknet(typedData as any, normalizedSignature, address),
+      provider.verifyMessageInStarknet(typedData as TypedData, normalizedSignature, address),
     ),
   );
 }

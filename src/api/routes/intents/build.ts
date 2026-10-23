@@ -84,6 +84,12 @@ import {
 } from "./_shared.js";
 import { validated } from "../../http/validate.js";
 
+class CounterAlreadyExists extends Error {
+  constructor() {
+    super("A counter-offer already exists for this order");
+  }
+}
+
 function expiresAt(): Date {
   return new Date(Date.now() + TTL_HOURS * 3600 * 1000);
 }
@@ -388,9 +394,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           where: { chain: "STARKNET", parentOrderHash: originalOrderHash, status: "ACTIVE" },
         });
         if (existingCounter) {
-          throw Object.assign(new Error("A counter-offer already exists for this order"), {
-            code: "COUNTER_ALREADY_EXISTS",
-          });
+          throw new CounterAlreadyExists();
         }
 
         const created = await tx.transactionIntent.create({
@@ -411,7 +415,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
       return c.json({ data: { id: intent.id, requiresSignature: true, typedData, calls, expiresAt: ttl } }, 201);
     } catch (err: unknown) {
-      if ((err as any)?.code === "COUNTER_ALREADY_EXISTS") {
+      if (err instanceof CounterAlreadyExists) {
         return c.json({ error: "A counter-offer already exists for this order" }, 400);
       }
       log.error({ err }, "Failed to build counter-offer intent");

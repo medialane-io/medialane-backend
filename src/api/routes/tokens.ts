@@ -302,7 +302,7 @@ tokens.get("/:contract/:tokenId", chainScope(), async (c) => {
             name: (metadata.name as string) ?? null,
             image: storedImage(metadata.image, chain, contractAddress, tokenId),
             animationUrl: (metadata.animation_url as string) ?? null,
-            attributes: (metadata.attributes as any) ?? undefined,
+            attributes: (metadata.attributes as Prisma.InputJsonValue | undefined) ?? undefined,
           },
         });
         token = await prisma.token.findUnique({
