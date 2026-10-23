@@ -16,6 +16,7 @@ import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { emailDeadlineFor } from "../../utils/emailDeadline.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
+import { DEFAULT_CHAIN } from "../../config/chains.js";
 
 const log = createLogger("routes:users");
 
@@ -53,7 +54,7 @@ users.post(
     const body = c.req.valid("json");
     const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
     const appId = callerApp(c);
-    const chain: Chain = body.chain ?? "STARKNET";
+    const chain: Chain = body.chain ?? DEFAULT_CHAIN;
 
     const { accountId } = await ensureAccountForWallet({
       chain,
@@ -88,7 +89,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), validated("json", me
   const parsed = c.req.valid("json");
   const provider = (parsed.walletType ?? "UNKNOWN").toLowerCase();
   const appId = callerApp(c);
-  const chain: Chain = parsed.chain ?? "STARKNET";
+  const chain: Chain = parsed.chain ?? DEFAULT_CHAIN;
 
   if (chain !== "STARKNET") {
     return c.json({

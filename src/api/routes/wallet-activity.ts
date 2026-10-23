@@ -4,6 +4,7 @@ import type { Chain, WalletActivityType } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { worker } from "../../orchestrator/worker.js";
+import { chainScope } from "../http/chain.js";
 
 export interface WalletActivityRow {
   id: string;
@@ -40,10 +41,10 @@ export function serializeWalletActivity(row: WalletActivityRow) {
 export function createWalletActivityRoutes(deps: WalletActivityDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.get("/", async (c) => {
+  app.get("/", chainScope(), async (c) => {
     const addressParam = c.req.query("address");
     if (!addressParam) return c.json({ error: "address is required" }, 400);
-    const chain = (c.req.query("chain") as Chain | undefined) ?? "STARKNET";
+    const chain = c.get("chain");
     const address = normalizeAddress(chain, addressParam);
 
     const cursor = await deps.getCursor(chain, address);

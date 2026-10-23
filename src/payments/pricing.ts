@@ -1,6 +1,7 @@
 
 import { x402Config, USDC_DECIMALS } from "../config/x402.js";
 import { PRICING } from "../../pricing.config.js";
+import { DEFAULT_CHAIN } from "../config/chains.js";
 
 export const ROUTE_ACTIONS: ReadonlyArray<{ method: string; prefix: string; actionKey: string; exact?: boolean }> = [
   { method: "POST", prefix: "/v1/intents/mint", actionKey: "intent:mint" },
@@ -54,7 +55,6 @@ const BATCH_UNIT_EXTRACTORS: Record<string, (body: unknown) => number> = {
 };
 
 const DEFAULT_ACTION_KEY = "read";
-const DEFAULT_CHAIN = "STARKNET";
 
 export function resolveActionKey(method: string, path: string): string | null {
   for (const rule of ROUTE_ACTIONS) {

@@ -125,3 +125,26 @@ test("caps how much history it asks for — an account's full lifetime activity 
   await app.request(`/v1/wallet-activity?address=${ADDRESS}`);
   expect(seenLimit).toBe(MAX_WALLET_ACTIVITY_ROWS);
 });
+
+test("a chain the backend does not serve is a 400 and nothing is read or queued", async () => {
+  let touched = false;
+  const deps: WalletActivityDeps = {
+    getCursor: async () => {
+      touched = true;
+      return null;
+    },
+    listActivity: async () => {
+      touched = true;
+      return [];
+    },
+    enqueueSync: () => {
+      touched = true;
+    },
+  };
+  for (const chain of ["base", "bogus", "all"]) {
+    const res = await makeApp(deps).request(`/v1/wallet-activity?address=${ADDRESS}&chain=${chain}`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Invalid chain" });
+  }
+  expect(touched).toBe(false);
+});
