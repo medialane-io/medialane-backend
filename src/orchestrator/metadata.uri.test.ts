@@ -8,7 +8,10 @@ mock.module("../db/client.js", () => ({
     collection: { findUnique: mock(async () => ({ standard: "ERC721", service: "mip-erc721" })) },
   },
 }));
-mock.module("../utils/starknet.js", () => ({ callRpc: mock(async () => null) }));
+mock.module("../utils/starknet.js", () => ({
+  callRpc: mock(async () => { throw Object.assign(new Error("Entry point not found"), { code: 21 }); }),
+  isContractError: (err: unknown) => (err as { code?: unknown } | null)?.code === 21,
+}));
 
 test("a token whose tokenURI is not readable yet fails the job so the worker retries it", async () => {
   const { handleMetadataFetch } = await import("./metadata.js");
