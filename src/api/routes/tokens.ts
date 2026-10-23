@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import type { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { worker } from "../../orchestrator/worker.js";
@@ -14,6 +15,7 @@ import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 import { liveDescription } from "../utils/liveDescription.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
@@ -33,13 +35,11 @@ const SLUG_TO_IP_TYPE: Record<string, string> = {
 
 };
 
-tokens.get("/", chainFilterScope(), async (c) => {
-  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
-  const limit = Math.min(48, Math.max(1, Number(c.req.query("limit") ?? 24)));
+tokens.get("/", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24, maxLimit: 48 })), async (c) => {
+  const { page, limit, skip } = c.req.valid("query");
   const sort  = c.req.query("sort") === "oldest" ? "oldest" : "recent";
   const ipTypeSlug = (c.req.query("ipType") ?? "").toLowerCase().trim();
   const derivatives = (c.req.query("derivatives") ?? "").toLowerCase().trim();
-  const skip  = (page - 1) * limit;
   const chainFilter = c.get("chainFilter");
 
   const where: Prisma.TokenWhereInput = { ...chainWhere(chainFilter), isHidden: false, metadataStatus: "FETCHED" };
@@ -132,11 +132,10 @@ tokens.get("/batch", chainScope(), async (c) => {
   return c.json({ data: results.map((t) => serializeToken(t, [])) });
 });
 
-tokens.get("/owned/:address", chainScope(), async (c) => {
+tokens.get("/owned/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const owner = normalizeAddress(chain, address);
 
   const [balanceRows, total] = await Promise.all([
@@ -170,13 +169,11 @@ tokens.get("/owned/:address", chainScope(), async (c) => {
   });
 });
 
-tokens.get("/:contract/:tokenId/comments", chainScope(), async (c) => {
+tokens.get("/:contract/:tokenId/comments", chainScope(), zValidator("query", pageQuery({ maxLimit: 50 })), async (c) => {
   const chain = c.get("chain");
   const contract = normalizeAddress(chain, c.req.param("contract"));
   const tokenId = c.req.param("tokenId");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
-  const skip = (page - 1) * limit;
+  const { page, limit, skip } = c.req.valid("query");
 
   const [comments, total] = await Promise.all([
     prisma.comment.findMany({
@@ -339,11 +336,10 @@ tokens.get("/:contract/:tokenId/balances/:owner", chainScope(), async (c) => {
   return c.json({ data: { owner: holder, amount } });
 });
 
-tokens.get("/:contract/:tokenId/history", chainScope(), async (c) => {
+tokens.get("/:contract/:tokenId/history", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const { contract, tokenId } = c.req.param();
   const chain = c.get("chain");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const contractLower = normalizeAddress(chain, contract);
 
   const [transfers, orders, fills] = await Promise.all([

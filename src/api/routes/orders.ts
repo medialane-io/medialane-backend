@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
@@ -7,6 +8,7 @@ import { serializeOrder, batchTokenMeta, counterOfferFlags } from "../utils/seri
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const orders = new Hono();
 
@@ -115,11 +117,10 @@ orders.get("/", chainFilterScope(), async (c) => {
   });
 });
 
-orders.get("/counter-offers", chainScope(), async (c) => {
+orders.get("/counter-offers", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const originalOrderHash = c.req.query("originalOrderHash");
   const sellerAddress = c.req.query("sellerAddress");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
 
   if (!originalOrderHash && !sellerAddress) {
     return c.json({ error: "originalOrderHash or sellerAddress is required" }, 400);
@@ -190,11 +191,10 @@ orders.get("/token/:contract/:tokenId", chainScope(), async (c) => {
   return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
-orders.get("/received/:address", chainScope(), async (c) => {
+orders.get("/received/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const normalizedAddress = normalizeAddress(chain, address);
   const offset = (page - 1) * limit;
 
@@ -240,11 +240,10 @@ orders.get("/received/:address", chainScope(), async (c) => {
   });
 });
 
-orders.get("/user/:address", chainScope(), async (c) => {
+orders.get("/user/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const offererAddr = normalizeAddress(chain, address);
 
   const [data, total] = await Promise.all([

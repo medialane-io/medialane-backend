@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
 import { chainWhere } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
@@ -12,6 +13,7 @@ import {
 import { batchTokenMeta } from "../utils/serialize.js";
 import { mergeFeed, activityItemToken, MAX_FEED_DEPTH, type ActivityFeedItem } from "./activities.feed.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const activities = new Hono();
 
@@ -127,12 +129,10 @@ export function buildActivityWhere(params: {
   return { transferWhere, orderWhere };
 }
 
-activities.get("/", chainFilterScope(), async (c) => {
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+activities.get("/", chainFilterScope(), zValidator("query", pageQuery()), async (c) => {
+  const { page, limit, skip } = c.req.valid("query");
   const type = c.req.query("type");
 
-  const skip = (page - 1) * limit;
   const take = skip + limit;
   const deep = take > MAX_FEED_DEPTH;
 
@@ -163,12 +163,10 @@ activities.get("/", chainFilterScope(), async (c) => {
   return c.json({ data, meta: { page, limit, total: Math.min(transferCount + orderCount, MAX_FEED_DEPTH) } });
 });
 
-activities.get("/:address", chainScope(), async (c) => {
+activities.get("/:address", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
   const chain = c.get("chain");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
-  const skip = (page - 1) * limit;
+  const { page, limit, skip } = c.req.valid("query");
   const take = skip + limit;
   const deep = take > MAX_FEED_DEPTH;
   const addr = normalizeAddress(chain, address);

@@ -12,6 +12,7 @@ import { createLogger } from "../../utils/logger.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
 import type { AppEnv } from "../../types/hono.js";
 import { chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:profiles");
 
@@ -193,11 +194,10 @@ profiles.get(
   }
 );
 
-profiles.get("/creators", chainScope(), async (c) => {
+profiles.get("/creators", chainScope(), zValidator("query", pageQuery({ maxLimit: 50 })), async (c) => {
     const chain = c.get("chain");
 
-  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
-  const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const search = c.req.query("search")?.trim().toLowerCase() ?? "";
 
   const where = {

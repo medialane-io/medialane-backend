@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
@@ -15,6 +16,7 @@ import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere, buildCoinListOrderBy } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
 import { chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:coins");
 const coins = new Hono<AppEnv>();
@@ -108,11 +110,10 @@ coins.post("/sync", chainScope(), async (c) => {
   }
 });
 
-coins.get("/", chainScope(), async (c) => {
+coins.get("/", chainScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chain = c.get("chain");
 
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
+  const { page, limit } = c.req.valid("query");
   const service = c.req.query("service");
   const creator = c.req.query("creator") ?? undefined;
   const where = buildCoinListWhere({ chainFilter: { chain }, service: service ?? undefined, creator });

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { Prisma, type Collection } from "@prisma/client";
 import type { RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
@@ -13,6 +14,7 @@ import { parseStandardFilter } from "./collections.standardFilter.js";
 import { includeBalances } from "./collections.tokenBalances.js";
 import { registerCollectionSyncRoutes } from "./collections-sync.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:collections");
 
@@ -21,9 +23,8 @@ const collections = new Hono();
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-collections.get("/", chainFilterScope(), async (c) => {
-  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+collections.get("/", chainFilterScope(), zValidator("query", pageQuery()), async (c) => {
+  const { page, limit } = c.req.valid("query");
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
   const owner     = c.req.query("owner");
   const service   = c.req.query("service");
@@ -162,10 +163,9 @@ collections.get("/:contract", chainScope(), async (c) => {
   });
 });
 
-collections.get("/:contract/tokens", chainScope(), async (c) => {
+collections.get("/:contract/tokens", chainScope(), zValidator("query", pageQuery()), async (c) => {
   const { contract } = c.req.param();
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const sortParam = c.req.query("sort");
   const sort: "recent" | "oldest" | "name" | "price" =
     sortParam === "oldest" || sortParam === "name" || sortParam === "price"

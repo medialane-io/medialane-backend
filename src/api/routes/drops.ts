@@ -1,3 +1,4 @@
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import type { Drop, DropMint, Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
@@ -5,6 +6,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp } from "../../utils/caller.js";
 import { dropFeeBps } from "../../orchestrator/intent/fee.js";
+import { pageQuery } from "../http/page.js";
 
 export type DropListStatus = "live" | "upcoming" | "ended";
 
@@ -75,12 +77,6 @@ export function serializeDropMint(m: DropMint) {
   };
 }
 
-const paging = (c: { req: { query(k: string): string | undefined } }) => {
-  const page = Math.max(1, Number(c.req.query("page") ?? 1) || 1);
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24) || 24));
-  return { page, limit };
-};
-
 const contractParam = (raw: string): string | null => {
   try {
     return normalizeAddress("STARKNET", raw);
@@ -91,8 +87,8 @@ const contractParam = (raw: string): string | null => {
 
 const drops = new Hono<AppEnv>();
 
-drops.get("/", async (c) => {
-  const { page, limit } = paging(c);
+drops.get("/", zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const { page, limit } = c.req.valid("query");
   const status = c.req.query("status");
   const organizerRaw = c.req.query("organizer");
   const organizer = organizerRaw ? contractParam(organizerRaw) : undefined;
@@ -119,10 +115,10 @@ drops.get("/:contract", async (c) => {
   return c.json({ data: serializeDrop(row) });
 });
 
-drops.get("/:contract/mints", async (c) => {
+drops.get("/:contract/mints", zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const collectionAddress = contractParam(c.req.param("contract"));
   if (!collectionAddress) return c.json({ error: "Invalid contract address" }, 400);
-  const { page, limit } = paging(c);
+  const { page, limit } = c.req.valid("query");
   const where = { chain: "STARKNET" as const, collectionAddress };
   const [rows, total] = await Promise.all([
     prisma.dropMint.findMany({ where, orderBy: [{ blockNumber: "desc" }, { logIndex: "desc" }], skip: (page - 1) * limit, take: limit }),

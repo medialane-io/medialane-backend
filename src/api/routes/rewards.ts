@@ -1,8 +1,10 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import { ACTIONS, BADGES, LEVELS } from "../../rewards/config.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:rewards");
 
@@ -110,10 +112,8 @@ rewards.get("/:address", async (c) => {
   });
 });
 
-rewards.get("/", async (c) => {
-  const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
-  const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") ?? "50", 10)));
-  const skip = (page - 1) * limit;
+rewards.get("/", zValidator("query", pageQuery({ defaultLimit: 50 })), async (c) => {
+  const { page, limit, skip } = c.req.valid("query");
 
   const [total, scores] = await Promise.all([
     prisma.userScore.count(),
@@ -150,11 +150,9 @@ rewards.get("/", async (c) => {
   });
 });
 
-rewards.get("/:address/events", async (c) => {
+rewards.get("/:address/events", zValidator("query", pageQuery()), async (c) => {
   const address = normalizeAddress("STARKNET", c.req.param("address"));
-  const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
-  const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") ?? "20", 10)));
-  const skip = (page - 1) * limit;
+  const { page, limit, skip } = c.req.valid("query");
 
   const [total, events] = await Promise.all([
     prisma.pointEvent.count({ where: { address } }),

@@ -1,3 +1,4 @@
+import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
@@ -5,6 +6,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
 import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
 import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const sponsorship = new Hono<AppEnv>();
 
@@ -23,12 +25,6 @@ function serializeProposal(p: SponsorshipProposal) {
 }
 function serializeLicense(l: SponsorshipLicense) {
   return l;
-}
-
-function parsePage(c: { req: { query: (k: string) => string | undefined } }) {
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
-  return { page, limit };
 }
 
 export async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined, db: Db = prisma) {
@@ -54,9 +50,9 @@ export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db:
   return held.map((t) => t.tokenId);
 }
 
-sponsorship.get("/offers", chainFilterScope(), async (c) => {
+sponsorship.get("/offers", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chainFilter = c.get("chainFilter");
-  const { page, limit } = parsePage(c);
+  const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
   const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
   const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
@@ -90,9 +86,9 @@ sponsorship.get("/offers/:offerId/bids", chainScope(), async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-sponsorship.get("/proposals", chainFilterScope(), async (c) => {
+sponsorship.get("/proposals", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chainFilter = c.get("chainFilter");
-  const { page, limit } = parsePage(c);
+  const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
   const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
   const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
@@ -117,9 +113,9 @@ sponsorship.get("/proposals/:proposalId", chainScope(), async (c) => {
   return c.json({ data: serializeProposal(proposal) });
 });
 
-sponsorship.get("/licenses", chainFilterScope(), async (c) => {
+sponsorship.get("/licenses", chainFilterScope(), zValidator("query", pageQuery({ defaultLimit: 24 })), async (c) => {
   const chainFilter = c.get("chainFilter");
-  const { page, limit } = parsePage(c);
+  const { page, limit } = c.req.valid("query");
   const holderRaw = c.req.query("holder");
 
   let tokenIdFilter: { in: string[] } | undefined;
