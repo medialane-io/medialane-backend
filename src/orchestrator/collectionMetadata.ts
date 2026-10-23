@@ -1,6 +1,6 @@
-import { Contract, shortString } from "starknet";
 import { type Chain, type Prisma, type TokenStandard } from "@prisma/client";
-import { callRpc, normalizeAddress } from "../utils/starknet.js";
+import { chainCallAt } from "../chainRead/call.js";
+import { detectStandard, readCollectionInfo, readOwner } from "../chainRead/collectionInfo.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
 import { worker } from "./worker.js";
@@ -9,65 +9,7 @@ import { metadataAttributes } from "../utils/metadataAttributes.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
-const INTERFACE_ID_SRC5_ERC721  = "0x33eb2f84c309543403fd69f0d0f363781ef06ef6faeb0131ff16ea3175bd943";
-const INTERFACE_ID_SRC5_ERC1155 = "0x6114a8f75559e1b39fcba08ce02961a1aa082d9256a158dd3e64964e4b1b52";
-
-const INTERFACE_ID_ERC165_ERC721  = "0x80ac58cd";
-const INTERFACE_ID_ERC165_ERC1155 = "0xd9b67a26";
-
-const ERC1155_PROBE_IDS = [INTERFACE_ID_SRC5_ERC1155, INTERFACE_ID_ERC165_ERC1155];
-const ERC721_PROBE_IDS  = [INTERFACE_ID_SRC5_ERC721, INTERFACE_ID_ERC165_ERC721];
-
-const SUPPORTS_INTERFACE_ABI = [
-  {
-    type: "function",
-    name: "supports_interface",
-    inputs: [{ name: "interface_id", type: "core::felt252" }],
-    outputs: [{ type: "core::bool" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "supportsInterface",
-    inputs: [{ name: "interfaceId", type: "core::felt252" }],
-    outputs: [{ type: "core::bool" }],
-    state_mutability: "view",
-  },
-];
-
-const OWNER_ABI = [
-  {
-    type: "function",
-    name: "owner",
-    inputs: [],
-    outputs: [{ type: "core::starknet::contract_address::ContractAddress" }],
-    state_mutability: "view",
-  },
-];
-
-const ERC721_INFO_ABI_FELT = [
-  {
-    type: "function",
-    name: "name",
-    inputs: [],
-    outputs: [{ type: "core::felt252" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "symbol",
-    inputs: [],
-    outputs: [{ type: "core::felt252" }],
-    state_mutability: "view",
-  },
-  {
-    type: "function",
-    name: "base_uri",
-    inputs: [],
-    outputs: [{ type: "core::felt252" }],
-    state_mutability: "view",
-  },
-];
+const bestEffort = <T>(read: Promise<T>, fallback: T): Promise<T> => read.catch(() => fallback);
 
 /** The on-chain base URI when the contract exposes one, else the one indexed from its factory event. */
 export function resolveCollectionBaseUri(onchain: string, stored: string | null | undefined): string {
@@ -125,15 +67,7 @@ export async function handleCollectionMetadataFetch(payload: {
         return;
       }
 
-      try {
-        const rawOwner = await callRpc((provider) => {
-          const ownerContract = new Contract({ abi: OWNER_ABI as any, address: contractAddress, providerOrAccount: provider });
-          return (ownerContract as any).owner();
-        });
-        if (rawOwner) onchainOwner = normalizeAddress("STARKNET", rawOwner.toString());
-      } catch {
-
-      }
+      onchainOwner = await bestEffort(readOwner(chainCallAt("latest"), contractAddress), null);
     }
 
     const canonicalBaseUri = existing?.baseUri || onchainBaseUri || "";
@@ -193,14 +127,7 @@ export async function handleCollectionMetadataFetch(payload: {
     const resolvedName = name || existing?.name || "";
     const { description, image, owner: intentOwner } = await findIntentMetadata(resolvedName);
 
-    let onChainOwner: string | null = null;
-    try {
-      const raw = await callRpc((provider) => {
-        const ownerContract = new Contract({ abi: OWNER_ABI as any, address: contractAddress, providerOrAccount: provider });
-        return (ownerContract as any).owner();
-      });
-      if (raw) onChainOwner = normalizeAddress("STARKNET", raw.toString());
-    } catch {  }
+    const onChainOwner = await bestEffort(readOwner(chainCallAt("latest"), contractAddress), null);
 
     const detected = await detectTokenStandard(contractAddress);
     const standard = existing?.service
@@ -261,146 +188,22 @@ function resolveStandardByService(
   return detected;
 }
 
-export async function detectTokenStandard(contractAddress: string): Promise<TokenStandard | null> {
-  for (const fn of ["supports_interface", "supportsInterface"]) {
-    try {
-      for (const id of ERC1155_PROBE_IDS) {
-        const result = await callRpc((provider) => {
-          const contract = new Contract({ abi: SUPPORTS_INTERFACE_ABI as any, address: contractAddress, providerOrAccount: provider });
-          return (contract as any)[fn](id);
-        });
-        if (result === true || result === 1n || String(result) === "1") return "ERC1155";
-      }
-      for (const id of ERC721_PROBE_IDS) {
-        const result = await callRpc((provider) => {
-          const contract = new Contract({ abi: SUPPORTS_INTERFACE_ABI as any, address: contractAddress, providerOrAccount: provider });
-          return (contract as any)[fn](id);
-        });
-        if (result === true || result === 1n || String(result) === "1") return "ERC721";
-      }
-      return null;
-    } catch {
-
-    }
-  }
-
-  return null;
+export function detectTokenStandard(contractAddress: string): Promise<TokenStandard | null> {
+  return bestEffort(detectStandard(chainCallAt("latest"), contractAddress), null);
 }
 
 function isOwnService(service: string | null | undefined): boolean {
   return service != null && !service.startsWith("external-");
 }
 
-async function fetchCollectionOnChainInfo(
+function fetchCollectionOnChainInfo(
   contractAddress: string,
   allowLegacyFallback: boolean
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
-
-  try {
-    const [name, symbol, baseUri] = await Promise.all([
-      callViewByteArrayUtf8(contractAddress, "name"),
-      callViewByteArrayUtf8(contractAddress, "symbol"),
-      callViewByteArrayUtf8(contractAddress, "base_uri"),
-    ]);
-    if (name || symbol) {
-      return { name: name ?? "", symbol: symbol ?? "", baseUri: baseUri ?? "" };
-    }
-  } catch {
-
-  }
-
-  if (!allowLegacyFallback) {
-
-    return { name: "", symbol: "", baseUri: "" };
-  }
-
-  try {
-    const [nameRaw, symbolRaw, baseUriRaw] = await Promise.all([
-      callView(contractAddress, "name"),
-      callView(contractAddress, "symbol"),
-      callView(contractAddress, "base_uri"),
-    ]);
-    const name = decodeField(nameRaw);
-    const symbol = decodeField(symbolRaw);
-    const baseUri = decodeField(baseUriRaw);
-    if (name || symbol) {
-      return { name, symbol, baseUri };
-    }
-  } catch {
-
-  }
-
-  return { name: "", symbol: "", baseUri: "" };
-}
-
-async function callView(contractAddress: string, fn: string): Promise<unknown> {
-  try {
-    return await callRpc((provider) => {
-      const contract = new Contract({ abi: ERC721_INFO_ABI_FELT as any, address: contractAddress, providerOrAccount: provider });
-      return (contract as any)[fn]();
-    });
-  } catch {
-    return null;
-  }
-}
-
-function decodeField(raw: unknown): string {
-  if (raw == null) return "";
-  if (typeof raw === "string") return raw;
-  if (typeof raw === "bigint") {
-    try {
-      const hex = raw.toString(16);
-      const paddedHex = hex.length % 2 === 0 ? hex : "0" + hex;
-      const bytes: number[] = [];
-      for (let i = 0; i < paddedHex.length; i += 2) {
-        const b = parseInt(paddedHex.slice(i, i + 2), 16);
-        if (b !== 0) bytes.push(b);
-      }
-
-      try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes));
-      } catch {
-
-        return shortString.decodeShortString(raw.toString());
-      }
-    } catch {
-      return raw.toString();
-    }
-  }
-  return "";
-}
-
-async function callViewByteArrayUtf8(
-  contractAddress: string,
-  fn: string
-): Promise<string | null> {
-  try {
-    const res = await callRpc((provider) => provider.callContract({
-      contractAddress,
-      entrypoint: fn,
-      calldata: [],
-    }));
-    const felts: string[] = res as unknown as string[];
-    if (!felts || felts.length < 3) return null;
-    const dataLen = Number(BigInt(felts[0]));
-    if (felts.length < 1 + dataLen + 2) return null;
-    const pendingWord = BigInt(felts[1 + dataLen]);
-    const pendingWordLen = Number(BigInt(felts[2 + dataLen]));
-    const bytes = new Uint8Array(dataLen * 31 + pendingWordLen);
-    let offset = 0;
-    for (let i = 0; i < dataLen; i++) {
-      const value = BigInt(felts[1 + i]);
-      for (let j = 0; j < 31; j++) {
-        bytes[offset++] = Number((value >> BigInt((30 - j) * 8)) & 0xffn);
-      }
-    }
-    for (let j = 0; j < pendingWordLen; j++) {
-      bytes[offset++] = Number((pendingWord >> BigInt((pendingWordLen - 1 - j) * 8)) & 0xffn);
-    }
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return null;
-  }
+  return bestEffort(
+    readCollectionInfo(chainCallAt("latest"), contractAddress, { legacy: allowLegacyFallback }),
+    { name: "", symbol: "", baseUri: "" },
+  );
 }
 
 async function findIntentMetadata(
