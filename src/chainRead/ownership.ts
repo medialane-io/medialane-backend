@@ -3,6 +3,7 @@ import type { ParsedEvent } from "../types/marketplace.js";
 import { mapWithConcurrency } from "../utils/retry.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { callEither, chainCallAt, u256Calldata, type CallContract } from "./call.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 export type OwnershipKey =
   | { standard: "ERC721"; contractAddress: string; tokenId: string }
@@ -52,7 +53,7 @@ export async function readOwnership(keys: OwnershipKey[], call: CallContract = c
       return { ...key, owner: owner === ZERO_ADDRESS ? null : owner };
     }
     const res = await callEither(call, key.contractAddress, ["balance_of", "balanceOf"], [key.owner, ...u256Calldata(key.tokenId)]);
-    const amount = res ? BigInt(res[0] ?? "0x0") + (BigInt(res[1] ?? "0x0") << 128n) : 0n;
+    const amount = res ? u256ToBigInt(res[0] ?? "0x0", res[1] ?? "0x0") : 0n;
     return { ...key, amount };
   });
 }

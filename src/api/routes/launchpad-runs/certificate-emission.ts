@@ -21,21 +21,13 @@ import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokeniz
 import { assertOwnsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
+import { sameFelt } from "../../../utils/felt.js";
 
 const log = createLogger("routes:launchpad-runs:certificate-emission");
 
 const SERVICE = "certificate-emission";
 
 const walletRequest = z.object({ recipient: z.string().email() });
-
-const sameFelt = (a: string | undefined, b: string | undefined) => {
-  if (!a || !b) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
-};
 
 /** Address of the collection created in `events` by `factory`, from POP `CollectionCreated`. */
 export function createdPopCollection(events: ReceiptEvent[], factory: string): string | null {

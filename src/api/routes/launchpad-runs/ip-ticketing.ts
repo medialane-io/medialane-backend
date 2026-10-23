@@ -16,11 +16,12 @@ import {
   collectionImageUri,
   ticketCollectionImage,
 } from "../../../launchpad/services/ip-ticketing/progress.js";
-import { buildCollectionMetadata } from "@medialane/sdk";
+import { buildCollectionMetadata, u256ToBigInt } from "@medialane/sdk";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
 import { assertOwnsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
+import { sameFelt } from "../../../utils/felt.js";
 
 const log = createLogger("routes:launchpad-runs:ip-ticketing");
 
@@ -32,15 +33,6 @@ interface ActiveRun extends ActiveBase {
   spec: IpTicketingSpec;
   progress: IpTicketingProgress;
 }
-
-const sameFelt = (a: string | undefined, b: string | undefined) => {
-  if (!a || !b) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
-};
 
 export function createdCollectionAddress(events: ReceiptEvent[], factory: string): string | null {
   for (const event of events) {
@@ -56,7 +48,7 @@ export function createdTicketId(events: ReceiptEvent[], collection: string): str
     if (!sameFelt(event.from_address, collection) || !sameFelt(event.keys?.[0], TICKET_CREATED_SELECTOR)) continue;
     const low = event.keys?.[1];
     if (!low) continue;
-    return (BigInt(low) + (BigInt(event.keys?.[2] ?? "0x0") << 128n)).toString();
+    return u256ToBigInt(low, event.keys?.[2] ?? "0x0").toString();
   }
   return null;
 }

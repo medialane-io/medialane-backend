@@ -12,6 +12,7 @@ import { pollContractEvents } from "../poller.js";
 import { getBlockTimestamp } from "../../utils/blockTimestamp.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 const log = createLogger("mirror:dropCollection");
 
@@ -20,7 +21,7 @@ export type DropCollectionEvent =
   | { type: "root"; collectionAddress: string; root: string };
 
 const hex = (v: string | bigint) => "0x" + BigInt(v).toString(16);
-const u256 = (low: string | undefined, high: string | undefined) => (BigInt(low ?? "0x0") + (BigInt(high ?? "0x0") << 128n)).toString();
+const u256 = (low: string | undefined, high: string | undefined) => u256ToBigInt(low ?? "0x0", high ?? "0x0").toString();
 const CLAIMED = hex(DROP_CLAIMED_SELECTOR);
 const ISSUED = hex(DROP_ISSUED_SELECTOR);
 const ROOT_SET = hex(DROP_ALLOWLIST_ROOT_SET_SELECTOR);

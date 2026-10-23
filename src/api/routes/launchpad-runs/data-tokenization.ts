@@ -25,6 +25,7 @@ import { buildSponsoredInvoke } from "../paymaster.js";
 import { assertOwnsWallet, indexParam, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
+import { sameFelt } from "../../../utils/felt.js";
 
 const log = createLogger("routes:launchpad-runs:data-tokenization");
 
@@ -36,15 +37,6 @@ interface ActiveRun extends ActiveBase {
   spec: DataTokenizationSpec;
   progress: DataTokenizationProgress;
 }
-
-const sameFelt = (a: string | undefined, b: string | undefined) => {
-  if (!a || !b) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
-};
 
 export function createdCollectionId(events: ReceiptEvent[], registry: string): string | null {
   for (const event of events) {

@@ -5,6 +5,7 @@ import { upsertCoin } from "../../utils/coin.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 const log = createLogger("mirror:creatorCoinFactory");
 
@@ -30,7 +31,7 @@ export async function handleCreatorCoinCreated(event: RawStarknetEvent): Promise
     const name = decodeShortStr(data[1]);
     const symbol = decodeShortStr(data[2]);
 
-    const totalSupply = (BigInt(data[3]) + (BigInt(data[4]) << 128n)).toString();
+    const totalSupply = u256ToBigInt(data[3], data[4]).toString();
     const coinAddress = normalizeAddress("STARKNET", data[5]);
 
     if (coinAddress === ZERO_ADDRESS) {

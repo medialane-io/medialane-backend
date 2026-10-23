@@ -2,6 +2,7 @@ import { createLogger } from "../utils/logger.js";
 import { normalizeAddress, normalizeHash } from "../utils/starknet.js";
 import { tokenByAddress } from "../payments/token-value.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 const log = createLogger("funding:deposits");
 
@@ -41,9 +42,7 @@ export function parseDepositEvents(events: RawStarknetEvent[], treasury: string)
       if (!ev.keys?.[2] || normalizeAddress("STARKNET", ev.keys[2]) !== to) continue;
       if (!ev.keys[1] || !ev.data?.[0]) continue;
 
-      const low = BigInt(ev.data[0]);
-      const high = ev.data[1] ? BigInt(ev.data[1]) : 0n;
-      const amountAtomic = low + (high << 128n);
+      const amountAtomic = u256ToBigInt(ev.data[0], ev.data[1] || "0x0");
       if (amountAtomic === 0n) continue;
 
       const txHash = normalizeHash(ev.transaction_hash);

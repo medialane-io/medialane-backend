@@ -9,6 +9,7 @@ import { attachDeployedWallet } from "../../utils/account.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
 import type { AppEnv } from "../../types/hono.js";
+import { sameFelt } from "../../utils/felt.js";
 
 const log = createLogger("routes:paymaster");
 
@@ -85,14 +86,6 @@ interface SignedCall {
   To?: unknown;
   Selector?: unknown;
   Calldata?: unknown;
-}
-
-function sameFelt(a: unknown, b: unknown): boolean {
-  try {
-    return BigInt(a as string) === BigInt(b as string);
-  } catch {
-    return false;
-  }
 }
 
 function isEmptyCall(call: SignedCall): boolean {

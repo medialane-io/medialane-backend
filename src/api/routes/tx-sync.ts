@@ -21,6 +21,7 @@ import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { validated } from "../http/validate.js";
+import { sameFelt } from "../../utils/felt.js";
 
 const log = createLogger("routes:tx-sync");
 
@@ -85,15 +86,6 @@ const RECEIPT_APPLIED_FACTORY_SOURCES = new Set([
 export interface FactoryBatch {
   source: EventSource;
   events: RawStarknetEvent[];
-}
-
-function sameFelt(a: string | undefined, b: string): boolean {
-  if (a === undefined) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
 }
 
 export function factoryBatches(events: RawStarknetEvent[]): FactoryBatch[] {
