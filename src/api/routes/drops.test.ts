@@ -91,3 +91,18 @@ describe("buildDropListWhere organizer", () => {
     expect(where.organizer).toBe(normalizeAddress("STARKNET", "0xabc"));
   });
 });
+
+describe("drops on a chain", () => {
+  test("the list filter is scoped to the requested chain and reads the organizer in that chain's form", () => {
+    const evm = `0x${"ab".repeat(20)}`;
+    const where = buildDropListWhere({ now: NOW, chain: "BASE", organizer: evm }, maxSupplyColumn);
+    expect(where.chain).toBe("BASE");
+    expect(where.organizer).toBe(normalizeAddress("BASE", evm));
+  });
+
+  test.each(["/?chain=base", "/0x1?chain=base", "/0x1/mints?chain=base"])("%s is refused when the chain is not served", async (path) => {
+    const res = await drops.request(path);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Invalid chain" });
+  });
+});
