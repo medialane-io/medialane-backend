@@ -56,3 +56,7 @@ test.each(["image", "document", "media"] as const)("a %s signed URL allows the u
   expect(options.maxFileSize).toBe(MAX_UPLOAD_BYTES);
   expect(options.mimeTypes).toEqual([...UPLOAD_LIMITS[kind].mimeTypes]);
 });
+
+test("an image signed URL accepts AVIF", () => {
+  expect(signedUrlOptions("image").mimeTypes).toContain("image/avif");
+});
