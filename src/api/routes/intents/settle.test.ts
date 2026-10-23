@@ -2,6 +2,8 @@ import { test, expect, mock } from "bun:test";
 import { num } from "starknet";
 import { ORDER_CANCELLED_SELECTOR_HEX } from "./_shared.js";
 
+const actualTxVerifier = await import("../../../utils/txVerifier.js");
+
 const ORDER_HASH = "0x1234";
 const OTHER_ORDER_HASH = "0x5678";
 const OFFERER = "0x1111";
@@ -24,6 +26,7 @@ test("hydrateCancellationFromTx does not mark an order cancelled when the tx has
     default: { $transaction: mock((fn: (tx: unknown) => unknown) => fn({})) },
   }));
   mock.module("../../../utils/txVerifier.js", () => ({
+    ...actualTxVerifier,
     verifyMarketplaceTx: mock(),
     verifyTransactionSucceeded: mock(),
     checkOnChainOrderCancelled: mock(),
@@ -46,6 +49,7 @@ test("hydrateCancellationFromTx marks the order cancelled only for a matching Or
     default: { $transaction: mock((fn: (tx: unknown) => unknown) => fn({})) },
   }));
   mock.module("../../../utils/txVerifier.js", () => ({
+    ...actualTxVerifier,
     verifyMarketplaceTx: mock(),
     verifyTransactionSucceeded: mock(),
     checkOnChainOrderCancelled: mock(),

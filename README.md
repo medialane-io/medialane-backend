@@ -40,7 +40,7 @@ bun dev                 # API
 bun run dev:worker      # indexer and background jobs
 ```
 
-Before opening a pull request, run `bun run typecheck` and `bun test src`.
+Before opening a pull request, run `bun run typecheck` and `bun test --isolate src`.
 
 ---
 
