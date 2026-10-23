@@ -13,6 +13,7 @@ import { createProvider, isContractNotFound, normalizeAddress } from "../../util
 import { IO_APP } from "../../utils/caller.js";
 import { provisioningKey, type ProvisioningKey } from "../../utils/provisioningKey.js";
 import { bill } from "../../payments/usage.js";
+import { provisioningRegisterSchema } from "@medialane/sdk/contract";
 
 export interface BusinessProvisioningDeps {
   findIoAccount: (email: string) => Promise<{ accountId: string; walletAddress: string | null } | null>;
@@ -25,12 +26,7 @@ export interface BusinessProvisioningDeps {
   linkWallet: (input: { chain: Chain; walletAddress: string; accountId: string }) => Promise<void>;
 }
 
-const registerSchema = z.object({
-  chain: z.enum(["STARKNET"]).default("STARKNET"),
-  email: z.string().email(),
-});
-
-export type RegisterInput = z.infer<typeof registerSchema>;
+export type RegisterInput = z.infer<typeof provisioningRegisterSchema>;
 
 export type RegisterResult =
   | { status: 200 | 201; walletAddress: string; reused: boolean }
@@ -72,7 +68,7 @@ export async function registerProvisioning(deps: BusinessProvisioningDeps, input
 export function createBusinessProvisioningRoutes(deps: BusinessProvisioningDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.post("/", validated("json", registerSchema), async (c) => {
+  app.post("/", validated("json", provisioningRegisterSchema), async (c) => {
     const input = c.req.valid("json");
     const result = await registerProvisioning(deps, input);
     if (result.status === 502) {

@@ -15,7 +15,7 @@ import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 import { liveDescription } from "../utils/liveDescription.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();

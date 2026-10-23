@@ -20,7 +20,7 @@ import type {
   FulfillOrderIntentBody,
   CancelOrderIntentBody,
   CounterOfferIntentBody,
-} from "../../types/api.js";
+} from "../../types/intents.js";
 import prisma from "../../db/client.js";
 import { buildOrderParams, fetchCounter, fetchCounter1155, fetchRoyaltyMaxBps, generateSalt, parseAmount, toHex } from "./shared.js";
 

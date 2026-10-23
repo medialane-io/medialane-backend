@@ -13,7 +13,7 @@ import {
 import { batchTokenMeta } from "../utils/serialize.js";
 import { mergeFeed, activityItemToken, MAX_FEED_DEPTH, type ActivityFeedItem } from "./activities.feed.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 
 const activities = new Hono();
 

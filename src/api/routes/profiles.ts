@@ -1,6 +1,5 @@
 import { IDENTITY_SCHEME } from "../../utils/identity.js";
 import { Hono } from "hono";
-import { z } from "zod";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -12,47 +11,12 @@ import { createLogger } from "../../utils/logger.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
 import type { AppEnv } from "../../types/hono.js";
 import { chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
+import { collectionProfileSchema, creatorProfileSchema } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:profiles");
 
 const profiles = new Hono<AppEnv>();
-
-const urlField = z.preprocess(
-  (v) => (typeof v === "string" && v.trim() === "" ? null : v),
-  z
-    .string()
-    .url()
-    .refine((v) => v.startsWith("https://") || v.startsWith("http://"), {
-      message: "URL must use http or https scheme",
-    })
-    .nullable()
-    .optional(),
-);
-
-const collectionProfileSchema = z.object({
-  displayName: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
-  image: z.string().nullable().optional(),
-  bannerImage: z.string().nullable().optional(),
-  websiteUrl: urlField,
-  twitterUrl: urlField,
-  discordUrl: urlField,
-  telegramUrl: urlField,
-  gatedContentTitle: z.string().max(100).nullable().optional(),
-  gatedContentUrl: urlField,
-  gatedContentType: z.enum(["VIDEO", "STREAM", "AUDIO", "DOCUMENT", "LINK"]).nullable().optional(),
-});
-
-const creatorProfileSchema = z.object({
-  name: z.string().nullable().optional(),
-  bio: z.string().nullable().optional(),
-  avatarImage: z.string().nullable().optional(),
-  websiteUrl: urlField,
-  twitterUrl: urlField,
-  discordUrl: urlField,
-  telegramUrl: urlField,
-});
 
 profiles.get("/collections/:contract/profile", chainScope(), async (c) => {
   const chain = c.get("chain");

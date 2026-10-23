@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { checkoutBodySchema, normalizeCheckoutItems } from "./_shared.js";
+import { starknet } from "@medialane/sdk/contract";
+import { normalizeCheckoutItems } from "./_shared.js";
+
+const { checkoutBodySchema } = starknet;
 
 test("accepts the legacy orderHashes array", () => {
   const parsed = checkoutBodySchema.safeParse({ fulfiller: "0x1", orderHashes: ["0xa", "0xb"] });

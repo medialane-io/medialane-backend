@@ -14,7 +14,7 @@ import { parseStandardFilter } from "./collections.standardFilter.js";
 import { includeBalances } from "./collections.tokenBalances.js";
 import { registerCollectionSyncRoutes } from "./collections-sync.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:collections");
 

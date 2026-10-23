@@ -1,6 +1,5 @@
 
 
-import { z } from "zod";
 import { num } from "starknet";
 import { createLogger } from "../../../utils/logger.js";
 import {
@@ -9,205 +8,12 @@ import {
   ORDER_CANCELLED_SELECTOR,
   getTokenByAddress,
 } from "../../../config/constants.js";
-import { FACTORY_FAMILY_SERVICE_IDS, TIER_SERVICE_IDS, COLLECTION_SERVICE_IDS } from "../../../orchestrator/intent/index.js";
 import type { parseEvents } from "../../../mirror/parser.js";
 import type { ParsedTransfer, ParsedTransferBatch, ParsedTransferSingle } from "../../../types/marketplace.js";
 
 export const log = createLogger("routes:intents");
 
 export const TTL_HOURS = 24;
-
-export const starknetAddress = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address");
-
-export const listingSchema = z.object({
-  offerer: starknetAddress,
-  nftContract: starknetAddress,
-  tokenId: z.string(),
-  currency: z.string(),
-  price: z.string(),
-  endTime: z.number(),
-  salt: z.string().optional(),
-
-  amount: z.string().optional(),
-});
-
-export const offerSchema = listingSchema.extend({
-  tokenStandard: z.enum(["ERC721", "ERC1155"]).optional(),
-  quantity: z.string().optional(),
-});
-
-export const fulfillSchema = z.object({
-  fulfiller: starknetAddress,
-  orderHash: z.string(),
-  tokenStandard: z.enum(["ERC721", "ERC1155"]).optional(),
-  quantity: z.string().optional(),
-});
-
-export const cancelSchema = z.object({
-  offerer: starknetAddress,
-  orderHash: z.string(),
-  tokenStandard: z.enum(["ERC721", "ERC1155"]).optional(),
-});
-
-export const mintSchema = z.object({
-  owner: starknetAddress,
-  recipient: starknetAddress,
-
-  collectionId: z.string().regex(/^\d+$/, "collectionId must be a non-negative integer string").optional(),
-  tokenUri: z.string().min(1).optional(),
-
-  royaltyBps: z.number().int().min(0).max(10000).optional().default(0),
-
-  tokenId: z.string().regex(/^\d+$/, "tokenId must be a non-negative integer string").optional(),
-  amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string").optional(),
-  value: z.string().regex(/^\d+$/, "value must be a non-negative integer string").optional(),
-  collectionContract: starknetAddress.optional(),
-});
-
-const felt = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "must be a hex felt");
-
-export const createCollectionSchema = z.object({
-  owner: starknetAddress,
-  name: z.string().min(1),
-  symbol: z.string().min(1),
-  baseUri: z.string().default(""),
-  description: z.string().optional(),
-  image: z.string().optional(),
-  collectionContract: starknetAddress.optional(),
-
-  service: z.enum(COLLECTION_SERVICE_IDS).optional(),
-
-  claimEndTimestamp: z.number().int().nonnegative().optional(),
-
-  maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string").optional(),
-  terms: z.object({
-    startTime: z.number().int().nonnegative(),
-    endTime: z.number().int().nonnegative(),
-    price: z.string().regex(/^\d+$/, "price must be a non-negative integer string"),
-    paymentToken: starknetAddress,
-    maxPerWallet: z.string().regex(/^\d+$/, "maxPerWallet must be a non-negative integer string"),
-  }).optional(),
-  allowlistRoot: felt.optional(),
-});
-
-export const createTierSchema = z.object({
-  owner: starknetAddress,
-  collection: starknetAddress,
-  service: z.enum(TIER_SERVICE_IDS),
-  maxSupply: z.string().regex(/^\d+$/, "maxSupply must be a non-negative integer string"),
-  startTime: z.number().int().nonnegative().optional(),
-  endTime: z.number().int().nonnegative().optional(),
-  royaltyBps: z.number().int().min(0).max(10000).default(0),
-  metadataUri: z.string().min(1),
-});
-
-export const createCoinSchema = z.object({
-  owner: starknetAddress,
-  name: z.string().min(1),
-  symbol: z.string().min(1),
-  initialSupply: z.string().regex(/^\d+$/, "initialSupply must be a non-negative integer string"),
-  salt: z.string().optional(),
-});
-
-export const launchCoinSchema = z.object({
-  owner: starknetAddress,
-  creatorCoin: starknetAddress,
-  quoteToken: starknetAddress,
-  price: z.number().positive(),
-  initialHolders: z.array(starknetAddress).default([]),
-  initialHoldersAmounts: z.array(z.string().regex(/^\d+$/, "must be a non-negative integer string")).default([]),
-  transferRestrictionDelay: z.number().int().nonnegative().optional(),
-  maxPercentageBuyLaunch: z.number().int().nonnegative().optional(),
-  quoteFundAmount: z.string().regex(/^\d+$/, "quoteFundAmount must be a non-negative integer string").optional(),
-});
-
-export const sponsorshipOfferSchema = z.object({
-  author: starknetAddress,
-  nftContract: starknetAddress,
-  tokenId: z.string(),
-  minAmount: z.string().regex(/^\d+$/, "minAmount must be a non-negative integer string"),
-  duration: z.number().int().positive(),
-  paymentToken: starknetAddress,
-  licenseTermsUri: z.string().min(1),
-  transferable: z.boolean(),
-  royaltyBps: z.number().int().min(0).max(10000).default(0),
-  specificSponsor: starknetAddress.optional(),
-});
-
-export const sponsorshipOfferOpenSchema = z.object({
-  author: starknetAddress,
-  offerId: z.string(),
-  open: z.boolean(),
-});
-
-export const sponsorshipBidSchema = z.object({
-  sponsor: starknetAddress,
-  offerId: z.string(),
-  amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string"),
-  paymentToken: starknetAddress,
-});
-
-export const sponsorshipBidRetractSchema = z.object({
-  sponsor: starknetAddress,
-  offerId: z.string(),
-});
-
-export const sponsorshipBidAcceptSchema = z.object({
-  author: starknetAddress,
-  offerId: z.string(),
-  sponsor: starknetAddress,
-});
-
-export const sponsorshipProposalSchema = z.object({
-  proposer: starknetAddress,
-  nftContract: starknetAddress,
-  tokenId: z.string(),
-  amount: z.string().regex(/^\d+$/, "amount must be a non-negative integer string"),
-  duration: z.number().int().positive(),
-  validUntil: z.number().int().nonnegative().optional(),
-  paymentToken: starknetAddress,
-  licenseTermsUri: z.string().min(1),
-  transferable: z.boolean(),
-  royaltyBps: z.number().int().min(0).max(10000).default(0),
-});
-
-export const sponsorshipProposalWithdrawSchema = z.object({
-  proposer: starknetAddress,
-  proposalId: z.string(),
-});
-
-export const sponsorshipProposalAcceptSchema = z.object({
-  owner: starknetAddress,
-  proposalId: z.string(),
-});
-
-export const sponsorshipProposalRejectSchema = z.object({
-  owner: starknetAddress,
-  proposalId: z.string(),
-});
-
-export const counterOfferSchema = z.object({
-  sellerAddress:     z.string().min(1),
-  originalOrderHash: z.string().min(1),
-  durationSeconds:   z.number().int().min(3600).max(2592000),
-  priceRaw:          z.string().regex(/^\d+$/, "priceRaw must be a non-negative integer string"),
-  message:           z.string().max(500).optional(),
-});
-
-const checkoutItemSchema = z.object({
-  orderHash: z.string().min(1),
-  quantity: z.string().regex(/^[1-9][0-9]*$/).optional(),
-});
-
-export const checkoutBodySchema = z
-  .object({
-    fulfiller: z.string().min(1),
-    orderHashes: z.array(z.string().min(1)).min(1).max(20).optional(),
-    items: z.array(checkoutItemSchema).min(1).max(20).optional(),
-  })
-  .refine((b) => Boolean(b.items?.length || b.orderHashes?.length), {
-    message: "Provide items or orderHashes",
-  });
 
 export interface CheckoutItemInput {
   orderHash: string;
@@ -223,14 +29,6 @@ export function normalizeCheckoutItems(body: {
   }
   return (body.orderHashes ?? []).map((orderHash) => ({ orderHash, quantity: undefined }));
 }
-
-export const confirmSchema = z.object({
-  txHash: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid transaction hash"),
-});
-
-export const signatureSchema = z.object({
-  signature: z.array(z.string()).min(1, "signature array required"),
-});
 
 export const MARKETPLACE_INTENT_TYPES = new Set([
   "CREATE_LISTING",
@@ -259,55 +57,3 @@ export function isNftTransferEvent(
     !getTokenByAddress(event.contractAddress)
   );
 }
-
-const uintString = z.string().regex(/^\d+$/, "must be a non-negative integer string");
-
-export const transferTokenSchema = z.object({ owner: starknetAddress, token: starknetAddress, recipient: starknetAddress, amount: uintString });
-export const transferNftSchema = z.object({
-  owner: starknetAddress,
-  contractAddress: starknetAddress,
-  tokenId: uintString,
-  recipient: starknetAddress,
-  tokenStandard: z.enum(["ERC721", "ERC1155"]),
-});
-export const transferCollectionOwnershipSchema = z.object({ owner: starknetAddress, collectionId: uintString, newOwner: starknetAddress });
-export const commentSchema = z.object({ author: starknetAddress, nftContract: starknetAddress, tokenId: uintString, text: z.string().trim().min(1).max(1000) });
-export const genesisMintSchema = z.object({ owner: starknetAddress, recipient: starknetAddress });
-
-
-export const popClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, proof: z.array(felt) });
-export const popBurnSchema = z.object({ owner: starknetAddress, collection: starknetAddress, tokenId: uintString });
-export const dropClaimSchema = z.object({ claimer: starknetAddress, collection: starknetAddress, quantity: uintString, proof: z.array(felt).optional() });
-
-export const walletManageSchema = z.object({
-  owner: starknetAddress,
-  action: z.enum(["add_owner", "remove_owner", "cancel_escape", "set_first_guardian", "trigger_escape", "complete_escape"]),
-  pubkey: felt.optional(),
-  ownerGuid: felt.optional(),
-  newOwnerPubkey: felt.optional(),
-});
-export const swapIntentSchema = z.object({
-  taker: starknetAddress,
-  sellTokenAddress: starknetAddress,
-  buyTokenAddress: starknetAddress,
-  sellAmountRaw: uintString.optional(),
-  buyAmountRaw: uintString.optional(),
-});
-export const fundingTransferSchema = z.object({ owner: starknetAddress, asset: starknetAddress, amountAtomic: uintString });
-
-export const dropManageSchema = z.object({
-  owner: starknetAddress,
-  collection: starknetAddress,
-  action: z.enum(["issue", "set_allowlist_root"]),
-  recipient: starknetAddress.optional(),
-  quantity: uintString.optional(),
-  root: felt.optional(),
-});
-export const popManageSchema = z.object({
-  owner: starknetAddress,
-  collection: starknetAddress,
-  action: z.enum(["issue", "set_allowlist_root"]),
-  recipient: starknetAddress.optional(),
-  tokenUri: z.string().optional(),
-  root: felt.optional(),
-});

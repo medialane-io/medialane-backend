@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { validated } from "../http/validate.js";
-import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
@@ -9,7 +8,8 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { normalizedForms } from "../utils/chainFilter.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
-import { pageQuery } from "../http/page.js";
+import { pageQuery } from "@medialane/sdk/contract";
+import { ordersListQuery } from "@medialane/sdk/contract";
 
 const orders = new Hono();
 
@@ -49,31 +49,7 @@ function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
   return conditions;
 }
 
-const listQuerySchema = z.object({
-  status: z.enum(["ACTIVE", "FULFILLED", "CANCELLED", "EXPIRED"]).optional(),
-  collection: z.string().optional(),
-  currency: z.string().optional(),
-  sort: z.enum(["price_asc", "price_desc", "recent"]).default("recent"),
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
-  offerer: z.string().optional(),
-  minPrice: z.string().regex(/^\d+$/).optional(),
-  maxPrice: z.string().regex(/^\d+$/).optional(),
-}).refine(
-  (data) => {
-    if (data.minPrice !== undefined && data.maxPrice !== undefined) {
-      try {
-        return BigInt(data.minPrice) <= BigInt(data.maxPrice);
-      } catch {
-        return false;
-      }
-    }
-    return true;
-  },
-  { message: "minPrice must be less than or equal to maxPrice", path: ["minPrice"] }
-);
-
-orders.get("/", chainFilterScope(), validated("query", listQuerySchema), async (c) => {
+orders.get("/", chainFilterScope(), validated("query", ordersListQuery), async (c) => {
   const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } = c.req.valid("query");
   const chainFilter = c.get("chainFilter");
   if (offerer && chainFilter === "all") {

@@ -6,14 +6,15 @@ import prisma from "../../../db/client.js";
 import { buildPopulatedCalls } from "../../../orchestrator/submit.js";
 import { verifyWalletSignature, type VerifyResult } from "../../../auth/verify.js";
 import type { AppEnv } from "../../../types/hono.js";
+import { starknet } from "@medialane/sdk/contract";
 import {
   log,
-  confirmSchema,
-  signatureSchema,
   MARKETPLACE_INTENT_TYPES,
   RECEIPT_HYDRATED_INTENT_TYPES,
   ORDER_CREATING_INTENT_TYPES,
 } from "./_shared.js";
+
+const { confirmSchema, signatureSchema } = starknet;
 import {
   verifyAndSettle,
   hydrateCreatedOrdersFromTx,

@@ -16,7 +16,7 @@ import type {
   WithdrawSponsorshipProposalIntentBody,
   AcceptSponsorshipProposalIntentBody,
   RejectSponsorshipProposalIntentBody,
-} from "../../types/api.js";
+} from "../../types/intents.js";
 
 function sponsorshipContract(): Contract {
   return new Contract({ abi: IPSponsorshipABI as never, address: STARKNET_IP_SPONSORSHIP_CONTRACT, providerOrAccount: createProvider() as never });
