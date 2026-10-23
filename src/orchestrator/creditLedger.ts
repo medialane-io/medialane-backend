@@ -1,5 +1,6 @@
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
+import type { Loop } from "./schedule.js";
 
 const log = createLogger("orchestrator:credit-ledger");
 
@@ -34,18 +35,16 @@ export async function findLedgerDifferences(): Promise<{ balances: BalanceDiffer
   return { balances, payments };
 }
 
-export async function startCreditLedgerLoop(): Promise<void> {
-  let delay = BOOT_DELAY_MS;
-  for (;;) {
-    await new Promise((resolve) => setTimeout(resolve, delay));
-    delay = INTERVAL_MS;
-    try {
-      const { balances, payments } = await findLedgerDifferences();
-      for (const d of balances) log.error(d, "Credit balance differs from its ledger");
-      for (const d of payments) log.error(d, "PAYMENT entry without a settled payment");
-      log.info({ balances: balances.length, payments: payments.length }, "Credit ledger reconciled");
-    } catch (err) {
-      log.error({ err }, "Credit ledger reconciliation failed");
-    }
-  }
+async function reconcile(): Promise<void> {
+  const { balances, payments } = await findLedgerDifferences();
+  for (const d of balances) log.error(d, "Credit balance differs from its ledger");
+  for (const d of payments) log.error(d, "PAYMENT entry without a settled payment");
+  log.info({ balances: balances.length, payments: payments.length }, "Credit ledger reconciled");
 }
+
+export const creditLedgerLoop: Loop = {
+  name: "credit-ledger",
+  intervalMs: INTERVAL_MS,
+  bootDelayMs: BOOT_DELAY_MS,
+  tick: reconcile,
+};

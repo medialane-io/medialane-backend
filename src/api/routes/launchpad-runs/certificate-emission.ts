@@ -18,23 +18,16 @@ import {
 } from "../../../launchpad/services/certificate-emission/progress.js";
 import { buildCollectionMetadata } from "@medialane/sdk";
 import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokenization/progress.js";
-import { ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
+import { assertOwnsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
+import { validated } from "../../http/validate.js";
+import { sameFelt } from "../../../utils/felt.js";
 
 const log = createLogger("routes:launchpad-runs:certificate-emission");
 
 const SERVICE = "certificate-emission";
 
 const walletRequest = z.object({ recipient: z.string().email() });
-
-const sameFelt = (a: string | undefined, b: string | undefined) => {
-  if (!a || !b) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
-};
 
 /** Address of the collection created in `events` by `factory`, from POP `CollectionCreated`. */
 export function createdPopCollection(events: ReceiptEvent[], factory: string): string | null {
@@ -179,17 +172,16 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {
-      app.post("/certificate-metadata", async (c) => {
+      app.post("/certificate-metadata", validated("json", walletBody, { message: "userAddress is required" }), async (c) => {
         const active = await loadActive(c);
         if (active instanceof Response) return active;
 
-        const body = walletBody.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "userAddress is required" }, 400);
-        if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        const body = c.req.valid("json");
+        await assertOwnsWallet(ctx, c, body.userAddress);
 
         let metadata: Record<string, unknown>;
         try {
-          metadata = { ...certificateMetadata(active.spec, active.progress, normalizeAddress("STARKNET", body.data.userAddress)) };
+          metadata = { ...certificateMetadata(active.spec, active.progress, normalizeAddress("STARKNET", body.userAddress)) };
         } catch (err) {
           return notReady(c, err);
         }
@@ -224,13 +216,12 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
         return c.json({ data: { pending } });
       });
 
-      app.post("/recipients", async (c) => {
+      app.post("/recipients", validated("json", walletRequest, { message: "recipient is required" }), async (c) => {
         const active = await loadActive(c);
         if (active instanceof Response) return active;
 
-        const body = walletRequest.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "recipient is required" }, 400);
-        const recipient = body.data.recipient.trim().toLowerCase();
+        const body = c.req.valid("json");
+        const recipient = body.recipient.trim().toLowerCase();
         if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
 
         const credits = await stepCredits(SERVICE, "wallet", 1, ctx.priceOf);

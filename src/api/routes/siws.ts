@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import prisma from "../../db/client.js";
@@ -11,7 +11,7 @@ import { ensureAccountForWallet } from "../../utils/account.js";
 import { callerApp } from "../../utils/caller.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
-import { parseSingleChain } from "../utils/chainFilter.js";
+import { chainScope } from "../http/chain.js";
 
 const log = createLogger("routes:siws");
 
@@ -46,10 +46,10 @@ function buildTypedData(wallet: string, nonce: string) {
 
 siws.post(
   "/nonce",
-  zValidator("json", z.object({ walletAddress: z.string().min(1) })),
+  validated("json", z.object({ walletAddress: z.string().min(1) })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { walletAddress } = c.req.valid("json");
     const wallet = normalizeAddress(chain, walletAddress);
@@ -64,15 +64,15 @@ siws.post(
 
 siws.post(
   "/verify",
-  zValidator("json", z.object({
+  validated("json", z.object({
     walletAddress: z.string().min(1),
     nonce:         z.string().min(1),
     signature:     z.array(z.string()).min(1),
     appSource:     z.string().optional(),
   })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { walletAddress, nonce, signature, appSource } = c.req.valid("json");
     const wallet = normalizeAddress(chain, walletAddress);

@@ -22,8 +22,10 @@ import {
 import { buildCollectionMetadata } from "@medialane/sdk";
 import { registryMintCalls, type RegistryCall } from "../../../launchpad/services/data-tokenization/mint-calls.js";
 import { buildSponsoredInvoke } from "../paymaster.js";
-import { indexParam, ownsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
+import { assertOwnsWallet, indexParam, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
+import { validated } from "../../http/validate.js";
+import { sameFelt } from "../../../utils/felt.js";
 
 const log = createLogger("routes:launchpad-runs:data-tokenization");
 
@@ -35,15 +37,6 @@ interface ActiveRun extends ActiveBase {
   spec: DataTokenizationSpec;
   progress: DataTokenizationProgress;
 }
-
-const sameFelt = (a: string | undefined, b: string | undefined) => {
-  if (!a || !b) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
-};
 
 export function createdCollectionId(events: ReceiptEvent[], registry: string): string | null {
   for (const event of events) {
@@ -169,20 +162,19 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
       credits: () => stepCredits(SERVICE, "file", 1, ctx.priceOf),
     },
     extra(app, { loadActive, notReady }) {
-      app.post("/items/:index/metadata", async (c) => {
+      app.post("/items/:index/metadata", validated("json", walletBody, { message: "userAddress is required" }), async (c) => {
         const active = await loadActive(c);
         if (active instanceof Response) return active;
 
         const index = indexParam(c);
         if (index === null || !active.spec.items[index]) return c.json({ error: "No such item in this run" }, 404);
 
-        const body = walletBody.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "userAddress is required" }, 400);
-        if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        const body = c.req.valid("json");
+        await assertOwnsWallet(ctx, c, body.userAddress);
 
         let metadata: Record<string, unknown>;
         try {
-          metadata = itemMetadata(active.spec, index, active.progress, normalizeAddress("STARKNET", body.data.userAddress));
+          metadata = itemMetadata(active.spec, index, active.progress, normalizeAddress("STARKNET", body.userAddress));
         } catch {
           return c.json({ error: "This item is waiting for its files" }, 409);
         }
@@ -217,13 +209,12 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
         return c.json({ data: { pending } });
       });
 
-      app.post("/guests", async (c) => {
+      app.post("/guests", validated("json", guestRequest, { message: "recipient is required" }), async (c) => {
         const active = await loadActive(c);
         if (active instanceof Response) return active;
 
-        const body = guestRequest.safeParse(await c.req.json().catch(() => null));
-        if (!body.success) return c.json({ error: "recipient is required" }, 400);
-        const recipient = body.data.recipient.trim().toLowerCase();
+        const body = c.req.valid("json");
+        const recipient = body.recipient.trim().toLowerCase();
         if (!active.spec.guests.includes(recipient)) return c.json({ error: `${recipient} is not on this run's guest list` }, 400);
 
         const credits = await stepCredits(SERVICE, "wallet", 1, ctx.priceOf);
@@ -254,9 +245,9 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
         const index = indexParam(c);
         const userAddress = c.req.query("userAddress");
         if (index === null) return c.json({ error: "No such batch in this run" }, 404);
-        if (!userAddress || !(await ownsWallet(ctx, c, userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+        const owner = await assertOwnsWallet(ctx, c, userAddress);
         try {
-          return c.json({ data: { index, calls: await batchCalls(active, index, userAddress) } });
+          return c.json({ data: { index, calls: await batchCalls(active, index, owner) } });
         } catch (err) {
           return notReady(c, err);
         }

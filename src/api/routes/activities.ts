@@ -1,6 +1,7 @@
 import { Hono } from "hono";
+import { validated } from "../http/validate.js";
 import { Prisma, type Chain, type PrismaClient } from "@prisma/client";
-import { parseSingleChain, chainWhere, parseChainFilter } from "../utils/chainFilter.js";
+import { addressWhere, chainWhere } from "../utils/chainFilter.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { ZERO_ADDRESS } from "../../config/constants.js";
@@ -11,6 +12,8 @@ import {
 } from "../utils/orderSale.js";
 import { batchTokenMeta } from "../utils/serialize.js";
 import { mergeFeed, activityItemToken, MAX_FEED_DEPTH, type ActivityFeedItem } from "./activities.feed.js";
+import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const activities = new Hono();
 
@@ -93,7 +96,7 @@ export async function loadHiddenContentFilter(
 export function buildActivityWhere(params: {
   chainFilter: { chain: Chain } | "all";
   type?: string;
-  contract?: string | null;
+  contract?: string | { in: string[] } | null;
   hiddenContractFilter?: { notIn: string[] };
 }): { transferWhere: Prisma.TransferWhereInput; orderWhere: Prisma.OrderWhereInput } {
   const { chainFilter, type, contract, hiddenContractFilter } = params;
@@ -126,12 +129,10 @@ export function buildActivityWhere(params: {
   return { transferWhere, orderWhere };
 }
 
-activities.get("/", async (c) => {
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+activities.get("/", chainFilterScope(), validated("query", pageQuery()), async (c) => {
+  const { page, limit, skip } = c.req.valid("query");
   const type = c.req.query("type");
 
-  const skip = (page - 1) * limit;
   const take = skip + limit;
   const deep = take > MAX_FEED_DEPTH;
 
@@ -140,12 +141,9 @@ activities.get("/", async (c) => {
   const wantTransfers = !type || type === "transfer" || type === "mint";
   const wantOrders = !type || ["sale", "listing", "offer", "cancelled"].includes(type);
 
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const chainFilter = c.get("chainFilter");
   const rawContract = c.req.query("contract");
-  const contract = rawContract
-    ? normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, rawContract)
-    : null;
+  const contract = rawContract ? addressWhere(chainFilter, rawContract) : null;
   const { transferWhere, orderWhere } = buildActivityWhere({ chainFilter, type, contract, hiddenContractFilter });
 
   const [transfers, orders, transferCount, orderCount] = await Promise.all([
@@ -163,13 +161,10 @@ activities.get("/", async (c) => {
   return c.json({ data, meta: { page, limit, total: Math.min(transferCount + orderCount, MAX_FEED_DEPTH) } });
 });
 
-activities.get("/:address", async (c) => {
+activities.get("/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
-  const skip = (page - 1) * limit;
+  const chain = c.get("chain");
+  const { page, limit, skip } = c.req.valid("query");
   const take = skip + limit;
   const deep = take > MAX_FEED_DEPTH;
   const addr = normalizeAddress(chain, address);

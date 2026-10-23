@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { AppEnv } from "../../types/hono.js";
 import { createIntent, settleIntent } from "../../funding/core.js";
 import type { FundingMethod, FundingStore } from "../../funding/types.js";
+import { validated } from "../http/validate.js";
+import { notFound } from "../http/errors.js";
 
 export interface FundingRouteDeps {
   store: FundingStore;
@@ -20,13 +22,12 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
     c.json({ data: deps.methods.filter((m) => m.available()).map((m) => ({ id: m.id, ...m.describe() })) }),
   );
 
-  app.post("/", async (c) => {
-    const body = createBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "Choose a payment method" }, 400);
-    const method = methodFor(body.data.method);
+  app.post("/", validated("json", createBody, { message: "Choose a payment method" }), async (c) => {
+    const body = c.req.valid("json");
+    const method = methodFor(body.method);
     if (!method) return c.json({ error: "That payment method is not available" }, 404);
 
-    const params = method.parseParams(body.data.params);
+    const params = method.parseParams(body.params);
     if (!params.ok) return c.json({ error: params.error }, 400);
 
     const intent = await createIntent(deps.store, {
@@ -40,19 +41,18 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
   const load = async (c: Context<AppEnv>) => {
     const intent = await deps.store.get(c.req.param("id") ?? "", c.get("apiCredits").id);
     const method = intent ? methodFor(intent.method) : undefined;
-    return intent && method ? { intent, method } : null;
+    if (!intent || !method) throw notFound("Top-up");
+    return { intent, method };
   };
 
   app.get("/:id", async (c) => {
     const found = await load(c);
-    if (!found) return c.json({ error: "Top-up not found" }, 404);
     const { intent } = found;
     return c.json({ data: { id: intent.id, method: intent.method, status: intent.status, expiresAt: intent.expiresAt, payer: intent.payer } });
   });
 
   app.post("/:id/challenge", async (c) => {
     const found = await load(c);
-    if (!found) return c.json({ error: "Top-up not found" }, 404);
     if (found.intent.status !== "PENDING" || found.intent.payer) return c.json({ error: "This top-up can no longer be authorized" }, 409);
     const result = found.method.challenge(found.intent, await c.req.json().catch(() => null));
     if (!result.ok) return c.json({ error: result.error }, 400);
@@ -61,7 +61,6 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
 
   app.post("/:id/authorize", async (c) => {
     const found = await load(c);
-    if (!found) return c.json({ error: "Top-up not found" }, 404);
     if (found.intent.status !== "PENDING" || found.intent.payer) return c.json({ error: "This top-up can no longer be authorized" }, 409);
 
     const result = await found.method.authorize(found.intent, await c.req.json().catch(() => null));
@@ -74,7 +73,6 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
 
   app.post("/:id/submit", async (c) => {
     const found = await load(c);
-    if (!found) return c.json({ error: "Top-up not found" }, 404);
     const { intent, method } = found;
     if (intent.status === "SETTLED") return c.json({ data: { status: "SETTLED" } });
     if (intent.status !== "PENDING") return c.json({ error: "This top-up is already closed" }, 409);
@@ -90,7 +88,6 @@ export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
 
   app.post("/:id/cancel", async (c) => {
     const found = await load(c);
-    if (!found) return c.json({ error: "Top-up not found" }, 404);
     const { intent } = found;
     if (intent.status === "SETTLED") return c.json({ error: "This top-up is already paid" }, 409);
     if (intent.status !== "PENDING") return c.json({ data: { status: intent.status } });

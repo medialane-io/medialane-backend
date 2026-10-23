@@ -1,5 +1,5 @@
 import { type Chain, type Prisma, type PrismaClient } from "@prisma/client";
-import { getService } from "@medialane/sdk";
+import { getService, u256ToBigInt } from "@medialane/sdk";
 import { shortString } from "starknet";
 import { callRpc as defaultCallRpc } from "./starknet.js";
 
@@ -64,9 +64,7 @@ export async function readTotalSupply(
   } catch {
     result = await call("totalSupply");
   }
-  const low = BigInt(result[0] ?? "0");
-  const high = BigInt(result[1] ?? "0");
-  return (low + (high << 128n)).toString();
+  return u256ToBigInt(result[0] ?? "0", result[1] ?? "0").toString();
 }
 
 export async function upsertCoin(

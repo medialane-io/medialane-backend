@@ -5,7 +5,8 @@ import prisma from "../../../db/client.js";
 import { callRpc } from "../../../utils/starknet.js";
 import { creditsForAction } from "../../../payments/pricing.js";
 import { createSignedUpload, findPinnedFile, uploadJson } from "../../../orchestrator/metadataPin.js";
-import type { RunStore } from "../../../launchpad/run-store.js";
+import type { RunStore, StoredRun } from "../../../launchpad/run-store.js";
+import { forbidden, notFound } from "../../http/errors.js";
 import type { PriceOf } from "../../../launchpad/steps.js";
 import {
   dataTokenizationRegistry,
@@ -130,8 +131,17 @@ export function specError(err: unknown) {
   return { error: "The run is not complete" };
 }
 
-export function ownsWallet(ctx: RunContext, c: Context<AppEnv>, address: string): Promise<boolean> {
-  return ctx.store.ownsWallet(c.get("account").id, address);
+export async function assertOwnsWallet(ctx: RunContext, c: Context<AppEnv>, address: string | undefined): Promise<string> {
+  if (!address || !(await ctx.store.ownsWallet(c.get("account").id, address))) {
+    throw forbidden("Use a wallet on your own account");
+  }
+  return address;
+}
+
+export async function ownRun(ctx: RunContext, id: string, apiCreditsId: string): Promise<StoredRun> {
+  const run = await ctx.store.get(id, apiCreditsId);
+  if (!run) throw notFound("Run");
+  return run;
 }
 
 export function indexParam(c: Context<AppEnv>): number | null {

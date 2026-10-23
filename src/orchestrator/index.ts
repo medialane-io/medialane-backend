@@ -1,14 +1,25 @@
-import { startReaper } from "./reaper.js";
-import { startUnverifiedAccountsLoop } from "./unverifiedAccounts.js";
-import { startAccountNoticesLoop } from "./accountNotices.js";
-import { startMetadataRetryLoop } from "./metadataRetry.js";
-import { startRewardsComputeLoop } from "./rewardsCompute.js";
-import { startCreditLedgerLoop } from "./creditLedger.js";
-import { startWalletActivityRefreshLoop } from "./walletActivityRefresh.js";
+import { reaperLoop } from "./reaper.js";
+import { unverifiedAccountsLoop } from "./unverifiedAccounts.js";
+import { accountNoticesLoop } from "./accountNotices.js";
+import { metadataRetryLoop } from "./metadataRetry.js";
+import { rewardsComputeLoop } from "./rewardsCompute.js";
+import { creditLedgerLoop } from "./creditLedger.js";
+import { walletActivityRefreshLoop } from "./walletActivityRefresh.js";
+import { runEvery, type Loop } from "./schedule.js";
 import { recoverStuckFetchingTokens, recoverPendingWork } from "./startupRecovery.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("orchestrator");
+
+export const loops: Loop[] = [
+  reaperLoop,
+  unverifiedAccountsLoop,
+  accountNoticesLoop,
+  metadataRetryLoop,
+  rewardsComputeLoop,
+  creditLedgerLoop,
+  walletActivityRefreshLoop,
+];
 
 export async function startOrchestrator(): Promise<void> {
   log.info("Orchestrator starting...");
@@ -17,11 +28,7 @@ export async function startOrchestrator(): Promise<void> {
 
   await recoverPendingWork();
 
-  startReaper().catch((err) => log.error({ err }, "Reaper crashed"));
-  startUnverifiedAccountsLoop().catch((err) => log.error({ err }, "Unverified accounts loop crashed"));
-  startAccountNoticesLoop().catch((err) => log.error({ err }, "Account notices loop crashed"));
-  startMetadataRetryLoop().catch((err) => log.error({ err }, "Metadata retry loop crashed"));
-  startRewardsComputeLoop().catch((err) => log.error({ err }, "Rewards compute loop crashed"));
-  startCreditLedgerLoop().catch((err) => log.error({ err }, "Credit ledger loop crashed"));
-  startWalletActivityRefreshLoop().catch((err) => log.error({ err }, "Wallet-activity refresh loop crashed"));
+  for (const loop of loops) {
+    runEvery(loop).catch((err) => log.error({ err, loop: loop.name }, "Loop crashed"));
+  }
 }

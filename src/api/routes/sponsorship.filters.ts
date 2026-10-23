@@ -1,9 +1,6 @@
 
 
-import { normalizeAddress } from "@medialane/sdk";
-import type { Chain } from "@prisma/client";
-
-type ChainFilter = { chain: Chain } | "all";
+import { addressWhere, type ChainFilter } from "../utils/chainFilter.js";
 type OwnedPair = { contractAddress: string; tokenId: string };
 
 function ownedPairsOr(ownedPairs?: OwnedPair[]) {
@@ -19,11 +16,10 @@ export function buildOfferListWhere(opts: {
   ownedPairs?: OwnedPair[];
 }) {
   const cf = opts.chainFilter;
-  const addrChain = cf === "all" ? "STARKNET" : cf.chain;
   return {
     ...(cf === "all" ? {} : { chain: cf.chain }),
-    ...(opts.nftContract ? { nftContract: normalizeAddress(addrChain, opts.nftContract) } : {}),
-    ...(opts.author ? { author: normalizeAddress(addrChain, opts.author) } : {}),
+    ...(opts.nftContract ? { nftContract: addressWhere(cf, opts.nftContract) } : {}),
+    ...(opts.author ? { author: addressWhere(cf, opts.author) } : {}),
     ...(opts.open !== undefined ? { open: opts.open } : {}),
     ...ownedPairsOr(opts.ownedPairs),
   };
@@ -37,11 +33,10 @@ export function buildProposalListWhere(opts: {
   ownedPairs?: OwnedPair[];
 }) {
   const cf = opts.chainFilter;
-  const addrChain = cf === "all" ? "STARKNET" : cf.chain;
   return {
     ...(cf === "all" ? {} : { chain: cf.chain }),
-    ...(opts.nftContract ? { nftContract: normalizeAddress(addrChain, opts.nftContract) } : {}),
-    ...(opts.proposer ? { proposer: normalizeAddress(addrChain, opts.proposer) } : {}),
+    ...(opts.nftContract ? { nftContract: addressWhere(cf, opts.nftContract) } : {}),
+    ...(opts.proposer ? { proposer: addressWhere(cf, opts.proposer) } : {}),
     ...(opts.open !== undefined ? { open: opts.open } : {}),
     ...ownedPairsOr(opts.ownedPairs),
   };
@@ -54,11 +49,10 @@ export function buildLicenseListWhere(opts: {
   assetTokenId?: string;
 }) {
   const cf = opts.chainFilter;
-  const addrChain = cf === "all" ? "STARKNET" : cf.chain;
   return {
     ...(cf === "all" ? {} : { chain: cf.chain }),
-    ...(opts.author ? { author: normalizeAddress(addrChain, opts.author) } : {}),
-    ...(opts.assetContract ? { assetContract: normalizeAddress(addrChain, opts.assetContract) } : {}),
+    ...(opts.author ? { author: addressWhere(cf, opts.author) } : {}),
+    ...(opts.assetContract ? { assetContract: addressWhere(cf, opts.assetContract) } : {}),
     ...(opts.assetTokenId ? { assetTokenId: opts.assetTokenId } : {}),
   };
 }

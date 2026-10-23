@@ -3,11 +3,12 @@ import { tokenByAddress } from "../token-value.js";
 import type { CanonicalHash } from "@medialane/sdk";
 import { x402Config } from "../../config/x402.js";
 import type { PaymentRequirement, PaymentScheme, VerifyResult, X402Payload } from "./types.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 const TRANSFER_KEY = "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9";
 
 function u256FromLowHigh(low: string, high: string): bigint {
-  return BigInt(low ?? "0x0") + (BigInt(high ?? "0x0") << 128n);
+  return u256ToBigInt(low ?? "0x0", high ?? "0x0");
 }
 
 export const FINALIZED_STATUSES = new Set(["ACCEPTED_ON_L2", "ACCEPTED_ON_L1"]);

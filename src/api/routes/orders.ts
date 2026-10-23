@@ -1,12 +1,15 @@
 import { Hono } from "hono";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
-import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import { Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import type { OrderStatus } from "@prisma/client";
 import { serializeOrder, batchTokenMeta, counterOfferFlags } from "../utils/serialize.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { normalizedForms } from "../utils/chainFilter.js";
 import type { RawOrderRow, RawCountRow } from "../utils/rawTypes.js";
+import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const orders = new Hono();
 
@@ -27,7 +30,10 @@ function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
   if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
   if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
   if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
-  if (offerer) conditions.push(Prisma.sql`offerer = ${normalizeAddress(chainFilter === "all" ? "STARKNET" : chainFilter.chain, offerer)}`);
+  if (offerer) {
+    const forms = normalizedForms(chainFilter, offerer);
+    conditions.push(forms.length === 0 ? Prisma.sql`FALSE` : Prisma.sql`offerer IN (${Prisma.join(forms)})`);
+  }
   if (minPrice) conditions.push(Prisma.sql`"priceRaw"::numeric >= ${minPrice}::numeric`);
   if (maxPrice) conditions.push(Prisma.sql`"priceRaw"::numeric <= ${maxPrice}::numeric`);
   conditions.push(Prisma.sql`NOT EXISTS (
@@ -67,16 +73,9 @@ const listQuerySchema = z.object({
   { message: "minPrice must be less than or equal to maxPrice", path: ["minPrice"] }
 );
 
-orders.get("/", async (c) => {
-  const query = listQuerySchema.safeParse(c.req.query());
-  if (!query.success) {
-    return c.json({ error: "Invalid query", details: query.error.flatten() }, 400);
-  }
-
-  const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } =
-    query.data;
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+orders.get("/", chainFilterScope(), validated("query", listQuerySchema), async (c) => {
+  const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } = c.req.valid("query");
+  const chainFilter = c.get("chainFilter");
   if (offerer && chainFilter === "all") {
     return c.json({ error: "offerer filter requires a single chain" }, 400);
   }
@@ -116,30 +115,28 @@ orders.get("/", async (c) => {
   });
 });
 
-orders.get("/counter-offers", async (c) => {
+orders.get("/counter-offers", chainScope(), validated("query", pageQuery()), async (c) => {
   const originalOrderHash = c.req.query("originalOrderHash");
   const sellerAddress = c.req.query("sellerAddress");
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
 
   if (!originalOrderHash && !sellerAddress) {
     return c.json({ error: "originalOrderHash or sellerAddress is required" }, 400);
   }
 
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const where: Record<string, unknown> = { chain, parentOrderHash: { not: null } };
+  const chain = c.get("chain");
+  const where: Prisma.OrderWhereInput = { chain, parentOrderHash: { not: null } };
   if (originalOrderHash) where.parentOrderHash = originalOrderHash;
   if (sellerAddress) where.offerer = normalizeAddress(chain, sellerAddress);
 
   const [data, total] = await Promise.all([
     prisma.order.findMany({
-      where: where as any,
+      where,
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.order.count({ where: where as any }),
+    prisma.order.count({ where }),
   ]);
 
   const tokenMeta = await batchTokenMeta(data);
@@ -149,10 +146,9 @@ orders.get("/counter-offers", async (c) => {
   });
 });
 
-orders.get("/:orderHash", async (c) => {
+orders.get("/:orderHash", chainScope(), async (c) => {
   const { orderHash } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const order = await prisma.order.findUnique({
     where: { chain_orderHash: { chain, orderHash } },
   });
@@ -161,10 +157,9 @@ orders.get("/:orderHash", async (c) => {
   return c.json({ data: serializeOrder(order, undefined, counterFlags.has(order.orderHash)) });
 });
 
-orders.get("/token/:contract/:tokenId", async (c) => {
+orders.get("/token/:contract/:tokenId", chainScope(), async (c) => {
   const { contract, tokenId } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const normalizedContract = normalizeAddress(chain, contract);
 
   const [hiddenToken, hiddenCollection] = await Promise.all([
@@ -194,12 +189,10 @@ orders.get("/token/:contract/:tokenId", async (c) => {
   return c.json({ data: data.map((o) => serializeOrder(o, tokenMeta.get(`${o.nftContract}-${o.nftTokenId}`))) });
 });
 
-orders.get("/received/:address", async (c) => {
+orders.get("/received/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const chain = c.get("chain");
+  const { page, limit } = c.req.valid("query");
   const normalizedAddress = normalizeAddress(chain, address);
   const offset = (page - 1) * limit;
 
@@ -245,12 +238,10 @@ orders.get("/received/:address", async (c) => {
   });
 });
 
-orders.get("/user/:address", async (c) => {
+orders.get("/user/:address", chainScope(), validated("query", pageQuery()), async (c) => {
   const { address } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const chain = c.get("chain");
+  const { page, limit } = c.req.valid("query");
   const offererAddr = normalizeAddress(chain, address);
 
   const [data, total] = await Promise.all([

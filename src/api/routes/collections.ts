@@ -1,7 +1,7 @@
 import { Hono } from "hono";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
 import { Prisma, type Collection } from "@prisma/client";
-import { parseChainFilter, parseSingleChain } from "../utils/chainFilter.js";
 import type { RawCountRow, RawTokenRow } from "../utils/rawTypes.js";
 import prisma from "../../db/client.js";
 import { env } from "../../config/env.js";
@@ -13,6 +13,8 @@ import { createLogger } from "../../utils/logger.js";
 import { parseStandardFilter } from "./collections.standardFilter.js";
 import { includeBalances } from "./collections.tokenBalances.js";
 import { registerCollectionSyncRoutes } from "./collections-sync.js";
+import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:collections");
 
@@ -21,16 +23,14 @@ const collections = new Hono();
 const COLLECTION_SORT_VALUES = ["recent", "supply", "floor", "volume", "name"] as const;
 type CollectionSort = (typeof COLLECTION_SORT_VALUES)[number];
 
-collections.get("/", async (c) => {
-  const page  = Math.max(1, Number(c.req.query("page")  ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+collections.get("/", chainFilterScope(), validated("query", pageQuery()), async (c) => {
+  const { page, limit } = c.req.valid("query");
   const isFeatured   = c.req.query("isFeatured") ?? c.req.query("isKnown");
   const owner     = c.req.query("owner");
   const service   = c.req.query("service");
   const standardFilter = parseStandardFilter(c.req.query("standard"));
   const hideEmpty = c.req.query("hideEmpty") === "true";
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
+  const chainFilter = c.get("chainFilter");
   const sortRaw = c.req.query("sort") ?? "recent";
   const sort: CollectionSort = (COLLECTION_SORT_VALUES as readonly string[]).includes(sortRaw)
     ? (sortRaw as CollectionSort)
@@ -134,20 +134,17 @@ collections.get("/by-slug/:slug", async (c) => {
   return c.json({ data: { ...data, profile: col.profile } });
 });
 
-collections.get("/:contract", async (c) => {
+collections.get("/:contract", chainScope(), async (c) => {
   const { contract } = c.req.param();
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const include = c.req.query("include");
-  const col = await prisma.collection.findUnique({
-    where: { chain_contractAddress: { chain, contractAddress: normalizeAddress(chain, contract) } },
-    ...(include === "profile" ? { include: { profile: true } } : {}),
-  });
+  const where = { chain_contractAddress: { chain, contractAddress: normalizeAddress(chain, contract) } };
+  const col = await prisma.collection.findUnique({ where, include: { profile: include === "profile" } });
   if (!col) return c.json({ error: "Collection not found" }, 404);
 
   let profileData: Record<string, unknown> | null = null;
   if (include === "profile") {
-    const profile = (col as any).profile ?? null;
+    const profile = col.profile ?? null;
     if (profile) {
 
       const { gatedContentUrl: _url, gatedContentType: _type, ...safeProfile } = profile;
@@ -164,17 +161,15 @@ collections.get("/:contract", async (c) => {
   });
 });
 
-collections.get("/:contract/tokens", async (c) => {
+collections.get("/:contract/tokens", chainScope(), validated("query", pageQuery()), async (c) => {
   const { contract } = c.req.param();
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 20)));
+  const { page, limit } = c.req.valid("query");
   const sortParam = c.req.query("sort");
   const sort: "recent" | "oldest" | "name" | "price" =
     sortParam === "oldest" || sortParam === "name" || sortParam === "price"
       ? sortParam
       : "recent";
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
   const addr = normalizeAddress(chain, contract);
 
   const collection = await prisma.collection.findUnique({

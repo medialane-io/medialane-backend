@@ -1,12 +1,11 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { getCollectionOwner } from "../../chainRead/index.js";
 import type { AppEnv } from "../../types/hono.js";
-import { parseSingleChain } from "../utils/chainFilter.js";
 import crypto from "crypto";
 import type { Chain } from "@prisma/client";
 import { worker } from "../../orchestrator/worker.js";
@@ -14,6 +13,7 @@ import { detectTokenStandard } from "../../orchestrator/collectionMetadata.js";
 import { catchUpCollectionTransfers } from "../../mirror/sources.js";
 import { ensureCollectionFromActivity } from "../../utils/collection.js";
 import { createLogger } from "../../utils/logger.js";
+import { chainScope } from "../http/chain.js";
 
 const log = createLogger("routes:claims");
 
@@ -49,13 +49,13 @@ async function indexCollection(chain: Chain, contractAddress: string): Promise<b
 claims.post(
   "/",
   identityAuth,
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
   })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { contractAddress, walletAddress } = c.req.valid("json");
     const jwtWallet = c.get("walletAddress") as string;
@@ -108,10 +108,10 @@ claims.post(
 
 claims.post(
   "/challenge",
-  zValidator("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
+  validated("json", z.object({ contractAddress: z.string(), walletAddress: z.string() })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { contractAddress, walletAddress } = c.req.valid("json");
     const normContract = normalizeAddress(chain, contractAddress);
@@ -136,15 +136,15 @@ claims.post(
 
 claims.post(
   "/verify",
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string(),
     challenge: z.string(),
     signature: z.object({ r: z.string(), s: z.string() }),
   })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { contractAddress, walletAddress, challenge, signature } = c.req.valid("json");
     const normContract = normalizeAddress(chain, contractAddress);
@@ -223,15 +223,15 @@ claims.post(
 
 claims.post(
   "/request",
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string().optional(),
     email: z.string().email(),
     notes: z.string().optional(),
   })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const { contractAddress, walletAddress, email, notes } = c.req.valid("json");
     const normContract = normalizeAddress(chain, contractAddress);

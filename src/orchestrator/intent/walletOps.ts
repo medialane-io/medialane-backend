@@ -13,6 +13,7 @@ import { x402Config } from "../../config/x402.js";
 import { NoSwapRouteError, resolveSwapAmount, resolveSwapToken, swapCallsFor, type SwapDeps } from "../../api/routes/swap.js";
 import type { IntentCall } from "./fee.js";
 import { IntentRefusal } from "./refusal.js";
+import { encodeU256 } from "@medialane/sdk";
 
 const addr = (a: string) => normalizeAddress("STARKNET", a);
 const plain = (c: { contractAddress: string; entrypoint: string; calldata?: unknown }): IntentCall => ({
@@ -45,11 +46,10 @@ export async function buildFundingTransferIntent(body: { owner: string; asset: s
   const token = tokenByAddress(addr(body.asset));
   if (!token) throw new IntentRefusal("That token is not accepted");
   const amount = BigInt(body.amountAtomic);
-  const mask = (1n << 128n) - 1n;
   const calls: IntentCall[] = [{
     contractAddress: addr(token.address),
     entrypoint: "transfer",
-    calldata: [addr(x402Config.treasury), (amount & mask).toString(), (amount >> 128n).toString()],
+    calldata: [addr(x402Config.treasury), ...encodeU256(amount)],
   }];
   return { calls };
 }

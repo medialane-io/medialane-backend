@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import { z } from "zod";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -80,7 +80,7 @@ const submitReportSchema = z.object({
 reports.post(
   "/",
   async (c, next) => identityAuth(c, next),
-  zValidator("json", submitReportSchema),
+  validated("json", submitReportSchema),
   async (c) => {
     const body = c.req.valid("json");
     const reporterWallet = c.get("walletAddress") as string;

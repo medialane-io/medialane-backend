@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
-import { parseSingleChain } from "../utils/chainFilter.js";
+import { chainScope } from "../http/chain.js";
 
 const collectionSlugClaims = new Hono<AppEnv>();
 
@@ -14,9 +14,8 @@ function validateSlug(slug: string): string | null {
   return validateSlugLike(slug, "slug");
 }
 
-collectionSlugClaims.get("/check/:slug", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+collectionSlugClaims.get("/check/:slug", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const slug = c.req.param("slug").toLowerCase().trim();
 
@@ -38,14 +37,14 @@ collectionSlugClaims.get("/check/:slug", async (c) => {
 collectionSlugClaims.post(
   "/",
   identityAuth,
-  zValidator("json", z.object({
+  validated("json", z.object({
     contractAddress: z.string(),
     slug: z.string(),
     notifyEmail: z.string().email().optional(),
   })),
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const jwtWallet = c.get("walletAddress") as string;
     const { contractAddress, slug: rawSlug, notifyEmail } = c.req.valid("json");
@@ -108,9 +107,9 @@ collectionSlugClaims.post(
 collectionSlugClaims.get(
   "/me",
   identityAuth,
+  chainScope(),
   async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
     const jwtWallet = c.get("walletAddress") as string;
 

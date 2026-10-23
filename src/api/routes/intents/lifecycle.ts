@@ -1,7 +1,7 @@
 
 
 import type { Hono } from "hono";
-import { type Prisma as PrismaTypes } from "@prisma/client";
+import { type Prisma as PrismaTypes, type TransactionIntent } from "@prisma/client";
 import prisma from "../../../db/client.js";
 import { buildPopulatedCalls } from "../../../orchestrator/submit.js";
 import { verifyWalletSignature, type VerifyResult } from "../../../auth/verify.js";
@@ -19,9 +19,13 @@ import {
   hydrateCreatedOrdersFromTx,
   hydrateFulfillmentFromTx,
 } from "./settle.js";
+import { notFound } from "../../http/errors.js";
+import { validated } from "../../http/validate.js";
 
-export function belongsToCaller(intentAccountId: string | null, callerAccountId: string): boolean {
-  return intentAccountId !== null && intentAccountId === callerAccountId;
+async function ownIntent(c: { get(key: "account"): { id: string } }, id: string): Promise<TransactionIntent> {
+  const intent = await prisma.transactionIntent.findFirst({ where: { id, accountId: c.get("account").id } });
+  if (!intent) throw notFound("Intent");
+  return intent;
 }
 
 export const NOT_THE_REQUESTERS_SIGNATURE = "That signature is not from the wallet this intent was built for";
@@ -34,12 +38,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
 
   intents.get("/:id", async (c) => {
     const { id } = c.req.param();
-    const intent = await prisma.transactionIntent.findUnique({ where: { id } });
-    if (!intent) return c.json({ error: "Intent not found" }, 404);
-
-    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
-      return c.json({ error: "Intent not found" }, 404);
-    }
+    const intent = await ownIntent(c, id);
 
     if (intent.expiresAt < new Date() && intent.status === "PENDING") {
       const { count } = await prisma.transactionIntent.updateMany({
@@ -52,21 +51,11 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: intent });
   });
 
-  intents.patch("/:id/signature", async (c) => {
+  intents.patch("/:id/signature", validated("json", signatureSchema), async (c) => {
     const { id } = c.req.param();
-    const body = await c.req.json().catch(() => null);
+    const parsedBody = c.req.valid("json");
 
-    const parsedBody = signatureSchema.safeParse(body);
-    if (!parsedBody.success) {
-      return c.json({ error: "Invalid body", details: parsedBody.error.flatten() }, 400);
-    }
-
-    const intent = await prisma.transactionIntent.findUnique({ where: { id } });
-    if (!intent) return c.json({ error: "Intent not found" }, 404);
-
-    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
-      return c.json({ error: "Intent not found" }, 404);
-    }
+    const intent = await ownIntent(c, id);
 
     if (intent.type === "MINT" || intent.type === "CREATE_COLLECTION" || intent.type === "FULFILL_ORDER") {
       return c.json({ error: "Intent type does not require a signature" }, 400);
@@ -81,7 +70,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
         chain: intent.chain,
         address: intent.requester,
         typedData: intent.typedData,
-        signature: parsedBody.data.signature,
+        signature: parsedBody.signature,
       });
     } catch (err) {
       log.warn({ err, id, requester: intent.requester }, "Intent signature accepted unproven: the chain could not be read");
@@ -100,12 +89,12 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       intent.type,
       (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
       intent.calls as { contractAddress: string; entrypoint: string; calldata: string[] }[],
-      parsedBody.data.signature
+      parsedBody.signature
     );
 
     const updated = await prisma.transactionIntent.update({
       where: { id },
-      data: { signature: parsedBody.data.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
+      data: { signature: parsedBody.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
     });
 
     log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
@@ -114,12 +103,7 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
 
   intents.post("/:id/hydrate", async (c) => {
     const { id } = c.req.param();
-    const intent = await prisma.transactionIntent.findUnique({ where: { id } });
-    if (!intent) return c.json({ error: "Intent not found" }, 404);
-
-    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
-      return c.json({ error: "Intent not found" }, 404);
-    }
+    const intent = await ownIntent(c, id);
 
     if (!intent.txHash) {
       return c.json({ error: "Intent has no transaction hash" }, 409);
@@ -150,22 +134,12 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
     return c.json({ data: { id, txHash: intent.txHash, orderHashes } });
   });
 
-  intents.patch("/:id/confirm", async (c) => {
+  intents.patch("/:id/confirm", validated("json", confirmSchema), async (c) => {
     const { id } = c.req.param();
-    const body = await c.req.json().catch(() => null);
+    const parsed = c.req.valid("json");
 
-    const parsed = confirmSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "Invalid body", details: parsed.error.flatten() }, 400);
-    }
-
-    const { txHash } = parsed.data;
-    const intent = await prisma.transactionIntent.findUnique({ where: { id } });
-    if (!intent) return c.json({ error: "Intent not found" }, 404);
-
-    if (!belongsToCaller(intent.accountId, c.get("account").id)) {
-      return c.json({ error: "Intent not found" }, 404);
-    }
+    const { txHash } = parsed;
+    const intent = await ownIntent(c, id);
 
     if (!MARKETPLACE_INTENT_TYPES.has(intent.type) && !RECEIPT_HYDRATED_INTENT_TYPES.has(intent.type)) {
       return c.json({ error: "Intent type does not require tx confirmation" }, 400);

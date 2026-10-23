@@ -1,16 +1,16 @@
 
 
 import { normalizeAddress } from "@medialane/sdk";
+import { DEFAULT_CHAIN } from "../../config/chains.js";
+import { addressWhere, type ChainFilter } from "../utils/chainFilter.js";
 
-export function buildCoinListWhere(opts: { service?: string; creator?: string; chainFilter?: { chain: import("@prisma/client").Chain } | "all" }) {
-  const cf = opts.chainFilter ?? { chain: "STARKNET" as const };
-
-  const creatorChain = cf === "all" ? "STARKNET" : cf.chain;
+export function buildCoinListWhere(opts: { service?: string; creator?: string; chainFilter?: ChainFilter }) {
+  const cf = opts.chainFilter ?? { chain: DEFAULT_CHAIN };
   return {
     ...(cf === "all" ? {} : { chain: cf.chain }),
     isHidden: false,
     ...(opts.service ? { service: opts.service } : {}),
-    ...(opts.creator ? { creator: normalizeAddress(creatorChain, opts.creator) } : {}),
+    ...(opts.creator ? { creator: addressWhere(cf, opts.creator) } : {}),
   };
 }
 

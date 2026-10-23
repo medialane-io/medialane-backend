@@ -1,10 +1,12 @@
+import { validated } from "../http/validate.js";
 import { Hono } from "hono";
-import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";
-import { normalizeAddress } from "../../utils/starknet.js";
+import { addressWhere, chainWhere, type ChainFilter } from "../utils/chainFilter.js";
 import { buildOfferListWhere, buildProposalListWhere, buildLicenseListWhere } from "./sponsorship.filters.js";
-import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense, Chain } from "@prisma/client";
+import type { Prisma, PrismaClient, SponsorshipOffer, SponsorshipBid, SponsorshipProposal, SponsorshipLicense } from "@prisma/client";
+import { chainFilterScope, chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const sponsorship = new Hono<AppEnv>();
 
@@ -25,17 +27,10 @@ function serializeLicense(l: SponsorshipLicense) {
   return l;
 }
 
-function parsePage(c: { req: { query: (k: string) => string | undefined } }) {
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
-  return { page, limit };
-}
-
-export async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefined, db: Db = prisma) {
+export async function resolveOwnedPairs(filter: ChainFilter, ownerRaw: string | undefined, db: Db = prisma) {
   if (!ownerRaw) return undefined;
-  const owner = normalizeAddress(chain, ownerRaw);
   const held = await db.tokenBalance.findMany({
-    where: { chain, owner, amount: { not: "0" } },
+    where: { ...chainWhere(filter), owner: addressWhere(filter, ownerRaw), amount: { not: "0" } },
     orderBy: { updatedAt: "desc" },
     take: MAX_OWNED_TOKEN_LOOKUP,
     select: { contractAddress: true, tokenId: true },
@@ -43,10 +38,9 @@ export async function resolveOwnedPairs(chain: Chain, ownerRaw: string | undefin
   return held.map((t) => ({ contractAddress: t.contractAddress, tokenId: t.tokenId }));
 }
 
-export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db: Db = prisma) {
-  const holder = normalizeAddress(chain, holderRaw);
+export async function resolveHolderTokenIds(filter: ChainFilter, holderRaw: string, db: Db = prisma) {
   const held = await db.tokenBalance.findMany({
-    where: { chain, owner: holder, amount: { not: "0" } },
+    where: { ...chainWhere(filter), owner: addressWhere(filter, holderRaw), amount: { not: "0" } },
     orderBy: { updatedAt: "desc" },
     take: MAX_OWNED_TOKEN_LOOKUP,
     select: { tokenId: true },
@@ -54,13 +48,11 @@ export async function resolveHolderTokenIds(chain: Chain, holderRaw: string, db:
   return held.map((t) => t.tokenId);
 }
 
-sponsorship.get("/offers", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
-  const { page, limit } = parsePage(c);
+sponsorship.get("/offers", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const chainFilter = c.get("chainFilter");
+  const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
-  const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-  const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
+  const ownedPairs = await resolveOwnedPairs(chainFilter, c.req.query("owner") ?? undefined);
   const where = buildOfferListWhere({
     chainFilter,
     nftContract: c.req.query("nftContract") ?? undefined,
@@ -75,17 +67,15 @@ sponsorship.get("/offers", async (c) => {
   return c.json({ data: rows.map(serializeOffer), meta: { page, limit, total } });
 });
 
-sponsorship.get("/offers/:offerId", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/offers/:offerId", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const offer = await prisma.sponsorshipOffer.findFirst({ where: { chain, offerId: c.req.param("offerId") } });
   if (!offer) return c.json({ error: "Offer not found" }, 404);
   return c.json({ data: serializeOffer(offer) });
 });
 
-sponsorship.get("/offers/:offerId/bids", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/offers/:offerId/bids", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const bids = await prisma.sponsorshipBid.findMany({
     where: { chain, offerId: c.req.param("offerId") },
     orderBy: { placedAtChain: "desc" },
@@ -93,13 +83,11 @@ sponsorship.get("/offers/:offerId/bids", async (c) => {
   return c.json({ data: bids.map(serializeBid) });
 });
 
-sponsorship.get("/proposals", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
-  const { page, limit } = parsePage(c);
+sponsorship.get("/proposals", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const chainFilter = c.get("chainFilter");
+  const { page, limit } = c.req.valid("query");
   const openRaw = c.req.query("open");
-  const addrChain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-  const ownedPairs = await resolveOwnedPairs(addrChain, c.req.query("owner") ?? undefined);
+  const ownedPairs = await resolveOwnedPairs(chainFilter, c.req.query("owner") ?? undefined);
   const where = buildProposalListWhere({
     chainFilter,
     nftContract: c.req.query("nftContract") ?? undefined,
@@ -114,24 +102,21 @@ sponsorship.get("/proposals", async (c) => {
   return c.json({ data: rows.map(serializeProposal), meta: { page, limit, total } });
 });
 
-sponsorship.get("/proposals/:proposalId", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/proposals/:proposalId", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const proposal = await prisma.sponsorshipProposal.findFirst({ where: { chain, proposalId: c.req.param("proposalId") } });
   if (!proposal) return c.json({ error: "Proposal not found" }, 404);
   return c.json({ data: serializeProposal(proposal) });
 });
 
-sponsorship.get("/licenses", async (c) => {
-  const chainFilter = parseChainFilter(c.req.query("chain"));
-  if (!chainFilter) return c.json({ error: "Invalid chain" }, 400);
-  const { page, limit } = parsePage(c);
+sponsorship.get("/licenses", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const chainFilter = c.get("chainFilter");
+  const { page, limit } = c.req.valid("query");
   const holderRaw = c.req.query("holder");
 
   let tokenIdFilter: { in: string[] } | undefined;
   if (holderRaw) {
-    const chain = chainFilter === "all" ? "STARKNET" : chainFilter.chain;
-    tokenIdFilter = { in: await resolveHolderTokenIds(chain, holderRaw) };
+    tokenIdFilter = { in: await resolveHolderTokenIds(chainFilter, holderRaw) };
   }
 
   const where = {
@@ -151,9 +136,8 @@ sponsorship.get("/licenses", async (c) => {
   return c.json({ data: rows.map(serializeLicense), meta: { page, limit, total } });
 });
 
-sponsorship.get("/licenses/:tokenId", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+sponsorship.get("/licenses/:tokenId", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const tokenId = c.req.param("tokenId");
   const license = await prisma.sponsorshipLicense.findFirst({ where: { chain, tokenId } });
   if (!license) return c.json({ error: "License not found" }, 404);

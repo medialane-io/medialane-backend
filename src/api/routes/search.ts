@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import prisma from "../../db/client.js";
 import type { RawSearchTokenRow, RawSearchCollectionRow } from "../utils/rawTypes.js";
 import { batchCollectionStats } from "../utils/collectionStats.js";
-import { parseSingleChain } from "../utils/chainFilter.js";
+import { chainScope } from "../http/chain.js";
 
 const search = new Hono();
 
-search.get("/", async (c) => {
+search.get("/", chainScope(), async (c) => {
   const q = c.req.query("q")?.trim();
   if (!q || q.length < 2) {
     return c.json({ error: "q must be at least 2 characters" }, 400);
@@ -14,8 +14,7 @@ search.get("/", async (c) => {
 
   const limitParam = Number(c.req.query("limit") ?? 10);
   const limit = Math.min(Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 10, 50);
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+  const chain = c.get("chain");
 
   const [tokenRows, collectionRows, creatorRows] = await Promise.all([
     prisma.$queryRaw<RawSearchTokenRow[]>`

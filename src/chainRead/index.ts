@@ -1,7 +1,7 @@
-import { Contract, cairo } from "starknet";
 import type { Chain } from "@prisma/client";
-import { getEscape } from "@medialane/sdk/starknet";
-import { callRpc, normalizeAddress } from "../utils/starknet.js";
+import { adapterFor } from "../chains/adapter.js";
+
+export { __unstable_starknetGetEscapeReadyAtWithProvider } from "../chains/starknet.js";
 
 export async function holdsToken(
   chain: Chain,
@@ -10,8 +10,7 @@ export async function holdsToken(
   standard: "ERC721" | "ERC1155",
   knownTokenIds?: string[],
 ): Promise<boolean> {
-  if (chain !== "STARKNET") throw new Error(`Ownership checks not implemented for chain "${chain}"`);
-  return starknetHoldsToken(contract, owner, standard, knownTokenIds);
+  return adapterFor(chain).holdsToken(contract, owner, standard, knownTokenIds);
 }
 
 export async function holdsTokenId(
@@ -21,85 +20,13 @@ export async function holdsTokenId(
   standard: "ERC721" | "ERC1155",
   tokenId: string,
 ): Promise<boolean> {
-  if (chain !== "STARKNET") throw new Error(`Ownership checks not implemented for chain "${chain}"`);
-  if (standard === "ERC1155") return starknetHoldsToken(contract, owner, standard, [tokenId]);
-  const id = cairo.uint256(tokenId);
-  const res = await callRpc((provider) => provider.callContract({
-    contractAddress: contract,
-    entrypoint: "owner_of",
-    calldata: [id.low.toString(), id.high.toString()],
-  }));
-  return res.length > 0 && normalizeAddress("STARKNET", res[0]!) === normalizeAddress("STARKNET", owner);
+  return adapterFor(chain).holdsTokenId(contract, owner, standard, tokenId);
 }
 
 export async function getCollectionOwner(chain: Chain, contract: string): Promise<string> {
-  if (chain !== "STARKNET") throw new Error(`Owner reads not implemented for chain "${chain}"`);
-  return starknetCollectionOwner(contract);
+  return adapterFor(chain).collectionOwner(contract);
 }
 
 export async function getEscapeReadyAt(chain: Chain, accountAddress: string): Promise<Date | null> {
-  if (chain !== "STARKNET") throw new Error(`Escape reads not implemented for chain "${chain}"`);
-  return callRpc((provider) => __unstable_starknetGetEscapeReadyAtWithProvider(provider, accountAddress));
+  return adapterFor(chain).escapeReadyAt(accountAddress);
 }
-
-export async function __unstable_starknetGetEscapeReadyAtWithProvider(
-  provider: Parameters<typeof getEscape>[0],
-  accountAddress: string,
-): Promise<Date | null> {
-  const escape = await getEscape(provider, accountAddress);
-  return escape.readyAt > 0 ? new Date(escape.readyAt * 1000) : null;
-}
-
-async function starknetHoldsToken(
-  contract: string,
-  owner: string,
-  standard: "ERC721" | "ERC1155",
-  knownTokenIds?: string[],
-): Promise<boolean> {
-  if (standard === "ERC721") {
-
-    const res = await callRpc((provider) => provider.callContract({
-      contractAddress: contract,
-      entrypoint: "balance_of",
-      calldata: [owner],
-    }));
-    return res.length >= 2 && (BigInt(res[0] ?? "0x0") !== 0n || BigInt(res[1] ?? "0x0") !== 0n);
-  }
-
-  if (!knownTokenIds || knownTokenIds.length === 0) return false;
-  const ids = knownTokenIds.slice(0, 100);
-  const accounts = new Array<string>(ids.length).fill(owner);
-  const idCalldata: string[] = [];
-  for (const id of ids) {
-    const u = cairo.uint256(id);
-    idCalldata.push(u.low.toString(), u.high.toString());
-  }
-  const res = await callRpc((provider) => provider.callContract({
-    contractAddress: contract,
-    entrypoint: "balance_of_batch",
-    calldata: [
-      accounts.length.toString(), ...accounts,
-      ids.length.toString(), ...idCalldata,
-    ],
-  }));
-  const len = Number(BigInt(res[0] ?? "0x0"));
-  for (let i = 0; i < len; i++) {
-    const low = BigInt(res[1 + i * 2] ?? "0x0");
-    const high = BigInt(res[2 + i * 2] ?? "0x0");
-    if (low !== 0n || high !== 0n) return true;
-  }
-  return false;
-}
-
-async function starknetCollectionOwner(contract: string): Promise<string> {
-  const ownerResult = await callRpc((provider) => {
-    const c = new Contract({
-      abi: [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],
-      address: contract,
-      providerOrAccount: provider,
-    });
-    return c.owner();
-  });
-  return normalizeAddress("STARKNET", String(ownerResult));
-}
-

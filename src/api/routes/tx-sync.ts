@@ -3,7 +3,8 @@ import { z } from "zod";
 import prisma from "../../db/client.js";
 import { callRpc } from "../../utils/starknet.js";
 import { applyEvents, applyCollectionsCreated, prepareOwnership } from "../../mirror/apply.js";
-import { chainCallAt, readOwnership } from "../../chainRead/ownership.js";
+import { chainCallAt } from "../../chainRead/call.js";
+import { readOwnership } from "../../chainRead/ownership.js";
 import { CHAIN } from "../../mirror/index.js";
 import {
   CORE_FACTORY_DATA_TOKENIZATION,
@@ -19,6 +20,8 @@ import { worker } from "../../orchestrator/worker.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
+import { validated } from "../http/validate.js";
+import { sameFelt } from "../../utils/felt.js";
 
 const log = createLogger("routes:tx-sync");
 
@@ -85,15 +88,6 @@ export interface FactoryBatch {
   events: RawStarknetEvent[];
 }
 
-function sameFelt(a: string | undefined, b: string): boolean {
-  if (a === undefined) return false;
-  try {
-    return BigInt(a) === BigInt(b);
-  } catch {
-    return false;
-  }
-}
-
 export function factoryBatches(events: RawStarknetEvent[]): FactoryBatch[] {
   const batches: FactoryBatch[] = [];
   for (const source of EVENT_SOURCES) {
@@ -117,12 +111,10 @@ export function blockNumberOf(receipt: unknown): number | null {
 
 const txSync = new Hono<AppEnv>();
 
-txSync.post("/", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = z.object({ txHash: z.string().min(1) }).safeParse(body);
-  if (!parsed.success) return c.json({ error: "txHash required" }, 400);
+const syncBody = z.object({ txHash: z.string().min(1) });
 
-  const { txHash } = parsed.data;
+txSync.post("/", validated("json", syncBody, { message: "txHash required" }), async (c) => {
+  const { txHash } = c.req.valid("json");
 
   let receipt: unknown;
   try {

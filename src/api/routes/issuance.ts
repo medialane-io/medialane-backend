@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import type { AppEnv } from "../../types/hono.js";
 import { IDENTITY_SCHEME, normalizeIdentityValue } from "../../utils/identity.js";
 import { getService } from "@medialane/sdk";
@@ -77,7 +77,7 @@ const mintCallsSchema = z
 export function createIssuanceRoutes(deps: IssuanceDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  app.post("/emission", zValidator("json", mintCallsSchema), async (c) => {
+  app.post("/emission", validated("json", mintCallsSchema), async (c) => {
     const body = c.req.valid("json");
 
     if (!serviceCanMint(body.service)) {

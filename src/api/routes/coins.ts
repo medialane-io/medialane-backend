@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { parseSingleChain, parseChainFilter } from "../utils/chainFilter.js";
+import { validated } from "../http/validate.js";
 import type { AppEnv } from "../../types/hono.js";
 import { z } from "zod";
 import { shortString } from "starknet";
@@ -15,6 +15,8 @@ import { getTokenBySymbol } from "@medialane/sdk";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { buildCoinListWhere, buildCoinListOrderBy } from "./coins.filters.js";
 import { createLogger } from "../../utils/logger.js";
+import { chainScope } from "../http/chain.js";
+import { pageQuery } from "../http/page.js";
 
 const log = createLogger("routes:coins");
 const coins = new Hono<AppEnv>();
@@ -48,23 +50,20 @@ export async function verifiedCreator(
   }
 }
 
-coins.post("/sync", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+const syncBody = z.object({
+  coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address"),
+  owner: z.string().optional(),
+});
 
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = z
-    .object({
-      coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address"),
-      owner: z.string().optional(),
-    })
-    .safeParse(body);
-  if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
+coins.post("/sync", chainScope(), validated("json", syncBody, { message: "coinAddress required" }), async (c) => {
+  const chain = c.get("chain");
+
+  const parsed = c.req.valid("json");
 
   if (!STARKNET_CREATOR_COIN_FACTORY_CONTRACT) {
     return c.json({ error: "Creator Coin factory not configured" }, 503);
   }
-  const coinAddress = normalizeAddress(chain, parsed.data.coinAddress);
+  const coinAddress = normalizeAddress(chain, parsed.coinAddress);
 
   try {
 
@@ -94,7 +93,7 @@ coins.post("/sync", async (c) => {
       chain,
       contractAddress: coinAddress,
       ...resolved.coin,
-      creator: await verifiedCreator(chain, coinAddress, parsed.data.owner),
+      creator: await verifiedCreator(chain, coinAddress, parsed.owner),
       startBlock: isCreatorCoin ? BigInt(env.CREATOR_COIN_START_BLOCK) : BigInt(0),
     });
 
@@ -109,15 +108,13 @@ coins.post("/sync", async (c) => {
   }
 });
 
-coins.get("/", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/", chainScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const chain = c.get("chain");
 
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24)));
+  const { page, limit } = c.req.valid("query");
   const service = c.req.query("service");
   const creator = c.req.query("creator") ?? undefined;
-  const where = buildCoinListWhere({ chainFilter: parseChainFilter(c.req.query("chain")) ?? undefined, service: service ?? undefined, creator });
+  const where = buildCoinListWhere({ chainFilter: { chain }, service: service ?? undefined, creator });
   const orderBy = buildCoinListOrderBy(c.req.query("sort"));
   const [rows, total, grouped] = await Promise.all([
     prisma.coin.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit }),
@@ -132,17 +129,14 @@ coins.get("/", async (c) => {
   return c.json({ data: rows.map(serializeCoin), meta: { page, limit, total, counts } });
 });
 
-coins.post("/claim", identityAuth, async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+const claimBody = z.object({ coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address") });
 
-  const body = await c.req.json().catch(() => ({}));
-  const parsed = z
-    .object({ coinAddress: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid Starknet address") })
-    .safeParse(body);
-  if (!parsed.success) return c.json({ error: "coinAddress required" }, 400);
+coins.post("/claim", identityAuth, chainScope(), validated("json", claimBody, { message: "coinAddress required" }), async (c) => {
+  const chain = c.get("chain");
 
-  const coinAddress = normalizeAddress(chain, parsed.data.coinAddress);
+  const parsed = c.req.valid("json");
+
+  const coinAddress = normalizeAddress(chain, parsed.coinAddress);
   const wallet = c.get("walletAddress") as string;
 
   let owner: string;
@@ -196,14 +190,14 @@ coins.post("/claim", identityAuth, async (c) => {
   return c.json({ verified: true, coin: coin ? serializeCoin(coin) : null });
 });
 
-coins.get("/claims", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+const claimsQuery = z.object({ status: z.enum(["PENDING", "AUTO_APPROVED", "APPROVED", "REJECTED"]).default("PENDING") });
 
-  const status = z.enum(["PENDING", "AUTO_APPROVED", "APPROVED", "REJECTED"]).safeParse(c.req.query("status") ?? "PENDING");
-  if (!status.success) return c.json({ error: "Invalid status" }, 400);
+coins.get("/claims", chainScope(), validated("query", claimsQuery, { message: "Invalid status" }), async (c) => {
+  const chain = c.get("chain");
+
+  const { status } = c.req.valid("query");
   const claims = await prisma.collectionClaim.findMany({
-    where: { status: status.data },
+    where: { status },
     orderBy: { createdAt: "desc" },
     take: 100,
     select: {
@@ -220,9 +214,8 @@ coins.get("/claims", async (c) => {
   return c.json({ data: claims });
 });
 
-coins.get("/prices", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/prices", chainScope(), async (c) => {
+  const chain = c.get("chain");
 
   const rows = await prisma.coin.findMany({
     where: { isHidden: false },
@@ -238,9 +231,8 @@ coins.get("/prices", async (c) => {
   return c.json({ data: prices });
 });
 
-coins.get("/:contract", async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+coins.get("/:contract", chainScope(), async (c) => {
+  const chain = c.get("chain");
   const contract = normalizeAddress(chain, c.req.param("contract"));
   const coin = await prisma.coin.findUnique({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
@@ -249,20 +241,17 @@ coins.get("/:contract", async (c) => {
   return c.json({ data: serializeCoin(coin) });
 });
 
-coins.patch("/:contract", identityAuth, async (c) => {
-  const chain = parseSingleChain(c.req.query("chain"));
-  if (!chain) return c.json({ error: "Invalid chain" }, 400);
+const patchBody = z.object({
+  image: z.string().max(400).nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+});
+
+coins.patch("/:contract", identityAuth, chainScope(), validated("json", patchBody, { message: "Invalid body" }), async (c) => {
+  const chain = c.get("chain");
 
   const contract = normalizeAddress(chain, c.req.param("contract") ?? "");
   const jwtWallet = c.get("walletAddress") as string;
-  const parsed = z
-    .object({
-
-      image: z.string().max(400).nullable().optional(),
-      description: z.string().max(500).nullable().optional(),
-    })
-    .safeParse(await c.req.json().catch(() => ({})));
-  if (!parsed.success) return c.json({ error: "Invalid body" }, 400);
+  const parsed = c.req.valid("json");
 
   const coin = await prisma.coin.findUnique({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
@@ -275,8 +264,8 @@ coins.patch("/:contract", identityAuth, async (c) => {
   const updated = await prisma.coin.update({
     where: { chain_contractAddress: { chain, contractAddress: contract } },
     data: {
-      ...(parsed.data.image !== undefined ? { image: parsed.data.image } : {}),
-      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+      ...(parsed.image !== undefined ? { image: parsed.image } : {}),
+      ...(parsed.description !== undefined ? { description: parsed.description } : {}),
     },
   });
   return c.json({ data: serializeCoin(updated) });

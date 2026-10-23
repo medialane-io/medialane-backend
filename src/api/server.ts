@@ -6,9 +6,7 @@ import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyGate } from "./middleware/apiKeyGate.js";
-import { createLogger } from "../utils/logger.js";
-
-const log = createLogger("http");
+import { renderError } from "./http/errors.js";
 import health from "./routes/health.js";
 import media from "./routes/media.js";
 import orders from "./routes/orders.js";
@@ -112,10 +110,7 @@ export function createApp(): Hono<AppEnv> {
 
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-  app.onError((err, c) => {
-    log.error({ err, requestId: c.get("requestId") }, "Unhandled request error");
-    return c.json({ error: "Internal server error" }, 500);
-  });
+  app.onError(renderError);
 
   return app;
 }

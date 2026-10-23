@@ -1,21 +1,25 @@
+import { validated } from "../http/validate.js";
 import { Hono } from "hono";
-import type { Drop, DropMint, Prisma } from "@prisma/client";
+import type { Chain, Drop, DropMint, Prisma } from "@prisma/client";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp } from "../../utils/caller.js";
 import { dropFeeBps } from "../../orchestrator/intent/fee.js";
+import { pageQuery } from "../http/page.js";
+import { chainScope } from "../http/chain.js";
+import { DEFAULT_CHAIN } from "../../config/chains.js";
 
 export type DropListStatus = "live" | "upcoming" | "ended";
 
 /** `maxSupply` is the column reference compared against `minted` (sold out). */
 export function buildDropListWhere(
-  q: { status?: string; organizer?: string; now: number },
+  q: { status?: string; organizer?: string; now: number; chain?: Chain },
   maxSupply: Prisma.FieldRef<"Drop", "Decimal"> = prisma.drop.fields.maxSupply,
 ): Prisma.DropWhereInput {
-  const { now } = q;
-  const where: Prisma.DropWhereInput = { chain: "STARKNET", collection: { isHidden: false, deletedAt: null } };
-  if (q.organizer) where.organizer = normalizeAddress("STARKNET", q.organizer);
+  const { now, chain = DEFAULT_CHAIN } = q;
+  const where: Prisma.DropWhereInput = { chain, collection: { isHidden: false, deletedAt: null } };
+  if (q.organizer) where.organizer = normalizeAddress(chain, q.organizer);
   if (q.status === "live") {
     where.AND = [
       { OR: [{ startTime: 0 }, { startTime: { lte: now } }] },
@@ -75,15 +79,9 @@ export function serializeDropMint(m: DropMint) {
   };
 }
 
-const paging = (c: { req: { query(k: string): string | undefined } }) => {
-  const page = Math.max(1, Number(c.req.query("page") ?? 1) || 1);
-  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit") ?? 24) || 24));
-  return { page, limit };
-};
-
-const contractParam = (raw: string): string | null => {
+const contractParam = (chain: Chain, raw: string): string | null => {
   try {
-    return normalizeAddress("STARKNET", raw);
+    return normalizeAddress(chain, raw);
   } catch {
     return null;
   }
@@ -91,13 +89,14 @@ const contractParam = (raw: string): string | null => {
 
 const drops = new Hono<AppEnv>();
 
-drops.get("/", async (c) => {
-  const { page, limit } = paging(c);
+drops.get("/", chainScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const chain = c.get("chain");
+  const { page, limit } = c.req.valid("query");
   const status = c.req.query("status");
   const organizerRaw = c.req.query("organizer");
-  const organizer = organizerRaw ? contractParam(organizerRaw) : undefined;
+  const organizer = organizerRaw ? contractParam(chain, organizerRaw) : undefined;
   if (organizerRaw && !organizer) return c.json({ error: "Invalid organizer address" }, 400);
-  const where = buildDropListWhere({ status, organizer: organizer ?? undefined, now: Math.floor(Date.now() / 1000) });
+  const where = buildDropListWhere({ status, organizer: organizer ?? undefined, now: Math.floor(Date.now() / 1000), chain });
   const orderBy: Prisma.DropOrderByWithRelationInput = status === "upcoming" ? { startTime: "asc" } : { createdBlock: "desc" };
   const [rows, total] = await Promise.all([
     prisma.drop.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit, include: { collection: collectionFields } }),
@@ -108,22 +107,24 @@ drops.get("/", async (c) => {
 
 drops.get("/fee", (c) => c.json({ data: { launchpadBps: dropFeeBps(callerApp(c)) } }));
 
-drops.get("/:contract", async (c) => {
-  const collectionAddress = contractParam(c.req.param("contract"));
+drops.get("/:contract", chainScope(), async (c) => {
+  const chain = c.get("chain");
+  const collectionAddress = contractParam(chain, c.req.param("contract"));
   if (!collectionAddress) return c.json({ error: "Invalid contract address" }, 400);
   const row = await prisma.drop.findFirst({
-    where: { chain: "STARKNET", collectionAddress, collection: { isHidden: false, deletedAt: null } },
+    where: { chain, collectionAddress, collection: { isHidden: false, deletedAt: null } },
     include: { collection: collectionFields },
   });
   if (!row) return c.json({ error: "Drop not found" }, 404);
   return c.json({ data: serializeDrop(row) });
 });
 
-drops.get("/:contract/mints", async (c) => {
-  const collectionAddress = contractParam(c.req.param("contract"));
+drops.get("/:contract/mints", chainScope(), validated("query", pageQuery({ defaultLimit: 24 })), async (c) => {
+  const chain = c.get("chain");
+  const collectionAddress = contractParam(chain, c.req.param("contract"));
   if (!collectionAddress) return c.json({ error: "Invalid contract address" }, 400);
-  const { page, limit } = paging(c);
-  const where = { chain: "STARKNET" as const, collectionAddress };
+  const { page, limit } = c.req.valid("query");
+  const where = { chain, collectionAddress };
   const [rows, total] = await Promise.all([
     prisma.dropMint.findMany({ where, orderBy: [{ blockNumber: "desc" }, { logIndex: "desc" }], skip: (page - 1) * limit, take: limit }),
     prisma.dropMint.count({ where }),

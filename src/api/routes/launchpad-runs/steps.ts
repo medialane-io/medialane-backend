@@ -6,8 +6,9 @@ import type { StoredRun } from "../../../launchpad/run-store.js";
 import type { StepState } from "../../../launchpad/services/data-tokenization/progress.js";
 import type { Call } from "../../../launchpad/services/ip-ticketing/chain.js";
 import { buildSponsoredInvoke } from "../paymaster.js";
-import { executeBody, indexParam, ownsWallet, walletBody, type RunContext, type RunReceipt } from "./context.js";
+import { executeBody, assertOwnsWallet, indexParam, walletBody, type RunContext, type RunReceipt } from "./context.js";
 import { confirmStep, executeStep } from "./sponsored-step.js";
+import { validated } from "../../http/validate.js";
 
 const log = createLogger("routes:launchpad-runs:steps");
 
@@ -145,37 +146,35 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
   };
 
   for (const route of routes) {
-    app.post(`/${route}/build`, async (c) => {
+    app.post(`/${route}/build`, validated("json", walletBody, { message: "userAddress is required" }), async (c) => {
       const loaded = await loadAny(c);
       if (loaded instanceof Response) return loaded;
       const found = stepOf(c, route, loaded);
       if (found instanceof Response) return found;
       const { step, index } = found;
 
-      const body = walletBody.safeParse(await c.req.json().catch(() => null));
-      if (!body.success) return c.json({ error: "userAddress is required" }, 400);
-      if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+      const body = c.req.valid("json");
+      await assertOwnsWallet(ctx, c, body.userAddress);
       if (!step.open(loaded.active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
 
-      const calls = await prepare(c, step, loaded.active, index, body.data.userAddress);
+      const calls = await prepare(c, step, loaded.active, index, body.userAddress);
       if (calls instanceof Response) return calls;
-      const outcome = await buildSponsoredInvoke(ex().sponsored, { userAddress: body.data.userAddress, calls });
+      const outcome = await buildSponsoredInvoke(ex().sponsored, { userAddress: body.userAddress, calls });
       return c.json(outcome.body, outcome.status);
     });
 
-    app.post(`/${route}/execute`, async (c) => {
+    app.post(`/${route}/execute`, validated("json", executeBody, { message: "userAddress, typedData and signature are required" }), async (c) => {
       const loaded = await loadAny(c);
       if (loaded instanceof Response) return loaded;
       const found = stepOf(c, route, loaded);
       if (found instanceof Response) return found;
       const { step, index } = found;
 
-      const body = executeBody.safeParse(await c.req.json().catch(() => null));
-      if (!body.success) return c.json({ error: "userAddress, typedData and signature are required" }, 400);
-      if (!(await ownsWallet(ctx, c, body.data.userAddress))) return c.json({ error: "Use a wallet on your own account" }, 403);
+      const body = c.req.valid("json");
+      await assertOwnsWallet(ctx, c, body.userAddress);
       if (!step.open(loaded.active, index)) return c.json({ error: `${step.label} is already on its way` }, 409);
 
-      const calls = await prepare(c, step, loaded.active, index, body.data.userAddress);
+      const calls = await prepare(c, step, loaded.active, index, body.userAddress);
       if (calls instanceof Response) return calls;
 
       return executeStep(ctx, c, {
@@ -185,7 +184,7 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
         credits: await step.credits(loaded.active, index),
         label: step.label,
         calls,
-        ...body.data,
+        ...body,
       });
     });
 
@@ -209,14 +208,13 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     });
   }
 
-  app.post("/files/upload-url", async (c) => {
+  app.post("/files/upload-url", validated("json", fileNameBody, { message: "name is required" }), async (c) => {
     const loaded = await loadAny(c);
     if (loaded instanceof Response) return loaded;
     const { service, active } = loaded;
 
-    const body = fileNameBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "name is required" }, 400);
-    const { name } = body.data;
+    const body = c.req.valid("json");
+    const { name } = body;
     const expected = service.files.expected(active, name);
     if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
     if (service.files.uri(active, name)) return c.json({ error: `${name} is already uploaded` }, 409);
@@ -235,14 +233,13 @@ export function createRunStepRoutes(ctx: RunContext, services: AnyService[]): Ho
     }
   });
 
-  app.post("/files/uploaded", async (c) => {
+  app.post("/files/uploaded", validated("json", uploadedBody, { message: "name and cid are required" }), async (c) => {
     const loaded = await loadAny(c);
     if (loaded instanceof Response) return loaded;
     const { service, active } = loaded;
 
-    const body = uploadedBody.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return c.json({ error: "name and cid are required" }, 400);
-    const { name, cid } = body.data;
+    const body = c.req.valid("json");
+    const { name, cid } = body;
     const expected = service.files.expected(active, name);
     if (!expected) return c.json({ error: `${name} is not part of this run` }, 400);
 

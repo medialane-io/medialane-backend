@@ -3,6 +3,7 @@ import {
   TRANSFER_SELECTOR, ACCOUNT_CREATED_GUID_SELECTOR, GUARDIAN_ADDED_GUID_SELECTOR,
   ESCAPE_OWNER_TRIGGERED_GUID_SELECTOR, OWNER_ESCAPED_GUID_SELECTOR, ESCAPE_CANCELED_SELECTOR,
 } from "../config/constants.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 export interface TransferLeg {
   tokenAddress: string;
@@ -16,8 +17,7 @@ export interface TransferLeg {
 export function decodeTransferLeg(event: RawStarknetEvent, tokenAddress: string): TransferLeg | null {
   if (event.keys[0] !== TRANSFER_SELECTOR) return null;
   const [from, to] = [event.keys[1], event.keys[2]];
-  const [low, high] = [BigInt(event.data[0] ?? "0x0"), BigInt(event.data[1] ?? "0x0")];
-  const amount = (low + (high << 128n)).toString();
+  const amount = u256ToBigInt(event.data[0] ?? "0x0", event.data[1] ?? "0x0").toString();
   return { tokenAddress, from, to, amount, txHash: event.transaction_hash, blockNumber: BigInt(event.block_number) };
 }
 

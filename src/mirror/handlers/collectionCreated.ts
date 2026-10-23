@@ -2,6 +2,7 @@ import { num } from "starknet";
 import type { ParsedCollectionCreated } from "../../types/marketplace.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
+import { encodeU256, u256ToBigInt } from "@medialane/sdk";
 
 const log = createLogger("handler:collectionCreated");
 
@@ -25,7 +26,7 @@ export function decodeCollectionCreatedEvent(
   const { keys, data } = event;
   if (!keys || keys.length < 3 || !data || data.length < 1) return null;
   return {
-    collectionId: (BigInt(keys[1]) + (BigInt(keys[2]) << 128n)).toString(),
+    collectionId: u256ToBigInt(keys[1], keys[2]).toString(),
     owner: normalizeAddress("STARKNET", data[0]),
   };
 }
@@ -63,9 +64,7 @@ export async function resolveCollectionCreated(
   const { collectionId, owner, blockNumber, factoryAddress } = event;
 
   try {
-    const id = BigInt(collectionId);
-    const low = id & ((1n << 128n) - 1n);
-    const high = id >> 128n;
+    const [low, high] = encodeU256(BigInt(collectionId));
     const raw = (await callRpc((provider) => provider.callContract({
       contractAddress: factoryAddress,
       entrypoint: "get_collection",

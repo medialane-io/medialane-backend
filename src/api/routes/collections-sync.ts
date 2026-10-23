@@ -12,6 +12,7 @@ import { serviceForFactory } from "../../utils/factoryService.js";
 import { callRpc } from "../../utils/starknet.js";
 import { serializeCollections } from "../utils/serialize.js";
 import { createLogger } from "../../utils/logger.js";
+import { validated } from "../http/validate.js";
 
 const log = createLogger("routes:collections");
 
@@ -27,20 +28,18 @@ export async function refreshIndexedCollection(
 
 export function registerCollectionSyncRoutes(collections: Hono) {
 
-collections.post("/sync-tx", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const parsed = z.object({ txHash: z.string().min(1) }).safeParse(body);
-  if (!parsed.success) return c.json({ error: "txHash required" }, 400);
+const syncTxBody = z.object({ txHash: z.string().min(1) });
 
-  const { txHash } = parsed.data;
+collections.post("/sync-tx", validated("json", syncTxBody, { message: "txHash required" }), async (c) => {
+  const { txHash } = c.req.valid("json");
   try {
     const receipt = await callRpc((provider) => provider.getTransactionReceipt(txHash));
 
     const collectionCreatedKey = starkNum.toHex(COLLECTION_CREATED_SELECTOR);
     const factoryAddresses = new Set(STARKNET_COLLECTION_FACTORIES.map((a) => normalizeAddress("STARKNET", a)));
-    const events = (receipt as any).events ?? [];
+    const events = "events" in receipt ? receipt.events : [];
     const collectionEvents = events.filter(
-      (e: any) =>
+      (e) =>
         e.from_address &&
         factoryAddresses.has(normalizeAddress("STARKNET", e.from_address)) &&
         e.keys?.[0] && starkNum.toHex(e.keys[0]) === collectionCreatedKey
@@ -56,7 +55,7 @@ collections.post("/sync-tx", async (c) => {
       const decoded = decodeCollectionCreatedEvent(event);
       if (!decoded) continue;
       const { collectionId, owner } = decoded;
-      const blockNumber = BigInt(event.block_number ?? (receipt as any).block_number ?? 0);
+      const blockNumber = BigInt(("block_number" in receipt ? receipt.block_number : undefined) ?? 0);
 
       const resolved = await resolveCollectionCreated({
         type: "CollectionCreated",
@@ -111,11 +110,10 @@ collections.post("/sync-tx", async (c) => {
   }
 });
 
-collections.post("/register", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (typeof body?.contractAddress !== "string") {
-    return c.json({ error: "contractAddress is required" }, 400);
-  }
+const registerBody = z.object({ contractAddress: z.string() });
+
+collections.post("/register", validated("json", registerBody, { message: "contractAddress is required" }), async (c) => {
+  const body = c.req.valid("json");
   let contractAddress: string;
   try {
     contractAddress = normalizeAddress("STARKNET", body.contractAddress);

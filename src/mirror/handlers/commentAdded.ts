@@ -2,6 +2,7 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
+import { u256ToBigInt } from "@medialane/sdk";
 
 function utf8FromByteArray(felts: string[]): string {
   const dataLen = Number(BigInt(felts[0]));
@@ -31,9 +32,7 @@ export async function handleCommentAdded(
 ): Promise<void> {
   try {
     const nftContract = normalizeAddress("STARKNET", event.keys[1]);
-    const tokenIdLow = BigInt(event.keys[2]);
-    const tokenIdHigh = BigInt(event.keys[3]);
-    const tokenId = ((tokenIdHigh << 128n) | tokenIdLow).toString();
+    const tokenId = u256ToBigInt(event.keys[2], event.keys[3]).toString();
     const author = normalizeAddress("STARKNET", event.keys[4]);
 
     const tokenExists = await prisma.token.findUnique({

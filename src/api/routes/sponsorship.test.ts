@@ -15,7 +15,7 @@ function fakeDb(seenTake: { value?: number }) {
 describe("resolveOwnedPairs", () => {
   test("caps the lookup — an owner's lifetime holdings are unbounded and grow with usage, not traffic", async () => {
     const seenTake: { value?: number } = {};
-    await resolveOwnedPairs("STARKNET", "0x1", fakeDb(seenTake));
+    await resolveOwnedPairs({ chain: "STARKNET" }, "0x1", fakeDb(seenTake));
     expect(seenTake.value).toBe(MAX_OWNED_TOKEN_LOOKUP);
   });
 
@@ -29,7 +29,7 @@ describe("resolveOwnedPairs", () => {
         },
       },
     } as never;
-    const result = await resolveOwnedPairs("STARKNET", undefined, db);
+    const result = await resolveOwnedPairs({ chain: "STARKNET" }, undefined, db);
     expect(result).toBeUndefined();
     expect(called).toBe(false);
   });
@@ -38,7 +38,7 @@ describe("resolveOwnedPairs", () => {
 describe("resolveHolderTokenIds", () => {
   test("caps the lookup — same unbounded-by-usage shape as resolveOwnedPairs", async () => {
     const seenTake: { value?: number } = {};
-    await resolveHolderTokenIds("STARKNET", "0x1", fakeDb(seenTake));
+    await resolveHolderTokenIds({ chain: "STARKNET" }, "0x1", fakeDb(seenTake));
     expect(seenTake.value).toBe(MAX_OWNED_TOKEN_LOOKUP);
   });
 });

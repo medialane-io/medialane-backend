@@ -1,10 +1,10 @@
 import { Contract, shortString } from "starknet";
-import { type Chain } from "@prisma/client";
+import { type Chain, type Prisma } from "@prisma/client";
 import { callRpc } from "../utils/starknet.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
-import { attributesArraySchema } from "../utils/metadataAttributes.js";
+import { attributesArraySchema, tokenFields } from "../utils/metadataAttributes.js";
 import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
 
 
@@ -112,13 +112,6 @@ export async function handleMetadataFetch(payload: {
 
     const metadata = await resolveMetadata(tokenUri);
 
-    const _findAttr = (attrs: unknown[], name: string): string | null =>
-      ((attrs ?? []).find(
-        (a: any) =>
-          typeof a?.trait_type === "string" &&
-          a.trait_type.toLowerCase() === name.toLowerCase()
-      ) as any)?.value ?? null;
-
     const rawAttrs = Array.isArray(metadata?.attributes) ? metadata.attributes : [];
     const attrsParsed = attributesArraySchema.safeParse(rawAttrs);
     const _attrs = attrsParsed.success ? attrsParsed.data : [];
@@ -134,20 +127,8 @@ export async function handleMetadataFetch(payload: {
         name: metadata?.name ?? null,
         image: storedImage(metadata?.image, chain, contractAddress, tokenId),
         animationUrl: (metadata?.animation_url as string | undefined) ?? null,
-        attributes: _attrs.length > 0 ? (_attrs as any) : undefined,
-        ipType:
-          (metadata?.properties as any)?.ip_type ??
-          (metadata as any)?.ip_type ??
-          _findAttr(_attrs, "ip type"),
-        licenseType:
-          (metadata?.properties as any)?.license_type ??
-          (metadata as any)?.license_type ??
-          _findAttr(_attrs, "license"),
-        commercialUse:
-          (metadata?.properties as any)?.commercial_use ??
-          (metadata as any)?.commercial_use ??
-          null,
-        author: (metadata?.properties as any)?.author ?? (metadata as any)?.author ?? null,
+        attributes: _attrs.length > 0 ? (_attrs as Prisma.InputJsonValue) : undefined,
+        ...tokenFields(metadata, _attrs),
       },
     });
 

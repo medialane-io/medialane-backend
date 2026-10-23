@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { identityAuth, identityAuthWalletOptional } from "../middleware/identityAuth.js";
 import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
@@ -16,6 +16,7 @@ import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { emailDeadlineFor } from "../../utils/emailDeadline.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
+import { DEFAULT_CHAIN } from "../../config/chains.js";
 
 const log = createLogger("routes:users");
 
@@ -48,12 +49,12 @@ const generateWalletBodySchema = z.object({
 
 users.post(
   "/register",
-  zValidator("json", registerBodySchema),
+  validated("json", registerBodySchema),
   async (c) => {
     const body = c.req.valid("json");
     const provider = (body.walletType ?? "UNKNOWN").toLowerCase();
     const appId = callerApp(c);
-    const chain: Chain = body.chain ?? "STARKNET";
+    const chain: Chain = body.chain ?? DEFAULT_CHAIN;
 
     const { accountId } = await ensureAccountForWallet({
       chain,
@@ -83,16 +84,12 @@ users.post(
   }
 );
 
-users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
+users.post("/me", async (c, next) => identityAuth(c, next), validated("json", meBodySchema), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
-  const raw = await c.req.json<unknown>().catch(() => ({}));
-  const parsed = meBodySchema.safeParse(raw);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
-  }
-  const provider = (parsed.data.walletType ?? "UNKNOWN").toLowerCase();
+  const parsed = c.req.valid("json");
+  const provider = (parsed.walletType ?? "UNKNOWN").toLowerCase();
   const appId = callerApp(c);
-  const chain: Chain = parsed.data.chain ?? "STARKNET";
+  const chain: Chain = parsed.chain ?? DEFAULT_CHAIN;
 
   if (chain !== "STARKNET") {
     return c.json({
@@ -119,9 +116,9 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
     throw err;
   }
 
-  if (parsed.data.email) {
+  if (parsed.email) {
     const existing = await prisma.identity.findFirst({
-      where: liveEmailWhere(appId, emailValues(parsed.data.email)),
+      where: liveEmailWhere(appId, emailValues(parsed.email)),
       select: { id: true },
     });
     if (shouldAddEmailIdentity({ emailHeldByAnyAccount: existing !== null, accountHasEmail: (await getCurrentEmailIdentity(accountId)) !== null })) {
@@ -129,11 +126,11 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
         data: {
           accountId,
           scheme: IDENTITY_SCHEME.EMAIL,
-          value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.data.email),
+          value: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, parsed.email),
           appId,
         },
       });
-      issueVerificationCode(parsed.data.email, appId).catch((err: unknown) => {
+      issueVerificationCode(parsed.email, appId).catch((err: unknown) => {
         log.error({ err }, "Failed to auto-send verification code");
       });
     }
@@ -143,15 +140,11 @@ users.post("/me", async (c, next) => identityAuth(c, next), async (c) => {
   return c.json({ walletAddress });
 });
 
-users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), async (c) => {
+users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), validated("json", generateWalletBodySchema), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
-  const raw = await c.req.json<unknown>().catch(() => ({}));
-  const parsed = generateWalletBodySchema.safeParse(raw);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
-  }
+  const parsed = c.req.valid("json");
 
-  const newWalletId = verifySiwsToken(parsed.data.newWalletSiwsToken);
+  const newWalletId = verifySiwsToken(parsed.newWalletSiwsToken);
   if (!newWalletId) {
     return c.json({ error: "Invalid or expired token for the new wallet" }, 400);
   }
@@ -193,7 +186,7 @@ const walletKeySchema = z.object({
   newOwnerPubkey: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/),
 });
 
-users.post("/me/wallet/key", zValidator("json", walletKeySchema), async (c) => {
+users.post("/me/wallet/key", validated("json", walletKeySchema), async (c) => {
   const { newOwnerPubkey } = c.req.valid("json");
   const session = c.req.header("x-account-session");
   const accountId = session ? await currentAccountIdFromSession(session) : null;
@@ -237,14 +230,10 @@ users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (
 
 const changeEmailSchema = z.object({ email: z.string().email() });
 
-users.post("/me/email", async (c, next) => identityAuth(c, next), async (c) => {
+users.post("/me/email", async (c, next) => identityAuth(c, next), validated("json", changeEmailSchema), async (c) => {
   const walletAddress = c.get("walletAddress") as string;
-  const raw = await c.req.json<unknown>().catch(() => ({}));
-  const parsed = changeEmailSchema.safeParse(raw);
-  if (!parsed.success) {
-    return c.json({ error: "Invalid body", issues: parsed.error.issues }, 400);
-  }
-  const email = parsed.data.email;
+  const parsed = c.req.valid("json");
+  const email = parsed.email;
   const appId = callerApp(c);
 
   const identity = await prisma.identity.findUnique({
