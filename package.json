@@ -26,7 +26,7 @@
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
-    "test": "bun test src",
+    "test": "bun test --isolate src",
     "test:sql": "bash scripts/test-run-store-sql.sh",
     "test:sql:funding": "bash scripts/test-funding-store-sql.sh"
   },

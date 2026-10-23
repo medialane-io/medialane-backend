@@ -28,7 +28,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun test src
+      - run: bun test --isolate src
       - name: Replay the migrations and check they produce the schema
         run: |
           bun run db:fresh
