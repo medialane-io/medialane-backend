@@ -1,8 +1,8 @@
-import { cairo, type BlockIdentifier } from "starknet";
 import { ZERO_ADDRESS } from "../config/constants.js";
 import type { ParsedEvent } from "../types/marketplace.js";
 import { mapWithConcurrency } from "../utils/retry.js";
-import { callRpc, isContractError, normalizeAddress } from "../utils/starknet.js";
+import { normalizeAddress } from "../utils/starknet.js";
+import { callEither, chainCallAt, u256Calldata, type CallContract } from "./call.js";
 
 export type OwnershipKey =
   | { standard: "ERC721"; contractAddress: string; tokenId: string }
@@ -12,15 +12,7 @@ export type OwnershipFact =
   | { standard: "ERC721"; contractAddress: string; tokenId: string; owner: string | null }
   | { standard: "ERC1155"; contractAddress: string; tokenId: string; owner: string; amount: bigint };
 
-export type CallContract = (contractAddress: string, entrypoint: string, calldata: string[]) => Promise<string[]>;
-
 const READ_CONCURRENCY = 8;
-
-/** Chain reads at a given block: "latest" for the indexer, "pre_confirmed" right after a transaction is confirmed. */
-export function chainCallAt(blockIdentifier: BlockIdentifier, rpc: typeof callRpc = callRpc): CallContract {
-  return (contractAddress, entrypoint, calldata) =>
-    rpc((provider) => provider.callContract({ contractAddress, entrypoint, calldata }, blockIdentifier));
-}
 
 const chainCall = chainCallAt("latest");
 
@@ -49,28 +41,6 @@ export function ownershipKeys(events: ParsedEvent[]): OwnershipKey[] {
     }
   }
   return [...keys.values()];
-}
-
-/** Calls the snake_case entrypoint, then the camelCase one; null when the contract refuses both. */
-async function callEither(
-  call: CallContract,
-  contractAddress: string,
-  entrypoints: [string, string],
-  calldata: string[],
-): Promise<string[] | null> {
-  for (const entrypoint of entrypoints) {
-    try {
-      return await call(contractAddress, entrypoint, calldata);
-    } catch (err) {
-      if (!isContractError(err)) throw err;
-    }
-  }
-  return null;
-}
-
-function u256Calldata(tokenId: string): string[] {
-  const u = cairo.uint256(tokenId);
-  return [u.low.toString(), u.high.toString()];
 }
 
 /** Current on-chain ownership for each key. Transport failures throw; contract refusals mean no ownership. */

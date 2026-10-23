@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { callRpc } from "../utils/starknet.js";
-import { chainCallAt } from "./ownership.js";
+import { chainCallAt } from "./call.js";
 
 /** An RPC whose provider records the block each call is read at. */
 function recordingRpc(blocks: unknown[]): typeof callRpc {

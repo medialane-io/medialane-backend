@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { normalizeAddress } from "@medialane/sdk";
 import { ZERO_ADDRESS } from "../config/constants.js";
 import type { ParsedEvent } from "../types/marketplace.js";
-import { ownershipKeys, readOwnership, type CallContract } from "./ownership.js";
+import { ownershipKeys, readOwnership } from "./ownership.js";
+import type { CallContract } from "./call.js";
 
 const A = normalizeAddress("STARKNET", "0xa");
 const B = normalizeAddress("STARKNET", "0xb");

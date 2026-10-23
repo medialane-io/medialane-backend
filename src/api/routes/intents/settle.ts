@@ -17,7 +17,8 @@ import { handleOrderFulfilled, parseRawOrderFulfilled1155 } from "../../../mirro
 import { handleOrderCancelled } from "../../../mirror/handlers/orderCancelled.js";
 import { dispatchTransfer } from "../../../mirror/handlers/transfer.js";
 import { writeOwnership } from "../../../mirror/handlers/ownership.js";
-import { chainCallAt, ownershipKeys, readOwnership } from "../../../chainRead/ownership.js";
+import { chainCallAt } from "../../../chainRead/call.js";
+import { ownershipKeys, readOwnership } from "../../../chainRead/ownership.js";
 import { parseEvents } from "../../../mirror/parser.js";
 import { getTokenByAddress } from "../../../config/constants.js";
 import { runTransferFollowups } from "../../../orchestrator/transferFollowup.js";

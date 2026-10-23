@@ -3,7 +3,8 @@ import { z } from "zod";
 import prisma from "../../db/client.js";
 import { callRpc } from "../../utils/starknet.js";
 import { applyEvents, applyCollectionsCreated, prepareOwnership } from "../../mirror/apply.js";
-import { chainCallAt, readOwnership } from "../../chainRead/ownership.js";
+import { chainCallAt } from "../../chainRead/call.js";
+import { readOwnership } from "../../chainRead/ownership.js";
 import { CHAIN } from "../../mirror/index.js";
 import {
   CORE_FACTORY_DATA_TOKENIZATION,
