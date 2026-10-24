@@ -10,16 +10,13 @@ const spec = z
     items: z
       .array(
         z.object({
-          name: z.string().min(1).max(120),
-          description: z.string().max(2000).default(""),
-          ipType: z.string().min(1).max(40),
+          name: z.string().min(1),
+          description: z.string().default(""),
+          ipType: z.string().min(1),
           placement: z.enum(["image", "animation", "document"]),
           file: fileRef,
           image: fileRef.optional(),
-          traits: z
-            .array(z.object({ traitType: z.string().min(1).max(64), value: z.string().min(1).max(512) }))
-            .max(20)
-            .default([]),
+          traits: z.array(z.object({ traitType: z.string().min(1), value: z.string().min(1) })).default([]),
         }),
       )
       .min(1)

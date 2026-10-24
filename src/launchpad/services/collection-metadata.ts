@@ -8,9 +8,9 @@ const fileRef = z.object({
 });
 
 export const newCollectionFields = {
-  name: z.string().min(1).max(80),
-  symbol: z.string().min(1).max(12),
-  description: z.string().max(500).optional(),
+  name: z.string().min(1),
+  symbol: z.string().min(1),
+  description: z.string().optional(),
   image: fileRef.optional(),
   externalLink: z.string().url().regex(/^https?:\/\//).optional(),
 };

@@ -17,12 +17,13 @@ describe("collectionImage", () => {
 
 describe("new collection fields", () => {
   const shape = z.object(newCollectionFields);
-  test("accept the app's fields and reject a long description or a non-web link", () => {
+  test("accept the app's fields and any length of name, symbol and description, and reject a non-web link", () => {
     expect(
       shape.parse({ name: "A", symbol: "A", description: "d", externalLink: "https://x.example", image: { name: "c.png", size: 1, type: "image/png" } })
         .description,
     ).toBe("d");
-    expect(() => shape.parse({ name: "A", symbol: "A", description: "x".repeat(501) })).toThrow();
+    const long = { name: "n".repeat(300), symbol: "S".repeat(40), description: "x".repeat(5000) };
+    expect(shape.parse(long)).toEqual(long);
     expect(() => shape.parse({ name: "A", symbol: "A", externalLink: "ftp://x.example" })).toThrow();
   });
 

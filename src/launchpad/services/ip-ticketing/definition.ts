@@ -11,9 +11,9 @@ const group = z.discriminatedUnion("kind", [
 
 const spec = z.object({
   collection: group,
-  terms: terms.extend({ transferable: z.enum(["Allowed", "Not Allowed"]) }),
-  name: z.string().min(1).max(120),
-  description: z.string().max(2000).default(""),
+  terms: terms.extend({ transferable: z.string().min(1) }),
+  name: z.string().min(1),
+  description: z.string().default(""),
   artwork: fileRef.optional(),
   validFrom: z.number().int().positive().optional(),
   validUntil: z.number().int().positive().optional(),

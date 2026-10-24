@@ -242,8 +242,8 @@ coins.get("/:contract", chainScope(), async (c) => {
 });
 
 const patchBody = z.object({
-  image: z.string().max(400).nullable().optional(),
-  description: z.string().max(500).nullable().optional(),
+  image: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
 });
 
 coins.patch("/:contract", identityAuth, chainScope(), validated("json", patchBody, { message: "Invalid body" }), async (c) => {

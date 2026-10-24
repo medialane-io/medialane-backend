@@ -45,6 +45,33 @@ describe("data tokenization runs", () => {
     expect(() => parseRunSpec("data-tokenization-erc721", catalog([item(1), item(1)]))).toThrow();
   });
 
+  test("an item keeps its name, description and any number of traits whatever their length", () => {
+    const name = "t".repeat(500);
+    const description = "d".repeat(10_000);
+    const traits = Array.from({ length: 50 }, (_, i) => ({ traitType: `trait ${i}`, value: `value ${i}` }));
+    const run = parseRunSpec("data-tokenization-erc721", catalog([{ ...item(1), name, description, traits }]));
+    if (run.service === "data-tokenization-erc721") {
+      expect(run.spec.items[0]!.name).toBe(name);
+      expect(run.spec.items[0]!.description).toBe(description);
+      expect(run.spec.items[0]!.traits).toHaveLength(50);
+    }
+  });
+
+  test("license terms are kept as written", () => {
+    const written = { licenseType: "Ambrosia", commercialUse: "Negotiable", derivatives: "Ask first", attribution: "Link", territory: "Brasil", aiPolicy: "Cite", royalty: 100 };
+    const run = parseRunSpec("data-tokenization-erc721", { ...catalog([item(1)]), terms: written });
+    if (run.service === "data-tokenization-erc721") expect(run.spec.terms).toEqual(written);
+  });
+
+  test("a trait keeps its name and value whatever their length", () => {
+    const longName = "n".repeat(200);
+    const longValue = "v".repeat(100_000);
+    const run = parseRunSpec("data-tokenization-erc721", catalog([{ ...item(1), traits: [{ traitType: longName, value: longValue }] }]));
+    if (run.service === "data-tokenization-erc721") {
+      expect(run.spec.items[0]!.traits).toEqual([{ traitType: longName, value: longValue }]);
+    }
+  });
+
   test("a file of the upload size is accepted", () => {
     const full = { ...item(1), file: { name: "full.pdf", size: MAX_UPLOAD_BYTES, type: "application/pdf" } };
     expect(() => parseRunSpec("data-tokenization-erc721", catalog([full]))).not.toThrow();
@@ -71,12 +98,6 @@ describe("data tokenization runs", () => {
     expect(() => parseRunSpec("data-tokenization-erc721", catalog([picture]))).not.toThrow();
     const notPicture = { ...picture, file: { name: "p.pdf", size: 10, type: "application/pdf" } };
     expect(() => parseRunSpec("data-tokenization-erc721", catalog([notPicture]))).toThrow();
-  });
-
-  test("licensing values outside the shared lists are refused", () => {
-    expect(() =>
-      parseRunSpec("data-tokenization-erc721", { ...catalog([item(1)]), terms: { ...terms, aiPolicy: "Training allowed" } }),
-    ).toThrow();
   });
 });
 
