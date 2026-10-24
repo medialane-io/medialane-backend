@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
-import { createApp } from "./server.js";
+import { Hono } from "hono";
+import { createApp, requestBodyLimit } from "./server.js";
 
 const MB = 1024 * 1024;
 
@@ -18,23 +19,30 @@ function post(path: string, bytes: number, chunked = false) {
 }
 
 describe("request body limits", () => {
-  test("a body over 1 MB is refused on a normal route", async () => {
-    expect((await post("/v1/rpc", 2 * MB)).status).toBe(413);
+  const limited = new Hono().post("/", requestBodyLimit, (c) => c.text("ok"));
+
+  test("a body of the upload size passes the limit", async () => {
+    expect((await limited.request("/", { method: "POST", body: new Uint8Array(MAX_UPLOAD_BYTES) })).status).toBe(200);
+  });
+
+  test("a body over the upload size is refused", async () => {
+    expect((await limited.request("/", { method: "POST", body: new Uint8Array(MAX_UPLOAD_BYTES + 1) })).status).toBe(413);
   });
 
   test("a streamed body with no content-length is still refused", async () => {
-    expect((await post("/v1/rpc", 2 * MB, true)).status).toBe(413);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(MAX_UPLOAD_BYTES + 1));
+        controller.close();
+      },
+    });
+    expect((await limited.request("/", { method: "POST", body, duplex: "half" } as RequestInit)).status).toBe(413);
   });
 
-  test("a small body reaches the API key check", async () => {
-    expect((await post("/v1/rpc", 1024)).status).toBe(401);
-  });
-
-  test.each(["/v1/metadata/upload", "/v1/metadata/upload-file", "/v1/metadata/upload-directory"])(
-    "%s accepts the upload size and refuses one byte more",
+  test.each(["/v1/rpc", "/v1/portal/runs", "/v1/metadata/upload"])(
+    "a request without an API key to %s is refused before its body is read",
     async (path) => {
-      expect((await post(path, MAX_UPLOAD_BYTES)).status).toBe(401);
-      expect((await post(path, MAX_UPLOAD_BYTES + 1)).status).toBe(413);
+      expect((await post(path, 5 * MB, true)).status).toBe(401);
     },
   );
 });

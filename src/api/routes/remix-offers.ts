@@ -17,24 +17,21 @@ const log = createLogger("routes:remix-offers");
 
 const remixOffers = new Hono<AppEnv>();
 
-import { createSlidingWindow } from "../../utils/slidingWindow.js";
 import { verifyTransactionSucceeded, fetchReceiptEvents } from "../../utils/txVerifier.js";
 import { findTransferTo } from "../../mirror/parser.js";
 import { chainScope } from "../http/chain.js";
-
-const checkOfferRateLimit = createSlidingWindow(20, 60_000);
 
 const createOfferSchema = z.object({
   originalContract: z.string().min(1),
   originalTokenId: z.string().min(1),
   proposedPrice: z.string().min(1),
   proposedCurrency: z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Invalid currency address").optional(),
-  licenseType: z.string().min(1).max(100),
+  licenseType: z.string().min(1),
   commercial: z.boolean().default(false),
   derivatives: z.boolean().default(true),
   royaltyPct: z.number().int().min(0).max(100).optional(),
-  message: z.string().max(500).optional(),
-  expiresInDays: z.number().int().min(1).max(90).default(7),
+  message: z.string().optional(),
+  expiresInDays: z.number().int().min(1).default(7),
 });
 
 const autoOfferSchema = z.object({
@@ -48,7 +45,7 @@ const selfConfirmSchema = z.object({
   remixContract: z.string().min(1),
   remixTokenId: z.string().min(1),
   txHash: z.string().min(1),
-  licenseType: z.string().min(1).max(100),
+  licenseType: z.string().min(1),
   commercial: z.boolean().default(false),
   derivatives: z.boolean().default(true),
   royaltyPct: z.number().int().min(0).max(100).optional(),
@@ -212,10 +209,6 @@ remixOffers.post(
     const body = c.req.valid("json");
     const requesterAddress = c.get("walletAddress") as string;
 
-    if (!checkOfferRateLimit(requesterAddress)) {
-      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
-    }
-
     const originalContract = normalizeAddress(chain, body.originalContract);
     const originalTokenId = body.originalTokenId;
 
@@ -289,10 +282,6 @@ remixOffers.post(
 
     const body = c.req.valid("json");
     const requesterAddress = c.get("walletAddress") as string;
-
-    if (!checkOfferRateLimit(requesterAddress)) {
-      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
-    }
 
     const originalContract = normalizeAddress(chain, body.originalContract);
     const originalTokenId = body.originalTokenId;
@@ -498,10 +487,6 @@ remixOffers.post(
 
     const { id } = c.req.param();
     const walletAddress = c.get("walletAddress") as string;
-
-    if (!checkOfferRateLimit(walletAddress)) {
-      return c.json({ error: "Rate limit exceeded. Try again in a minute." }, 429);
-    }
 
     const body = await c.req.json().catch(() => null);
     const days = Number(body?.days);

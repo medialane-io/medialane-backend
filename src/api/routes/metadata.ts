@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { PinataSDK } from "pinata";
 import { env } from "../../config/env.js";
-import { UPLOAD_LIMITS, MAX_UPLOAD_BYTES, type UploadKind } from "@medialane/sdk";
+import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
 import { resolveMetadata } from "../../discovery/index.js";
 import { createLogger } from "../../utils/logger.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -16,20 +16,9 @@ const pinata = new PinataSDK({
   pinataGateway: env.PINATA_GATEWAY,
 });
 
-export function signedUrlOptions(kind: UploadKind) {
-  return {
-    expires: 120,
-    maxFileSize: MAX_UPLOAD_BYTES,
-    mimeTypes: [...UPLOAD_LIMITS[kind].mimeTypes],
-  };
-}
-
 metadata.get("/signed-url", async (c) => {
-  const kindParam = c.req.query("kind");
-  const kind: UploadKind =
-    kindParam === "document" ? "document" : kindParam === "media" ? "media" : "image";
   try {
-    const url = await pinata.upload.public.createSignedURL(signedUrlOptions(kind));
+    const url = await pinata.upload.public.createSignedURL({ expires: 120, maxFileSize: MAX_UPLOAD_BYTES });
     return c.json({ data: { url } });
   } catch (err: unknown) {
     log.error({ err }, "Failed to create signed URL");
@@ -59,38 +48,12 @@ metadata.post("/upload", async (c) => {
   }
 });
 
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/avif",
-  "video/mp4", "video/webm", "video/ogg",
-  "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm", "audio/flac",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.oasis.opendocument.text",
-  "application/rtf",
-  "text/plain",
-  "text/markdown",
-  "model/gltf-binary",
-  "model/gltf+json",
-  "application/octet-stream",
-]);
-
-const ALLOWED_EXTENSIONS = /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogv|ogg|mp3|wav|flac|pdf|doc|docx|odt|rtf|txt|md|glb|gltf)$/i;
-
-export function isAllowedUpload(fileName: string, mimeType: string): boolean {
-  const mimeBase = mimeType.split(";")[0]!.trim().toLowerCase();
-  return ALLOWED_EXTENSIONS.test(fileName) && (mimeBase === "" || ALLOWED_MIME_TYPES.has(mimeBase));
-}
-
 metadata.post("/upload-file", async (c) => {
   try {
     const formData = await c.req.formData();
     const file = formData.get("file") as File | null;
     if (!file) {
       return c.json({ error: "file field required" }, 400);
-    }
-    if (!isAllowedUpload(file.name, file.type)) {
-      return c.json({ error: "File type not allowed" }, 415);
     }
 
     const result = await pinata.upload.public.file(file);

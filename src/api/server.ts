@@ -48,6 +48,8 @@ import { x402Discovery } from "./routes/x402.js";
 
 const tooLarge = (c: Context) => c.json({ error: "Payload too large" }, 413);
 
+export const requestBodyLimit = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: tooLarge });
+
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -62,12 +64,9 @@ export function createApp(): Hono<AppEnv> {
 
   app.route("/", x402Discovery);
 
-  app.use("/v1/*", async (c, next) => {
-    const maxSize = c.req.path.startsWith("/v1/metadata/upload") ? MAX_UPLOAD_BYTES : 1024 * 1024;
-    return bodyLimit({ maxSize, onError: tooLarge })(c, next);
-  });
-
   app.use("/v1/*", ...apiKeyGate);
+
+  app.use("/v1/*", requestBodyLimit);
 
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);

@@ -9,13 +9,13 @@ export const fileRef = z.object({
 });
 
 export const terms = z.object({
-  licenseType: z.string().min(1).max(40),
-  commercialUse: z.enum(["Yes", "No"]),
-  derivatives: z.enum(["Allowed", "Not Allowed", "Share-Alike"]),
-  attribution: z.enum(["Required", "Not Required"]),
-  territory: z.string().min(1).max(40),
-  aiPolicy: z.enum(["Allowed", "Training Only", "Not Allowed"]),
-  royalty: z.number().min(0).max(50),
+  licenseType: z.string().min(1),
+  commercialUse: z.string().min(1),
+  derivatives: z.string().min(1),
+  attribution: z.string().min(1),
+  territory: z.string().min(1),
+  aiPolicy: z.string().min(1),
+  royalty: z.number().min(0).max(100),
 });
 
 export const collection = z.discriminatedUnion("kind", [

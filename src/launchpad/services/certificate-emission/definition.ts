@@ -6,8 +6,8 @@ import { certificateCollectionImage, nextStep, readProgress, runInFlight } from 
 const spec = z.object({
   collection,
   terms,
-  name: z.string().min(1).max(120),
-  description: z.string().max(2000).default(""),
+  name: z.string().min(1),
+  description: z.string().default(""),
   artwork: fileRef.optional(),
   guests: z.array(z.string().email()).min(1).max(MAX_RUN_ITEMS),
 });
