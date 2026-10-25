@@ -75,7 +75,7 @@ async function syncErc1155(chain: Chain, contractAddress: string, existing: Stor
   let onchainOwner: string | null = null;
 
   if (missingCanonicalFields) {
-    const onchainInfo = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
+    const onchainInfo = await fetchCollectionOnChainInfo(contractAddress);
     onchainName = onchainInfo.name;
     onchainSymbol = onchainInfo.symbol;
     onchainBaseUri = onchainInfo.baseUri;
@@ -131,12 +131,12 @@ async function syncErc721(chain: Chain, contractAddress: string, existing: Store
 
   const isOwnCollection = isOwnService(existing.service);
 
-  const onchain = await fetchCollectionOnChainInfo(contractAddress, !isOwnCollection);
+  const onchain = await fetchCollectionOnChainInfo(contractAddress);
   const { name, symbol } = onchain;
   const baseUri = resolveCollectionBaseUri(onchain.baseUri, existing.baseUri);
 
   if (isOwnCollection && !name && !symbol && !existing.name && !existing.symbol) {
-    throw new Error("On-chain name/symbol read failed for own collection — no legacy fallback available");
+    throw new Error("On-chain name/symbol read failed for own collection");
   }
 
   const collectionMetadata = baseUri ? await fetchCollectionMetadataJson(baseUri) : null;
@@ -209,11 +209,8 @@ function isOwnService(service: string | null | undefined): boolean {
   return service != null && !service.startsWith("external-");
 }
 
-function fetchCollectionOnChainInfo(
-  contractAddress: string,
-  allowLegacyFallback: boolean
-): Promise<{ name: string; symbol: string; baseUri: string }> {
-  return readCollectionInfo(chainCallAt("latest"), contractAddress, { legacy: allowLegacyFallback });
+function fetchCollectionOnChainInfo(contractAddress: string): Promise<{ name: string; symbol: string; baseUri: string }> {
+  return readCollectionInfo(chainCallAt("latest"), contractAddress);
 }
 
 async function findIntentMetadata(

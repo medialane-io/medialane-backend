@@ -49,10 +49,9 @@ describe("readText", () => {
     expect(await readText(call, "0xa", ["token_uri"], [])).toBe("https://example.test/1.json");
   });
 
-  test("a legacy short-string answer is accepted unless legacy is off", async () => {
+  test("a short-string answer is read as text", async () => {
     const { call } = fake({ name: [shortString.encodeShortString("Legacy")] });
     expect(await readText(call, "0xa", ["name"], [])).toBe("Legacy");
-    expect(await readText(call, "0xa", ["name"], [], { legacy: false })).toBeNull();
   });
 
   test("no entrypoint answering is null", async () => {

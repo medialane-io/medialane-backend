@@ -35,8 +35,7 @@ export async function readText(
   contractAddress: string,
   entrypoints: readonly string[],
   calldata: string[] = [],
-  opts?: { legacy?: boolean },
 ): Promise<string | null> {
   const raw = await callEither(call, contractAddress, entrypoints, calldata);
-  return raw ? decodeText(raw, opts) : null;
+  return raw ? decodeText(raw) : null;
 }
