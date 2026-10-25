@@ -21,7 +21,7 @@ describe("buildCreateCollectionIntent without a base URI", () => {
     pinned.length = 0;
     await buildCreateCollectionIntent({ owner: "0x0123", name: "Club", symbol: "CLB", description: "d", service: "pop-protocol" } as never);
     expect(pinned).toEqual([
-      { name: "Club", description: "d", external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", "0x0123")}` },
+      { name: "Club", description: "d", external_link: `https://www.medialane.io/account/${normalizeAddress("STARKNET", "0x0123")}` },
     ]);
   });
 });

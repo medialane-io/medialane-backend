@@ -467,7 +467,7 @@ describe("a new event collection's metadata", () => {
       name: "Gala",
       description: "Gala night",
       image: "ipfs://bafy-logo-cid",
-      external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}`,
+      external_link: `https://www.medialane.io/account/${normalizeAddress("STARKNET", OWNER)}`,
     });
   });
 });

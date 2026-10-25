@@ -497,7 +497,7 @@ describe("a new collection's metadata", () => {
     await upload(w, "r.pdf", 5);
     await upload(w, "c.png", 3);
     expect((await json(w.app, "POST", "/run1/collection/build", { userAddress: OWNER })).status).toBe(200);
-    expect(w.pinnedData.at(-1)).toEqual({ name: "Archive", external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}` });
+    expect(w.pinnedData.at(-1)).toEqual({ name: "Archive", external_link: `https://www.medialane.io/account/${normalizeAddress("STARKNET", OWNER)}` });
   });
 
   test("the collection image is charged like any file", async () => {

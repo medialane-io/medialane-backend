@@ -368,7 +368,7 @@ describe("a run that creates its own collection", () => {
     const [create] = request.invoke.typedData.message.Calls;
     expect(BigInt(create!.To)).toBe(BigInt(POP_FACTORY));
     expect(BigInt(create!.Selector)).toBe(BigInt(hash.getSelectorFromName("create_collection")));
-    expect(w.pinned.at(-1)).toEqual({ name: "Cohort 1", external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}` });
+    expect(w.pinned.at(-1)).toEqual({ name: "Cohort 1", external_link: `https://www.medialane.io/account/${normalizeAddress("STARKNET", OWNER)}` });
     const uri = encodeByteArray(`ipfs://meta-${w.pinned.length}`).map((felt) => BigInt(felt));
     expect(create!.Calldata.slice(-1 - uri.length, -1).map((felt) => BigInt(felt))).toEqual(uri);
     expect(BigInt(create!.Calldata.at(-1)!)).toBe(0n);
@@ -429,7 +429,7 @@ describe("a new certificate collection's metadata", () => {
     expect(w.pinned.at(-1)).toEqual({
       name: "Cohort 1",
       description: "Our first cohort",
-      external_link: `https://medialane.io/account/${normalizeAddress("STARKNET", OWNER)}`,
+      external_link: `https://www.medialane.io/account/${normalizeAddress("STARKNET", OWNER)}`,
     });
     w.setReceipt("SUCCEEDED", [created]);
     await json(w.app, "POST", "/run1/collection/confirm");
