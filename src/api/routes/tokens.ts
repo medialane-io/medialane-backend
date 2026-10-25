@@ -13,7 +13,7 @@ import { chainWhere } from "../utils/chainFilter.js";
 import { readTokenFromChain } from "./tokens.readThrough.js";
 import { tokenHolders, tokenBalanceOf } from "../utils/tokenHolders.js";
 import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
-import { liveDescription } from "../utils/liveDescription.js";
+import { liveMetadata } from "../utils/liveMetadata.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
 import { pageQuery } from "@medialane/sdk/contract";
 
@@ -316,16 +316,16 @@ tokens.get("/:contract/:tokenId", chainScope(), async (c) => {
     }
   }
 
-  const [activeOrders, { holders, holderCount, supply }, description] = await Promise.all([
+  const [activeOrders, { holders, holderCount, supply }, live] = await Promise.all([
     prisma.order.findMany({
       where: { chain, nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
       take: 5,
     }),
     tokenHolders(chain, contractAddress, tokenId),
-    liveDescription(chain, contractAddress, tokenId, token.tokenUri ?? liveTokenUri),
+    liveMetadata(chain, contractAddress, tokenId, token.tokenUri ?? liveTokenUri),
   ]);
 
-  return c.json({ data: { ...serializeToken(token, activeOrders, holders, description), holderCount, supply } });
+  return c.json({ data: { ...serializeToken(token, activeOrders, holders, live), holderCount, supply } });
 });
 
 tokens.get("/:contract/:tokenId/balances/:owner", chainScope(), async (c) => {

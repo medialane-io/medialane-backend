@@ -130,10 +130,15 @@ describe("a token's description", () => {
   } as any;
 
   test("is the one read from the token's metadata", () => {
-    expect(serializeToken(token, [], undefined, "About this token").metadata.description).toBe("About this token");
+    expect(serializeToken(token, [], undefined, { description: "About this token" }).metadata.description).toBe("About this token");
   });
 
   test("is empty in lists, where none is read", () => {
     expect(serializeToken(token, []).metadata.description).toBeNull();
+  });
+
+  test("comes with the external URL read from the same metadata, and none in lists", () => {
+    expect(serializeToken(token, [], undefined, { externalUrl: "https://site.test/post" }).metadata.externalUrl).toBe("https://site.test/post");
+    expect(serializeToken(token, []).metadata.externalUrl).toBeNull();
   });
 });
