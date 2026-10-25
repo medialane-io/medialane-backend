@@ -116,7 +116,7 @@ describe("what the serializers send is what the contract documents", () => {
   });
 
   test("an ERC721 token with an active order and a description", () => {
-    conforms(tokenSchema, serializeToken(tokenRow, [orderRow], undefined, "A description"));
+    conforms(tokenSchema, serializeToken(tokenRow, [orderRow], undefined, { description: "A description", externalUrl: "https://site.test/post" }));
   });
 
   test("an ERC1155 token with balances", () => {
