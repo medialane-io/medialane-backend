@@ -90,7 +90,7 @@ describe("collection metadata sync outcomes", () => {
     existing = { ...base, service: "mip-erc721", standard: "ERC721" };
     callContract = refusal;
     const { handleCollectionMetadataFetch } = await import("./collectionMetadata.js");
-    await expect(handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress: "0x10" })).rejects.toThrow("no legacy fallback");
+    await expect(handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress: "0x10" })).rejects.toThrow("name/symbol read failed");
     expect(updates.map((u) => u.data.metadataStatus)).toEqual(["FETCHING", "FAILED"]);
   });
 

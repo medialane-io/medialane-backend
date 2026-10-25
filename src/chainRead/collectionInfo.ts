@@ -28,23 +28,12 @@ export async function detectStandard(call: CallContract, contractAddress: string
   return null;
 }
 
-const EMPTY = { name: "", symbol: "", baseUri: "" };
-
-async function readFields(call: CallContract, contractAddress: string, legacy: boolean) {
-  const [name, symbol, baseUri] = await Promise.all(
-    ["name", "symbol", "base_uri"].map((entrypoint) => readText(call, contractAddress, [entrypoint], [], { legacy })),
-  );
-  return { name: name ?? "", symbol: symbol ?? "", baseUri: baseUri ?? "" };
-}
-
 export async function readCollectionInfo(
   call: CallContract,
   contractAddress: string,
-  opts: { legacy: boolean },
 ): Promise<{ name: string; symbol: string; baseUri: string }> {
-  const onChain = await readFields(call, contractAddress, false);
-  if (onChain.name || onChain.symbol) return onChain;
-  if (!opts.legacy) return EMPTY;
-  const legacy = await readFields(call, contractAddress, true);
-  return legacy.name || legacy.symbol ? legacy : EMPTY;
+  const [name, symbol, baseUri] = await Promise.all(
+    ["name", "symbol", "base_uri"].map((entrypoint) => readText(call, contractAddress, [entrypoint])),
+  );
+  return { name: name ?? "", symbol: symbol ?? "", baseUri: baseUri ?? "" };
 }

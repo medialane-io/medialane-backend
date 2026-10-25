@@ -40,7 +40,7 @@ describe("decodeText: ByteArray", () => {
   });
 });
 
-describe("decodeText: legacy shapes", () => {
+describe("decodeText: older shapes", () => {
   test("a felt array of short strings is joined", () => {
     const a = "ipfs://aaaaaaaaaaaaaaaaaaaaaaaa";
     const b = "bbbb";
@@ -51,10 +51,8 @@ describe("decodeText: legacy shapes", () => {
     expect(decodeText([shortString.encodeShortString("MyName")])).toBe("MyName");
   });
 
-  test("legacy: false accepts only the ByteArray shape", () => {
-    expect(decodeText(["0x1", shortString.encodeShortString("abc")], { legacy: false })).toBeNull();
-    expect(decodeText([shortString.encodeShortString("MyName")], { legacy: false })).toBeNull();
-    expect(decodeText(byteArrayFelts("hello"), { legacy: false })).toBe("hello");
+  test("a ByteArray is read as text", () => {
+    expect(decodeText(byteArrayFelts("hello"))).toBe("hello");
   });
 });
 

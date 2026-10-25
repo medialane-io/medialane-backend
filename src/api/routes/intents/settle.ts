@@ -1,5 +1,4 @@
 import { num } from "starknet";
-import type { Hono } from "hono";
 import prisma from "../../../db/client.js";
 import { normalizeAddress, normalizeHash } from "../../../utils/starknet.js";
 import {
@@ -31,8 +30,6 @@ import {
   ORDER_CANCELLED_SELECTOR_HEX,
   isNftTransferEvent,
 } from "./_shared.js";
-
-export type _HonoMarker = Hono;
 
 export async function verifyAndSettle(intentId: string, txHash: string): Promise<void> {
   const intent = await prisma.transactionIntent.findUnique({

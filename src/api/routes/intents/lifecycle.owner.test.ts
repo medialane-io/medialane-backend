@@ -44,7 +44,6 @@ const json = (method: string, body: unknown) => ({
 const requests: Array<[string, (id: string) => [string, RequestInit]]> = [
   ["GET /:id", (id) => [`/${id}`, { method: "GET" }]],
   ["PATCH /:id/signature", (id) => [`/${id}/signature`, json("PATCH", { signature: ["0x1"] })]],
-  ["POST /:id/hydrate", (id) => [`/${id}/hydrate`, { method: "POST" }]],
   ["PATCH /:id/confirm", (id) => [`/${id}/confirm`, json("PATCH", { txHash: "0x1" })]],
 ];
 

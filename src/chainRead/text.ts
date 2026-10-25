@@ -45,14 +45,12 @@ function feltText(felt: string): string {
   }
 }
 
-export function decodeText(raw: readonly string[], opts: { legacy?: boolean } = {}): string | null {
+export function decodeText(raw: readonly string[]): string | null {
   if (raw.length === 0) return null;
-  const legacy = opts.legacy ?? true;
   try {
     const first = Number(BigInt(raw[0]!));
     const counted = Number.isSafeInteger(first) && first >= 0;
     if (counted && raw.length >= first + 3) return byteArrayText(raw, first);
-    if (!legacy) return null;
     if (counted && raw.length > 1 && raw.length === first + 1) return feltArrayText(raw, first);
     if (raw.length === 1) return feltText(raw[0]!);
     return null;

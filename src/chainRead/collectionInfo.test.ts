@@ -86,30 +86,29 @@ describe("detectStandard", () => {
 describe("readCollectionInfo", () => {
   test("reads name, symbol and base_uri as ByteArrays", async () => {
     const { call } = chain({ name: byteArrayFelts("Gallery"), symbol: byteArrayFelts("GAL"), base_uri: byteArrayFelts("ipfs://cid/") });
-    expect(await readCollectionInfo(call, "0x1", { legacy: false })).toEqual({ name: "Gallery", symbol: "GAL", baseUri: "ipfs://cid/" });
+    expect(await readCollectionInfo(call, "0x1")).toEqual({ name: "Gallery", symbol: "GAL", baseUri: "ipfs://cid/" });
   });
 
-  test("legacy short strings are read only when allowed and the ByteArray read found neither name nor symbol", async () => {
+  test("reads short-string answers", async () => {
     const answers = { name: [shortString.encodeShortString("Old")], symbol: [shortString.encodeShortString("OLD")] };
-    expect(await readCollectionInfo(chain(answers).call, "0x1", { legacy: true })).toEqual({ name: "Old", symbol: "OLD", baseUri: "" });
-    expect(await readCollectionInfo(chain(answers).call, "0x1", { legacy: false })).toEqual({ name: "", symbol: "", baseUri: "" });
+    expect(await readCollectionInfo(chain(answers).call, "0x1")).toEqual({ name: "Old", symbol: "OLD", baseUri: "" });
   });
 
-  test("when the ByteArray read found a name, a legacy-only symbol is not fetched", async () => {
+  test("each field is read in whichever shape it answers", async () => {
     const { call } = chain({ name: byteArrayFelts("Gallery"), symbol: [shortString.encodeShortString("OLD")] });
-    expect(await readCollectionInfo(call, "0x1", { legacy: true })).toEqual({ name: "Gallery", symbol: "", baseUri: "" });
+    expect(await readCollectionInfo(call, "0x1")).toEqual({ name: "Gallery", symbol: "OLD", baseUri: "" });
   });
 
-  test("a base_uri alone does not count as an answer when legacy reads are off", async () => {
+  test("a base_uri alone is returned", async () => {
     const { call } = chain({ base_uri: byteArrayFelts("ipfs://cid/") });
-    expect(await readCollectionInfo(call, "0x1", { legacy: false })).toEqual({ name: "", symbol: "", baseUri: "" });
+    expect(await readCollectionInfo(call, "0x1")).toEqual({ name: "", symbol: "", baseUri: "ipfs://cid/" });
   });
 
   test("a contract that answers nothing gives empty strings", async () => {
-    expect(await readCollectionInfo(chain({}).call, "0x1", { legacy: true })).toEqual({ name: "", symbol: "", baseUri: "" });
+    expect(await readCollectionInfo(chain({}).call, "0x1")).toEqual({ name: "", symbol: "", baseUri: "" });
   });
 
   test("a transport failure is thrown", async () => {
-    await expect(readCollectionInfo(chain({ name: new Error("fetch failed") }).call, "0x1", { legacy: false })).rejects.toThrow("fetch failed");
+    await expect(readCollectionInfo(chain({ name: new Error("fetch failed") }).call, "0x1")).rejects.toThrow("fetch failed");
   });
 });

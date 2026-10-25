@@ -11,14 +11,11 @@ import {
   log,
   MARKETPLACE_INTENT_TYPES,
   RECEIPT_HYDRATED_INTENT_TYPES,
-  ORDER_CREATING_INTENT_TYPES,
 } from "./_shared.js";
 
 const { confirmSchema, signatureSchema } = starknet;
 import {
   verifyAndSettle,
-  hydrateCreatedOrdersFromTx,
-  hydrateFulfillmentFromTx,
 } from "./settle.js";
 import { notFound } from "../../http/errors.js";
 import { validated } from "../../http/validate.js";
@@ -100,39 +97,6 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
 
     log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
     return c.json({ data: updated });
-  });
-
-  intents.post("/:id/hydrate", async (c) => {
-    const { id } = c.req.param();
-    const intent = await ownIntent(c, id);
-
-    if (!intent.txHash) {
-      return c.json({ error: "Intent has no transaction hash" }, 409);
-    }
-    if (!ORDER_CREATING_INTENT_TYPES.has(intent.type) && intent.type !== "FULFILL_ORDER") {
-      return c.json({ error: "Intent type cannot be hydrated" }, 400);
-    }
-    if (intent.status !== "CONFIRMED" && intent.status !== "SUBMITTED") {
-      return c.json({ error: `Intent is ${intent.status}` }, 409);
-    }
-
-    if (intent.type === "FULFILL_ORDER") {
-      await hydrateFulfillmentFromTx(intent.txHash);
-      await prisma.transactionIntent.update({
-        where: { id },
-        data: { status: "CONFIRMED" },
-      });
-      return c.json({ data: { id, txHash: intent.txHash, orderHashes: intent.orderHash ? [intent.orderHash] : [] } });
-    }
-
-    const orderHashes = await hydrateCreatedOrdersFromTx(intent.txHash);
-    if (orderHashes[0]) {
-      await prisma.transactionIntent.update({
-        where: { id },
-        data: { orderHash: orderHashes[0], status: "CONFIRMED" },
-      });
-    }
-    return c.json({ data: { id, txHash: intent.txHash, orderHashes } });
   });
 
   intents.patch("/:id/confirm", validated("json", confirmSchema), async (c) => {

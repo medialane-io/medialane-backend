@@ -894,20 +894,6 @@ model RemixOffer {
   @@index([status, expiresAt])
 }
 
-model ServiceContract {
-  id              String   @id @default(cuid())
-  serviceId       String
-  chain           Chain
-  contractAddress String
-  startBlock      String
-  active          Boolean  @default(true)
-  notes           String?
-  createdAt       DateTime @default(now())
-
-  @@index([serviceId])
-  @@index([chain, active])
-}
-
 model Payment {
   id             String        @id @default(cuid())
   apiCreditsId    String?
