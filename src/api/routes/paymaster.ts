@@ -50,6 +50,7 @@ export interface PaymasterErrorResult {
   status: 422 | 502 | 503;
   message: string;
   code: SponsorshipFailureCode;
+  detail: string;
 }
 
 export function classifyPaymasterError(err: unknown, stage: "build" | "execute" = "build"): PaymasterErrorResult {
@@ -59,9 +60,10 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
       : typeof err === "object" && err !== null
         ? JSON.stringify(err)
         : String(err ?? "");
+  const detail = text.slice(0, 1500);
 
   if (text.includes("AVNU_PAYMASTER_API_KEY")) {
-    return { status: 503, message: "Gas sponsorship is not configured", code: "sponsor_unavailable" };
+    return { status: 503, message: "Gas sponsorship is not configured", code: "sponsor_unavailable", detail };
   }
 
   if (text.includes("ENTRYPOINT_NOT_FOUND")) {
@@ -69,17 +71,18 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
       status: 422,
       message: "The account is not deployed yet, so it cannot sign a sponsored transaction",
       code: "account_not_deployed",
+      detail,
     };
   }
 
   if (text.includes("TRANSACTION_EXECUTION_ERROR") || text.includes("execution_error")) {
-    return { status: 422, message: "The transaction could not be executed as submitted", code: "not_executable" };
+    return { status: 422, message: "The transaction could not be executed as submitted", code: "not_executable", detail };
   }
 
   if (stage === "execute") {
-    return { status: 502, message: "The sponsored transaction may have been submitted. Check your activity before trying again.", code: "may_have_broadcast" };
+    return { status: 502, message: "The sponsored transaction may have been submitted. Check your activity before trying again.", code: "may_have_broadcast", detail };
   }
-  return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" };
+  return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable", detail };
 }
 
 interface SignedCall {
@@ -160,7 +163,7 @@ export interface SponsoredInvokeDeps {
 
 export type SponsoredOutcome =
   | { status: 200; body: Record<string, unknown> }
-  | { status: 400 | 422 | 502 | 503; body: { error: string; code: SponsorshipFailureCode } };
+  | { status: 400 | 422 | 502 | 503; body: { error: string; code: SponsorshipFailureCode; detail?: string } };
 
 export async function buildSponsoredInvoke(
   deps: SponsoredInvokeDeps,
@@ -178,7 +181,7 @@ export async function buildSponsoredInvoke(
   } catch (err) {
     const failure = classifyPaymasterError(err);
     log.warn({ err, status: failure.status }, "sponsored invoke build failed");
-    return { status: failure.status, body: { error: failure.message, code: failure.code } };
+    return { status: failure.status, body: { error: failure.message, code: failure.code, detail: failure.detail } };
   }
 }
 
@@ -201,13 +204,13 @@ export async function executeSponsoredInvoke(
   } catch (err) {
     const failure = classifyPaymasterError(err, "execute");
     log.warn({ err, status: failure.status }, "sponsored invoke execute failed");
-    return { status: failure.status, body: { error: failure.message, code: failure.code } };
+    return { status: failure.status, body: { error: failure.message, code: failure.code, detail: failure.detail } };
   }
 }
 
 export type DeploymentBuildOutcome =
   | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
-  | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string } };
+  | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string; detail?: string } };
 
 export function deploymentCalls(ownerAddress: string) {
   const strk = getTokenBySymbol("STRK");
@@ -263,7 +266,7 @@ export async function buildDeployment(
   } catch (err) {
     const failure = classifyPaymasterError(err);
     log.warn({ err, status: failure.status }, "sponsored deploy build failed");
-    return { status: failure.status, body: { error: failure.message, code: failure.code } };
+    return { status: failure.status, body: { error: failure.message, code: failure.code, detail: failure.detail } };
   }
 }
 
@@ -294,6 +297,7 @@ export default function paymaster(
     const composed = await composeFor(c, body.intentIds);
     if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
     const outcome = await buildSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, calls: composed.calls });
+    if (outcome.status !== 200) log.warn({ requestId: c.get("requestId"), status: outcome.status, ...outcome.body }, "sponsored invoke build refused");
     return c.json(outcome.body, outcome.status);
   });
 
@@ -312,6 +316,7 @@ export default function paymaster(
     }
     const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
     if (outcome.status !== 200) {
+      log.warn({ requestId: c.get("requestId"), status: outcome.status, ...outcome.body }, "sponsored invoke execute refused");
       if (outcome.body.code === "may_have_broadcast") bill(c, 0, 1);
       else await intentDeps.release(composed.ids);
       return c.json(outcome.body, outcome.status);
