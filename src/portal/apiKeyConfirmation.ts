@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiKeyConfirmationTypedData, type ApiKeyAction } from "@medialane/sdk/starknet";
 import prisma from "../db/client.js";
 import { verifyWalletSignature } from "../auth/verify.js";
+import { productionCosign } from "../utils/guardianCosign.js";
 import { accountWallet } from "../utils/account.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -50,5 +51,5 @@ export const productionKeyConfirmationDeps: KeyConfirmationDeps = {
     return account ? { publicId: account.publicId, wallet: await accountWallet(accountId) } : null;
   },
   verify: async ({ address, typedData, signature }) =>
-    (await verifyWalletSignature({ chain: "STARKNET", address, typedData, signature })).ok,
+    (await verifyWalletSignature({ chain: "STARKNET", address, typedData, signature: await productionCosign(address, typedData, signature) })).ok,
 };

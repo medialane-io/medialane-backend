@@ -5,6 +5,7 @@ import { type Prisma as PrismaTypes, type TransactionIntent } from "@prisma/clie
 import prisma from "../../../db/client.js";
 import { buildPopulatedCalls } from "../../../orchestrator/submit.js";
 import { verifyWalletSignature, type VerifyResult } from "../../../auth/verify.js";
+import { productionCosign } from "../../../utils/guardianCosign.js";
 import type { AppEnv } from "../../../types/hono.js";
 import { starknet } from "@medialane/sdk/contract";
 import {
@@ -62,13 +63,15 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: `Intent is ${intent.status}` }, 409);
     }
 
+    const signature = await productionCosign(intent.requester, intent.typedData, parsedBody.signature);
+
     let proof: VerifyResult;
     try {
       proof = await verifyWalletSignature({
         chain: intent.chain,
         address: intent.requester,
         typedData: intent.typedData,
-        signature: parsedBody.signature,
+        signature,
       });
     } catch (err) {
       log.warn({ err, id, requester: intent.requester }, "Intent signature accepted unproven: the chain could not be read");
@@ -87,12 +90,12 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       intent.type,
       (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
       intent.calls as { contractAddress: string; entrypoint: string; calldata: string[] }[],
-      parsedBody.signature
+      signature
     );
 
     const updated = await prisma.transactionIntent.update({
       where: { id },
-      data: { signature: parsedBody.signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
+      data: { signature, status: "SIGNED", calls: populatedCalls as PrismaTypes.InputJsonValue },
     });
 
     log.info({ id, type: intent.type }, "Intent signed — calls populated, ready for client submission");
