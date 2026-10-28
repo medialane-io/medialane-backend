@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
@@ -16,6 +16,7 @@ import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
 import { emailDeadlineFor } from "../../utils/emailDeadline.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
+import { completeRecovery, productionRecoveryDeps, recoveryStatus, startRecovery, type RecoveryOutcome } from "../../recovery/walletRecovery.js";
 import { DEFAULT_CHAIN } from "../../config/chains.js";
 
 const log = createLogger("routes:users");
@@ -194,6 +195,32 @@ users.post("/me/wallet/key", validated("json", walletKeySchema), async (c) => {
   const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey);
   if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
   return c.json({ walletAddress: outcome.walletAddress, removeOwnerGuid: outcome.removeOwnerGuid });
+});
+
+const recoveryResponse = (c: Context, outcome: RecoveryOutcome) =>
+  outcome.status === 200 ? c.json(outcome.body) : c.json({ error: outcome.error }, outcome.status);
+
+async function sessionAccountId(c: Context): Promise<string | null> {
+  const session = c.req.header("x-account-session");
+  return session ? await currentAccountIdFromSession(session) : null;
+}
+
+users.get("/me/wallet/recovery", async (c) => {
+  const accountId = await sessionAccountId(c);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  return recoveryResponse(c, await recoveryStatus(productionRecoveryDeps, accountId));
+});
+
+users.post("/me/wallet/recovery", validated("json", walletKeySchema), async (c) => {
+  const accountId = await sessionAccountId(c);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  return recoveryResponse(c, await startRecovery(productionRecoveryDeps, accountId, c.req.valid("json").newOwnerPubkey));
+});
+
+users.post("/me/wallet/recovery/complete", validated("json", walletKeySchema), async (c) => {
+  const accountId = await sessionAccountId(c);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  return recoveryResponse(c, await completeRecovery(productionRecoveryDeps, accountId, c.req.valid("json").newOwnerPubkey));
 });
 
 users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (c) => {
