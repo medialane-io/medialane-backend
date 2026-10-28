@@ -87,10 +87,10 @@ describe("starting a recovery", () => {
     expect(state.executed).toEqual([]);
   });
 
-  test("a recovery already waiting for another key is not replaced", async () => {
+  test("a recovery waiting for another key is replaced by the newest one, so a lost browser never blocks a retry", async () => {
     const { deps, state } = fake({ escape: waiting("0x0999") });
-    expect((await startRecovery(deps, "acc", NEW)).status).toBe(409);
-    expect(state.executed).toEqual([]);
+    expect((await startRecovery(deps, "acc", NEW)).status).toBe(200);
+    expect(state.executed).toEqual([[buildTriggerEscapeOwnerCall(WALLET, NEW)]]);
   });
 
   test("the owner's own guardian removal in progress is not overridden", async () => {

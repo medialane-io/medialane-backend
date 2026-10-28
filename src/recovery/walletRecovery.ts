@@ -88,10 +88,8 @@ export async function startRecovery(deps: RecoveryDeps, accountId: string, newOw
   }
 
   const current = await deps.escapeOf(walletAddress);
-  if (liveOwnerEscape(current)) {
-    return current.newSignerKey !== null && sameFelt(current.newSignerKey, newOwnerPubkey)
-      ? { status: 200, body: viewOf(true, current) }
-      : { status: 409, error: "A recovery is already in progress for another key" };
+  if (liveOwnerEscape(current) && current.newSignerKey !== null && sameFelt(current.newSignerKey, newOwnerPubkey)) {
+    return { status: 200, body: viewOf(true, current) };
   }
   if (current.type === "Guardian" && (current.status === "NotReady" || current.status === "Ready")) {
     return { status: 409, error: "The owner has started changing the guardian" };
