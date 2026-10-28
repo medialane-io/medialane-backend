@@ -23,6 +23,7 @@ export interface EscapeState {
 export interface RecoveryDeps {
   walletOf(accountId: string): Promise<string | null>;
   guardianIsOurs(walletAddress: string): Promise<boolean>;
+  guardianPubkeyOf(walletAddress: string): string | null;
   ownerGuidsOf(walletAddress: string): Promise<string[]>;
   escapeOf(walletAddress: string): Promise<EscapeState>;
   execute(input: { walletAddress: string; calls: Call[] }): Promise<string>;
@@ -34,6 +35,7 @@ export interface RecoveryView {
   state: "none" | "waiting" | "ready";
   readyAt: number | null;
   newOwnerGuid: string | null;
+  guardianPubkey: string | null;
 }
 
 export type RecoveryOutcome =
@@ -46,10 +48,11 @@ const liveOwnerEscape = (escape: EscapeState) => escape.type === "Owner" && (esc
 const NO_WALLET = { status: 404 as const, error: "This account has no wallet" };
 const NOT_ON = { status: 409 as const, error: "Recovery is not turned on for this wallet" };
 
-function viewOf(enabled: boolean, escape: EscapeState): RecoveryView {
-  if (!enabled || !liveOwnerEscape(escape)) return { enabled, state: "none", readyAt: null, newOwnerGuid: null };
+function viewOf(enabled: boolean, escape: EscapeState, guardianPubkey: string | null = null): RecoveryView {
+  if (!enabled || !liveOwnerEscape(escape)) return { enabled, state: "none", readyAt: null, newOwnerGuid: null, guardianPubkey };
   return {
     enabled,
+    guardianPubkey: null,
     state: escape.status === "Ready" ? "ready" : "waiting",
     readyAt: escape.readyAt,
     newOwnerGuid: escape.newSignerKey ? computeOwnerGuid(escape.newSignerKey) : null,
@@ -60,7 +63,8 @@ export async function recoveryStatus(deps: RecoveryDeps, accountId: string): Pro
   const walletAddress = await deps.walletOf(accountId);
   if (!walletAddress) return NO_WALLET;
   const enabled = await deps.guardianIsOurs(walletAddress);
-  return { status: 200, body: viewOf(enabled, enabled ? await deps.escapeOf(walletAddress) : NOT_STARTED) };
+  const escape = enabled ? await deps.escapeOf(walletAddress) : NOT_STARTED;
+  return { status: 200, body: viewOf(enabled, escape, enabled ? null : deps.guardianPubkeyOf(walletAddress)) };
 }
 
 const NOT_STARTED: EscapeState = { type: "None", status: "None", readyAt: 0, newSignerKey: null };
@@ -136,6 +140,13 @@ export function parseEscape(res: string[]): EscapeState {
 
 export const productionRecoveryDeps: RecoveryDeps = {
   walletOf: (accountId) => accountWallet(accountId),
+  guardianPubkeyOf: (walletAddress) => {
+    try {
+      return guardianKey(walletAddress).publicKey;
+    } catch {
+      return null;
+    }
+  },
   guardianIsOurs: async (walletAddress) => {
     try {
       const ours = computeOwnerGuid(guardianKey(walletAddress).publicKey);

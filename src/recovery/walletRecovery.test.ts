@@ -15,6 +15,7 @@ function fake(over: Partial<RecoveryDeps> & { escape?: EscapeState; owners?: str
   const deps: RecoveryDeps = {
     walletOf: async () => WALLET,
     guardianIsOurs: async () => over.enabled ?? true,
+    guardianPubkeyOf: () => "0x0aaa",
     ownerGuidsOf: async () => state.owners,
     escapeOf: async () => state.escape,
     execute: async ({ calls }) => {
@@ -32,19 +33,19 @@ function fake(over: Partial<RecoveryDeps> & { escape?: EscapeState; owners?: str
 describe("the state of a wallet's recovery", () => {
   test("is off when the wallet has no Medialane guardian", async () => {
     const { deps } = fake({ enabled: false });
-    expect(await recoveryStatus(deps, "acc")).toEqual({ status: 200, body: { enabled: false, state: "none", readyAt: null, newOwnerGuid: null } });
+    expect(await recoveryStatus(deps, "acc")).toEqual({ status: 200, body: { enabled: false, state: "none", readyAt: null, newOwnerGuid: null, guardianPubkey: "0x0aaa" } });
   });
 
   test("is on with nothing in progress", async () => {
     const { deps } = fake();
-    expect(await recoveryStatus(deps, "acc")).toEqual({ status: 200, body: { enabled: true, state: "none", readyAt: null, newOwnerGuid: null } });
+    expect(await recoveryStatus(deps, "acc")).toEqual({ status: 200, body: { enabled: true, state: "none", readyAt: null, newOwnerGuid: null, guardianPubkey: null } });
   });
 
   test("shows the wait, and the key that is waiting", async () => {
     const { deps } = fake({ escape: waiting() });
     expect(await recoveryStatus(deps, "acc")).toEqual({
       status: 200,
-      body: { enabled: true, state: "waiting", readyAt: 1_900_000_000, newOwnerGuid: computeOwnerGuid(NEW) },
+      body: { enabled: true, state: "waiting", readyAt: 1_900_000_000, newOwnerGuid: computeOwnerGuid(NEW), guardianPubkey: null },
     });
   });
 
@@ -64,7 +65,7 @@ describe("starting a recovery", () => {
     const { deps, state } = fake();
     const outcome = await startRecovery(deps, "acc", NEW);
     expect(state.executed).toEqual([[buildTriggerEscapeOwnerCall(WALLET, NEW)]]);
-    expect(outcome).toEqual({ status: 200, body: { enabled: true, state: "waiting", readyAt: 1_900_000_000, newOwnerGuid: computeOwnerGuid(NEW) } });
+    expect(outcome).toEqual({ status: 200, body: { enabled: true, state: "waiting", readyAt: 1_900_000_000, newOwnerGuid: computeOwnerGuid(NEW), guardianPubkey: null } });
   });
 
   test("refuses a wallet without our guardian and sends nothing", async () => {
@@ -113,7 +114,7 @@ describe("starting a recovery", () => {
 describe("completing a recovery", () => {
   test("finishes it for the waiting key, once the wait is over", async () => {
     const { deps, state } = fake({ escape: ready() });
-    expect(await completeRecovery(deps, "acc", NEW)).toEqual({ status: 200, body: { enabled: true, state: "none", readyAt: null, newOwnerGuid: null } });
+    expect(await completeRecovery(deps, "acc", NEW)).toEqual({ status: 200, body: { enabled: true, state: "none", readyAt: null, newOwnerGuid: null, guardianPubkey: null } });
     expect(state.executed).toEqual([[buildCompleteEscapeOwnerCall(WALLET)]]);
     expect(state.owners).toEqual([computeOwnerGuid(NEW)]);
   });
