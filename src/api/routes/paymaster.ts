@@ -6,6 +6,7 @@ import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
 import { attachDeployedWallet } from "../../utils/account.js";
+import { productionCosign, type Cosign } from "../../utils/guardianCosign.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -275,6 +276,7 @@ export default function paymaster(
   guard: MiddlewareHandler<AppEnv> = requireSession,
   intentDeps: SponsorIntentDeps = prismaSponsorIntentDeps,
   attachWallet: AttachWallet = attachDeployedWallet,
+  cosign: Cosign = productionCosign,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use("*", guard);
@@ -314,7 +316,8 @@ export default function paymaster(
     if (!(await intentDeps.claim(composed.ids))) {
       return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
     }
-    const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature: body.signature });
+    const signature = await cosign(composed.wallet, body.typedData, body.signature);
+    const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature });
     if (outcome.status !== 200) {
       log.warn({ requestId: c.get("requestId"), status: outcome.status, ...outcome.body }, "sponsored invoke execute refused");
       if (outcome.body.code === "may_have_broadcast") bill(c, 0, 1);

@@ -7,6 +7,7 @@ import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import paymaster, { deploymentCalls, deploymentIsMediaWallet, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
+import type { Cosign } from "../../utils/guardianCosign.js";
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -337,7 +338,7 @@ describe("every sponsorship failure says why it failed", () => {
 
 const WALLET = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-function intentApp(rows: SponsorIntentRow[], client: Partial<PaymasterClient>, log: string[], wallet: string | null = WALLET) {
+function intentApp(rows: SponsorIntentRow[], client: Partial<PaymasterClient>, log: string[], wallet: string | null = WALLET, cosign?: Cosign) {
   const stub: PaymasterClient = {
     buildTransaction: async () => ({ typed_data: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]) }) as never,
     executeTransaction: async () => ({ transaction_hash: "0xtx" }) as never,
@@ -357,7 +358,7 @@ function intentApp(rows: SponsorIntentRow[], client: Partial<PaymasterClient>, l
     if (wallet) c.set("sponsorWallet", wallet);
     await next();
   });
-  app.route("/", paymaster(() => stub, (_c, next) => next(), intentDeps));
+  app.route("/", paymaster(() => stub, (_c, next) => next(), intentDeps, undefined, cosign));
   return app;
 }
 
@@ -382,6 +383,29 @@ describe("work that was sent is charged even when the response is an error", () 
     const res = await app.request("/invoke/execute", postJson({ intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1"] }));
     expect(res.status).toBe(422);
     expect(credits).toEqual([undefined]);
+  });
+});
+
+describe("a wallet with a guardian", () => {
+  const executedWith = (cosign?: Cosign) => {
+    const seen: unknown[] = [];
+    const app = intentApp([signedRow], { executeTransaction: async (req) => { seen.push((req as { invoke: { signature: string[] } }).invoke.signature); return { transaction_hash: "0xtx" } as never; } }, [], WALLET, cosign);
+    return { app, seen };
+  };
+  const body = { intentIds: ["i1"], typedData: sponsoredOutsideExecutionTypedData([SPONSORABLE_CALL]), signature: ["0x1", "0x2"] };
+
+  test("the sponsor runs the co-signed signature, built from the same wallet and typed data", async () => {
+    const asked: unknown[] = [];
+    const { app, seen } = executedWith(async (wallet, typedData, signature) => { asked.push({ wallet, typedData, signature }); return [...signature, "0x3", "0x4"]; });
+    expect((await app.request("/invoke/execute", postJson(body))).status).toBe(200);
+    expect(seen).toEqual([["0x1", "0x2", "0x3", "0x4"]]);
+    expect(asked).toEqual([{ wallet: WALLET, typedData: body.typedData, signature: ["0x1", "0x2"] }]);
+  });
+
+  test("a wallet without one runs exactly the signature the client sent", async () => {
+    const { app, seen } = executedWith();
+    expect((await app.request("/invoke/execute", postJson(body))).status).toBe(200);
+    expect(seen).toEqual([["0x1", "0x2"]]);
   });
 });
 
