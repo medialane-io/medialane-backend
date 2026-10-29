@@ -4,6 +4,7 @@ import { worker } from "./orchestrator/worker.js";
 import { env } from "./config/env.js";
 import { createLogger } from "./utils/logger.js";
 import { reportRpcEndpoints } from "./utils/rpcFetch.js";
+import { guardianConfigured } from "./utils/guardianKey.js";
 import prisma from "./db/client.js";
 
 const log = createLogger("main");
@@ -13,6 +14,11 @@ async function main() {
 
   if (!env.PINATA_JWT) {
     log.warn("PINATA_JWT is not set — metadata uploads and IPFS pinning will fail");
+  }
+
+  if (!guardianConfigured(env.GUARDIAN_SECRET)) {
+    log.fatal("GUARDIAN_SECRET must be at least 32 characters");
+    process.exit(1);
   }
 
   try {

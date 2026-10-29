@@ -9,8 +9,14 @@ export interface GuardianKey {
 
 const VERSION = "v1";
 
+export const GUARDIAN_SECRET_MIN_LENGTH = 32;
+
+export function guardianConfigured(secret: string): boolean {
+  return secret.length >= GUARDIAN_SECRET_MIN_LENGTH;
+}
+
 export function guardianKeyWith(secret: string, walletAddress: string, version: string = VERSION): GuardianKey {
-  if (secret.length < 32) throw new Error("GUARDIAN_SECRET is not configured");
+  if (!guardianConfigured(secret)) throw new Error("GUARDIAN_SECRET is not configured");
   return deriveOwnerKeyPair(
     new TextEncoder().encode(secret),
     `guardian:${version}:${normalizeAddress("STARKNET", walletAddress)}`,
