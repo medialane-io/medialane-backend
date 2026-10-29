@@ -32,28 +32,28 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
 
   async function paidRun() {
     const run = await store.create({ apiCreditsId, service: "data-tokenization-erc721", spec: {} });
-    expect(await store.checkout({ id: run.id, apiCreditsId, service: run.service, quote, progress, path: "/test" })).toBe("paid");
+    expect(await store.checkout({ id: run.id, apiCreditsId, quote, progress })).toBe("paid");
     return run;
   }
 
   const read = (id: string) => store.get(id, apiCreditsId);
 
-  test("checkout holds the quote, debits it once and records its usage", async () => {
+  test("checkout holds the quote, debits it once and records it in the ledger", async () => {
     const before = await store.balance(apiCreditsId);
     const run = await paidRun();
     expect(await store.balance(apiCreditsId)).toBe(before - quote.total);
     expect((await read(run.id))!.creditsHeld).toBe(quote.total);
-    expect(await store.checkout({ id: run.id, apiCreditsId, service: run.service, quote, progress, path: "/test" })).toBe("not-draft");
+    expect(await store.checkout({ id: run.id, apiCreditsId, quote, progress })).toBe("not-draft");
     expect(await store.balance(apiCreditsId)).toBe(before - quote.total);
-    const usage = await prisma.usageEvent.count({ where: { apiCreditsId, path: "/test" } });
-    expect(usage).toBeGreaterThan(0);
+    const entries = await prisma.creditEntry.findMany({ where: { launchpadRunId: run.id } });
+    expect(entries.map((e) => [e.kind, e.credits])).toEqual([["USAGE", -quote.total]]);
   });
 
   test("a checkout that cannot be afforded leaves the draft and the balance untouched", async () => {
     const before = await store.balance(apiCreditsId);
     const run = await store.create({ apiCreditsId, service: "data-tokenization-erc721", spec: {} });
     const expensive: RunQuote = { lines: [], total: before + 1 };
-    expect(await store.checkout({ id: run.id, apiCreditsId, service: run.service, quote: expensive, progress, path: "/test" })).toBe("insufficient");
+    expect(await store.checkout({ id: run.id, apiCreditsId, quote: expensive, progress })).toBe("insufficient");
     expect((await read(run.id))!.status).toBe("DRAFT");
     expect(await store.balance(apiCreditsId)).toBe(before);
   });
@@ -97,11 +97,11 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
     const run = await paidRun();
     expect(await store.reserve({ id: run.id, apiCreditsId, credits: 4, path: ["files", "r.pdf"] })).toBe(true);
     const before = await store.balance(apiCreditsId);
-    await store.chargeReverted({ id: run.id, apiCreditsId, credits: 4, requestPath: "/reverted" });
+    await store.chargeReverted({ id: run.id, apiCreditsId, credits: 4 });
     expect(await store.balance(apiCreditsId)).toBe(before - 1);
     expect((await read(run.id))!.creditsSpent).toBe(0);
-    const usage = await prisma.usageEvent.findFirst({ where: { apiCreditsId, path: "/reverted" } });
-    expect(usage).toMatchObject({ actionKey: "launchpad:reverted-step", credits: 1 });
+    const entries = await prisma.creditEntry.findMany({ where: { launchpadRunId: run.id }, orderBy: { createdAt: "asc" } });
+    expect(entries.map((e) => [e.kind, e.credits])).toEqual([["USAGE", -quote.total], ["USAGE", -1]]);
   });
 
   test("a reverted step keeps its one credit from the run when the balance is empty", async () => {
@@ -109,25 +109,25 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
     expect(await store.reserve({ id: run.id, apiCreditsId, credits: 4, path: ["files", "e.pdf"] })).toBe(true);
     const balance = await store.balance(apiCreditsId);
     await prisma.apiCredits.update({ where: { id: apiCreditsId }, data: { creditBalance: 0 } });
-    await store.chargeReverted({ id: run.id, apiCreditsId, credits: 4, requestPath: "/reverted-empty" });
+    await store.chargeReverted({ id: run.id, apiCreditsId, credits: 4 });
     expect(await store.balance(apiCreditsId)).toBe(0);
     expect((await read(run.id))!.creditsSpent).toBe(1);
-    expect(await prisma.usageEvent.count({ where: { apiCreditsId, path: "/reverted-empty" } })).toBe(0);
+    expect(await prisma.creditEntry.count({ where: { launchpadRunId: run.id } })).toBe(1);
     await prisma.apiCredits.update({ where: { id: apiCreditsId }, data: { creditBalance: balance } });
   });
 
-  test("completing refunds the unspent hold once, as a negative usage line", async () => {
+  test("completing refunds the unspent hold once, as a REFUND entry", async () => {
     const run = await paidRun();
     await store.reserve({ id: run.id, apiCreditsId, credits: 3, path: ["tokenUris", "0"] });
     const before = await store.balance(apiCreditsId);
 
-    expect(await store.complete({ id: run.id, apiCreditsId, status: "COMPLETED", path: "/complete" })).toEqual({ refunded: 7 });
+    expect(await store.complete({ id: run.id, apiCreditsId, status: "COMPLETED" })).toEqual({ refunded: 7 });
     expect(await store.balance(apiCreditsId)).toBe(before + 7);
     expect((await read(run.id))!.status).toBe("COMPLETED");
-    const refund = await prisma.usageEvent.findFirst({ where: { apiCreditsId, path: "/complete", actionKey: "launchpad:refund" } });
-    expect(refund?.credits).toBe(-7);
+    const refund = await prisma.creditEntry.findFirst({ where: { launchpadRunId: run.id, kind: "REFUND" } });
+    expect(refund?.credits).toBe(7);
 
-    expect(await store.complete({ id: run.id, apiCreditsId, status: "COMPLETED", path: "/complete" })).toBeNull();
+    expect(await store.complete({ id: run.id, apiCreditsId, status: "COMPLETED" })).toBeNull();
     expect(await store.balance(apiCreditsId)).toBe(before + 7);
   });
 

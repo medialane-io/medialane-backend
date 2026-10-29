@@ -9,14 +9,14 @@ describe("x402 end-to-end", () => {
     let balance = 0;
     const deps: MeterDeps = {
       chargeForRequest: async () => ({ actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 1, units: 1 }),
-      spend: async (_t: string, cost: number) => {
+      charge: async (_t: string, cost: number) => {
         if (balance >= cost) {
           balance -= cost;
           return true;
         }
         return false;
       },
-      settleUsage: async (_row, owed: number) => {
+      returnCharge: async (_t: string, owed: number) => {
         balance += owed;
       },
       settlePayment: async () => {

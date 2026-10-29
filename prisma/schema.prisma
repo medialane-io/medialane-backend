@@ -713,7 +713,6 @@ model ApiCredits {
   apiKey               ApiKey?
   payments             Payment[]
   fundingIntents       FundingIntent[]
-  usage                UsageEvent[]
   entries              CreditEntry[]
   launchpadRuns        LaunchpadRun[]
 
@@ -917,28 +916,6 @@ model Payment {
   @@index([payer])
 }
 
-model UsageEvent {
-  id          String    @id @default(cuid())
-  apiCreditsId String
-  apiCredits   ApiCredits @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
-
-  actionKey   String
-  chain       String
-  service     String
-  unitCredits Int
-  units       Int
-  credits     Int
-
-  method String
-  path   String
-  status Int
-
-  createdAt DateTime @default(now())
-
-  @@index([apiCreditsId, createdAt])
-  @@index([actionKey])
-}
-
 enum PaymentStatus {
   SETTLED
   FAILED
@@ -1012,7 +989,6 @@ model CreditEntry {
   kind           CreditEntryKind
   credits        Int
   paymentId      String?
-  usageEventId   String?
   launchpadRunId String?
   note           String?
   createdAt      DateTime        @default(now())

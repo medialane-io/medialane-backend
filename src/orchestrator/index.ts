@@ -3,7 +3,6 @@ import { unverifiedAccountsLoop } from "./unverifiedAccounts.js";
 import { accountNoticesLoop } from "./accountNotices.js";
 import { metadataRetryLoop } from "./metadataRetry.js";
 import { rewardsComputeLoop } from "./rewardsCompute.js";
-import { creditLedgerLoop } from "./creditLedger.js";
 import { walletActivityRefreshLoop } from "./walletActivityRefresh.js";
 import { runEvery, type Loop } from "./schedule.js";
 import { recoverStuckFetchingTokens, recoverPendingWork } from "./startupRecovery.js";
@@ -17,7 +16,6 @@ export const loops: Loop[] = [
   accountNoticesLoop,
   metadataRetryLoop,
   rewardsComputeLoop,
-  creditLedgerLoop,
   walletActivityRefreshLoop,
 ];
 

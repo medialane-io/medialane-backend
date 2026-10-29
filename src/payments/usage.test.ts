@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../types/hono.js";
-import { bill, billedCredits, billedUnits, drift } from "./usage.js";
+import { bill, billedCredits, billedUnits } from "./usage.js";
 
 async function run(fn: (c: Parameters<typeof bill>[0]) => void) {
   const app = new Hono<AppEnv>();
@@ -40,16 +40,4 @@ test("a handler can name the credits it keeps", async () => {
   app.get("/odd", (c) => { bill(c, 0, -2.5); seen.push(billedCredits(c)); return c.json({}); });
   for (const path of ["/none", "/one", "/odd"]) await app.request(path);
   expect(seen).toEqual([undefined, 1, 0]);
-});
-
-test("a balance that matches the ledger has no drift", () => {
-  expect(drift(100, 30, 70)).toBe(0);
-});
-
-test("credits that left the balance without a usage row show as drift", () => {
-  expect(drift(100, 0, 70)).toBe(-30);
-});
-
-test("credits added to the balance without a payment show as drift", () => {
-  expect(drift(100, 30, 90)).toBe(20);
 });

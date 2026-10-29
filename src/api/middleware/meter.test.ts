@@ -2,25 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { meter, type MeterDeps } from "./meter.js";
-import { bill, type UsageRecord } from "../../payments/usage.js";
+import { bill } from "../../payments/usage.js";
 
 type TestDeps = Partial<MeterDeps> & {
   onRefund?: (apiCreditsId: string, credits: number) => void | Promise<void>;
-  onUsage?: (row: UsageRecord) => void | Promise<void>;
 };
 
 function deps(over: TestDeps = {}): MeterDeps {
-  const { onRefund, onUsage, ...rest } = over;
+  const { onRefund, ...rest } = over;
   return {
     chargeForRequest: async (_m: string, path: string) =>
       path.startsWith("/v1/portal")
         ? null
         : { actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 1, units: 1 },
-    spend: async () => true,
+    charge: async () => true,
     settlePayment: async () => ({ ok: true, creditedAmount: 100 }),
-    settleUsage: async (row: UsageRecord, owed: number) => {
-      if (owed > 0) await onRefund?.(row.apiCreditsId, owed);
-      await onUsage?.(row);
+    returnCharge: async (apiCreditsId: string, credits: number) => {
+      await onRefund?.(apiCreditsId, credits);
     },
     ...rest,
   };
@@ -62,21 +60,21 @@ function app(d: MeterDeps) {
 }
 
 describe("meter", () => {
-  test("the response does not wait for the usage record", async () => {
+  test("the response does not wait for a returned charge", async () => {
     const res = await Promise.race([
-      app(deps({ onUsage: () => new Promise<void>(() => {}) })).request("/v1/tokens"),
+      app(deps({ onRefund: () => new Promise<void>(() => {}) })).request("/v1/fail"),
       new Promise<"hung">((r) => setTimeout(() => r("hung"), 500)),
     ]);
     expect(res).not.toBe("hung");
-    expect((res as Response).status).toBe(200);
+    expect((res as Response).status).toBe(500);
   });
   test("passes through when balance covers the cost", async () => {
-    const res = await app(deps({ spend: async () => true })).request("/v1/tokens");
+    const res = await app(deps({ charge: async () => true })).request("/v1/tokens");
     expect(res.status).toBe(200);
     expect(res.headers.get("x-credits-remaining")).not.toBeNull();
   });
   test("returns 402 with x402 body when insufficient and no X-PAYMENT", async () => {
-    const res = await app(deps({ spend: async () => false })).request("/v1/tokens");
+    const res = await app(deps({ charge: async () => false })).request("/v1/tokens");
     expect(res.status).toBe(402);
     const body = (await res.json()) as { x402Version: number; accepts: unknown[]; code?: string };
     expect(body.x402Version).toBe(1);
@@ -85,7 +83,7 @@ describe("meter", () => {
     expect(res.headers.get("x-credits-remaining")).toBe("0");
   });
   test("skips metering for /v1/portal", async () => {
-    const res = await app(deps({ spend: async () => false })).request("/v1/portal/me");
+    const res = await app(deps({ charge: async () => false })).request("/v1/portal/me");
     expect(res.status).toBe(200);
   });
 
@@ -119,106 +117,59 @@ describe("meter", () => {
 
   test("a handler that did nothing billable keeps none of the hold", async () => {
     let refunded = 0;
-    const rows: UsageRecord[] = [];
     const d = deps({
       chargeForRequest: async () => ({ actionKey: "wallet:deploy", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 1 }),
       onRefund: async (_id, cost) => { refunded += cost; },
-      onUsage: async (row) => { rows.push(row); },
     });
     const res = await app(d).request("/v1/reused");
 
     expect(res.status).toBe(200);
     expect(refunded).toBe(5);
-    expect(rows[0].units).toBe(0);
-    expect(rows[0].credits).toBe(0);
   });
 
   test("a handler that names its credits keeps exactly those", async () => {
     let refunded = 0;
-    const rows: UsageRecord[] = [];
     const d = deps({
       chargeForRequest: async () => ({ actionKey: "wallet:deploy", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 1 }),
       onRefund: async (_id, cost) => { refunded += cost; },
-      onUsage: async (row) => { rows.push(row); },
     });
     const res = await app(d).request("/v1/reused-read");
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Credits-Remaining")).toBe("99");
     expect(refunded).toBe(4);
-    expect(rows[0].units).toBe(0);
-    expect(rows[0].credits).toBe(1);
   });
 
   test("named credits never exceed the hold", async () => {
     let refunded = 0;
-    const rows: UsageRecord[] = [];
     const d = deps({
       chargeForRequest: async () => ({ actionKey: "wallet:deploy", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 1 }),
       onRefund: async (_id, cost) => { refunded += cost; },
-      onUsage: async (row) => { rows.push(row); },
     });
     await app(d).request("/v1/over");
 
     expect(refunded).toBe(0);
-    expect(rows[0].credits).toBe(5);
   });
 
   test("a server error keeps the credits the handler named", async () => {
     let refunded = 0;
-    const rows: UsageRecord[] = [];
     const d = deps({
       chargeForRequest: async () => ({ actionKey: "paymaster:invoke-execute", chain: "STARKNET", service: "ALL", unitCredits: 2, units: 1 }),
       onRefund: async (_id, cost) => { refunded += cost; },
-      onUsage: async (row) => { rows.push(row); },
     });
     const res = await app(d).request("/v1/fail-named");
 
     expect(res.status).toBe(500);
     expect(refunded).toBe(1);
-    expect(rows[0].credits).toBe(1);
-  });
-
-  test("every metered request leaves one usage row", async () => {
-    const rows: UsageRecord[] = [];
-    await app(deps({ onUsage: async (row) => { rows.push(row); } })).request("/v1/tokens");
-
-    expect(rows.length).toBe(1);
-    expect(rows[0]).toMatchObject({
-      apiCreditsId: "ac1",
-      actionKey: "read",
-      chain: "STARKNET",
-      service: "ALL",
-      unitCredits: 1,
-      units: 1,
-      credits: 1,
-      method: "GET",
-      path: "/v1/tokens",
-      status: 200,
-    });
-  });
-
-  test("a 5xx is recorded as spent nothing", async () => {
-    const rows: UsageRecord[] = [];
-    await app(deps({ onUsage: async (row) => { rows.push(row); } })).request("/v1/fail");
-    expect(rows[0]).toMatchObject({ units: 0, credits: 0, status: 500 });
-  });
-
-  test("a thrown handler is recorded as spent nothing", async () => {
-    const rows: UsageRecord[] = [];
-    await app(deps({ onUsage: async (row) => { rows.push(row); } })).request("/v1/boom");
-    expect(rows[0]).toMatchObject({ units: 0, credits: 0 });
   });
 
   test("a batch is held and settled at its real size", async () => {
-    const rows: UsageRecord[] = [];
     let debited = 0;
     let refunded = 0;
     const d = deps({
       chargeForRequest: async () => ({ actionKey: "rpc:call", chain: "STARKNET", service: "ALL", unitCredits: 2, units: 10 }),
-      spend: async (_id, cost) => { debited = cost; return true; },
+      charge: async (_id, cost) => { debited = cost; return true; },
       onRefund: async (_id, cost) => { refunded += cost; },
-      onUsage: async (row) => { rows.push(row); },
     });
     const a = new Hono<AppEnv>();
     a.use("*", async (c, next) => {
@@ -232,12 +183,12 @@ describe("meter", () => {
 
     expect(debited).toBe(20);
     expect(refunded).toBe(12);
-    expect(rows[0]).toMatchObject({ units: 4, credits: 8 });
   });
 
-  test("a failed usage write never fails the request", async () => {
-    const res = await app(deps({ onUsage: async () => { throw new Error("db down"); } })).request("/v1/tokens");
-    expect(res.status).toBe(200);
+  test("a failed charge return never fails the request", async () => {
+    const res = await app(deps({ onRefund: async () => { throw new Error("db down"); } })).request("/v1/fail");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "server error" });
   });
 
   test("what is left reflects what was kept, not what was held", async () => {

@@ -1,12 +1,10 @@
 import prismaDefault from "../db/client.js";
 import type { CreditEntryKind, Prisma, PrismaClient } from "@prisma/client";
-import type { UsageRecord } from "./usage.js";
 
 export type LedgerDb = PrismaClient | Prisma.TransactionClient;
 
 export interface EntryRef {
   paymentId?: string;
-  usageEventId?: string;
   launchpadRunId?: string;
   note?: string;
 }
@@ -61,9 +59,14 @@ export function grant(apiCreditsId: string, credits: number, note: string, db: L
   return add(db, apiCreditsId, "GRANT", credits, { note });
 }
 
-export async function settleUsage(record: UsageRecord, owed: number, db: LedgerDb = prismaDefault): Promise<void> {
-  await inTransaction(db, async (tx) => {
-    const usage = await tx.usageEvent.create({ data: record, select: { id: true } });
-    if (owed > 0) await add(tx, record.apiCreditsId, "REFUND", owed, { usageEventId: usage.id });
+export async function charge(apiCreditsId: string, credits: number, db: LedgerDb = prismaDefault): Promise<boolean> {
+  const res = await db.apiCredits.updateMany({
+    where: { id: apiCreditsId, creditBalance: { gte: credits } },
+    data: { creditBalance: { decrement: credits } },
   });
+  return res.count > 0;
+}
+
+export async function returnCharge(apiCreditsId: string, credits: number, db: LedgerDb = prismaDefault): Promise<void> {
+  await db.apiCredits.update({ where: { id: apiCreditsId }, data: { creditBalance: { increment: credits } } });
 }

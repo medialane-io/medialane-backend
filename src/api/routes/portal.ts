@@ -11,7 +11,6 @@ import { deleteApiKey, generateApiKey, replaceApiKey } from "../../utils/apiKey.
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
-import { drift } from "../../payments/usage.js";
 import { createFundingRoutes } from "./portal-funding.js";
 import { prismaFundingStore } from "../../funding/store.js";
 import { productionFundingMethods } from "../../funding/registry.js";
@@ -74,57 +73,6 @@ portal.get("/credits/history", async (c) => {
     },
   });
   return c.json({ data: payments });
-});
-
-portal.get("/credits/spend", async (c) => {
-  const apiCredits = c.get("apiCredits");
-
-  const [recent, byAction, spentTotal, creditedTotal] = await Promise.all([
-    prisma.usageEvent.findMany({
-      where: { apiCreditsId: apiCredits.id, credits: { gt: 0 } },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        actionKey: true,
-        service: true,
-        units: true,
-        credits: true,
-        createdAt: true,
-      },
-    }),
-    prisma.usageEvent.groupBy({
-      by: ["actionKey"],
-      where: { apiCreditsId: apiCredits.id, credits: { gt: 0 } },
-      _sum: { credits: true, units: true },
-      orderBy: { _sum: { credits: "desc" } },
-    }),
-    prisma.usageEvent.aggregate({
-      where: { apiCreditsId: apiCredits.id },
-      _sum: { credits: true },
-    }),
-    prisma.payment.aggregate({
-      where: { apiCreditsId: apiCredits.id, status: "SETTLED" },
-      _sum: { creditedAmount: true },
-    }),
-  ]);
-
-  const spent = spentTotal._sum.credits ?? 0;
-  const credited = creditedTotal._sum.creditedAmount ?? 0;
-
-  return c.json({
-    data: {
-      recent,
-      byAction: byAction.map((row) => ({
-        actionKey: row.actionKey,
-        credits: row._sum.credits ?? 0,
-        units: row._sum.units ?? 0,
-      })),
-      spent,
-      credited,
-      drift: drift(credited, spent, apiCredits.creditBalance),
-    },
-  });
 });
 
 portal.get("/keys", async (c) => {

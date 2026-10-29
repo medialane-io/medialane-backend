@@ -124,19 +124,19 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
     expect(await prisma.creditEntry.count({ where: { apiCreditsId } })).toBe(0);
   });
 
-  test("settling a request writes its usage record and the refund of the unused hold together", async () => {
+  test("a request charge and its return change the balance and write no entry", async () => {
     const { apiCreditsId } = await wallet(10);
-    await ledger.spend(apiCreditsId, 5);
-    await ledger.settleUsage(
-      { apiCreditsId, actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 5, units: 0, credits: 0, method: "GET", path: "/v1/x", status: 200 },
-      5,
-    );
-    const usage = await prisma.usageEvent.findFirstOrThrow({ where: { apiCreditsId } });
+    expect(await ledger.charge(apiCreditsId, 5)).toBe(true);
+    expect(await balanceOf(apiCreditsId)).toBe(5);
+    await ledger.returnCharge(apiCreditsId, 5);
     expect(await balanceOf(apiCreditsId)).toBe(10);
-    expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits, e.usageEventId])).toEqual([
-      ["USAGE", -5, null],
-      ["REFUND", 5, usage.id],
-    ]);
+    expect(await entriesOf(apiCreditsId)).toHaveLength(0);
+  });
+
+  test("a request charge above the balance changes nothing", async () => {
+    const { apiCreditsId } = await wallet(3);
+    expect(await ledger.charge(apiCreditsId, 5)).toBe(false);
+    expect(await balanceOf(apiCreditsId)).toBe(3);
   });
 
   test("a grant adds credits with its note", async () => {
