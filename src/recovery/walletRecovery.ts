@@ -92,7 +92,7 @@ export async function startRecovery(deps: RecoveryDeps, accountId: string, newOw
     return { status: 200, body: viewOf(true, current) };
   }
   if (current.type === "Guardian" && (current.status === "NotReady" || current.status === "Ready")) {
-    return { status: 409, error: "The owner has started changing the guardian" };
+    return { status: 409, error: "A change to your recovery settings is already in progress. Please try again later." };
   }
 
   const failure = await submit(deps, walletAddress, buildTriggerEscapeOwnerCall(walletAddress, newOwnerPubkey));
