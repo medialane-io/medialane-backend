@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 const NEW_WALLET = "0x00000000000000000000000000000000000000000000000000000000000000aa";
+const OLD_WALLET = "0x00000000000000000000000000000000000000000000000000000000000000bb";
 
 function setup(accountHasWallet: boolean, currentAddress = "0xold") {
   const create = mock(async (_arg?: unknown) => ({}));
@@ -53,27 +54,6 @@ describe("linking a wallet to an account session", () => {
   });
 });
 
-describe("replaceWallet", () => {
-  test("removes the account's wallet, attaches the new one as its only wallet and records the change, in one transaction", async () => {
-    const { create, deleteMany, calls } = setup(true);
-    const { replaceWallet } = await import("./account.js");
-    await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual(["delete", "create", "event"]);
-    expect(deleteMany).toHaveBeenCalledWith({ where: { accountId: "acct-1", scheme: "wallet" } });
-    const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
-    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1" });
-  });
-});
-
-describe("replacing with the account's current wallet", () => {
-  test("same address is a no-op: nothing removed, nothing created, no history", async () => {
-    const { calls } = setup(true, NEW_WALLET);
-    const { replaceWallet } = await import("./account.js");
-    await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual([]);
-  });
-});
-
 describe("attachDeployedWallet", () => {
   test("links the deployed wallet to an account that has none", async () => {
     const { create, calls } = setup(false);
@@ -85,11 +65,15 @@ describe("attachDeployedWallet", () => {
     expect(calls).toEqual([]);
   });
 
-  test("replaces the account's wallet and records it when the account already has one", async () => {
-    const { calls } = setup(true);
-    const { attachDeployedWallet } = await import("./account.js");
-    await attachDeployedWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual(["delete", "create", "event"]);
+  test("is refused when the account already has a different wallet, and nothing changes", async () => {
+    const { create, deleteMany, calls } = setup(true, OLD_WALLET);
+    const { attachDeployedWallet, WalletAlreadyAttachedError } = await import("./account.js");
+    await expect(
+      attachDeployedWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET }),
+    ).rejects.toBeInstanceOf(WalletAlreadyAttachedError);
+    expect(create).not.toHaveBeenCalled();
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
   });
 
   test("changes nothing when the deployed wallet is already the account's wallet", async () => {

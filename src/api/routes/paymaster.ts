@@ -5,7 +5,7 @@ import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
-import { attachDeployedWallet } from "../../utils/account.js";
+import { attachDeployedWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { productionCosign, type Cosign } from "../../utils/guardianCosign.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
@@ -26,6 +26,7 @@ export interface PaymasterClient {
 export type AttachWallet = (input: { accountId: string; appId: string; chain: "STARKNET"; address: string }) => Promise<void>;
 
 const SIGN_IN_TO_DEPLOY = { error: "Sign in to create your wallet", code: "invalid_request_auth" } as const;
+const ALREADY_SET_UP = { error: "Your account is already set up.", code: "already_set_up" } as const;
 const WALLET_NOT_LINKED = { error: "We couldn't set up your wallet. Please try again.", code: "wallet_link_failed" } as const;
 
 export function defaultClient(): PaymasterClient {
@@ -365,6 +366,7 @@ export default function paymaster(
     try {
       await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address });
     } catch (err) {
+      if (err instanceof WalletAlreadyAttachedError) return c.json(ALREADY_SET_UP, 409);
       log.error({ err, accountId, address }, "wallet could not be linked to its account before deploy");
       return c.json(WALLET_NOT_LINKED, 500);
     }

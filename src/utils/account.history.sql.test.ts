@@ -31,19 +31,6 @@ describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
   const eventsOf = (accountId: string) =>
     prisma.accountEvent.findMany({ where: { accountId }, select: { type: true, data: true } });
 
-  test("replacing the wallet records the old and the new wallet", async () => {
-    const old = `0x${(0xa000 + n).toString(16)}`;
-    const accountId = await newAccount([{ scheme: "wallet", chain: "STARKNET", address: old }]);
-    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: "0xbbb1" });
-
-    const [event] = await eventsOf(accountId);
-    expect(event?.type).toBe("WALLET_REPLACED");
-    expect(event?.data).toMatchObject({ chain: "STARKNET", appId: "MEDIALANE_API" });
-    const data = event?.data as { from: string; to: string };
-    expect(BigInt(data.from)).toBe(BigInt(old));
-    expect(BigInt(data.to)).toBe(0xbbb1n);
-  });
-
   test("replacing the email records the old and the new email", async () => {
     const oldEmail = `old-${n}@x.com`;
     const accountId = await newAccount([{ scheme: "email", value: oldEmail }]);

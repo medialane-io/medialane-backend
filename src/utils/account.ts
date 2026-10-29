@@ -87,46 +87,14 @@ export class WalletAlreadyAttachedError extends Error {
   }
 }
 
-export async function replaceWallet(params: {
-  accountId: string;
-  appId: string;
-  chain: Chain;
-  address: string;
-}): Promise<void> {
-  const address = normalizeAddress(params.chain, params.address);
-  await prisma.$transaction(async (tx) => {
-    const previous = await tx.identity.findFirst({
-      where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET },
-      select: { address: true },
-    });
-    if (previous?.address === address) return;
-    await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET } });
-    await tx.identity.create({
-      data: {
-        accountId: params.accountId,
-        scheme: IDENTITY_SCHEME.WALLET,
-        provider: "unknown",
-        chain: params.chain,
-        address,
-        appId: params.appId,
-      },
-    });
-    await recordAccountEvent(tx, params.accountId, "WALLET_REPLACED", {
-      chain: params.chain,
-      from: previous?.address ?? null,
-      to: address,
-      appId: params.appId,
-    });
-  });
-}
-
 export async function attachDeployedWallet(params: {
   accountId: string;
   appId: string;
   chain: Chain;
   address: string;
 }): Promise<void> {
-  if (!(await accountWallet(params.accountId, params.chain))) {
+  const current = await accountWallet(params.accountId, params.chain);
+  if (!current) {
     await ensureAccountForWallet({
       chain: params.chain,
       address: params.address,
@@ -136,7 +104,8 @@ export async function attachDeployedWallet(params: {
     });
     return;
   }
-  await replaceWallet(params);
+  if (normalizeAddress(params.chain, current) === normalizeAddress(params.chain, params.address)) return;
+  throw new WalletAlreadyAttachedError();
 }
 
 export async function replaceEmail(params: { accountId: string; appId: string; email: string }): Promise<void> {

@@ -8,6 +8,7 @@ import paymaster, { deploymentCalls, deploymentIsMediaWallet, type AttachWallet,
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 import type { Cosign } from "../../utils/guardianCosign.js";
+import { WalletAlreadyAttachedError } from "../../utils/account.js";
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -206,6 +207,19 @@ describe("POST /deploy/execute", () => {
     expect(res.status).toBe(200);
     expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS }]);
     expect(linkedWhenExecuted).toBe(1);
+  });
+
+  test("an account that already has a different wallet is refused, and nothing is sponsored", async () => {
+    const sent: unknown[] = [];
+    const app = appWith(
+      { executeTransaction: async () => { sent.push("executed"); return { transaction_hash: "0xtx" } as never; } },
+      [],
+      { accountId: "acct-1", attach: async () => { throw new WalletAlreadyAttachedError(); } },
+    );
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "already_set_up" });
+    expect(sent).toEqual([]);
   });
 
   test("a wallet deploy that may have been sent keeps one credit", async () => {

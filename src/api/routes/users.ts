@@ -3,14 +3,13 @@ import { z } from "zod";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { identityAuth, identityAuthWalletOptional } from "../middleware/identityAuth.js";
-import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
+import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
 import { callerApp } from "../../utils/caller.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import { currentAccountIdFromSession } from "../../utils/accountSession.js";
-import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
@@ -41,11 +40,6 @@ const meBodySchema = z.object({
 
   email: z.string().email().optional(),
 
-});
-
-const generateWalletBodySchema = z.object({
-
-  newWalletSiwsToken: z.string(),
 });
 
 users.post(
@@ -139,34 +133,6 @@ users.post("/me", async (c, next) => identityAuth(c, next), validated("json", me
   }
 
   return c.json({ walletAddress });
-});
-
-users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), validated("json", generateWalletBodySchema), async (c) => {
-  const walletAddress = c.get("walletAddress") as string;
-  const parsed = c.req.valid("json");
-
-  const newWalletId = verifySiwsToken(parsed.newWalletSiwsToken);
-  if (!newWalletId) {
-    return c.json({ error: "Invalid or expired token for the new wallet" }, 400);
-  }
-
-  const existing = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
-    select: { accountId: true },
-  });
-  if (!existing) return c.json({ error: "Account not found" }, 404);
-
-  const newAddress = normalizeAddress(newWalletId.chain, newWalletId.address);
-  const appId = callerApp(c);
-
-  await replaceWallet({
-    accountId: existing.accountId,
-    appId,
-    chain: newWalletId.chain,
-    address: newAddress,
-  });
-
-  return c.json({ walletAddress: newAddress });
 });
 
 users.post("/me/wallet", async (c) => {
