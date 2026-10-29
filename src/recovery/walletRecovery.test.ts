@@ -110,6 +110,11 @@ describe("starting a recovery", () => {
     const { deps } = fake({ execute: async () => { throw new Error("sponsor down"); } });
     expect(await startRecovery(deps, "acc", NEW)).toMatchObject({ status: 502 });
   });
+
+  test("a failed submission does not pass the underlying error text on", async () => {
+    const { deps } = fake({ execute: async () => { throw new Error("boom https://x.example/k"); } });
+    expect(await startRecovery(deps, "acc", NEW)).toEqual({ status: 502, error: "The recovery could not be sent" });
+  });
 });
 
 describe("completing a recovery", () => {

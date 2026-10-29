@@ -13,6 +13,9 @@ import { guardianKey } from "../utils/guardianKey.js";
 import { createProvider } from "../utils/starknet.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
 import { worker } from "../orchestrator/worker.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("recovery");
 
 export interface EscapeState {
   type: "None" | "Guardian" | "Owner";
@@ -76,7 +79,8 @@ async function submit(deps: RecoveryDeps, walletAddress: string, call: Call): Pr
     await deps.waitFor(await deps.execute({ walletAddress, calls: [call] }));
     return null;
   } catch (err) {
-    return err instanceof Error ? err.message : "The recovery could not be sent";
+    log.warn({ err, walletAddress }, "recovery call could not be sent");
+    return "The recovery could not be sent";
   }
 }
 

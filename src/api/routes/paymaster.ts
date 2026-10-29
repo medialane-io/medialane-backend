@@ -54,6 +54,10 @@ export interface PaymasterErrorResult {
   detail: string;
 }
 
+export function redactUrls(text: string): string {
+  return text.replace(/https?:\/\/[^\s"'<>]+/g, "[url]");
+}
+
 export function classifyPaymasterError(err: unknown, stage: "build" | "execute" = "build"): PaymasterErrorResult {
   const text =
     err instanceof Error
@@ -61,7 +65,7 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
       : typeof err === "object" && err !== null
         ? JSON.stringify(err)
         : String(err ?? "");
-  const detail = text.slice(0, 1500);
+  const detail = redactUrls(text).slice(0, 1500);
 
   if (text.includes("AVNU_PAYMASTER_API_KEY")) {
     return { status: 503, message: "Gas sponsorship is not configured", code: "sponsor_unavailable", detail };

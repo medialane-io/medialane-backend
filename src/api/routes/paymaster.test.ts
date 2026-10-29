@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
-import paymaster, { deploymentCalls, deploymentIsMediaWallet, type AttachWallet, type PaymasterClient } from "./paymaster.js";
+import paymaster, { classifyPaymasterError, deploymentCalls, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 import { GuardianUnavailableError, type Cosign } from "../../utils/guardianCosign.js";
@@ -499,5 +499,17 @@ describe("raw calls are no longer sponsored", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { code: string }).code).toBe("sponsor_unavailable");
     expect(executed).toBe(false);
+  });
+});
+
+describe("failure details sent to clients", () => {
+  test("links are replaced", () => {
+    expect(redactUrls("failed at https://rpc.example/v3/abc123?k=1, retry")).toBe("failed at [url] retry");
+  });
+
+  test("a paymaster failure's detail carries no link", () => {
+    const { detail } = classifyPaymasterError(new Error("x https://p.example/key/abc"));
+    expect(detail).toContain("[url]");
+    expect(detail).not.toContain("abc");
   });
 });
