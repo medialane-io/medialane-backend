@@ -6,7 +6,7 @@ import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import { createLogger } from "../../utils/logger.js";
 import { attachDeployedWallet } from "../../utils/account.js";
-import { productionCosign, type Cosign } from "../../utils/guardianCosign.js";
+import { GuardianUnavailableError, productionCosign, type Cosign } from "../../utils/guardianCosign.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -54,6 +54,10 @@ export interface PaymasterErrorResult {
   detail: string;
 }
 
+export function redactUrls(text: string): string {
+  return text.replace(/https?:\/\/[^\s"'<>]+/g, "[url]");
+}
+
 export function classifyPaymasterError(err: unknown, stage: "build" | "execute" = "build"): PaymasterErrorResult {
   const text =
     err instanceof Error
@@ -61,7 +65,7 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
       : typeof err === "object" && err !== null
         ? JSON.stringify(err)
         : String(err ?? "");
-  const detail = text.slice(0, 1500);
+  const detail = redactUrls(text).slice(0, 1500);
 
   if (text.includes("AVNU_PAYMASTER_API_KEY")) {
     return { status: 503, message: "Gas sponsorship is not configured", code: "sponsor_unavailable", detail };
@@ -313,10 +317,17 @@ export default function paymaster(
     if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
       return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
     }
+    let signature: string[];
+    try {
+      signature = await cosign(composed.wallet, body.typedData, body.signature);
+    } catch (err) {
+      if (!(err instanceof GuardianUnavailableError)) throw err;
+      log.warn({ requestId: c.get("requestId") }, "sponsored invoke execute refused: guardian could not be read");
+      return c.json({ error: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" }, 503);
+    }
     if (!(await intentDeps.claim(composed.ids))) {
       return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
     }
-    const signature = await cosign(composed.wallet, body.typedData, body.signature);
     const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature });
     if (outcome.status !== 200) {
       log.warn({ requestId: c.get("requestId"), status: outcome.status, ...outcome.body }, "sponsored invoke execute refused");

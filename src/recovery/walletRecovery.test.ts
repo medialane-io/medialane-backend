@@ -11,7 +11,7 @@ const waiting = (key = NEW): EscapeState => ({ type: "Owner", status: "NotReady"
 const ready = (key = NEW): EscapeState => ({ type: "Owner", status: "Ready", readyAt: 1_800_000_000, newSignerKey: key });
 
 function fake(over: Partial<RecoveryDeps> & { escape?: EscapeState; owners?: string[]; enabled?: boolean } = {}) {
-  const state = { escape: over.escape ?? NONE, owners: over.owners ?? [computeOwnerGuid(OLD)], executed: [] as Call[][] };
+  const state = { escape: over.escape ?? NONE, owners: over.owners ?? [computeOwnerGuid(OLD)], executed: [] as Call[][], synced: [] as string[] };
   const deps: RecoveryDeps = {
     walletOf: async () => WALLET,
     guardianIsOurs: async () => over.enabled ?? true,
@@ -25,6 +25,7 @@ function fake(over: Partial<RecoveryDeps> & { escape?: EscapeState; owners?: str
       return "0xtx";
     },
     waitFor: async () => {},
+    syncActivity: (walletAddress) => { state.synced.push(walletAddress); },
     ...over,
   };
   return { deps, state };
@@ -109,6 +110,11 @@ describe("starting a recovery", () => {
     const { deps } = fake({ execute: async () => { throw new Error("sponsor down"); } });
     expect(await startRecovery(deps, "acc", NEW)).toMatchObject({ status: 502 });
   });
+
+  test("a failed submission does not pass the underlying error text on", async () => {
+    const { deps } = fake({ execute: async () => { throw new Error("boom https://x.example/k"); } });
+    expect(await startRecovery(deps, "acc", NEW)).toEqual({ status: 502, error: "The recovery could not be sent" });
+  });
 });
 
 describe("completing a recovery", () => {
@@ -140,6 +146,34 @@ describe("completing a recovery", () => {
   test("is reported as failed when the key is still not an owner afterwards", async () => {
     const { deps } = fake({ escape: ready(), execute: async () => "0xtx" });
     expect((await completeRecovery(deps, "acc", NEW)).status).toBe(502);
+  });
+});
+
+describe("the wallet's activity is refreshed after a recovery changes on chain", () => {
+  test("starting a recovery queues one activity sync for the wallet", async () => {
+    const { deps, state } = fake();
+    expect((await startRecovery(deps, "acc", NEW)).status).toBe(200);
+    expect(state.synced).toEqual([WALLET]);
+  });
+
+  test("completing a recovery queues one activity sync", async () => {
+    const { deps, state } = fake({ escape: ready() });
+    expect((await completeRecovery(deps, "acc", NEW)).status).toBe(200);
+    expect(state.synced).toEqual([WALLET]);
+  });
+
+  test("an existing recovery for this key queues no sync", async () => {
+    const { deps, state } = fake({ escape: waiting() });
+    expect((await startRecovery(deps, "acc", NEW)).status).toBe(200);
+    expect(state.synced).toEqual([]);
+  });
+
+  test("a refused start queues no sync", async () => {
+    const guardianEscape = fake({ escape: { type: "Guardian", status: "NotReady", readyAt: 1, newSignerKey: null } });
+    expect((await startRecovery(guardianEscape.deps, "acc", NEW)).status).toBe(409);
+    const failed = fake({ execute: async () => { throw new Error("refused"); } });
+    expect((await startRecovery(failed.deps, "acc", NEW)).status).toBe(502);
+    expect([...guardianEscape.state.synced, ...failed.state.synced]).toEqual([]);
   });
 });
 

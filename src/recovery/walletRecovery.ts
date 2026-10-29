@@ -12,6 +12,10 @@ import { accountWallet } from "../utils/account.js";
 import { guardianKey } from "../utils/guardianKey.js";
 import { createProvider } from "../utils/starknet.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
+import { worker } from "../orchestrator/worker.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("recovery");
 
 export interface EscapeState {
   type: "None" | "Guardian" | "Owner";
@@ -28,6 +32,7 @@ export interface RecoveryDeps {
   escapeOf(walletAddress: string): Promise<EscapeState>;
   execute(input: { walletAddress: string; calls: Call[] }): Promise<string>;
   waitFor(txHash: string): Promise<void>;
+  syncActivity(walletAddress: string): void;
 }
 
 export interface RecoveryView {
@@ -74,7 +79,8 @@ async function submit(deps: RecoveryDeps, walletAddress: string, call: Call): Pr
     await deps.waitFor(await deps.execute({ walletAddress, calls: [call] }));
     return null;
   } catch (err) {
-    return err instanceof Error ? err.message : "The recovery could not be sent";
+    log.warn({ err, walletAddress }, "recovery call could not be sent");
+    return "The recovery could not be sent";
   }
 }
 
@@ -100,6 +106,7 @@ export async function startRecovery(deps: RecoveryDeps, accountId: string, newOw
 
   const started = await deps.escapeOf(walletAddress);
   if (!liveOwnerEscape(started)) return { status: 502, error: "The recovery could not be started" };
+  deps.syncActivity(walletAddress);
   return { status: 200, body: viewOf(true, started) };
 }
 
@@ -120,6 +127,7 @@ export async function completeRecovery(deps: RecoveryDeps, accountId: string, ne
   if (!ownsWallet(await deps.ownerGuidsOf(walletAddress), newOwnerPubkey)) {
     return { status: 502, error: "The recovery could not be completed" };
   }
+  deps.syncActivity(walletAddress);
   return { status: 200, body: viewOf(true, await deps.escapeOf(walletAddress)) };
 }
 
@@ -171,4 +179,5 @@ export const productionRecoveryDeps: RecoveryDeps = {
   waitFor: async (txHash) => {
     await createProvider().waitForTransaction(txHash);
   },
+  syncActivity: (walletAddress) => worker.enqueue({ type: "WALLET_ACTIVITY_SYNC", chain: "STARKNET", accountAddress: walletAddress }),
 };

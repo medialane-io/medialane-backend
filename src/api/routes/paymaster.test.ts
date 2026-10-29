@@ -4,10 +4,10 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
-import paymaster, { deploymentCalls, deploymentIsMediaWallet, type AttachWallet, type PaymasterClient } from "./paymaster.js";
+import paymaster, { classifyPaymasterError, deploymentCalls, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
-import type { Cosign } from "../../utils/guardianCosign.js";
+import { GuardianUnavailableError, type Cosign } from "../../utils/guardianCosign.js";
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -402,8 +402,19 @@ describe("a wallet with a guardian", () => {
     expect(asked).toEqual([{ wallet: WALLET, typedData: body.typedData, signature: ["0x1", "0x2"] }]);
   });
 
+  test("a guardian that cannot be read refuses before claiming and never calls the sponsor", async () => {
+    const log: string[] = [];
+    let executed = false;
+    const app = intentApp([signedRow], { executeTransaction: async () => { executed = true; return { transaction_hash: "0xtx" } as never; } }, log, WALLET, async () => { throw new GuardianUnavailableError(); });
+    const res = await app.request("/invoke/execute", postJson(body));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { code?: string }).code).toBe("sponsor_unavailable");
+    expect(log).toEqual([]);
+    expect(executed).toBe(false);
+  });
+
   test("a wallet without one runs exactly the signature the client sent", async () => {
-    const { app, seen } = executedWith();
+    const { app, seen } = executedWith(async (_wallet, _typedData, signature) => signature);
     expect((await app.request("/invoke/execute", postJson(body))).status).toBe(200);
     expect(seen).toEqual([["0x1", "0x2"]]);
   });
@@ -488,5 +499,17 @@ describe("raw calls are no longer sponsored", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { code: string }).code).toBe("sponsor_unavailable");
     expect(executed).toBe(false);
+  });
+});
+
+describe("failure details sent to clients", () => {
+  test("links are replaced", () => {
+    expect(redactUrls("failed at https://rpc.example/v3/abc123?k=1, retry")).toBe("failed at [url] retry");
+  });
+
+  test("a paymaster failure's detail carries no link", () => {
+    const { detail } = classifyPaymasterError(new Error("x https://p.example/key/abc"));
+    expect(detail).toContain("[url]");
+    expect(detail).not.toContain("abc");
   });
 });

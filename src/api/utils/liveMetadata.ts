@@ -5,9 +5,10 @@ import { fetchTokenUri } from "../../orchestrator/metadata.js";
 interface LiveMetadataDeps {
   tokenUri: (contractAddress: string, tokenId: string, chain: Chain) => Promise<string | null>;
   metadata: (uri: string) => Promise<Record<string, unknown> | null>;
+  timeoutMs: number;
 }
 
-const defaultDeps: LiveMetadataDeps = { tokenUri: fetchTokenUri, metadata: resolveMetadata };
+const defaultDeps: LiveMetadataDeps = { tokenUri: fetchTokenUri, metadata: resolveMetadata, timeoutMs: 10_000 };
 
 export interface LiveMetadata {
   description: string | null;
@@ -26,12 +27,17 @@ export async function liveMetadata(
   storedTokenUri: string | null,
   deps: LiveMetadataDeps = defaultDeps,
 ): Promise<LiveMetadata> {
-  try {
+  const read = async (): Promise<LiveMetadata> => {
     const uri = storedTokenUri ?? (await deps.tokenUri(contractAddress, tokenId, chain));
     if (!uri) return NONE;
     const metadata = await deps.metadata(uri);
     return { description: text(metadata?.description), externalUrl: text(metadata?.external_url) };
-  } catch {
-    return NONE;
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<LiveMetadata>((resolve) => { timer = setTimeout(() => resolve(NONE), deps.timeoutMs); });
+  try {
+    return await Promise.race([read().catch(() => NONE), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }

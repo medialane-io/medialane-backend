@@ -5,7 +5,7 @@ import { type Prisma as PrismaTypes, type TransactionIntent } from "@prisma/clie
 import prisma from "../../../db/client.js";
 import { buildPopulatedCalls } from "../../../orchestrator/submit.js";
 import { verifyWalletSignature, type VerifyResult } from "../../../auth/verify.js";
-import { productionCosign } from "../../../utils/guardianCosign.js";
+import { GuardianUnavailableError, productionCosign, type Cosign } from "../../../utils/guardianCosign.js";
 import type { AppEnv } from "../../../types/hono.js";
 import { starknet } from "@medialane/sdk/contract";
 import {
@@ -33,7 +33,7 @@ export function signatureIsRefused(proof: VerifyResult): boolean {
   return !proof.ok && proof.reason === "invalid";
 }
 
-export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
+export function registerLifecycleRoutes(intents: Hono<AppEnv>, cosign: Cosign = productionCosign): void {
 
   intents.get("/:id", async (c) => {
     const { id } = c.req.param();
@@ -63,7 +63,13 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>): void {
       return c.json({ error: `Intent is ${intent.status}` }, 409);
     }
 
-    const signature = await productionCosign(intent.requester, intent.typedData, parsedBody.signature);
+    let signature: string[];
+    try {
+      signature = await cosign(intent.requester, intent.typedData, parsedBody.signature);
+    } catch (err) {
+      if (!(err instanceof GuardianUnavailableError)) throw err;
+      return c.json({ error: "The network can't be reached right now. Please try again in a moment." }, 503);
+    }
 
     let proof: VerifyResult;
     try {

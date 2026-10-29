@@ -34,6 +34,10 @@ async function appWith(opts: { currentKeyId?: string | null; keyIdInTransaction?
       return opts.signatureValid === false ? { ok: false, reason: "invalid" } : { ok: true };
     },
   }));
+  mock.module("../../utils/guardianCosign.js", () => ({
+    productionCosign: async (_wallet: string, _typedData: unknown, signature: string[]) => signature,
+    GuardianUnavailableError: class extends Error {},
+  }));
   const { default: portal } = await import("./portal.js");
   const { issueAccountSessionToken } = await import("../../utils/accountSessionToken.js");
   const app = new Hono<AppEnv>();
