@@ -4,6 +4,7 @@ import { liveMetadata } from "./liveMetadata.js";
 const deps = (overrides: Partial<Parameters<typeof liveMetadata>[4]> = {}) => ({
   tokenUri: async () => "ipfs://from-chain",
   metadata: async (uri: string) => ({ description: `from ${uri}`, external_url: `https://site.test/${uri}` }),
+  timeoutMs: 1000,
   ...overrides,
 });
 
@@ -23,5 +24,18 @@ describe("a token's description and external URL are read from its own metadata"
   test("a failed read gives none instead of failing the page", async () => {
     const failing = deps({ metadata: async () => { throw new Error("gateway down"); } });
     expect(await liveMetadata("STARKNET", "0xc", "1", "ipfs://x", failing)).toEqual({ description: null, externalUrl: null });
+  });
+
+  test("metadata that never arrives returns no description after the wait", async () => {
+    const hanging = { ...deps({ metadata: () => new Promise<Record<string, unknown> | null>(() => {}) }), timeoutMs: 50 };
+    expect(await liveMetadata("STARKNET", "0xc", "1", "ipfs://x", hanging)).toEqual({ description: null, externalUrl: null });
+  });
+
+  test("metadata that arrives within the wait is served", async () => {
+    const slow = {
+      ...deps({ metadata: () => new Promise<Record<string, unknown> | null>((resolve) => setTimeout(() => resolve({ description: "d", external_url: "https://e.example" }), 20)) }),
+      timeoutMs: 50,
+    };
+    expect(await liveMetadata("STARKNET", "0xc", "1", "ipfs://x", slow)).toEqual({ description: "d", externalUrl: "https://e.example" });
   });
 });
