@@ -59,7 +59,7 @@ export async function confirmStep(
   if (receipt.status === "PENDING") return c.json({ data: { ...target.extra, status: receipt.status } }, 202);
 
   if (receipt.status === "REVERTED") {
-    await ctx.store.chargeReverted({ id, apiCreditsId, credits, requestPath: c.req.path });
+    await ctx.store.chargeReverted({ id, apiCreditsId, credits });
     await ctx.store.record(id, apiCreditsId, path, { txHash: state.txHash, status: "REVERTED" });
     return c.json({ data: { ...target.extra, status: receipt.status } });
   }

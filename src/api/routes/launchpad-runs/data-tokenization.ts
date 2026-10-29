@@ -140,7 +140,6 @@ export function dataTokenizationSteps(ctx: RunContext): RunServiceSteps<ActiveRu
           id: active.run.id,
           apiCreditsId: active.apiCreditsId,
           status: "COMPLETED",
-          path: c.req.path,
         });
         return c.json({ data: { index, status: "SUCCEEDED", completed: true, refunded: closed?.refunded ?? 0 } });
       },

@@ -117,7 +117,7 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
       return c.json({ error: "A batch is still being confirmed. Try again once it lands." }, 409);
     }
 
-    const closed = await ctx.store.complete({ id: existing.id, apiCreditsId, status: "CANCELLED", path: c.req.path });
+    const closed = await ctx.store.complete({ id: existing.id, apiCreditsId, status: "CANCELLED" });
     if (!closed) return c.json({ error: "This run is already closed" }, 409);
     return c.json({ data: { ...(await ctx.store.get(existing.id, apiCreditsId)), refunded: closed.refunded } });
   });
@@ -147,11 +147,9 @@ export function createDraftRoutes(ctx: RunContext): Hono<AppEnv> {
     const outcome = await ctx.store.checkout({
       id: existing.id,
       apiCreditsId,
-      service: existing.service,
       quote,
       paymentId,
       progress: definitionOf(existing.service).initialProgress(),
-      path: c.req.path,
     });
 
     if (outcome === "not-draft") return c.json({ error: "This run is already paid" }, 409);

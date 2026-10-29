@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
 import { chargeForRequest as defaultChargeForRequest } from "../../payments/pricing.js";
-import { settleUsage as defaultSettleUsage, spend as defaultSpend } from "../../payments/ledger.js";
+import { charge as defaultCharge, returnCharge as defaultReturnCharge } from "../../payments/ledger.js";
 import { billedCredits, billedUnits } from "../../payments/usage.js";
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -14,18 +14,18 @@ const SCHEMES = [new StarknetUsdcScheme()];
 
 export interface MeterDeps {
   chargeForRequest: typeof defaultChargeForRequest;
-  spend: typeof defaultSpend;
-  settleUsage: typeof defaultSettleUsage;
+  charge: typeof defaultCharge;
+  returnCharge: typeof defaultReturnCharge;
   settlePayment: typeof defaultSettlePayment;
 }
 
 export function meter(deps: MeterDeps = {
   chargeForRequest: defaultChargeForRequest,
-  spend: defaultSpend,
-  settleUsage: defaultSettleUsage,
+  charge: defaultCharge,
+  returnCharge: defaultReturnCharge,
   settlePayment: defaultSettlePayment,
 }): MiddlewareHandler<AppEnv> {
-  const { chargeForRequest, spend, settleUsage, settlePayment } = deps;
+  const { chargeForRequest, charge: chargeCredits, returnCharge, settlePayment } = deps;
   return async (c, next) => {
 
     const charge = await chargeForRequest(c.req.method, c.req.path, {
@@ -57,7 +57,7 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const paid = await spend(apiCredits.id, cost);
+    const paid = await chargeCredits(apiCredits.id, cost);
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
@@ -80,38 +80,26 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const settle = (units: number, status: number, credits?: number) => {
+    const settle = (units: number, credits?: number) => {
       const kept = Math.min(cost, credits ?? charge.unitCredits * units);
       const owed = cost - kept;
       if (kept > 0) {
         c.header("X-Credits-Remaining", String(Math.max(0, apiCredits.creditBalance - kept)));
       }
-      void settleUsage(
-        {
-          apiCreditsId: apiCredits.id,
-          actionKey: charge.actionKey,
-          chain: charge.chain,
-          service: charge.service,
-          unitCredits: charge.unitCredits,
-          units,
-          credits: kept,
-          method: c.req.method,
-          path: c.req.path,
-          status,
-        },
-        owed,
-      ).catch((settleErr) =>
-        log.error({ settleErr, apiCredits: apiCredits.id, kept, owed, path: c.req.path }, "usage settlement failed"),
-      );
+      if (owed > 0) {
+        void returnCharge(apiCredits.id, owed).catch((settleErr) =>
+          log.error({ settleErr, apiCredits: apiCredits.id, kept, owed, path: c.req.path }, "usage settlement failed"),
+        );
+      }
     };
 
     try {
       await next();
     } catch (err) {
-      settle(0, 500);
+      settle(0);
       throw err;
     }
-    settle(billedUnits(c, c.res.status >= 500 ? 0 : charge.units), c.res.status, billedCredits(c));
+    settle(billedUnits(c, c.res.status >= 500 ? 0 : charge.units), billedCredits(c));
   };
 }
 

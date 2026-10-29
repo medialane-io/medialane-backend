@@ -145,7 +145,6 @@ export function certificateEmissionSteps(ctx: RunContext): RunServiceSteps<Activ
           id: active.run.id,
           apiCreditsId: active.apiCreditsId,
           status: "COMPLETED",
-          path: c.req.path,
         });
         return c.json({ data: { index, status: "SUCCEEDED", completed: true, refunded: closed?.refunded ?? 0 } });
       },

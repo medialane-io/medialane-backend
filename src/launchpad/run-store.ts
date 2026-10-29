@@ -36,11 +36,9 @@ export interface RunStore {
   checkout(input: {
     id: string;
     apiCreditsId: string;
-    service: string;
     quote: RunQuote;
     paymentId?: string;
     progress: unknown;
-    path: string;
   }): Promise<CheckoutOutcome>;
   balance(apiCreditsId: string): Promise<number>;
   reserve(input: {
@@ -53,13 +51,12 @@ export interface RunStore {
   record(id: string, apiCreditsId: string, path: string[], value: unknown): Promise<void>;
   sweepStale(input: { id: string; apiCreditsId: string; paths: string[][]; olderThanMs: number }): Promise<number>;
   release(input: { id: string; apiCreditsId: string; credits: number; path: string[] }): Promise<void>;
-  chargeReverted(input: { id: string; apiCreditsId: string; credits: number; requestPath: string }): Promise<void>;
+  chargeReverted(input: { id: string; apiCreditsId: string; credits: number }): Promise<void>;
   ownsWallet(accountId: string, address: string): Promise<boolean>;
   complete(input: {
     id: string;
     apiCreditsId: string;
     status: "COMPLETED" | "CANCELLED";
-    path: string;
   }): Promise<{ refunded: number } | null>;
 }
 
@@ -123,7 +120,7 @@ export const prismaRunStore: RunStore = {
     return wallets.filter((w) => w.walletAddress !== null).length;
   },
 
-  async checkout({ id, apiCreditsId, service, quote, paymentId, progress, path }) {
+  async checkout({ id, apiCreditsId, quote, paymentId, progress }) {
     try {
       await prisma.$transaction(async (tx) => {
         const moved = await tx.launchpadRun.updateMany({
@@ -140,23 +137,6 @@ export const prismaRunStore: RunStore = {
 
         const paid = await spend(apiCreditsId, quote.total, tx, { launchpadRunId: id });
         if (!paid) throw new CheckoutAbort("insufficient");
-
-        for (const line of quote.lines) {
-          await tx.usageEvent.create({
-            data: {
-              apiCreditsId,
-              actionKey: line.action,
-              chain: "STARKNET",
-              service,
-              unitCredits: line.unitCredits,
-              units: line.units,
-              credits: line.credits,
-              method: "POST",
-              path,
-              status: 200,
-            },
-          });
-        }
       });
       return "paid";
     } catch (err) {
@@ -231,9 +211,9 @@ export const prismaRunStore: RunStore = {
       WHERE "id" = ${id} AND "apiCreditsId" = ${apiCreditsId}`;
   },
 
-  async chargeReverted({ id, apiCreditsId, credits, requestPath }) {
+  async chargeReverted({ id, apiCreditsId, credits }) {
     await prisma.$transaction(async (tx) => {
-      const run = await tx.launchpadRun.findFirst({ where: { id, apiCreditsId }, select: { service: true } });
+      const run = await tx.launchpadRun.findFirst({ where: { id, apiCreditsId }, select: { id: true } });
       if (!run) return;
       const paid = await spend(apiCreditsId, REVERTED_STEP_CREDITS, tx, { launchpadRunId: id });
       const returned = paid ? credits : Math.max(0, credits - REVERTED_STEP_CREDITS);
@@ -241,29 +221,14 @@ export const prismaRunStore: RunStore = {
         UPDATE "LaunchpadRun"
         SET "creditsSpent" = GREATEST("creditsSpent" - ${returned}, 0), "updatedAt" = now()
         WHERE "id" = ${id} AND "apiCreditsId" = ${apiCreditsId}`;
-      if (!paid) return;
-      await tx.usageEvent.create({
-        data: {
-          apiCreditsId,
-          actionKey: "launchpad:reverted-step",
-          chain: "STARKNET",
-          service: run.service,
-          unitCredits: REVERTED_STEP_CREDITS,
-          units: 1,
-          credits: REVERTED_STEP_CREDITS,
-          method: "POST",
-          path: requestPath,
-          status: 200,
-        },
-      });
     });
   },
 
-  async complete({ id, apiCreditsId, status, path }) {
+  async complete({ id, apiCreditsId, status }) {
     return prisma.$transaction(async (tx) => {
       const run = await tx.launchpadRun.findFirst({
         where: { id, apiCreditsId, status: { in: ["PAID", "RUNNING"] } },
-        select: { service: true, creditsHeld: true, creditsSpent: true },
+        select: { creditsHeld: true, creditsSpent: true },
       });
       if (!run) return null;
 
@@ -276,20 +241,6 @@ export const prismaRunStore: RunStore = {
       const refunded = Math.max(0, run.creditsHeld - run.creditsSpent);
       if (refunded > 0) {
         await refund(apiCreditsId, refunded, tx, { launchpadRunId: id });
-        await tx.usageEvent.create({
-          data: {
-            apiCreditsId,
-            actionKey: "launchpad:refund",
-            chain: "STARKNET",
-            service: run.service,
-            unitCredits: -refunded,
-            units: 1,
-            credits: -refunded,
-            method: "POST",
-            path,
-            status: 200,
-          },
-        });
       }
       return { refunded };
     });
