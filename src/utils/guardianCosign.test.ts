@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ec, typedData as starknetTypedData, type TypedData } from "starknet";
 import { computeOwnerGuid, signWithPrivateKey, type GuardianInfo } from "@medialane/sdk/starknet";
-import { cosign, type CosignDeps } from "./guardianCosign.js";
+import { cosign, GuardianUnavailableError, type CosignDeps } from "./guardianCosign.js";
 import { guardianKeyWith } from "./guardianKey.js";
 
 const SECRET = "g".repeat(64);
@@ -70,9 +70,14 @@ describe("when nothing is configured or readable", () => {
     expect(d.reads).toBe(0);
   });
 
-  test("a chain read that fails leaves the signature alone instead of blocking the user", async () => {
+  test("a failed guardian read throws GuardianUnavailableError", async () => {
     const d = deps({ guardiansOf: async () => { throw new Error("rpc down"); } });
-    expect(await cosign(d, WALLET, data, ownerSignature)).toEqual(ownerSignature);
+    await expect(cosign(d, WALLET, data, ownerSignature)).rejects.toBeInstanceOf(GuardianUnavailableError);
+  });
+
+  test("a failed owner read throws GuardianUnavailableError", async () => {
+    const d = deps({ guardians: [asSigner(ours.publicKey)], ownersOf: async () => { throw new Error("rpc down"); } });
+    await expect(cosign(d, WALLET, data, ownerSignature)).rejects.toBeInstanceOf(GuardianUnavailableError);
   });
 
   test("a signature that is not the owner's short form is passed through", async () => {
