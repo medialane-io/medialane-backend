@@ -26,3 +26,11 @@ export function guardianKeyWith(secret: string, walletAddress: string, version: 
 export function guardianKey(walletAddress: string): GuardianKey {
   return guardianKeyWith(env.GUARDIAN_SECRET, walletAddress);
 }
+
+export function guardianPubkeyWith(secret: string, walletAddress: string): string | null {
+  return secret.length < 32 ? null : guardianKeyWith(secret, walletAddress).publicKey;
+}
+
+export function guardianPubkey(walletAddress: string): string | null {
+  return guardianPubkeyWith(env.GUARDIAN_SECRET, walletAddress);
+}
