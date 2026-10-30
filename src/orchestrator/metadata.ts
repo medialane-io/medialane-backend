@@ -4,7 +4,7 @@ import { readTokenUri } from "../chainRead/tokenUri.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
-import { attributesArraySchema, tokenFields } from "../utils/metadataAttributes.js";
+import { attributesArraySchema, tokenFields, withoutNulCharacters } from "../utils/metadataAttributes.js";
 import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
 
 
@@ -28,7 +28,7 @@ export async function handleMetadataFetch(payload: {
 
     if (!tokenUri) throw new Error("No tokenURI found");
 
-    const metadata = await resolveMetadata(tokenUri);
+    const metadata = withoutNulCharacters(await resolveMetadata(tokenUri));
 
     const rawAttrs = Array.isArray(metadata?.attributes) ? metadata.attributes : [];
     const attrsParsed = attributesArraySchema.safeParse(rawAttrs);
