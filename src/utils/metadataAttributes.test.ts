@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { metadataAttributes, tokenFields } from "./metadataAttributes.js";
+import { metadataAttributes, tokenFields, withoutNulCharacters } from "./metadataAttributes.js";
 
 describe("metadataAttributes", () => {
   test("reads the attributes array from a metadata document", () => {
@@ -58,5 +58,31 @@ describe("tokenFields", () => {
 
   test("no metadata gives all null", () => {
     expect(tokenFields(null, [])).toEqual(none);
+  });
+});
+
+describe("withoutNulCharacters", () => {
+  test("removes NUL characters from strings at any depth, keeping everything else", () => {
+    expect(
+      withoutNulCharacters({
+        name: "Relic\u0000 #1",
+        attributes: [
+          { trait_type: "Glyph", value: "\u0000\u0000\u0000" },
+          { trait_type: "Level", value: 3 },
+        ],
+        hidden: false,
+      }),
+    ).toEqual({
+      name: "Relic #1",
+      attributes: [
+        { trait_type: "Glyph", value: "" },
+        { trait_type: "Level", value: 3 },
+      ],
+      hidden: false,
+    });
+  });
+
+  test("passes null through", () => {
+    expect(withoutNulCharacters(null)).toBeNull();
   });
 });
