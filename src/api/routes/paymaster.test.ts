@@ -7,7 +7,11 @@ import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import paymaster, { classifyPaymasterError, deploymentCalls, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
+import { WalletAlreadyAttachedError } from "../../utils/account.js";
 import { GuardianUnavailableError, type Cosign } from "../../utils/guardianCosign.js";
+import { guardianKeyWith } from "../../utils/guardianKey.js";
+import { toIntentCall } from "../../orchestrator/intent/calls.js";
+import { buildSetFirstGuardianCall } from "@medialane/sdk/starknet";
 
 const SPONSORABLE_CALL = { contractAddress: "0x1", entrypoint: "approve", calldata: ["0x2", "0x3"] };
 
@@ -204,8 +208,36 @@ describe("POST /deploy/execute", () => {
     );
     const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
     expect(res.status).toBe(200);
-    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS }]);
+    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS, replace: false }]);
     expect(linkedWhenExecuted).toBe(1);
+  });
+
+  test("passes an explicit replace request on to linking the wallet", async () => {
+    const attached: unknown[] = [];
+    const app = appWith({}, [], { accountId: "acct-1", attached });
+    const res = await app.request("/deploy/execute", { ...post, body: JSON.stringify({ ...JSON.parse(deployBody()), replace: true }) });
+    expect(res.status).toBe(200);
+    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS, replace: true }]);
+  });
+
+  test("anything other than true is not a replace request", async () => {
+    const attached: unknown[] = [];
+    const app = appWith({}, [], { accountId: "acct-1", attached });
+    await app.request("/deploy/execute", { ...post, body: JSON.stringify({ ...JSON.parse(deployBody()), replace: "yes" }) });
+    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS, replace: false }]);
+  });
+
+  test("an account that already has a different wallet is refused, and nothing is sponsored", async () => {
+    const sent: unknown[] = [];
+    const app = appWith(
+      { executeTransaction: async () => { sent.push("executed"); return { transaction_hash: "0xtx" } as never; } },
+      [],
+      { accountId: "acct-1", attach: async () => { throw new WalletAlreadyAttachedError(); } },
+    );
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "already_set_up" });
+    expect(sent).toEqual([]);
   });
 
   test("a wallet deploy that may have been sent keeps one credit", async () => {
@@ -263,7 +295,7 @@ describe("POST /deploy/execute", () => {
     const app = appWith({ executeTransaction: async () => { throw new Error("TRANSACTION_EXECUTION_ERROR"); } }, [], { accountId: "acct-1", attached });
     const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
     expect(res.status).toBe(422);
-    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS }]);
+    expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS, replace: false }]);
   });
 
   test("refuses a signature for other calls without calling AVNU", async () => {
@@ -511,5 +543,21 @@ describe("failure details sent to clients", () => {
     const { detail } = classifyPaymasterError(new Error("x https://p.example/key/abc"));
     expect(detail).toContain("[url]");
     expect(detail).not.toContain("abc");
+  });
+});
+
+describe("deploymentCalls", () => {
+  const OWNER_ADDRESS = DERIVED_ADDRESS;
+  const secret = "s".repeat(32);
+
+  test("sets the server guardian on the new wallet when a guardian secret is configured", () => {
+    const guardian = guardianKeyWith(secret, OWNER_ADDRESS).publicKey;
+    expect(deploymentCalls(OWNER_ADDRESS, secret)).toEqual([toIntentCall(buildSetFirstGuardianCall(OWNER_ADDRESS, guardian))]);
+  });
+
+  test("is a zero-value transfer when no guardian secret is configured", () => {
+    const calls = deploymentCalls(OWNER_ADDRESS, "");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].entrypoint).toBe("transfer");
   });
 });

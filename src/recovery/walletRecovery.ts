@@ -9,7 +9,7 @@ import {
   signWithPrivateKey,
 } from "@medialane/sdk/starknet";
 import { accountWallet } from "../utils/account.js";
-import { guardianKey } from "../utils/guardianKey.js";
+import { guardianKey, guardianPubkey } from "../utils/guardianKey.js";
 import { createProvider } from "../utils/starknet.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
 import { worker } from "../orchestrator/worker.js";
@@ -146,13 +146,7 @@ export function parseEscape(res: string[]): EscapeState {
 
 export const productionRecoveryDeps: RecoveryDeps = {
   walletOf: (accountId) => accountWallet(accountId),
-  guardianPubkeyOf: (walletAddress) => {
-    try {
-      return guardianKey(walletAddress).publicKey;
-    } catch {
-      return null;
-    }
-  },
+  guardianPubkeyOf: guardianPubkey,
   guardianIsOurs: async (walletAddress) => {
     try {
       const ours = computeOwnerGuid(guardianKey(walletAddress).publicKey);

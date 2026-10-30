@@ -3,9 +3,12 @@ import { requireSession } from "../middleware/sessionGuard.js";
 import { composeIntentCalls, prismaSponsorIntentDeps, type SponsorIntentDeps } from "./sponsorIntents.js";
 import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
-import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
+import { buildSetFirstGuardianCall, ownerConstructorCalldata } from "@medialane/sdk/starknet";
+import { env } from "../../config/env.js";
+import { guardianPubkeyWith } from "../../utils/guardianKey.js";
+import { toIntentCall } from "../../orchestrator/intent/calls.js";
 import { createLogger } from "../../utils/logger.js";
-import { attachDeployedWallet } from "../../utils/account.js";
+import { attachDeployedWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
 import { GuardianUnavailableError, productionCosign, type Cosign } from "../../utils/guardianCosign.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
@@ -23,9 +26,10 @@ export interface PaymasterClient {
   executeTransaction(req: unknown, opts: unknown): Promise<unknown>;
 }
 
-export type AttachWallet = (input: { accountId: string; appId: string; chain: "STARKNET"; address: string }) => Promise<void>;
+export type AttachWallet = (input: { accountId: string; appId: string; chain: "STARKNET"; address: string; replace: boolean }) => Promise<void>;
 
 const SIGN_IN_TO_DEPLOY = { error: "Sign in to create your wallet", code: "invalid_request_auth" } as const;
+const ALREADY_SET_UP = { error: "Your account is already set up.", code: "already_set_up" } as const;
 const WALLET_NOT_LINKED = { error: "We couldn't set up your wallet. Please try again.", code: "wallet_link_failed" } as const;
 
 export function defaultClient(): PaymasterClient {
@@ -217,7 +221,9 @@ export type DeploymentBuildOutcome =
   | { status: 200; body: { typedData: unknown; deployment: unknown; calls: unknown[] } }
   | { status: 500 | 502 | 503 | 400 | 422; body: { error: string; code: string; detail?: string } };
 
-export function deploymentCalls(ownerAddress: string) {
+export function deploymentCalls(ownerAddress: string, guardianSecret: string = env.GUARDIAN_SECRET) {
+  const guardian = guardianPubkeyWith(guardianSecret, ownerAddress);
+  if (guardian) return [toIntentCall(buildSetFirstGuardianCall(ownerAddress, guardian))];
   const strk = getTokenBySymbol("STRK");
   if (!strk) throw new Error("STRK token not found in registry");
   return [{ contractAddress: strk.address, entrypoint: "transfer", calldata: CallData.compile([ownerAddress, uint256.bnToUint256(0)]) as string[] }];
@@ -359,7 +365,7 @@ export default function paymaster(
     const accountId = c.get("sessionAccountId");
     if (!accountId) return c.json(SIGN_IN_TO_DEPLOY, 401);
     const body = (await c.req.json().catch(() => null)) as
-      | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown }
+      | { ownerAddress?: string; typedData?: unknown; signature?: string[]; deployment?: unknown; replace?: unknown }
       | null;
     if (!body?.ownerAddress || !body.typedData || !body.signature || !body.deployment) {
       return c.json({ error: "ownerAddress, typedData, signature and deployment are required", code: "invalid_request" }, 400);
@@ -374,8 +380,9 @@ export default function paymaster(
     }
     const address = body.ownerAddress;
     try {
-      await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address });
+      await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address, replace: body.replace === true });
     } catch (err) {
+      if (err instanceof WalletAlreadyAttachedError) return c.json(ALREADY_SET_UP, 409);
       log.error({ err, accountId, address }, "wallet could not be linked to its account before deploy");
       return c.json(WALLET_NOT_LINKED, 500);
     }

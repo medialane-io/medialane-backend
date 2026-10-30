@@ -125,8 +125,10 @@ export async function attachDeployedWallet(params: {
   appId: string;
   chain: Chain;
   address: string;
+  replace?: boolean;
 }): Promise<void> {
-  if (!(await accountWallet(params.accountId, params.chain))) {
+  const current = await accountWallet(params.accountId, params.chain);
+  if (!current) {
     await ensureAccountForWallet({
       chain: params.chain,
       address: params.address,
@@ -136,6 +138,8 @@ export async function attachDeployedWallet(params: {
     });
     return;
   }
+  if (normalizeAddress(params.chain, current) === normalizeAddress(params.chain, params.address)) return;
+  if (!params.replace) throw new WalletAlreadyAttachedError();
   await replaceWallet(params);
 }
 
