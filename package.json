@@ -23,6 +23,8 @@
     "credits:grant:prod": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run src/scripts/grant-credits.ts \"$@\"' grant",
     "owners:repair": "bun run src/scripts/repair-ownership.ts",
     "owners:repair:prod": "railway run --service medialane-backend bash -c 'DATABASE_URL=\"$(railway variables --service Postgres --kv | sed -n \"s/^DATABASE_PUBLIC_URL=//p\")\" bun run src/scripts/repair-ownership.ts \"$@\"' repair",
+    "tokens:import": "bun run src/scripts/import-tokens.ts",
+    "tokens:import:prod": "railway run --service medialane-backend bash -c 'DATABASE_URL=\"$(railway variables --service Postgres --kv | sed -n \"s/^DATABASE_PUBLIC_URL=//p\")\" bun run src/scripts/import-tokens.ts \"$@\"' import",
     "verify-accounts": "bun run src/scripts/verify-account-model.ts",
     "prod:verify": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bun run verify-accounts'",
     "prod:migrate-status": "railway run --service Postgres bash -c 'DATABASE_URL=\"$DATABASE_PUBLIC_URL\" bunx prisma migrate status'",
