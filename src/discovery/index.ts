@@ -12,7 +12,7 @@ export async function resolveMetadata(
 ): Promise<Record<string, unknown> | null> {
 
   const cached = getCachedMetadata(uri);
-  if (cached) return cached;
+  if (cached) return cached.content;
 
   const isIpfs = isIpfsUri(uri);
   let metadata: Record<string, unknown> | null = null;
