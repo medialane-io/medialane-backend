@@ -1,6 +1,5 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { requireSession } from "../middleware/sessionGuard.js";
-import { productionSessionFreshnessDeps, refuseStaleSession, type SessionFreshnessDeps } from "../http/sessionFreshness.js";
 import { composeIntentCalls, prismaSponsorIntentDeps, type SponsorIntentDeps } from "./sponsorIntents.js";
 import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
@@ -289,7 +288,6 @@ export default function paymaster(
   intentDeps: SponsorIntentDeps = prismaSponsorIntentDeps,
   attachWallet: AttachWallet = attachDeployedWallet,
   cosign: Cosign = productionCosign,
-  freshness: SessionFreshnessDeps = productionSessionFreshnessDeps,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use("*", guard);
@@ -381,8 +379,6 @@ export default function paymaster(
     ) {
       return c.json({ error: "Only a Media Wallet deployment can be sponsored", code: "invalid_request" }, 400);
     }
-    const refused = await refuseStaleSession(c, freshness);
-    if (refused) return refused;
     const address = body.ownerAddress;
     try {
       await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address, replace: body.replace === true });

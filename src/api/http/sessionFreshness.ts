@@ -1,6 +1,4 @@
-import type { Context } from "hono";
 import prisma from "../../db/client.js";
-import type { AppEnv } from "../../types/hono.js";
 
 export interface SessionFreshnessDeps {
   /** When the account's email was verified (it became ACTIVE from PENDING), or null if it never was pending. */
@@ -34,20 +32,4 @@ export async function sessionPredatesVerification(
   const verified = await deps.verifiedAt(accountId);
   if (!verified) return false;
   return issuedAt < Math.floor(verified.getTime() / 1000) - CLOCK_TOLERANCE_SECONDS;
-}
-
-const SIGN_IN_AGAIN = { error: "Sign in again to make this change", code: "sign_in_again" } as const;
-
-/**
- * Refuses an account or wallet change made with an account session issued before the account was verified.
- * Requests not authenticated by an account session (wallet signatures, API keys) are not checked.
- */
-export async function refuseStaleSession(
-  c: Context<AppEnv>,
-  deps: SessionFreshnessDeps = productionSessionFreshnessDeps,
-): Promise<Response | null> {
-  const accountId = c.get("sessionAccountId");
-  const issuedAt = c.get("sessionIssuedAt");
-  if (!accountId || issuedAt === undefined) return null;
-  return (await sessionPredatesVerification(accountId, issuedAt, deps)) ? c.json(SIGN_IN_AGAIN, 403) : null;
 }

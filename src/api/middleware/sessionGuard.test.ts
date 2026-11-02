@@ -58,7 +58,7 @@ describe("sponsor wallet", () => {
   async function walletApp() {
     const { createRequireSession } = await import("./sessionGuard.js");
     const deps = {
-      accountFromSession: async (raw: string) => (raw === "good-session" ? { accountId: "acc1", issuedAt: 1_800_000_000 } : null),
+      accountFromSession: async (raw: string) => (raw === "good-session" ? "acc1" : null),
       walletOf: async (accountId: string) => (accountId === "acc1" ? W : null),
       siwsIdentity: (raw: string) => (raw === "good-siws" ? { chain: "STARKNET" as const, address: W } : null),
     };
@@ -87,7 +87,7 @@ describe("session account", () => {
   async function accountApp() {
     const { createRequireSession } = await import("./sessionGuard.js");
     const guard = createRequireSession({
-      accountFromSession: async (raw) => (raw === "acct-session" ? { accountId: "acct-1", issuedAt: 1_800_000_000 } : null),
+      accountFromSession: async (raw) => (raw === "acct-session" ? "acct-1" : null),
       walletOf: async () => null,
       siwsIdentity: (raw) => (raw === "siws" ? { chain: "STARKNET", address: "0x1" } : null),
     });

@@ -27,8 +27,6 @@ export type AppVariables = {
   walletAddress?: string;
   sponsorWallet?: string;
   sessionAccountId?: string;
-  /** Issue time (seconds) of the account session that authenticated the request. */
-  sessionIssuedAt?: number;
 
 
   billedUnits?: number;

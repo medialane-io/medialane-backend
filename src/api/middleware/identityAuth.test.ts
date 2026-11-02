@@ -82,7 +82,7 @@ test("identityAuth checks the wallet's account in the caller's app only", async 
 });
 
 const SESSION = { "x-account-session": "acct-session" };
-const live = async () => ({ verdict: "ok" as const, accountId: "acc_1", issuedAt: 1_800_000_000, walletAddress: "0xabc" });
+const live = async () => ({ verdict: "ok" as const, accountId: "acc_1", walletAddress: "0xabc" });
 
 test("identityAuth accepts an account session and stamps the account's wallet", async () => {
   const res = await appWith(undefined, "app-A", live).request("/", { headers: SESSION });
@@ -104,14 +104,14 @@ test("identityAuth refuses an invalid session", async () => {
 });
 
 test("identityAuth asks for a wallet when the session's account has none", async () => {
-  const noWallet = async () => ({ verdict: "ok" as const, accountId: "acc_1", issuedAt: 1_800_000_000, walletAddress: null });
+  const noWallet = async () => ({ verdict: "ok" as const, accountId: "acc_1", walletAddress: null });
   const res = await appWith(undefined, "app-A", noWallet).request("/", { headers: SESSION });
   expect(res.status).toBe(409);
   expect(await res.json()).toEqual({ error: "This account has no wallet yet", code: "wallet_required" });
 });
 
 test("identityAuth lets a session without a wallet through where the wallet is optional", async () => {
-  const noWallet = async () => ({ verdict: "ok" as const, accountId: "acc_1", issuedAt: 1_800_000_000, walletAddress: null });
+  const noWallet = async () => ({ verdict: "ok" as const, accountId: "acc_1", walletAddress: null });
   const res = await appWith(undefined, "app-A", noWallet, { walletOptional: true }).request("/", { headers: SESSION });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ sessionAccountId: "acc_1" });
