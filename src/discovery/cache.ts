@@ -2,6 +2,8 @@
 
 const IPFS_TTL_MS = 7 * 24 * 3600 * 1000;
 const HTTP_TTL_MS = 24 * 3600 * 1000;
+/** A failed read is remembered briefly, so an unreachable file does not hold up every request. */
+const FAILURE_TTL_MS = 10 * 60 * 1000;
 const MAX_ENTRIES = 10_000;
 
 interface CacheEntry {
@@ -12,17 +14,18 @@ interface CacheEntry {
 
 const store = new Map<string, CacheEntry>();
 
-export function getCachedMetadata(uri: string): Record<string, unknown> | null {
+/** The cached read for `uri`, or undefined when there is none. `content` is null for a remembered failure. */
+export function getCachedMetadata(uri: string): { content: Record<string, unknown> | null } | undefined {
   const entry = store.get(uri);
-  if (!entry) return null;
+  if (!entry) return undefined;
   if (Date.now() > entry.expiresAt) {
     store.delete(uri);
-    return null;
+    return undefined;
   }
 
   store.delete(uri);
   store.set(uri, entry);
-  return entry.content;
+  return { content: entry.content };
 }
 
 export function setCachedMetadata(
@@ -43,6 +46,6 @@ export function setCachedMetadata(
   store.set(uri, {
     resolvedUrl,
     content,
-    expiresAt: Date.now() + (isIpfs ? IPFS_TTL_MS : HTTP_TTL_MS),
+    expiresAt: Date.now() + (content === null ? FAILURE_TTL_MS : isIpfs ? IPFS_TTL_MS : HTTP_TTL_MS),
   });
 }
