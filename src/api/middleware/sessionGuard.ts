@@ -1,18 +1,18 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
-import { currentAccountIdFromSession } from "../../utils/accountSession.js";
+import { currentSession, type CurrentSession } from "../../utils/accountSession.js";
 import { verifyToken } from "../../utils/siwsToken.js";
 import { accountWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 
 export interface SessionGuardDeps {
-  accountFromSession(raw: string): Promise<string | null>;
+  accountFromSession(raw: string): Promise<CurrentSession | null>;
   walletOf(accountId: string): Promise<string | null>;
   siwsIdentity(raw: string): { chain: "STARKNET"; address: string } | null;
 }
 
 export const productionSessionGuardDeps: SessionGuardDeps = {
-  accountFromSession: currentAccountIdFromSession,
+  accountFromSession: currentSession,
   walletOf: (accountId) => accountWallet(accountId),
   siwsIdentity: (raw) => {
     const id = verifyToken(raw);
@@ -25,9 +25,11 @@ const REFUSED = { error: "Sign in to use gas sponsorship", code: "invalid_reques
 export function createRequireSession(deps: SessionGuardDeps): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const fromAccount = async (raw: string) => {
-      const accountId = await deps.accountFromSession(raw);
-      if (!accountId) return false;
+      const session = await deps.accountFromSession(raw);
+      if (!session) return false;
+      const { accountId } = session;
       c.set("sessionAccountId", accountId);
+      c.set("sessionIssuedAt", session.issuedAt);
       const wallet = await deps.walletOf(accountId);
       if (wallet) c.set("sponsorWallet", normalizeAddress("STARKNET", wallet));
       return true;

@@ -49,7 +49,7 @@ function billing(app: Hono<AppEnv>) {
 function appWith(
   client: Partial<PaymasterClient>,
   calls: unknown[] = [],
-  session: { accountId?: string; attached?: unknown[]; attach?: AttachWallet } = { accountId: "acct-1" },
+  session: { accountId?: string; attached?: unknown[]; attach?: AttachWallet; issuedAt?: number; verifiedAt?: Date | null } = { accountId: "acct-1" },
 ) {
   const stub: PaymasterClient = {
     buildTransaction: async (req, opts) => {
@@ -66,8 +66,9 @@ function appWith(
   const app = new Hono<AppEnv>();
   app.route("/", paymaster(() => stub, (c, next) => {
     if (session.accountId) c.set("sessionAccountId", session.accountId);
+    if (session.issuedAt !== undefined) c.set("sessionIssuedAt", session.issuedAt);
     return next();
-  }, undefined, attach));
+  }, undefined, attach, undefined, { verifiedAt: async () => session.verifiedAt ?? null }));
   return app;
 }
 
@@ -218,6 +219,36 @@ describe("POST /deploy/execute", () => {
     const res = await app.request("/deploy/execute", { ...post, body: JSON.stringify({ ...JSON.parse(deployBody()), replace: true }) });
     expect(res.status).toBe(200);
     expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS, replace: true }]);
+  });
+
+  const VERIFIED = new Date("2026-11-02T12:00:00Z");
+  const BEFORE_VERIFICATION = Math.floor(VERIFIED.getTime() / 1000) - 60;
+
+  test("a session issued before verification cannot replace the wallet, and nothing is sponsored", async () => {
+    const calls: unknown[] = [];
+    const attached: unknown[] = [];
+    const app = appWith({}, calls, { accountId: "acct-1", attached, issuedAt: BEFORE_VERIFICATION, verifiedAt: VERIFIED });
+    const res = await app.request("/deploy/execute", { ...post, body: JSON.stringify({ ...JSON.parse(deployBody()), replace: true }) });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Sign in again to make this change", code: "sign_in_again" });
+    expect(attached).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test("a session issued before verification cannot attach a first wallet either", async () => {
+    const attached: unknown[] = [];
+    const app = appWith({}, [], { accountId: "acct-1", attached, issuedAt: BEFORE_VERIFICATION, verifiedAt: VERIFIED });
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(403);
+    expect(attached).toEqual([]);
+  });
+
+  test("a pending account's first wallet is still sponsored", async () => {
+    const attached: unknown[] = [];
+    const app = appWith({}, [], { accountId: "acct-1", attached, issuedAt: BEFORE_VERIFICATION, verifiedAt: null });
+    const res = await app.request("/deploy/execute", { ...post, body: deployBody() });
+    expect(res.status).toBe(200);
+    expect(attached).toHaveLength(1);
   });
 
   test("anything other than true is not a replace request", async () => {
