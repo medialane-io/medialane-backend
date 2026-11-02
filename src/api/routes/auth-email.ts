@@ -18,6 +18,12 @@ const log = createLogger("routes:auth-email");
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+/** Codes sent to one address per rolling hour; room for resends when an email is late. */
+export const MAX_CODES_PER_HOUR = 5;
+/** Code tries for one address per rolling day, across all its codes. */
+export const MAX_TRIES_PER_DAY = 20;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 interface StoredCode {
   id: string;
@@ -39,6 +45,8 @@ export interface AuthEmailDeps {
   createAccountForEmail: (email: string, appId: string) => Promise<string>;
   activateAccount: (accountId: string) => Promise<void>;
   accountStatus: (accountId: string) => Promise<"PENDING" | "ACTIVE" | "INACTIVE" | null>;
+  codesSentSince: (email: string, since: Date) => Promise<number>;
+  triesSince: (email: string, since: Date) => Promise<number>;
 }
 
 const CODE_HASH_DOMAIN = "otp-code-v1";
@@ -53,6 +61,9 @@ const existsQuerySchema = z.object({ email: z.string().email() });
 const registerAccountSchema = z.object({ email: z.string().email() });
 const confirmSchema = z.object({ token: z.string().min(1).max(2048) });
 
+const TOO_MANY_CODES = { error: "Please wait a few minutes before asking for another code", code: "too_many_codes" } as const;
+const TOO_MANY_TRIES = { error: "Please try again later", code: "too_many_tries" } as const;
+
 const INVALID_LINK = { error: "invalid_or_expired", message: "This link is invalid or has expired." } as const;
 
 
@@ -62,7 +73,8 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
 
   app.post("/request-code", validated("json", requestCodeSchema), async (c) => {
     const { email } = c.req.valid("json");
-    await issueVerificationCodeWithDeps(deps, email, callerApp(c));
+    const outcome = await issueVerificationCodeWithDeps(deps, email, callerApp(c));
+    if (outcome === "too_many") return c.json(TOO_MANY_CODES, 429);
     return c.json({ ok: true });
   });
 
@@ -70,6 +82,9 @@ export function createAuthEmailRoutes(deps: AuthEmailDeps): Hono<AppEnv> {
     const appId = callerApp(c);
 
     const { email, code } = c.req.valid("json");
+    if ((await deps.triesSince(email, new Date(Date.now() - DAY_MS))) >= MAX_TRIES_PER_DAY) {
+      return c.json(TOO_MANY_TRIES, 429);
+    }
     const stored = await deps.findLatestCode(email);
 
     if (!stored || stored.consumedAt || stored.expiresAt < new Date()) {
@@ -180,21 +195,35 @@ const productionDeps: AuthEmailDeps = {
   },
   createAccountForEmail: async (email, appId) => (await ensureAccountForEmail(email, appId)).accountId,
   findAccountIdByEmail: findLiveAccountIdByEmail,
+  codesSentSince: (email, since) =>
+    prisma.emailVerificationCode.count({
+      where: { email: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), createdAt: { gt: since } },
+    }),
+  triesSince: async (email, since) => {
+    const { _sum } = await prisma.emailVerificationCode.aggregate({
+      where: { email: normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, email), createdAt: { gt: since } },
+      _sum: { attempts: true },
+    });
+    return _sum.attempts ?? 0;
+  },
 };
 
+/** Sends a new code to `email`, unless it already got MAX_CODES_PER_HOUR codes in the last hour. */
 export async function issueVerificationCodeWithDeps(
   deps: AuthEmailDeps,
   email: string,
   appId: string | null = null,
-): Promise<void> {
+): Promise<"sent" | "too_many"> {
+  if ((await deps.codesSentSince(email, new Date(Date.now() - HOUR_MS))) >= MAX_CODES_PER_HOUR) return "too_many";
   const code = String(randomInt(100_000, 1_000_000));
   await deps.createCode(email, hashCode(code), new Date(Date.now() + CODE_TTL_MS));
   deps.sendCode(email, code, appId).catch((err: unknown) => {
     log.error({ err }, "Failed to send verification code");
   });
+  return "sent";
 }
 
-export function issueVerificationCode(email: string, appId: string | null = null): Promise<void> {
+export function issueVerificationCode(email: string, appId: string | null = null): Promise<"sent" | "too_many"> {
   return issueVerificationCodeWithDeps(productionDeps, email, appId);
 }
 
