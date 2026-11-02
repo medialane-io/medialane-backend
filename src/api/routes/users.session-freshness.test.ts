@@ -43,7 +43,7 @@ function sessionIssuedAt(date: Date): string {
   }
 }
 
-const BEFORE = sessionIssuedAt(new Date(VERIFIED_AT.getTime() - 60_000));
+const BEFORE = sessionIssuedAt(new Date(VERIFIED_AT.getTime() - 60 * 60 * 1000));
 const KEY = { newOwnerPubkey: "0x123" };
 
 const ROUTES: Array<[string, unknown]> = [

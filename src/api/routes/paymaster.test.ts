@@ -222,7 +222,7 @@ describe("POST /deploy/execute", () => {
   });
 
   const VERIFIED = new Date("2026-11-02T12:00:00Z");
-  const BEFORE_VERIFICATION = Math.floor(VERIFIED.getTime() / 1000) - 60;
+  const BEFORE_VERIFICATION = Math.floor(VERIFIED.getTime() / 1000) - 3600;
 
   test("a session issued before verification cannot replace the wallet, and nothing is sponsored", async () => {
     const calls: unknown[] = [];

@@ -18,6 +18,13 @@ export const productionSessionFreshnessDeps: SessionFreshnessDeps = {
   },
 };
 
+/**
+ * Sessions issued up to this long before the recorded verification still count as fresh. Token times are whole
+ * seconds from the app server while the verification time comes from the database, so the two can disagree
+ * slightly; a session that verification itself issues must never look older than it.
+ */
+const CLOCK_TOLERANCE_SECONDS = 60;
+
 /** True when the session (issued at `issuedAt`, in seconds) was issued before the account's email was verified. */
 export async function sessionPredatesVerification(
   accountId: string,
@@ -25,7 +32,8 @@ export async function sessionPredatesVerification(
   deps: SessionFreshnessDeps = productionSessionFreshnessDeps,
 ): Promise<boolean> {
   const verified = await deps.verifiedAt(accountId);
-  return verified !== null && issuedAt * 1000 < verified.getTime();
+  if (!verified) return false;
+  return issuedAt < Math.floor(verified.getTime() / 1000) - CLOCK_TOLERANCE_SECONDS;
 }
 
 const SIGN_IN_AGAIN = { error: "Sign in again to make this change", code: "sign_in_again" } as const;
