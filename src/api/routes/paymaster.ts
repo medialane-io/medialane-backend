@@ -8,7 +8,7 @@ import { env } from "../../config/env.js";
 import { guardianPubkeyWith } from "../../utils/guardianKey.js";
 import { toIntentCall } from "../../orchestrator/intent/calls.js";
 import { createLogger } from "../../utils/logger.js";
-import { attachDeployedWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
+import { attachDeployedWallet, WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
 import { GuardianUnavailableError, productionCosign, type Cosign } from "../../utils/guardianCosign.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
@@ -18,6 +18,7 @@ import { sameFelt } from "../../utils/felt.js";
 const log = createLogger("routes:paymaster");
 
 const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
+const REPLACEMENT_LIMIT = { error: "Please try again tomorrow", code: "wallet_replacement_limit" } as const;
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
 const INTENTS_REQUIRED = { error: "Sponsorship needs intents", code: "sponsor_unavailable" } as const;
 
@@ -383,6 +384,7 @@ export default function paymaster(
       await attachWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address, replace: body.replace === true });
     } catch (err) {
       if (err instanceof WalletAlreadyAttachedError) return c.json(ALREADY_SET_UP, 409);
+      if (err instanceof WalletReplacementLimitError) return c.json(REPLACEMENT_LIMIT, 429);
       log.error({ err, accountId, address }, "wallet could not be linked to its account before deploy");
       return c.json(WALLET_NOT_LINKED, 500);
     }

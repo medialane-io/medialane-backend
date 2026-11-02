@@ -3,13 +3,13 @@ import { z } from "zod";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { identityAuth, identityAuthWalletOptional } from "../middleware/identityAuth.js";
-import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, replaceWallet, WalletAlreadyAttachedError } from "../../utils/account.js";
+import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, replaceWallet, WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
 import { callerApp } from "../../utils/caller.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
-import { currentAccountIdFromSession } from "../../utils/accountSession.js";
+import { currentSession } from "../../utils/accountSession.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
@@ -99,7 +99,7 @@ users.post("/me", async (c, next) => identityAuth(c, next), validated("json", me
   }
 
   const session = c.req.header("x-account-session");
-  const linkToAccountId = session ? ((await currentAccountIdFromSession(session)) ?? undefined) : undefined;
+  const linkToAccountId = session ? (await currentSession(session))?.accountId : undefined;
 
   let accountId: string;
   try {
@@ -159,19 +159,25 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), vali
   const newAddress = normalizeAddress(newWalletId.chain, newWalletId.address);
   const appId = callerApp(c);
 
-  await replaceWallet({
-    accountId: existing.accountId,
-    appId,
-    chain: newWalletId.chain,
-    address: newAddress,
-  });
+  try {
+    await replaceWallet({
+      accountId: existing.accountId,
+      appId,
+      chain: newWalletId.chain,
+      address: newAddress,
+    });
+  } catch (err) {
+    if (err instanceof WalletReplacementLimitError) {
+      return c.json({ error: "Please try again tomorrow", code: "wallet_replacement_limit" }, 429);
+    }
+    throw err;
+  }
 
   return c.json({ walletAddress: newAddress });
 });
 
 users.post("/me/wallet", async (c) => {
-  const session = c.req.header("x-account-session");
-  const accountId = session ? await currentAccountIdFromSession(session) : null;
+  const accountId = await sessionAccountId(c);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
 
   const walletAddress = await accountWallet(accountId);
@@ -189,8 +195,7 @@ const walletKeySchema = z.object({
 
 users.post("/me/wallet/key", validated("json", walletKeySchema), async (c) => {
   const { newOwnerPubkey } = c.req.valid("json");
-  const session = c.req.header("x-account-session");
-  const accountId = session ? await currentAccountIdFromSession(session) : null;
+  const accountId = await sessionAccountId(c);
   if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
   const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey);
   if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
@@ -200,9 +205,9 @@ users.post("/me/wallet/key", validated("json", walletKeySchema), async (c) => {
 const recoveryResponse = (c: Context, outcome: RecoveryOutcome) =>
   outcome.status === 200 ? c.json(outcome.body) : c.json({ error: outcome.error }, outcome.status);
 
-async function sessionAccountId(c: Context): Promise<string | null> {
+async function sessionAccountId(c: Context<AppEnv>): Promise<string | null> {
   const session = c.req.header("x-account-session");
-  return session ? await currentAccountIdFromSession(session) : null;
+  return session ? ((await currentSession(session))?.accountId ?? null) : null;
 }
 
 users.get("/me/wallet/recovery", async (c) => {

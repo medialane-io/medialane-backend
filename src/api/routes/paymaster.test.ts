@@ -7,7 +7,7 @@ import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
 import paymaster, { classifyPaymasterError, deploymentCalls, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
-import { WalletAlreadyAttachedError } from "../../utils/account.js";
+import { WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
 import { GuardianUnavailableError, type Cosign } from "../../utils/guardianCosign.js";
 import { guardianKeyWith } from "../../utils/guardianKey.js";
 import { toIntentCall } from "../../orchestrator/intent/calls.js";
@@ -218,6 +218,15 @@ describe("POST /deploy/execute", () => {
     const res = await app.request("/deploy/execute", { ...post, body: JSON.stringify({ ...JSON.parse(deployBody()), replace: true }) });
     expect(res.status).toBe(200);
     expect(attached).toEqual([{ accountId: "acct-1", appId: "MEDIALANE_API", chain: "STARKNET", address: OWNER_ADDRESS, replace: true }]);
+  });
+
+  test("an account over its daily wallet replacements gets 429, and nothing is sponsored", async () => {
+    const calls: unknown[] = [];
+    const app = appWith({}, calls, { accountId: "acct-1", attach: async () => { throw new WalletReplacementLimitError(); } });
+    const res = await app.request("/deploy/execute", { ...post, body: JSON.stringify({ ...JSON.parse(deployBody()), replace: true }) });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "Please try again tomorrow", code: "wallet_replacement_limit" });
+    expect(calls).toEqual([]);
   });
 
   test("anything other than true is not a replace request", async () => {

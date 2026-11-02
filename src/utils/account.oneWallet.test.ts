@@ -9,12 +9,13 @@ function setup(accountHasWallet: boolean, currentAddress = "0x000000000000000000
   const transaction = mock(async (arg: unknown) => {
     if (typeof arg === "function") {
       return (arg as (tx: unknown) => Promise<unknown>)({
+        $queryRaw: async () => [],
         identity: {
           findFirst: async () => ({ address: currentAddress }),
           deleteMany: async (a: unknown) => { calls.push("delete"); return deleteMany(a); },
           create: async (a: unknown) => { calls.push("create"); return create(a); },
         },
-        accountEvent: { create: async () => { calls.push("event"); return {}; } },
+        accountEvent: { create: async () => { calls.push("event"); return {}; }, count: async () => 0 },
       });
     }
     return undefined;

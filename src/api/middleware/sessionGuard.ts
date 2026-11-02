@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
-import { currentAccountIdFromSession } from "../../utils/accountSession.js";
+import { currentSession } from "../../utils/accountSession.js";
 import { verifyToken } from "../../utils/siwsToken.js";
 import { accountWallet } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -12,7 +12,7 @@ export interface SessionGuardDeps {
 }
 
 export const productionSessionGuardDeps: SessionGuardDeps = {
-  accountFromSession: currentAccountIdFromSession,
+  accountFromSession: async (raw) => (await currentSession(raw))?.accountId ?? null,
   walletOf: (accountId) => accountWallet(accountId),
   siwsIdentity: (raw) => {
     const id = verifyToken(raw);

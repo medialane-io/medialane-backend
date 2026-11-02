@@ -18,6 +18,8 @@ function appWith(deps: Partial<AuthEmailDeps> = {}, appId: string | null = "MEDI
     createAccountForEmail: async () => "acc_NEW",
     activateAccount: async () => {},
     accountStatus: async () => "PENDING",
+    codesSentSince: async () => 0,
+    triesSince: async () => 0,
     ...deps,
   };
   const app = new Hono<AppEnv>();
@@ -498,4 +500,68 @@ test("POST /confirm refuses a token that is not a confirm token", async () => {
 test("POST /confirm needs a client like the other email routes", async () => {
   const app = appWith({}, null);
   expect((await confirm(app, tokenFor())).status).toBe(400);
+});
+
+const json = (body: unknown) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+function codeStore(now: () => number) {
+  const created: number[] = [];
+  return {
+    created,
+    deps: {
+      createCode: async () => { created.push(now()); },
+      codesSentSince: async (_email: string, since: Date) => created.filter((t) => t > since.getTime()).length,
+    } satisfies Partial<AuthEmailDeps>,
+  };
+}
+
+test("five codes within an hour are sent; the sixth is refused and nothing is sent", async () => {
+  const store = codeStore(() => Date.now());
+  let sent = 0;
+  const app = appWith({ ...store.deps, sendCode: async () => { sent++; } });
+  const statuses: number[] = [];
+  for (let i = 0; i < 6; i++) statuses.push((await app.request("/request-code", json({ email: "alice@example.com" }))).status);
+  expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+  expect(sent).toBe(5);
+  const res = await app.request("/request-code", json({ email: "alice@example.com" }));
+  expect(await res.json()).toEqual({ error: "Please wait a few minutes before asking for another code", code: "too_many_codes" });
+});
+
+test("a code is sent again once the hour has passed", async () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const store = codeStore(() => now);
+    const app = appWith(store.deps);
+    for (let i = 0; i < 5; i++) await app.request("/request-code", json({ email: "alice@example.com" }));
+    now += 60 * 60 * 1000 + 1;
+    expect((await app.request("/request-code", json({ email: "alice@example.com" }))).status).toBe(200);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("after 20 tries in a day verify-code answers 429 without checking the code", async () => {
+  let claimed = 0;
+  const app = appWith({
+    triesSince: async () => 20,
+    findLatestCode: async () => ({ id: "c1", codeHash: "x", attempts: 0, expiresAt: new Date(Date.now() + 60_000), consumedAt: null }),
+    claimAttempt: async () => { claimed++; return true; },
+  });
+  const res = await app.request("/verify-code", json({ email: "alice@example.com", code: "123456" }));
+  expect(res.status).toBe(429);
+  expect(await res.json()).toEqual({ error: "Please try again later", code: "too_many_tries" });
+  expect(claimed).toBe(0);
+});
+
+test("the limits count per address", async () => {
+  const seen: string[] = [];
+  const app = appWith({
+    codesSentSince: async (email) => { seen.push(email); return 0; },
+    triesSince: async (email) => { seen.push(email); return 0; },
+  });
+  await app.request("/request-code", json({ email: "alice@example.com" }));
+  await app.request("/verify-code", json({ email: "alice@example.com", code: "123456" }));
+  expect(seen).toEqual(["alice@example.com", "alice@example.com"]);
 });
