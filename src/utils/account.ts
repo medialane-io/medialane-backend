@@ -80,6 +80,16 @@ export function generateAccountPublicId(): string {
   return out;
 }
 
+/** Wallet replacements one account may make in any 24 hours. */
+export const MAX_WALLET_REPLACEMENTS_PER_DAY = 3;
+
+export class WalletReplacementLimitError extends Error {
+  constructor() {
+    super("This account has replaced its wallet too often today");
+    this.name = "WalletReplacementLimitError";
+  }
+}
+
 export class WalletAlreadyAttachedError extends Error {
   constructor() {
     super("This account already has a wallet");
@@ -95,11 +105,16 @@ export async function replaceWallet(params: {
 }): Promise<void> {
   const address = normalizeAddress(params.chain, params.address);
   await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet-replace:${params.accountId}`}))::text`;
     const previous = await tx.identity.findFirst({
       where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET },
       select: { address: true },
     });
     if (previous?.address === address) return;
+    const recent = await tx.accountEvent.count({
+      where: { accountId: params.accountId, type: "WALLET_REPLACED", createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+    });
+    if (recent >= MAX_WALLET_REPLACEMENTS_PER_DAY) throw new WalletReplacementLimitError();
     await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET } });
     await tx.identity.create({
       data: {
