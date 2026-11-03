@@ -9,6 +9,7 @@ import {
   checkOnChainOrderCancelled,
   fetchMarketplaceReceiptEvents,
   fetchReceiptEvents,
+  isMarketplaceContract,
 } from "../../../utils/txVerifier.js";
 import { getServiceByMarketplaceAddress } from "../../../utils/collection.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "../../../mirror/handlers/orderCreated.js";
@@ -177,7 +178,10 @@ export async function hydrateCreatedOrdersFromTx(txHash: string): Promise<string
 }
 
 export async function hydrateFulfillmentFromTx(txHash: string): Promise<void> {
-  const rawEvents = await fetchReceiptEvents(txHash);
+  const rawEvents = (await fetchReceiptEvents(txHash)).filter(
+    (event) =>
+      num.toHex(event.keys[0] ?? "0x0") !== ORDER_FULFILLED_SELECTOR_HEX || isMarketplaceContract(event.from_address),
+  );
   const parsedEvents = parseEvents(rawEvents);
   const transferEvents = parsedEvents.filter(isNftTransferEvent);
   const rawFulfilledEvents = rawEvents.filter(

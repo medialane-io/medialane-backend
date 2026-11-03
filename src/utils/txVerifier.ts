@@ -12,6 +12,10 @@ const VALID_MARKETPLACE_CONTRACTS = new Set([
   normalizeAddress("STARKNET", STARKNET_MARKETPLACE_1155_CONTRACT),
 ]);
 
+export function isMarketplaceContract(address?: string): boolean {
+  return VALID_MARKETPLACE_CONTRACTS.has(safeNormalizeAddress(address));
+}
+
 export type VerifyResult =
   | { status: "CONFIRMED" }
   | { status: "FAILED"; failReason: string };
