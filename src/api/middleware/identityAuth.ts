@@ -5,7 +5,7 @@ import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { callerApp } from "../../utils/caller.js";
 import { accountWallet } from "../../utils/account.js";
-import { sessionVerdict, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { readSession } from "../../utils/accountSession.js";
 import type { AppEnv } from "../../types/hono.js";
 
 export type SessionLookup =
@@ -27,15 +27,9 @@ const productionDeps: IdentityAuthDeps = {
     return wallet?.account.status === "INACTIVE";
   },
   session: async (raw) => {
-    const accountId = verifyAccountSessionToken(raw);
-    if (!accountId) return { verdict: "invalid" };
-    const account = await prisma.account.findUnique({
-      where: { id: accountId },
-      select: { status: true },
-    });
-    if (!account) return { verdict: "invalid" };
-    if (sessionVerdict(account) === "inactive") return { verdict: "inactive" };
-    return { verdict: "ok", accountId, walletAddress: await accountWallet(accountId) };
+    const read = await readSession(raw);
+    if (read.verdict !== "ok") return { verdict: read.verdict };
+    return { verdict: "ok", accountId: read.accountId, walletAddress: await accountWallet(read.accountId) };
   },
 };
 

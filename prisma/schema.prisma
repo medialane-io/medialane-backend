@@ -661,6 +661,9 @@ model Account {
 
   status AccountStatus @default(ACTIVE)
 
+  /// Account sessions issued before this time are no longer accepted. Null: no cutoff.
+  sessionsValidFrom DateTime?
+
   identities Identity[]
   profile    AccountProfile?
   notices    AccountNotice[]
