@@ -9,42 +9,35 @@ import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
 import type { Chain } from "@prisma/client";
 import { worker } from "../../orchestrator/worker.js";
-import { detectTokenStandard } from "../../orchestrator/collectionMetadata.js";
-import { catchUpCollectionTransfers } from "../../mirror/sources.js";
-import { ensureCollectionFromActivity } from "../../utils/collection.js";
-import { createLogger } from "../../utils/logger.js";
 import { chainScope } from "../http/chain.js";
-
-const log = createLogger("routes:claims");
 
 const claims = new Hono<AppEnv>();
 
-async function indexCollection(chain: Chain, contractAddress: string): Promise<boolean> {
+async function isIndexed(chain: Chain, contractAddress: string): Promise<boolean> {
   const existing = await prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
     select: { contractAddress: true },
   });
-  if (existing) return true;
-
-  const standard = await detectTokenStandard(contractAddress);
-  if (!standard) return false;
-
-  await ensureCollectionFromActivity(prisma, { chain, contractAddress, standard, blockNumber: 0n });
-  void catchUpCollectionTransfers([contractAddress])
-    .then(async () => {
-      const pendingTokens = await prisma.token.findMany({
-        where: { chain, contractAddress, metadataStatus: "PENDING" },
-        select: { tokenId: true },
-      });
-      for (const token of pendingTokens) {
-        worker.enqueue({ type: "METADATA_FETCH", chain, contractAddress, tokenId: token.tokenId });
-      }
-    })
-    .catch((err) => log.error({ err, contractAddress }, "Claimed collection transfers could not be read"));
-  return true;
+  return existing !== null;
 }
 
+async function holdForReview(
+  chain: Chain,
+  contractAddress: string,
+  claimantAddress: string,
+  verificationMethod: "ONCHAIN" | "SIGNATURE",
+): Promise<void> {
+  const pending = await prisma.collectionClaim.findFirst({
+    where: { contractAddress, claimantAddress, status: "PENDING" },
+    select: { id: true },
+  });
+  if (pending) return;
+  await prisma.collectionClaim.create({
+    data: { contractAddress, chain, claimantAddress, status: "PENDING", verificationMethod },
+  });
+}
 
+const UNDER_REVIEW = { verified: false, reason: "under_review" } as const;
 
 claims.post(
   "/",
@@ -87,8 +80,9 @@ claims.post(
       return c.json({ verified: false, reason: "owner_check_failed" });
     }
 
-    if (!(await indexCollection(chain, normContract))) {
-      return c.json({ verified: false, reason: "not_an_nft_collection" });
+    if (!(await isIndexed(chain, normContract))) {
+      await holdForReview(chain, normContract, normWallet, "ONCHAIN");
+      return c.json(UNDER_REVIEW);
     }
     const collection = await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress: normContract } },
@@ -202,8 +196,9 @@ claims.post(
 
     await prisma.claimChallenge.delete({ where: { challenge } });
 
-    if (!(await indexCollection(chain, normContract))) {
-      return c.json({ verified: false, reason: "not_an_nft_collection" });
+    if (!(await isIndexed(chain, normContract))) {
+      await holdForReview(chain, normContract, normWallet, "SIGNATURE");
+      return c.json(UNDER_REVIEW);
     }
     const collection = await prisma.collection.update({
       where: { chain_contractAddress: { chain, contractAddress: normContract } },
