@@ -10,6 +10,7 @@ import { Chain } from "@prisma/client";
 import { callerApp } from "../../utils/caller.js";
 import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import { currentSession } from "../../utils/accountSession.js";
+import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
@@ -209,6 +210,14 @@ async function sessionAccountId(c: Context<AppEnv>): Promise<string | null> {
   const session = c.req.header("x-account-session");
   return session ? ((await currentSession(session))?.accountId ?? null) : null;
 }
+
+users.post("/me/sign-out-other-devices", async (c) => {
+  const accountId = await sessionAccountId(c);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  await prisma.account.update({ where: { id: accountId }, data: { sessionsValidFrom: new Date(nowSeconds * 1000) } });
+  return c.json({ accountToken: issueAccountSessionToken(accountId) });
+});
 
 users.get("/me/wallet/recovery", async (c) => {
   const accountId = await sessionAccountId(c);

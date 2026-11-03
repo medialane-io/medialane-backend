@@ -18,6 +18,7 @@ export const ACCOUNT_CHANGE_ROUTES: ReadonlyArray<readonly [method: string, path
   ["POST", "/v1/users/me/wallet/recovery"],
   ["POST", "/v1/users/me/wallet/recovery/complete"],
   ["POST", "/v1/users/me/email"],
+  ["POST", "/v1/users/me/sign-out-other-devices"],
   ["POST", "/v1/paymaster/deploy/execute"],
 ];
 
