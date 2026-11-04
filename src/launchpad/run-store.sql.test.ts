@@ -26,7 +26,6 @@ describe.skipIf(!databaseUrl)("the run store against Postgres", () => {
   });
 
   afterAll(async () => {
-    await prisma.account.delete({ where: { id: accountId } });
     await prisma.$disconnect();
   });
 

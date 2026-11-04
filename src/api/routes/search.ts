@@ -54,7 +54,7 @@ search.get("/", chainScope(), async (c) => {
     prisma.$queryRaw<{ walletAddress: string; username: string | null; name: string | null; bio: string | null; avatarImage: string | null }[]>`
       SELECT w.address AS "walletAddress", ap.username, ap."name", ap.bio, ap."avatarImage"
       FROM "AccountProfile" ap
-      JOIN "Identity" w ON w."accountId" = ap."accountId" AND w.scheme = 'wallet'
+      JOIN "Identity" w ON w."accountId" = ap."accountId" AND w.scheme = 'wallet' AND w.status = 'ACTIVE'
       WHERE ap.username IS NOT NULL
         AND (
           ap.username ILIKE ${'%' + q.replace(/[%_\\]/g, (ch) => `\\${ch}`) + '%'} ESCAPE '\\'

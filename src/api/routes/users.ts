@@ -8,7 +8,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
 import { callerApp } from "../../utils/caller.js";
-import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import { currentSession } from "../../utils/accountSession.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
 import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "../../utils/emailVerification.js";
@@ -68,7 +68,7 @@ users.post(
       where: { id: accountId },
       include: {
         identities: {
-          where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(chain, body.walletAddress) },
+          where: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(chain, body.walletAddress) },
           take: 1,
         },
       },
@@ -151,7 +151,7 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), vali
   }
 
   const existing = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress }, ...ACTIVE_IDENTITY },
     select: { accountId: true },
   });
   if (!existing) return c.json({ error: "Account not found" }, 404);
@@ -235,7 +235,7 @@ users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (
     (walletAddress
       ? (
           await prisma.identity.findUnique({
-            where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+            where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress }, ...ACTIVE_IDENTITY },
             select: { accountId: true },
           })
         )?.accountId
@@ -269,7 +269,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), validated("jso
   const appId = callerApp(c);
 
   const identity = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress }, ...ACTIVE_IDENTITY },
     select: { accountId: true },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);

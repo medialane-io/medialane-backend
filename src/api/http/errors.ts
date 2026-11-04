@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { AppEnv } from "../../types/hono.js";
 import { createLogger } from "../../utils/logger.js";
+import { WalletInactiveError } from "../../utils/account.js";
 
 const log = createLogger("http");
 
@@ -26,6 +27,9 @@ export const badRequest = (message: string, extra?: Record<string, unknown>) => 
 export const renderError: ErrorHandler<AppEnv> = (err, c) => {
   if (err instanceof HTTPException) {
     return err.res ?? c.json({ error: err.message }, err.status);
+  }
+  if (err instanceof WalletInactiveError) {
+    return c.json({ error: "wallet_inactive", message: "This wallet is no longer active on its account." }, 409);
   }
   log.error({ err, requestId: c.get("requestId") }, "Unhandled request error");
   return c.json({ error: "Internal server error" }, 500);

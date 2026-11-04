@@ -1,6 +1,6 @@
 import type { LaunchpadRunStatus, Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME } from "../utils/identity.js";
 import { normalizeAddress } from "../utils/starknet.js";
 import { refund, spend } from "../payments/ledger.js";
 import type { RunQuote } from "./steps.js";
@@ -254,7 +254,7 @@ export const prismaRunStore: RunStore = {
       return false;
     }
     const wallet = await prisma.identity.findFirst({
-      where: { accountId, chain: "STARKNET", scheme: IDENTITY_SCHEME.WALLET, address: normalized },
+      where: { ...ACTIVE_IDENTITY, accountId, chain: "STARKNET", scheme: IDENTITY_SCHEME.WALLET, address: normalized },
       select: { id: true },
     });
     return wallet !== null;

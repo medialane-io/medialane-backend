@@ -32,7 +32,6 @@ describe.skipIf(!databaseUrl)("the funding store against Postgres", () => {
   });
 
   afterAll(async () => {
-    await prisma.account.delete({ where: { id: accountId } });
     await prisma.$disconnect();
   });
 
