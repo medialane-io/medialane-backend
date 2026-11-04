@@ -1,9 +1,8 @@
 import type { MiddlewareHandler } from "hono";
 import { isPublicAppRoute } from "@medialane/sdk";
-import prisma from "../../db/client.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp, DEFAULT_APP } from "../../utils/caller.js";
-import { sessionVerdict, verifyAccountSessionToken } from "../../utils/accountSessionToken.js";
+import { readSession } from "../../utils/accountSession.js";
 
 export interface AppAccessDeps {
   session(raw: string): Promise<"ok" | "inactive" | "invalid">;
@@ -26,11 +25,5 @@ export function createAppAccess(deps: AppAccessDeps): MiddlewareHandler<AppEnv> 
 }
 
 export const appAccess = createAppAccess({
-  session: async (raw) => {
-    const accountId = verifyAccountSessionToken(raw);
-    if (!accountId) return "invalid";
-    const account = await prisma.account.findUnique({ where: { id: accountId }, select: { status: true } });
-    if (!account) return "invalid";
-    return sessionVerdict(account) === "inactive" ? "inactive" : "ok";
-  },
+  session: async (raw) => (await readSession(raw)).verdict,
 });

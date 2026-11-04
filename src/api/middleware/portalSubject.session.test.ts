@@ -2,17 +2,18 @@ import { describe, expect, mock, test } from "bun:test";
 import { Hono } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 
-function accountRow(status: string) {
+function accountRow(status: string, sessionsValidFrom: Date | null = null) {
   return {
     id: "a1",
     status,
+    sessionsValidFrom,
     apiCredits: { id: "ac1", accountId: "a1", creditBalance: 0 },
   };
 }
 
-async function appFor(status: string) {
+async function appFor(status: string, sessionsValidFrom: Date | null = null) {
   mock.module("../../db/client.js", () => ({
-    default: { account: { findUnique: mock(() => Promise.resolve(accountRow(status))) } },
+    default: { account: { findUnique: mock(() => Promise.resolve(accountRow(status, sessionsValidFrom))) } },
   }));
   const { portalSubject } = await import("./portalSubject.js");
   const { issueAccountSessionToken } = await import("../../utils/accountSessionToken.js");
@@ -37,6 +38,13 @@ describe("account sessions on the portal", () => {
     const res = await request(token);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "Account is not active" });
+  });
+
+  test("a session issued before the account's sign-out cutoff is refused", async () => {
+    const { request, token } = await appFor("ACTIVE", new Date(Date.now() + 3600 * 1000));
+    const res = await request(token);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Invalid or expired session" });
   });
 
   test("only the forwarded session signs in; a token in Authorization does not", async () => {
