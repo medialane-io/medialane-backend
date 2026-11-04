@@ -22,7 +22,13 @@ import type {
   CounterOfferIntentBody,
 } from "../../types/intents.js";
 import prisma from "../../db/client.js";
+import { readOwnership } from "../../chainRead/ownership.js";
+import { normalizeAddress } from "../../utils/starknet.js";
+import { IntentRefusal } from "./refusal.js";
 import { buildOrderParams, fetchCounter, fetchCounter1155, fetchRoyaltyMaxBps, generateSalt, parseAmount, toHex } from "./shared.js";
+
+const SELLER_NO_LONGER_OWNS = "This listing is no longer available because the seller no longer owns this item.";
+const SELLER_LACKS_QUANTITY = "The seller no longer has enough of this item to complete this purchase.";
 
 async function buildCreateListing1155Intent(body: CreateListingIntentBody & { amount: string }) {
   const token = getTokenByAddress(body.currency);
@@ -196,6 +202,21 @@ export async function buildFulfillOrderIntent(body: FulfillOrderIntentBody, ctx:
   const considerationItemType = order?.considerationItemType;
   const isListing = offerItemType === "ERC721" || offerItemType === "ERC1155";
   const isOffer = considerationItemType === "ERC721" || considerationItemType === "ERC1155";
+
+  if (isListing && order?.nftContract && order.nftTokenId) {
+    const owner = normalizeAddress("STARKNET", order.offerer);
+    const [held] = await readOwnership([
+      is1155
+        ? { standard: "ERC1155", contractAddress: order.nftContract, tokenId: order.nftTokenId, owner }
+        : { standard: "ERC721", contractAddress: order.nftContract, tokenId: order.nftTokenId },
+    ]);
+    if (held?.standard === "ERC1155") {
+      if (held.amount === 0n) throw new IntentRefusal(SELLER_NO_LONGER_OWNS);
+      if (held.amount < quantity1155) throw new IntentRefusal(SELLER_LACKS_QUANTITY);
+    } else if (held?.owner !== owner) {
+      throw new IntentRefusal(SELLER_NO_LONGER_OWNS);
+    }
+  }
 
   if (isListing && order?.considerationToken && order?.considerationStartAmount) {
 
