@@ -128,19 +128,22 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
     expect(await prisma.creditEntry.count({ where: { apiCreditsId } })).toBe(before);
   });
 
-  test("a request charge and its return change the balance and write no entry", async () => {
+  test("a request charge and its return are entries noting the action, and the balance stays their sum", async () => {
     const { apiCreditsId } = await wallet(10);
-    expect(await ledger.charge(apiCreditsId, 5)).toBe(true);
-    expect(await balanceOf(apiCreditsId)).toBe(5);
-    await ledger.returnCharge(apiCreditsId, 5);
-    expect(await balanceOf(apiCreditsId)).toBe(10);
-    expect(await entriesOf(apiCreditsId)).toHaveLength(0);
+    expect(await ledger.spend(apiCreditsId, 5, undefined, { note: "rpc:call" })).toBe(true);
+    await ledger.refund(apiCreditsId, 2, undefined, { note: "rpc:call" });
+    expect(await balanceOf(apiCreditsId)).toBe(7);
+    expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits, e.note])).toEqual([
+      ["USAGE", -5, "rpc:call"],
+      ["REFUND", 2, "rpc:call"],
+    ]);
   });
 
-  test("a request charge above the balance changes nothing", async () => {
+  test("a request charge above the balance changes nothing and writes no entry", async () => {
     const { apiCreditsId } = await wallet(3);
-    expect(await ledger.charge(apiCreditsId, 5)).toBe(false);
+    expect(await ledger.spend(apiCreditsId, 5, undefined, { note: "rpc:call" })).toBe(false);
     expect(await balanceOf(apiCreditsId)).toBe(3);
+    expect(await entriesOf(apiCreditsId)).toHaveLength(0);
   });
 
   test("a grant adds credits with its note", async () => {

@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import { randomBytes } from "crypto";
 import { chargeForRequest as defaultChargeForRequest } from "../../payments/pricing.js";
-import { charge as defaultCharge, returnCharge as defaultReturnCharge } from "../../payments/ledger.js";
+import { refund as defaultRefund, spend as defaultSpend } from "../../payments/ledger.js";
 import { billedCredits, billedUnits } from "../../payments/usage.js";
 import { buildPaymentRequired, decodePaymentHeader, settlePayment as defaultSettlePayment } from "../../payments/x402.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -14,18 +14,18 @@ const SCHEMES = [new StarknetUsdcScheme()];
 
 export interface MeterDeps {
   chargeForRequest: typeof defaultChargeForRequest;
-  charge: typeof defaultCharge;
-  returnCharge: typeof defaultReturnCharge;
+  spend: typeof defaultSpend;
+  refund: typeof defaultRefund;
   settlePayment: typeof defaultSettlePayment;
 }
 
 export function meter(deps: MeterDeps = {
   chargeForRequest: defaultChargeForRequest,
-  charge: defaultCharge,
-  returnCharge: defaultReturnCharge,
+  spend: defaultSpend,
+  refund: defaultRefund,
   settlePayment: defaultSettlePayment,
 }): MiddlewareHandler<AppEnv> {
-  const { chargeForRequest, charge: chargeCredits, returnCharge, settlePayment } = deps;
+  const { chargeForRequest, spend, refund, settlePayment } = deps;
   return async (c, next) => {
 
     const charge = await chargeForRequest(c.req.method, c.req.path, {
@@ -57,7 +57,8 @@ export function meter(deps: MeterDeps = {
       }
     }
 
-    const paid = await chargeCredits(apiCredits.id, cost);
+    const entry = { note: charge.actionKey };
+    const paid = await spend(apiCredits.id, cost, undefined, entry);
     if (!paid) {
       c.header("X-Credits-Remaining", "0");
       return c.json(
@@ -87,7 +88,7 @@ export function meter(deps: MeterDeps = {
         c.header("X-Credits-Remaining", String(Math.max(0, apiCredits.creditBalance - kept)));
       }
       if (owed > 0) {
-        void returnCharge(apiCredits.id, owed).catch((settleErr) =>
+        void refund(apiCredits.id, owed, undefined, entry).catch((settleErr) =>
           log.error({ settleErr, apiCredits: apiCredits.id, kept, owed, path: c.req.path }, "usage settlement failed"),
         );
       }
