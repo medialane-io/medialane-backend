@@ -44,7 +44,7 @@ function layout(content: string, footer: string): string {
         <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
       </div>
       ${content}
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:28px;">
+      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
         ${footer}
       </p>
     </div>
@@ -60,21 +60,15 @@ const button = (url: string): string =>
   `<a href="${escapeHtml(url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:10px;">Confirm my email</a>`;
 
 function verificationCode(code: string): RenderedEmail {
-  const html = `
-    <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:${FONT};">
-      <div style="text-align:center;padding-bottom:28px;">
-        <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
-      </div>
+  const html = layout(
+    `
       <div style="background:#f6f7f9;border-radius:16px;padding:32px 24px;text-align:center;">
         <p style="margin:0 0 4px;color:#111827;font-size:15px;">Your verification code</p>
         <div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#111827;margin:16px 0;">${code}</div>
         <p style="margin:0;color:#6b7280;font-size:13px;">This code expires in 10 minutes.</p>
-      </div>
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
-        If you didn't request this, you can safely ignore this email.
-      </p>
-    </div>
-  `;
+      </div>`,
+    "If you didn't request this, you can safely ignore this email.",
+  );
   const text = [
     `Your verification code is ${code}.`,
     "",
@@ -118,20 +112,14 @@ const GUARDIAN_FOOTER =
   "Medialane will never ask you for your recovery key. Treat any message requesting it as an attempt to take your assets.";
 
 function guardianAlert(subject: string, headline: string, bodyHtml: string): RenderedEmail {
-  const html = `
-    <div style="max-width:480px;margin:0 auto;padding:32px 16px;font-family:${FONT};">
-      <div style="text-align:center;padding-bottom:28px;">
-        <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
-      </div>
+  const html = layout(
+    `
       <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:16px;padding:32px 24px;">
         <p style="margin:0 0 8px;color:#991b1b;font-size:15px;font-weight:700;">${headline}</p>
         ${bodyHtml}
-      </div>
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
-        ${GUARDIAN_FOOTER}
-      </p>
-    </div>
-  `;
+      </div>`,
+    GUARDIAN_FOOTER,
+  );
   return { subject, html, text: htmlToText(html) };
 }
 
