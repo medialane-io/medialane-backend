@@ -24,11 +24,12 @@ export async function fromNameForApp(appId: string | null): Promise<string> {
   return sanitizeFromName(app?.name);
 }
 
-export type EmailMessage = TemplateRequest & { to: string; fromName?: string };
+export type EmailMessage = TemplateRequest & { to: string; fromName?: string; replyTo?: string };
 
 export interface ReadyEmail extends RenderedEmail {
   to: string;
   fromName: string;
+  replyTo?: string;
 }
 
 export type EmailChannel = (email: ReadyEmail) => Promise<boolean>;
@@ -52,6 +53,7 @@ export function zeptoMailBody(email: ReadyEmail, fromAddress: string) {
     subject: email.subject,
     htmlbody: email.html,
     textbody: email.text,
+    ...(email.replyTo ? { reply_to: [{ address: email.replyTo }] } : {}),
   };
 }
 
@@ -69,9 +71,9 @@ export const zeptoMailChannel: EmailChannel = async (email) => {
 };
 
 export async function sendEmail(message: EmailMessage, channel: EmailChannel = zeptoMailChannel): Promise<boolean> {
-  const { to, fromName, ...template } = message;
+  const { to, fromName, replyTo, ...template } = message;
   try {
-    const delivered = await channel({ to, fromName: fromName ?? DEFAULT_FROM_NAME, ...renderTemplate(template, env.IO_APP_URL) });
+    const delivered = await channel({ to, fromName: fromName ?? DEFAULT_FROM_NAME, replyTo, ...renderTemplate(template, env.IO_APP_URL) });
     if (!delivered) log.warn({ template: message.template }, "Email was not delivered");
     return delivered;
   } catch (err) {

@@ -65,3 +65,36 @@ describe("the plain-text part", () => {
     expect(htmlToText("<style>p{}</style><script>x</script><p>A &rsaquo; B &amp; C &quot;d&quot;</p>")).toBe('A > B & C "d"');
   });
 });
+
+describe("the support request email", () => {
+  const request: TemplateRequest = {
+    template: "support-request",
+    data: {
+      accountEmail: "a@b.co",
+      wallets: [{ address: ADDRESS, active: false }, { address: "0x0abc", active: true }],
+      message: "I <b>lost</b> my key",
+    },
+  };
+
+  test("names the account, every wallet in full and the message", () => {
+    const { subject, html, text } = render(request);
+    expect(subject).toBe("Support request");
+    for (const body of [html, text]) {
+      expect(body).toContain("a@b.co");
+      expect(body).toContain(`${ADDRESS} (earlier)`);
+      expect(body).toContain("0x0abc (current)");
+    }
+  });
+
+  test("shows the message as text, never as markup", () => {
+    const { html } = render(request);
+    expect(html).toContain("I &lt;b&gt;lost&lt;/b&gt; my key");
+    expect(html).not.toContain("<b>lost</b>");
+  });
+
+  test("says so when there is no message or no email", () => {
+    const { text } = render({ template: "support-request", data: { accountEmail: null, wallets: [], message: null } });
+    expect(text).toContain("No message");
+    expect(text).toContain("none");
+  });
+});
