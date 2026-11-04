@@ -63,11 +63,32 @@ describe("a wallet without a Medialane guardian", () => {
   });
 });
 
+describe("a wallet without a Medialane guardian and several owners", () => {
+  const owners = [asSigner(owner.publicKey), asSigner(owner2.publicKey)];
+
+  test("gets the full form naming the owner who signed, with no guardian part", async () => {
+    const d = deps({ guardians: [], owners });
+    expect(await cosign(d, WALLET, data, owner2Signature)).toEqual(["0x1", "0x0", owner2.publicKey, ...owner2Signature]);
+  });
+
+  test("gets it without a guardian secret too", async () => {
+    const d = deps({ secret: "", owners });
+    expect(await cosign(d, WALLET, data, ownerSignature)).toEqual(["0x1", "0x0", owner.publicKey, ...ownerSignature]);
+  });
+
+  test("is left alone when no owner of the wallet made the signature", async () => {
+    const d = deps({ guardians: [], owners });
+    const stranger = signWithPrivateKey(keyPair().privateKey, hash);
+    expect(await cosign(d, WALLET, data, stranger)).toEqual(stranger);
+  });
+});
+
 describe("when nothing is configured or readable", () => {
-  test("without a guardian secret it reads nothing and changes nothing", async () => {
-    const d = deps({ secret: "" });
+  test("without a guardian secret it reads no guardian and keeps a single owner's signature", async () => {
+    let guardianReads = 0;
+    const d = deps({ secret: "", guardiansOf: async () => { guardianReads += 1; return []; } });
     expect(await cosign(d, WALLET, data, ownerSignature)).toEqual(ownerSignature);
-    expect(d.reads).toBe(0);
+    expect(guardianReads).toBe(0);
   });
 
   test("a failed guardian read throws GuardianUnavailableError", async () => {
