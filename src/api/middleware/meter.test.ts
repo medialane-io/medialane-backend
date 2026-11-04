@@ -15,9 +15,9 @@ function deps(over: TestDeps = {}): MeterDeps {
       path.startsWith("/v1/portal")
         ? null
         : { actionKey: "read", chain: "STARKNET", service: "ALL", unitCredits: 1, units: 1 },
-    charge: async () => true,
+    spend: async () => true,
     settlePayment: async () => ({ ok: true, creditedAmount: 100 }),
-    returnCharge: async (apiCreditsId: string, credits: number) => {
+    refund: async (apiCreditsId: string, credits: number) => {
       await onRefund?.(apiCreditsId, credits);
     },
     ...rest,
@@ -60,6 +60,28 @@ function app(d: MeterDeps) {
 }
 
 describe("meter", () => {
+  test("the charge and its return are ledger entries noting the action", async () => {
+    const calls: unknown[][] = [];
+    const d = deps({
+      chargeForRequest: async () => ({ actionKey: "rpc:call", chain: "STARKNET", service: "ALL", unitCredits: 2, units: 10 }),
+      spend: async (...args) => { calls.push(["spend", ...args]); return true; },
+      refund: async (...args) => { calls.push(["refund", ...args]); },
+    });
+    const a = new Hono<AppEnv>();
+    a.use("*", async (c, next) => {
+      c.set("account", { id: "a1", status: "ACTIVE" });
+      c.set("apiCredits", { id: "ac1", accountId: "a1", creditBalance: 100 });
+      await next();
+    });
+    a.use("/v1/*", meter(d));
+    a.get("/v1/rpc", (c) => { bill(c, 4); return c.json({ ok: true }); });
+    await a.request("/v1/rpc");
+
+    expect(calls).toEqual([
+      ["spend", "ac1", 20, undefined, { note: "rpc:call" }],
+      ["refund", "ac1", 12, undefined, { note: "rpc:call" }],
+    ]);
+  });
   test("the response does not wait for a returned charge", async () => {
     const res = await Promise.race([
       app(deps({ onRefund: () => new Promise<void>(() => {}) })).request("/v1/fail"),
@@ -69,12 +91,12 @@ describe("meter", () => {
     expect((res as Response).status).toBe(500);
   });
   test("passes through when balance covers the cost", async () => {
-    const res = await app(deps({ charge: async () => true })).request("/v1/tokens");
+    const res = await app(deps({ spend: async () => true })).request("/v1/tokens");
     expect(res.status).toBe(200);
     expect(res.headers.get("x-credits-remaining")).not.toBeNull();
   });
   test("returns 402 with x402 body when insufficient and no X-PAYMENT", async () => {
-    const res = await app(deps({ charge: async () => false })).request("/v1/tokens");
+    const res = await app(deps({ spend: async () => false })).request("/v1/tokens");
     expect(res.status).toBe(402);
     const body = (await res.json()) as { x402Version: number; accepts: unknown[]; code?: string };
     expect(body.x402Version).toBe(1);
@@ -83,7 +105,7 @@ describe("meter", () => {
     expect(res.headers.get("x-credits-remaining")).toBe("0");
   });
   test("skips metering for /v1/portal", async () => {
-    const res = await app(deps({ charge: async () => false })).request("/v1/portal/me");
+    const res = await app(deps({ spend: async () => false })).request("/v1/portal/me");
     expect(res.status).toBe(200);
   });
 
@@ -168,7 +190,7 @@ describe("meter", () => {
     let refunded = 0;
     const d = deps({
       chargeForRequest: async () => ({ actionKey: "rpc:call", chain: "STARKNET", service: "ALL", unitCredits: 2, units: 10 }),
-      charge: async (_id, cost) => { debited = cost; return true; },
+      spend: async (_id, cost) => { debited = cost; return true; },
       onRefund: async (_id, cost) => { refunded += cost; },
     });
     const a = new Hono<AppEnv>();

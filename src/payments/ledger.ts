@@ -58,15 +58,3 @@ export function addPayment(db: LedgerDb, apiCreditsId: string, credits: number, 
 export function grant(apiCreditsId: string, credits: number, note: string, db: LedgerDb = prismaDefault) {
   return add(db, apiCreditsId, "GRANT", credits, { note });
 }
-
-export async function charge(apiCreditsId: string, credits: number, db: LedgerDb = prismaDefault): Promise<boolean> {
-  const res = await db.apiCredits.updateMany({
-    where: { id: apiCreditsId, creditBalance: { gte: credits } },
-    data: { creditBalance: { decrement: credits } },
-  });
-  return res.count > 0;
-}
-
-export async function returnCharge(apiCreditsId: string, credits: number, db: LedgerDb = prismaDefault): Promise<void> {
-  await db.apiCredits.update({ where: { id: apiCreditsId }, data: { creditBalance: { increment: credits } } });
-}

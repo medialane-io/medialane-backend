@@ -4,6 +4,7 @@ import { accountNoticesLoop } from "./accountNotices.js";
 import { metadataRetryLoop } from "./metadataRetry.js";
 import { rewardsComputeLoop } from "./rewardsCompute.js";
 import { walletActivityRefreshLoop } from "./walletActivityRefresh.js";
+import { creditLedgerLoop } from "./creditLedger.js";
 import { runEvery, type Loop } from "./schedule.js";
 import { recoverStuckFetchingTokens, recoverPendingWork } from "./startupRecovery.js";
 import { createLogger } from "../utils/logger.js";
@@ -17,6 +18,7 @@ export const loops: Loop[] = [
   metadataRetryLoop,
   rewardsComputeLoop,
   walletActivityRefreshLoop,
+  creditLedgerLoop,
 ];
 
 export async function startOrchestrator(): Promise<void> {
