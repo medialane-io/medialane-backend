@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
-import paymaster, { classifyPaymasterError, deploymentCalls, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
+import paymaster, { classifyPaymasterError, deploymentCalls, executeOwnSponsoredInvoke, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 import { WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
@@ -568,5 +568,24 @@ describe("deploymentCalls", () => {
     const calls = deploymentCalls(OWNER_ADDRESS, "");
     expect(calls).toHaveLength(1);
     expect(calls[0].entrypoint).toBe("transfer");
+  });
+});
+
+describe("executeOwnSponsoredInvoke", () => {
+  test("sends the signature the signer resolves to", async () => {
+    const sent: unknown[] = [];
+    const client = {
+      buildTransaction: async () => ({ typed_data: { message: "td" } }),
+      executeTransaction: async (tx: { invoke: { signature: unknown } }) => {
+        sent.push(tx.invoke.signature);
+        return { transaction_hash: "0xabc" };
+      },
+    } as unknown as PaymasterClient;
+    const txHash = await executeOwnSponsoredInvoke(
+      { userAddress: "0x1", calls: [SPONSORABLE_CALL], sign: async () => ["0x1", "0x0", "0x5", "0x6", "0x7"] },
+      () => client,
+    );
+    expect(txHash).toBe("0xabc");
+    expect(sent).toEqual([["0x1", "0x0", "0x5", "0x6", "0x7"]]);
   });
 });
