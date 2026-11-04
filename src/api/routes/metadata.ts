@@ -21,8 +21,8 @@ metadata.get("/signed-url", async (c) => {
     const url = await pinata.upload.public.createSignedURL({ expires: 120, maxFileSize: MAX_UPLOAD_BYTES });
     return c.json({ data: { url } });
   } catch (err: unknown) {
-    log.error({ err }, "Failed to create signed URL");
     const msg = toErrorMessage(err);
+    log.error({ err }, `Failed to create signed URL: ${msg}`);
     const status = msg.includes("403") || msg.includes("plan limits") ? 403 : 500;
     return c.json({ error: "Uploads are temporarily unavailable. Please try again in a moment." }, status);
   }
@@ -43,7 +43,7 @@ metadata.post("/upload", async (c) => {
     const result = await pinata.upload.public.json(parsed);
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
   } catch (err: unknown) {
-    log.error({ err }, "Failed to upload metadata");
+    log.error({ err }, `Failed to upload metadata: ${toErrorMessage(err)}`);
     return c.json({ error: "We could not save that metadata. Please try again." }, 500);
   }
 });
@@ -59,7 +59,7 @@ metadata.post("/upload-file", async (c) => {
     const result = await pinata.upload.public.file(file);
     return c.json({ data: { cid: result.cid, url: `ipfs://${result.cid}` } }, 201);
   } catch (err: unknown) {
-    log.error({ err }, "Failed to upload file");
+    log.error({ err }, `Failed to upload file: ${toErrorMessage(err)}`);
     return c.json({ error: "That file could not be uploaded. Please try again." }, 500);
   }
 });
