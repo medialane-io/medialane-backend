@@ -90,6 +90,20 @@ describe("the mail provider channel", () => {
     });
   });
 
+  test("sets the reply address only when there is one", async () => {
+    env.ZEPTOMAIL_TOKEN = "tok";
+    env.CONTACT_FROM_EMAIL = "noreply@medialane.io";
+    const bodies: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    await zeptoMailChannel({ ...email, replyTo: "p@q.co" });
+    await zeptoMailChannel(email);
+    expect(bodies[0]!.reply_to).toEqual([{ address: "p@q.co" }]);
+    expect(bodies[1]).not.toHaveProperty("reply_to");
+  });
+
   test("is not delivered without a token and a from address", async () => {
     env.ZEPTOMAIL_TOKEN = "";
     env.CONTACT_FROM_EMAIL = "";

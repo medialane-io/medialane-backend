@@ -9,7 +9,8 @@ export type TemplateRequest =
   | { template: "verification-reminder"; data: { confirmToken: string; deadline: Date } }
   | { template: "guardian-set"; data: { walletAddress: string } }
   | { template: "guardian-escape-triggered"; data: { walletAddress: string; readyAt: Date } }
-  | { template: "guardian-escape-completed"; data: { walletAddress: string } };
+  | { template: "guardian-escape-completed"; data: { walletAddress: string } }
+  | { template: "support-request"; data: { accountEmail: string | null; wallets: { address: string; active: boolean }[]; message: string | null } };
 
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -123,8 +124,24 @@ function guardianAlert(subject: string, headline: string, bodyHtml: string): Ren
   return { subject, html, text: htmlToText(html) };
 }
 
+function supportRequest(data: { accountEmail: string | null; wallets: { address: string; active: boolean }[]; message: string | null }): RenderedEmail {
+  const wallets = data.wallets.map((w) => `${w.address} (${w.active ? "current" : "earlier"})`);
+  const html = layout(
+    `
+      <h1 style="margin:0 0 16px;font-size:20px;">Support request</h1>
+      <p style="margin:0 0 4px;font-size:14px;"><strong>Account email:</strong> ${escapeHtml(data.accountEmail ?? "none")}</p>
+      <p style="margin:0 0 4px;font-size:14px;"><strong>Wallets:</strong></p>
+      ${wallets.map((w) => `<p style="margin:0 0 4px;font-size:13px;font-family:monospace;">${escapeHtml(w)}</p>`).join("")}
+      <div style="background:#f6f7f9;border-radius:16px;padding:20px 24px;margin-top:16px;white-space:pre-wrap;font-size:14px;">${escapeHtml(data.message ?? "No message")}</div>`,
+    "Reply to this email to answer the person.",
+  );
+  return { subject: "Support request", html, text: htmlToText(html) };
+}
+
 export function renderTemplate(request: TemplateRequest, appUrl: string): RenderedEmail {
   switch (request.template) {
+    case "support-request":
+      return supportRequest(request.data);
     case "verification-code":
       return verificationCode(request.data.code);
     case "verification-reminder":
