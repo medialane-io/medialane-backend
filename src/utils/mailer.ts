@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
 import prisma from "../db/client.js";
+import { renderTemplate, type RenderedEmail, type TemplateRequest } from "./mailTemplates.js";
 
 const log = createLogger("mailer");
 
@@ -23,38 +24,60 @@ export async function fromNameForApp(appId: string | null): Promise<string> {
   return sanitizeFromName(app?.name);
 }
 
-export type EmailTemplate =
-  | { template: "verification-code"; data: { code: string } }
-  | { template: "verification-reminder"; data: { confirmToken: string; deadline: Date } }
-  | { template: "guardian-set"; data: { walletAddress: string } }
-  | { template: "guardian-escape-triggered"; data: { walletAddress: string; readyAt: Date } }
-  | { template: "guardian-escape-completed"; data: { walletAddress: string } };
+export type EmailMessage = TemplateRequest & { to: string; fromName?: string };
 
-export type EmailMessage = EmailTemplate & { to: string; fromName?: string };
+export interface ReadyEmail extends RenderedEmail {
+  to: string;
+  fromName: string;
+}
 
-export type EmailChannel = (message: EmailMessage) => Promise<boolean>;
+export type EmailChannel = (email: ReadyEmail) => Promise<boolean>;
 
-export const relayChannel: EmailChannel = async (message) => {
-  if (!env.MAIL_RELAY_URL || !env.MAIL_RELAY_SECRET) return false;
-  const res = await fetch(`${env.MAIL_RELAY_URL}/api/internal/send-email`, {
+const ZEPTOMAIL_URL = "https://cpaas.zoho.com/v1.1/email";
+const PROVIDER_ERROR_CODE = /^[A-Z]{2,5}_\d{3,5}$/;
+
+export function sendFailure(status: number, body: unknown): { status: number; code?: string } {
+  const failure: { status: number; code?: string } = { status };
+  if (typeof body !== "object" || body === null) return failure;
+  const b = body as { error?: { code?: unknown }; data?: { error_code?: unknown } };
+  const code = b.error?.code ?? b.data?.error_code;
+  if (typeof code === "string" && PROVIDER_ERROR_CODE.test(code)) failure.code = code;
+  return failure;
+}
+
+export function zeptoMailBody(email: ReadyEmail, fromAddress: string) {
+  return {
+    from: { address: fromAddress, name: email.fromName },
+    to: [{ email_address: { address: email.to } }],
+    subject: email.subject,
+    htmlbody: email.html,
+    textbody: email.text,
+  };
+}
+
+export const zeptoMailChannel: EmailChannel = async (email) => {
+  if (!env.ZEPTOMAIL_TOKEN || !env.CONTACT_FROM_EMAIL) return false;
+  const res = await fetch(ZEPTOMAIL_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-relay-secret": env.MAIL_RELAY_SECRET },
-    body: JSON.stringify({ ...message, fromName: message.fromName ?? DEFAULT_FROM_NAME }),
+    headers: { Authorization: `Zoho-enczapikey ${env.ZEPTOMAIL_TOKEN}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(zeptoMailBody(email, env.CONTACT_FROM_EMAIL)),
+    signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`relay responded ${res.status}: ${await res.text().catch(() => "")}`);
-  return true;
+  if (res.ok) return true;
+  log.error(sendFailure(res.status, await res.json().catch(() => null)), "Email send failed");
+  return false;
 };
 
-export async function sendEmail(message: EmailMessage, channels: EmailChannel[] = [relayChannel]): Promise<boolean> {
-  for (const channel of channels) {
-    try {
-      if (await channel(message)) return true;
-    } catch (err) {
-      log.error({ err }, "Email channel failed, trying the next one");
-    }
+export async function sendEmail(message: EmailMessage, channel: EmailChannel = zeptoMailChannel): Promise<boolean> {
+  const { to, fromName, ...template } = message;
+  try {
+    const delivered = await channel({ to, fromName: fromName ?? DEFAULT_FROM_NAME, ...renderTemplate(template, env.IO_APP_URL) });
+    if (!delivered) log.warn({ template: message.template }, "Email was not delivered");
+    return delivered;
+  } catch (err) {
+    log.error({ code: err instanceof Error ? err.name : undefined }, "Email send failed");
+    return false;
   }
-  log.warn({ template: message.template }, "No email channel delivered the message");
-  return false;
 }
 
 type Send = (message: EmailMessage) => Promise<boolean>;

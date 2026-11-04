@@ -1,4 +1,5 @@
-import type { EmailMessage, EmailTemplate } from "../utils/mailer.js";
+import type { EmailMessage } from "../utils/mailer.js";
+import type { TemplateRequest } from "../utils/mailTemplates.js";
 import { verificationDeadline } from "../utils/accountLifecycle.js";
 import { reminderDue, type ReminderFacts } from "./rules.js";
 
@@ -37,7 +38,7 @@ interface Pipeline<C extends { accountId: string; email: string }> {
   kind: NoticeKind;
   due(candidate: C, now: Date): boolean;
   recheck(candidate: C): Promise<boolean>;
-  message(candidate: C): EmailTemplate;
+  message(candidate: C): TemplateRequest;
 }
 
 export const needsAttention = (result: SweepResult): boolean =>
