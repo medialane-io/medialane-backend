@@ -1,5 +1,5 @@
 import prisma from "../db/client.js";
-import { IDENTITY_SCHEME } from "./identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME } from "./identity.js";
 
 export interface EmailIdentityInfo {
   createdAt: Date;
@@ -11,7 +11,7 @@ export interface CurrentEmailIdentity extends EmailIdentityInfo {
 
 export async function getCurrentEmailIdentity(accountId: string): Promise<CurrentEmailIdentity | null> {
   const identity = await prisma.identity.findFirst({
-    where: { accountId, scheme: IDENTITY_SCHEME.EMAIL },
+    where: { ...ACTIVE_IDENTITY, accountId, scheme: IDENTITY_SCHEME.EMAIL },
     select: { value: true, createdAt: true },
     orderBy: { createdAt: "desc" },
   });

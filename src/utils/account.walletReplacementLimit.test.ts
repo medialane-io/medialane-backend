@@ -8,8 +8,9 @@ let locked = 0;
 const tx = {
   $queryRaw: async () => { locked++; return []; },
   identity: {
-    findFirst: async () => ({ address: wallet }),
-    deleteMany: async () => ({ count: 1 }),
+    findFirst: async () => ({ id: "w", address: wallet }),
+    findUnique: async () => null,
+    update: async () => ({}),
     create: async ({ data }: { data: { address: string } }) => { wallet = data.address; },
   },
   accountEvent: {

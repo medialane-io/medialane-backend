@@ -599,18 +599,25 @@ model TransactionIntent {
   @@index([expiresAt, status])
 }
 
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// One ACTIVE key per ApiCredits: partial unique index "ApiKey_apiCreditsId_active_key" (raw SQL).
 model ApiKey {
   id          String       @id @default(cuid())
   apiCreditsId String
-  apiCredits   ApiCredits    @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
+  apiCredits   ApiCredits    @relation(fields: [apiCreditsId], references: [id], onDelete: Restrict)
   prefix      String
   keyHash     String       @unique
   label       String       @default("")
+  status      ApiKeyStatus @default(ACTIVE)
   lastUsedAt  DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  @@unique([apiCreditsId])
+  @@index([apiCreditsId])
 }
 
 model Report {
@@ -691,12 +698,18 @@ enum AccountEventType {
   STATUS_CHANGED
 }
 
+enum NoticeStatus {
+  CLAIMED
+  RELEASED
+}
+
 model AccountNotice {
   id        String   @id @default(cuid())
   accountId String
-  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   kind      String
+  status    NoticeStatus @default(CLAIMED)
   createdAt DateTime @default(now())
 
   @@unique([accountId, kind])
@@ -706,11 +719,11 @@ model AccountNotice {
 model ApiCredits {
   id        String  @id @default(cuid())
   accountId String  @unique
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   creditBalance Int  @default(0)
 
-  apiKey               ApiKey?
+  apiKeys              ApiKey[]
   payments             Payment[]
   fundingIntents       FundingIntent[]
   entries              CreditEntry[]
@@ -722,10 +735,17 @@ model ApiCredits {
   @@index([accountId])
 }
 
+enum IdentityStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// One ACTIVE identity per (accountId, scheme): partial unique index "Identity_accountId_scheme_active_key" (raw SQL).
 model Identity {
   id        String  @id @default(cuid())
   accountId String
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  status    IdentityStatus @default(ACTIVE)
 
   scheme   String
   provider String?
@@ -739,8 +759,8 @@ model Identity {
   app        App        @relation(fields: [appId], references: [id])
   createdAt  DateTime  @default(now())
 
-  @@unique([accountId, scheme])
   @@unique([appId, chain, address])
+  @@index([accountId, scheme])
   @@index([appId, scheme, value])
   @@index([address])
 }
@@ -768,7 +788,7 @@ model EmailVerificationCode {
 model AccountProfile {
   id          String   @id @default(cuid())
   accountId   String   @unique
-  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
   name        String?
   bio         String?
   avatarImage String?
@@ -896,7 +916,7 @@ model RemixOffer {
 model Payment {
   id             String        @id @default(cuid())
   apiCreditsId    String?
-  apiCredits      ApiCredits?    @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
+  apiCredits      ApiCredits?    @relation(fields: [apiCreditsId], references: [id], onDelete: Restrict)
   payer          String?
   scheme         String
   network        String
@@ -910,7 +930,7 @@ model Payment {
   createdAt      DateTime      @default(now())
 
   fundingIntentId String?        @unique
-  fundingIntent   FundingIntent? @relation(fields: [fundingIntentId], references: [id], onDelete: SetNull)
+  fundingIntent   FundingIntent? @relation(fields: [fundingIntentId], references: [id], onDelete: Restrict)
 
   @@index([apiCreditsId])
   @@index([payer])
@@ -932,7 +952,7 @@ enum FundingIntentStatus {
 model FundingIntent {
   id          String              @id @default(cuid())
   apiCreditsId String
-  apiCredits   ApiCredits           @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
+  apiCredits   ApiCredits           @relation(fields: [apiCreditsId], references: [id], onDelete: Restrict)
   method      String
   status      FundingIntentStatus @default(PENDING)
   payer       String?
@@ -959,7 +979,7 @@ enum LaunchpadRunStatus {
 model LaunchpadRun {
   id           String             @id @default(cuid())
   apiCreditsId  String
-  apiCredits    ApiCredits          @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
+  apiCredits    ApiCredits          @relation(fields: [apiCreditsId], references: [id], onDelete: Restrict)
   service      String
   status       LaunchpadRunStatus @default(DRAFT)
   spec         Json
@@ -985,7 +1005,7 @@ enum CreditEntryKind {
 model CreditEntry {
   id             String          @id @default(cuid())
   apiCreditsId   String
-  apiCredits     ApiCredits      @relation(fields: [apiCreditsId], references: [id], onDelete: Cascade)
+  apiCredits     ApiCredits      @relation(fields: [apiCreditsId], references: [id], onDelete: Restrict)
   kind           CreditEntryKind
   credits        Int
   paymentId      String?

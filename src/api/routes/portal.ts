@@ -7,7 +7,7 @@ import { launchpadRuns } from "./launchpad-runs/index.js";
 import prisma from "../../db/client.js";
 import { confirmKeyChange, productionKeyConfirmationDeps } from "../../portal/apiKeyConfirmation.js";
 import { creditFromTransaction } from "../../mirror/handlers/treasuryDeposit.js";
-import { deleteApiKey, generateApiKey, replaceApiKey } from "../../utils/apiKey.js";
+import { generateApiKey, replaceApiKey, revokeApiKey } from "../../utils/apiKey.js";
 import { createLogger } from "../../utils/logger.js";
 import { isPrivateOrInsecureUrl } from "../../utils/ssrf.js";
 import { StarknetUsdcScheme } from "../../payments/schemes/starknet.js";
@@ -79,7 +79,7 @@ portal.get("/keys", async (c) => {
   const apiCredits = c.get("apiCredits");
 
   const keys = await prisma.apiKey.findMany({
-    where: { apiCreditsId: apiCredits.id },
+    where: { apiCreditsId: apiCredits.id, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -107,7 +107,7 @@ portal.post("/keys", validated("json", createKeySchema), async (c) => {
   const apiCredits = c.get("apiCredits");
   const parsed = c.req.valid("json");
 
-  const current = (await prisma.apiKey.findFirst({ where: { apiCreditsId: apiCredits.id }, select: { id: true } }))?.id ?? null;
+  const current = (await prisma.apiKey.findFirst({ where: { apiCreditsId: apiCredits.id, status: "ACTIVE" }, select: { id: true } }))?.id ?? null;
   const change = { action: "replace_api_key", key: current ?? "none" } as const;
   if (!(await confirmKeyChange(productionKeyConfirmationDeps, apiCredits.accountId, change, parsed.confirmation))) {
     return c.json(CONFIRMATION_REQUIRED, 403);
@@ -130,8 +130,8 @@ portal.delete("/keys/:id", async (c) => {
     return c.json(CONFIRMATION_REQUIRED, 403);
   }
 
-  if (!(await deleteApiKey(apiCredits, id))) return c.json({ error: "API key not found" }, 404);
-  log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key removed via portal");
+  if (!(await revokeApiKey(apiCredits, id))) return c.json({ error: "API key not found" }, 404);
+  log.info({ keyId: id, apiCreditsId: apiCredits.id }, "API key revoked via portal");
   return c.json({ data: { id } });
 });
 

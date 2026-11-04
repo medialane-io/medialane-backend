@@ -31,17 +31,63 @@ describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
   const eventsOf = (accountId: string) =>
     prisma.accountEvent.findMany({ where: { accountId }, select: { type: true, data: true } });
 
+  const RUN = Date.now();
+  let w = 0;
+  /** A normalized Starknet address no earlier run has used. */
+  const freshWallet = () => {
+    w += 1;
+    return `0x${(BigInt(RUN) * 1000n + BigInt(w)).toString(16).padStart(64, "0")}`;
+  };
+
   test("replacing the wallet records the old and the new wallet", async () => {
-    const old = `0x${(0xa000 + n).toString(16)}`;
+    const old = freshWallet();
+    const next = freshWallet();
     const accountId = await newAccount([{ scheme: "wallet", chain: "STARKNET", address: old }]);
-    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: "0xbbb1" });
+    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: next });
 
     const [event] = await eventsOf(accountId);
     expect(event?.type).toBe("WALLET_REPLACED");
     expect(event?.data).toMatchObject({ chain: "STARKNET", appId: "MEDIALANE_API" });
     const data = event?.data as { from: string; to: string };
     expect(BigInt(data.from)).toBe(BigInt(old));
-    expect(BigInt(data.to)).toBe(0xbbb1n);
+    expect(BigInt(data.to)).toBe(BigInt(next));
+  });
+
+  test("a replaced wallet stays on its account as INACTIVE, signs nothing in and is never deleted", async () => {
+    const old = freshWallet();
+    const next = freshWallet();
+    const accountId = await newAccount([{ scheme: "wallet", chain: "STARKNET", address: old }]);
+    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: next });
+
+    const wallets = await prisma.identity.findMany({ where: { accountId, scheme: "wallet" }, orderBy: { createdAt: "asc" }, select: { address: true, status: true } });
+    expect(wallets).toEqual([{ address: old, status: "INACTIVE" }, { address: next, status: "ACTIVE" }]);
+    expect(await account.accountWallet(accountId)).toBe(next);
+    expect(await account.resolveAccountIdFromWallet("MEDIALANE_API", "STARKNET", old)).toBeNull();
+    await expect(account.ensureAccountForWallet({ chain: "STARKNET", address: old, appId: "MEDIALANE_API" })).rejects.toBeInstanceOf(account.WalletInactiveError);
+    await expect((async () => prisma.identity.deleteMany({ where: { accountId } }))()).rejects.toThrow("never deleted");
+    expect(await prisma.identity.count({ where: { accountId } })).toBe(2);
+  });
+
+  test("making an earlier wallet active again reactivates its row", async () => {
+    const old = freshWallet();
+    const next = freshWallet();
+    const accountId = await newAccount([{ scheme: "wallet", chain: "STARKNET", address: old }]);
+    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: next });
+    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: old });
+
+    const wallets = await prisma.identity.findMany({ where: { accountId, scheme: "wallet" }, orderBy: { createdAt: "asc" }, select: { address: true, status: true } });
+    expect(wallets).toEqual([{ address: old, status: "ACTIVE" }, { address: next, status: "INACTIVE" }]);
+  });
+
+  test("a changed email stays on its account as INACTIVE and no longer finds the account", async () => {
+    const oldEmail = `kept-${n}-${RUN}@x.com`;
+    const accountId = await newAccount([{ scheme: "email", value: oldEmail }]);
+    await account.replaceEmail({ accountId, appId: "MEDIALANE_API", email: `now-${n}-${RUN}@y.com` });
+
+    const emails = await prisma.identity.findMany({ where: { accountId, scheme: "email" }, orderBy: { createdAt: "asc" }, select: { value: true, status: true } });
+    expect(emails).toEqual([{ value: oldEmail, status: "INACTIVE" }, { value: `now-${n}-${RUN}@y.com`, status: "ACTIVE" }]);
+    expect(await account.findLiveAccountIdByEmail(oldEmail, "MEDIALANE_API")).toBeNull();
+    expect(await account.findLiveAccountIdByEmail(`now-${n}-${RUN}@y.com`, "MEDIALANE_API")).toBe(accountId);
   });
 
   test("replacing the email records the old and the new email", async () => {
@@ -75,7 +121,7 @@ describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
       await prisma.$executeRawUnsafe(`DROP FUNCTION reject_event()`);
     }
 
-    const emails = await prisma.identity.findMany({ where: { accountId, scheme: "email" }, select: { value: true } });
-    expect(emails).toEqual([{ value: kept }]);
+    const emails = await prisma.identity.findMany({ where: { accountId, scheme: "email" }, select: { value: true, status: true } });
+    expect(emails).toEqual([{ value: kept, status: "ACTIVE" }]);
   });
 });

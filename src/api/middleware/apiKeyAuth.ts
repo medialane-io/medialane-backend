@@ -46,7 +46,7 @@ export const apiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   }
 
   const apiKey = await prisma.apiKey.findUnique({
-    where: { keyHash: hashApiKey(raw) },
+    where: { keyHash: hashApiKey(raw), status: "ACTIVE" },
     select: KEY_SELECT,
   });
 

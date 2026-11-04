@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME } from "../utils/identity.js";
 import { IO_APP } from "../utils/caller.js";
 import { issueConfirmToken } from "../utils/emailConfirmToken.js";
 import { sendEmail } from "../utils/mailer.js";
@@ -10,6 +10,11 @@ import type { NoticeStore, ReminderCandidate, SweepDeps } from "./sweep.js";
 
 export const prismaNoticeStore: NoticeStore = {
   claim: async (accountId, kind) => {
+    const reclaimed = await prisma.accountNotice.updateMany({
+      where: { accountId, kind, status: "RELEASED" },
+      data: { status: "CLAIMED" },
+    });
+    if (reclaimed.count === 1) return true;
     try {
       await prisma.accountNotice.create({ data: { accountId, kind } });
       return true;
@@ -19,7 +24,7 @@ export const prismaNoticeStore: NoticeStore = {
     }
   },
   release: async (accountId, kind) => {
-    await prisma.accountNotice.deleteMany({ where: { accountId, kind } });
+    await prisma.accountNotice.updateMany({ where: { accountId, kind, status: "CLAIMED" }, data: { status: "RELEASED" } });
   },
 };
 
@@ -31,17 +36,17 @@ async function findReminderCandidates(now: Date, limit: number): Promise<Reminde
         gt: new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS),
         lte: new Date(now.getTime() - VERIFICATION_REMINDER_AFTER_DAYS * DAY_MS),
       },
-      notices: { none: { kind: "verification-reminder" } },
+      notices: { none: { kind: "verification-reminder", status: "CLAIMED" } },
       AND: [
-        { identities: { some: { scheme: IDENTITY_SCHEME.EMAIL, appId: IO_APP } } },
-        { identities: { some: { scheme: IDENTITY_SCHEME.WALLET } } },
+        { identities: { some: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.EMAIL, appId: IO_APP } } },
+        { identities: { some: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET } } },
       ],
     },
     select: {
       id: true,
       status: true,
       createdAt: true,
-      identities: { select: { scheme: true, value: true, appId: true } },
+      identities: { where: ACTIVE_IDENTITY, select: { scheme: true, value: true, appId: true } },
     },
     orderBy: { createdAt: "asc" },
     take: limit,

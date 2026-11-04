@@ -25,7 +25,7 @@ export async function deactivateExpiredPending(now: Date = new Date(), ioApp: st
         AND a."createdAt" < ${cutoff}
         AND EXISTS (
           SELECT 1 FROM "Identity" i
-          WHERE i."accountId" = a.id AND i.scheme = ${IDENTITY_SCHEME.EMAIL} AND i."appId" = ${ioApp}
+          WHERE i."accountId" = a.id AND i.status = 'ACTIVE' AND i.scheme = ${IDENTITY_SCHEME.EMAIL} AND i."appId" = ${ioApp}
         )
       RETURNING a.id
     `;

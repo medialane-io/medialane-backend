@@ -19,6 +19,7 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
   });
 
   let n = 0;
+  const RUN = Date.now();
   async function wallet(balance: number) {
     n += 1;
     const account = await prisma.account.create({
@@ -64,17 +65,17 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
       scheme: "starknet-transfer",
       network: "starknet",
       asset: "0xusdc",
-      txHash: `0xpay${n}`,
-      proofNonce: `0xpay${n}:0`,
+      txHash: `0xpay${n}-${RUN}`,
+      proofNonce: `0xpay${n}-${RUN}:0`,
     });
-    const payment = await prisma.payment.findUniqueOrThrow({ where: { proofNonce: `0xpay${n}:0` } });
+    const payment = await prisma.payment.findUniqueOrThrow({ where: { proofNonce: `0xpay${n}-${RUN}:0` } });
     expect(await balanceOf(apiCreditsId)).toBe(100);
     expect((await entriesOf(apiCreditsId)).map((e) => [e.kind, e.credits, e.paymentId])).toEqual([["PAYMENT", 100, payment.id]]);
   });
 
   test("settling an unattributed payment writes its PAYMENT entry", async () => {
     const { accountId, apiCreditsId } = await wallet(0);
-    const nonce = `0xun${n}:0`;
+    const nonce = `0xun${n}-${RUN}:0`;
     const payment = await prisma.payment.create({
       data: { scheme: "s", network: "n", asset: "a", amountAtomic: "1", creditedAmount: 0, status: "UNATTRIBUTED", txHash: "0xun", proofNonce: nonce },
     });
@@ -114,14 +115,17 @@ describe.skipIf(!databaseUrl)("the credits ledger in shadow", () => {
     await ledger.spend(apiCreditsId, 5);
     const [entry] = await entriesOf(apiCreditsId);
     await expect((async () => prisma.creditEntry.update({ where: { id: entry!.id }, data: { credits: 1 } }))()).rejects.toThrow("append-only");
-    await expect((async () => prisma.creditEntry.delete({ where: { id: entry!.id } }))()).rejects.toThrow("append-only");
+    await expect((async () => prisma.creditEntry.delete({ where: { id: entry!.id } }))()).rejects.toThrow(/append-only|never deleted/);
   });
 
-  test("removing a whole credits record removes its entries with it", async () => {
+  test("a credits record and its entries are never removed, by delete, cascade or truncate", async () => {
     const { accountId, apiCreditsId } = await wallet(10);
     await ledger.spend(apiCreditsId, 5);
-    await prisma.account.delete({ where: { id: accountId } });
-    expect(await prisma.creditEntry.count({ where: { apiCreditsId } })).toBe(0);
+    const before = await prisma.creditEntry.count({ where: { apiCreditsId } });
+    await expect((async () => prisma.account.delete({ where: { id: accountId } }))()).rejects.toThrow("never deleted");
+    await expect((async () => prisma.apiCredits.delete({ where: { id: apiCreditsId } }))()).rejects.toThrow("never deleted");
+    await expect((async () => prisma.$executeRawUnsafe(`TRUNCATE "CreditEntry"`))()).rejects.toThrow("never deleted");
+    expect(await prisma.creditEntry.count({ where: { apiCreditsId } })).toBe(before);
   });
 
   test("a request charge and its return change the balance and write no entry", async () => {

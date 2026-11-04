@@ -2,17 +2,22 @@ import { describe, expect, mock, test } from "bun:test";
 
 const NEW_WALLET = "0x00000000000000000000000000000000000000000000000000000000000000aa";
 
-function setup(accountHasWallet: boolean, currentAddress = "0x00000000000000000000000000000000000000000000000000000000000000bb") {
+function setup(
+  accountHasWallet: boolean,
+  currentAddress = "0x00000000000000000000000000000000000000000000000000000000000000bb",
+  knownWallet: { id: string; accountId: string } | null = null,
+) {
   const create = mock(async (_arg?: unknown) => ({}));
-  const deleteMany = mock(async (_arg?: unknown) => ({ count: 1 }));
+  const update = mock(async (_arg?: unknown) => ({}));
   const calls: string[] = [];
   const transaction = mock(async (arg: unknown) => {
     if (typeof arg === "function") {
       return (arg as (tx: unknown) => Promise<unknown>)({
         $queryRaw: async () => [],
         identity: {
-          findFirst: async () => ({ address: currentAddress }),
-          deleteMany: async (a: unknown) => { calls.push("delete"); return deleteMany(a); },
+          findFirst: async () => ({ id: "w-old", address: currentAddress }),
+          findUnique: async () => knownWallet,
+          update: async (a: { data: { status: string } }) => { calls.push(a.data.status === "INACTIVE" ? "retire" : "activate"); return update(a); },
           create: async (a: unknown) => { calls.push("create"); return create(a); },
         },
         accountEvent: { create: async () => { calls.push("event"); return {}; }, count: async () => 0 },
@@ -32,7 +37,7 @@ function setup(accountHasWallet: boolean, currentAddress = "0x000000000000000000
       $transaction: transaction,
     },
   }));
-  return { create, deleteMany, calls };
+  return { create, update, calls };
 }
 
 describe("linking a wallet to an account session", () => {
@@ -55,19 +60,30 @@ describe("linking a wallet to an account session", () => {
 });
 
 describe("replaceWallet", () => {
-  test("removes the account's wallet, attaches the new one as its only wallet and records the change, in one transaction", async () => {
-    const { create, deleteMany, calls } = setup(true);
+  test("keeps the old wallet on the account as inactive, adds the new one as its active wallet and records the change, in one transaction", async () => {
+    const { create, update, calls } = setup(true);
     const { replaceWallet } = await import("./account.js");
     await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual(["delete", "create", "event"]);
-    expect(deleteMany).toHaveBeenCalledWith({ where: { accountId: "acct-1", scheme: "wallet" } });
+    expect(calls).toEqual(["retire", "create", "event"]);
+    expect(update).toHaveBeenCalledWith({ where: { id: "w-old" }, data: { status: "INACTIVE" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
     expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1" });
   });
 });
 
+describe("replacing with one of the account's earlier wallets", () => {
+  test("reactivates that wallet's row instead of adding a new one", async () => {
+    const { create, update, calls } = setup(true, undefined, { id: "w-earlier", accountId: "acct-1" });
+    const { replaceWallet } = await import("./account.js");
+    await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
+    expect(calls).toEqual(["retire", "activate", "event"]);
+    expect(update).toHaveBeenLastCalledWith({ where: { id: "w-earlier" }, data: { status: "ACTIVE" } });
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
 describe("replacing with the account's current wallet", () => {
-  test("same address is a no-op: nothing removed, nothing created, no history", async () => {
+  test("same address is a no-op: nothing changed, nothing created, no history", async () => {
     const { calls } = setup(true, NEW_WALLET);
     const { replaceWallet } = await import("./account.js");
     await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
@@ -90,17 +106,17 @@ describe("attachDeployedWallet", () => {
     const { calls } = setup(true);
     const { attachDeployedWallet } = await import("./account.js");
     await attachDeployedWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET, replace: true });
-    expect(calls).toEqual(["delete", "create", "event"]);
+    expect(calls).toEqual(["retire", "create", "event"]);
   });
 
   test("refuses a different wallet when not asked to replace, and nothing changes", async () => {
-    const { create, deleteMany, calls } = setup(true);
+    const { create, update, calls } = setup(true);
     const { attachDeployedWallet, WalletAlreadyAttachedError } = await import("./account.js");
     await expect(
       attachDeployedWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET }),
     ).rejects.toBeInstanceOf(WalletAlreadyAttachedError);
     expect(create).not.toHaveBeenCalled();
-    expect(deleteMany).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
   });
 
