@@ -149,7 +149,7 @@ export async function executeSponsoredDeploy(
 }
 
 export async function executeOwnSponsoredInvoke(
-  input: { userAddress: string; calls: Call[]; sign: (typedData: unknown) => string[] },
+  input: { userAddress: string; calls: Call[]; sign: (typedData: unknown) => string[] | Promise<string[]> },
   clientFactory: () => PaymasterClient = defaultClient,
 ): Promise<string> {
   const client = clientFactory();
@@ -160,7 +160,7 @@ export async function executeOwnSponsoredInvoke(
   const result = await client.executeTransaction(
     {
       type: "invoke",
-      invoke: { userAddress: input.userAddress, typedData: prepared.typed_data, signature: input.sign(prepared.typed_data) },
+      invoke: { userAddress: input.userAddress, typedData: prepared.typed_data, signature: await input.sign(prepared.typed_data) },
     },
     SPONSORED,
   );

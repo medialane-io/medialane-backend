@@ -44,23 +44,25 @@ export async function cosign(
   typedData: unknown,
   ownerSignature: string[],
 ): Promise<string[]> {
-  if (deps.secret.length < 32 || ownerSignature.length !== 2) return ownerSignature;
+  if (ownerSignature.length !== 2) return ownerSignature;
   try {
     const address = normalizeAddress("STARKNET", wallet);
-    const key = guardianKeyWith(deps.secret, address);
-    const ours = computeOwnerGuid(key.publicKey);
-    if (!(await read(() => deps.guardiansOf(address))).some((guardian) => sameFelt(guardian.guid, ours))) return ownerSignature;
-
     const messageHash = starknetTypedData.getMessageHash(typedData as TypedData, address);
-    const guardianSignature = signWithPrivateKey(key.privateKey, messageHash);
+    const key = deps.secret.length >= 32 ? guardianKeyWith(deps.secret, address) : null;
+    const guarded =
+      key !== null &&
+      (await read(() => deps.guardiansOf(address))).some((guardian) => sameFelt(guardian.guid, computeOwnerGuid(key.publicKey)));
+    const guardianSignature = guarded ? signWithPrivateKey(key.privateKey, messageHash) : [];
     const owners = await read(() => deps.ownersOf(address));
 
+    // The short form names no signer, so the wallet accepts it only from a single Starknet owner.
     if (owners.length === 1 && owners[0]!.type === "Starknet") return [...ownerSignature, ...guardianSignature];
 
     const signature = new ec.starkCurve.Signature(BigInt(ownerSignature[0]!), BigInt(ownerSignature[1]!));
     const signer = owners.find((owner) => owner.type === "Starknet" && signedBy(signature, messageHash, owner.storedValue));
     if (!signer) return ownerSignature;
-    return ["0x2", "0x0", signer.storedValue, ...ownerSignature, "0x0", key.publicKey, ...guardianSignature];
+    const signed = ["0x0", signer.storedValue, ...ownerSignature];
+    return guarded ? ["0x2", ...signed, "0x0", key.publicKey, ...guardianSignature] : ["0x1", ...signed];
   } catch (err) {
     if (err instanceof GuardianUnavailableError) throw err;
     log.warn({ err, wallet }, "guardian co-signature skipped");

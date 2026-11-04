@@ -8,7 +8,7 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { Chain } from "@prisma/client";
 import { callerApp } from "../../utils/caller.js";
-import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "../../utils/identity.js";
 import { currentSession } from "../../utils/accountSession.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
@@ -19,6 +19,8 @@ import { emailDeadlineFor } from "../../utils/emailDeadline.js";
 import { needsKeySetup, setupWalletKey, productionWalletKeyDeps } from "../../provisioning/walletKey.js";
 import { completeRecovery, productionRecoveryDeps, recoveryStatus, startRecovery, type RecoveryOutcome } from "../../recovery/walletRecovery.js";
 import { DEFAULT_CHAIN } from "../../config/chains.js";
+import { sendEmail } from "../../utils/mailer.js";
+import { sendSupportRequest } from "../../support/supportRequest.js";
 
 const log = createLogger("routes:users");
 
@@ -69,7 +71,7 @@ users.post(
       where: { id: accountId },
       include: {
         identities: {
-          where: { scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(chain, body.walletAddress) },
+          where: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET, chain, address: normalizeAddress(chain, body.walletAddress) },
           take: 1,
         },
       },
@@ -152,7 +154,7 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), vali
   }
 
   const existing = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress }, ...ACTIVE_IDENTITY },
     select: { accountId: true },
   });
   if (!existing) return c.json({ error: "Account not found" }, 404);
@@ -237,6 +239,31 @@ users.post("/me/wallet/recovery/complete", validated("json", walletKeySchema), a
   return recoveryResponse(c, await completeRecovery(productionRecoveryDeps, accountId, c.req.valid("json").newOwnerPubkey));
 });
 
+const supportBodySchema = z.object({ message: z.string().max(2000).optional() });
+
+users.post("/me/support", validated("json", supportBodySchema), async (c) => {
+  const accountId = await sessionAccountId(c);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  const sent = await sendSupportRequest(
+    {
+      emailOf: async (id) => (await getCurrentEmailIdentity(id))?.email ?? null,
+      walletsOf: async (id) =>
+        (
+          await prisma.identity.findMany({
+            where: { accountId: id, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+            orderBy: { createdAt: "asc" },
+            select: { address: true, status: true },
+          })
+        ).map((w) => ({ address: w.address!, active: w.status === "ACTIVE" })),
+      send: sendEmail,
+    },
+    accountId,
+    c.req.valid("json").message,
+  );
+  if (!sent) return c.json({ error: "The message could not be sent" }, 502);
+  return c.json({ ok: true });
+});
+
 users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (c) => {
   const walletAddress = c.get("walletAddress") ?? null;
   const accountId =
@@ -244,7 +271,7 @@ users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (
     (walletAddress
       ? (
           await prisma.identity.findUnique({
-            where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+            where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress }, ...ACTIVE_IDENTITY },
             select: { accountId: true },
           })
         )?.accountId
@@ -278,7 +305,7 @@ users.post("/me/email", async (c, next) => identityAuth(c, next), validated("jso
   const appId = callerApp(c);
 
   const identity = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress } },
+    where: { appId_chain_address: { appId: callerApp(c), chain: "STARKNET", address: walletAddress }, ...ACTIVE_IDENTITY },
     select: { accountId: true },
   });
   if (!identity) return c.json({ error: "User not found" }, 404);

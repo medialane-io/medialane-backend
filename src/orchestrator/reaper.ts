@@ -6,7 +6,6 @@ const log = createLogger("orchestrator:reaper");
 
 const REAPER_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-const INTENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const EMAIL_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function expiredOrderWhere(nowMs: number) {
@@ -17,14 +16,6 @@ export function expiredOrderWhere(nowMs: number) {
 }
 
 export async function runReaper(): Promise<void> {
-  const { count: intentDeleted } = await prisma.transactionIntent.deleteMany({
-    where: {
-      status: { in: ["CONFIRMED", "FAILED", "EXPIRED"] },
-      updatedAt: { lt: new Date(Date.now() - INTENT_TTL_MS) },
-    },
-  });
-  if (intentDeleted > 0) log.info({ count: intentDeleted }, "Reaper: purged old terminal intents");
-
   const { count: intentsExpired } = await prisma.transactionIntent.updateMany({
     where: {
       status: { in: ["PENDING", "SIGNED"] },

@@ -7,6 +7,7 @@ import { recordAccountEvent } from "../utils/accountEvents.js";
 import { createProvider } from "../utils/starknet.js";
 import { provisioningKey, type ProvisioningKey } from "../utils/provisioningKey.js";
 import { executeOwnSponsoredInvoke } from "../api/routes/paymaster.js";
+import { productionCosign } from "../utils/guardianCosign.js";
 
 export interface WalletKeyDeps {
   walletOf(accountId: string): Promise<string | null>;
@@ -85,7 +86,12 @@ export const productionWalletKeyDeps: WalletKeyDeps = {
     executeOwnSponsoredInvoke({
       userAddress: walletAddress,
       calls,
-      sign: (typedData) => signWithPrivateKey(privateKey, starknetTypedData.getMessageHash(typedData as never, walletAddress)),
+      sign: (typedData) =>
+        productionCosign(
+          walletAddress,
+          typedData,
+          signWithPrivateKey(privateKey, starknetTypedData.getMessageHash(typedData as never, walletAddress)),
+        ),
     }),
   waitFor: async (txHash) => {
     await createProvider().waitForTransaction(txHash);

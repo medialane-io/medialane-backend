@@ -1,6 +1,6 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
-import { IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "./identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "./identity.js";
 import { recordAccountEvent } from "./accountEvents.js";
 import type { Chain } from "@prisma/client";
 
@@ -17,7 +17,7 @@ const WALLET_ORDER = [{ createdAt: "asc" as const }];
 
 export async function accountWallet(accountId: string, chain: Chain = "STARKNET"): Promise<string | null> {
   const wallet = await prisma.identity.findFirst({
-    where: { accountId, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+    where: { ...ACTIVE_IDENTITY, accountId, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
     orderBy: WALLET_ORDER,
     select: { address: true },
   });
@@ -26,7 +26,7 @@ export async function accountWallet(accountId: string, chain: Chain = "STARKNET"
 
 export async function accountWallets(accountIds: string[], chain: Chain = "STARKNET"): Promise<Map<string, string>> {
   const wallets = await prisma.identity.findMany({
-    where: { accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
+    where: { ...ACTIVE_IDENTITY, accountId: { in: accountIds }, chain, scheme: IDENTITY_SCHEME.WALLET, address: { not: null } },
     orderBy: WALLET_ORDER,
     select: { accountId: true, address: true },
   });
@@ -44,7 +44,7 @@ export async function resolveAccountIdFromWallet(
 ): Promise<string | null> {
   const normalized = normalizeAddress(chain, address);
   const identity = await prisma.identity.findUnique({
-    where: { appId_chain_address: { appId, chain, address: normalized } },
+    where: { appId_chain_address: { appId, chain, address: normalized }, ...ACTIVE_IDENTITY },
     select: { accountId: true },
   });
   return identity?.accountId ?? null;
@@ -53,7 +53,7 @@ export async function resolveAccountIdFromWallet(
 export async function accountIdsHoldingWallet(chain: Chain, address: string): Promise<string[]> {
   const normalized = normalizeAddress(chain, address);
   const rows = await prisma.identity.findMany({
-    where: { chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
+    where: { ...ACTIVE_IDENTITY, chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
     select: { accountId: true },
   });
   return [...new Set(rows.map((row) => row.accountId))];
@@ -66,7 +66,7 @@ export async function isWalletLinkedToAccount(
 ): Promise<boolean> {
   const normalized = normalizeAddress(chain, address);
   const identity = await prisma.identity.findFirst({
-    where: { accountId, chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
+    where: { ...ACTIVE_IDENTITY, accountId, chain, address: normalized, scheme: IDENTITY_SCHEME.WALLET },
     select: { id: true },
   });
   return identity !== null;
@@ -97,6 +97,14 @@ export class WalletAlreadyAttachedError extends Error {
   }
 }
 
+export class WalletInactiveError extends Error {
+  constructor() {
+    super("This wallet was replaced on its account and is no longer active");
+    this.name = "WalletInactiveError";
+  }
+}
+
+/** Makes `address` the account's active wallet. The previous wallet stays on the account as INACTIVE. */
 export async function replaceWallet(params: {
   accountId: string;
   appId: string;
@@ -107,25 +115,33 @@ export async function replaceWallet(params: {
   await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`wallet-replace:${params.accountId}`}))::text`;
     const previous = await tx.identity.findFirst({
-      where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET },
-      select: { address: true },
+      where: { ...ACTIVE_IDENTITY, accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET },
+      select: { id: true, address: true },
     });
     if (previous?.address === address) return;
     const recent = await tx.accountEvent.count({
       where: { accountId: params.accountId, type: "WALLET_REPLACED", createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     });
     if (recent >= MAX_WALLET_REPLACEMENTS_PER_DAY) throw new WalletReplacementLimitError();
-    await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET } });
-    await tx.identity.create({
-      data: {
-        accountId: params.accountId,
-        scheme: IDENTITY_SCHEME.WALLET,
-        provider: "unknown",
-        chain: params.chain,
-        address,
-        appId: params.appId,
-      },
+    if (previous) await tx.identity.update({ where: { id: previous.id }, data: { status: "INACTIVE" } });
+    const known = await tx.identity.findUnique({
+      where: { appId_chain_address: { appId: params.appId, chain: params.chain, address } },
+      select: { id: true, accountId: true },
     });
+    if (known?.accountId === params.accountId) {
+      await tx.identity.update({ where: { id: known.id }, data: { status: "ACTIVE" } });
+    } else {
+      await tx.identity.create({
+        data: {
+          accountId: params.accountId,
+          scheme: IDENTITY_SCHEME.WALLET,
+          provider: "unknown",
+          chain: params.chain,
+          address,
+          appId: params.appId,
+        },
+      });
+    }
     await recordAccountEvent(tx, params.accountId, "WALLET_REPLACED", {
       chain: params.chain,
       from: previous?.address ?? null,
@@ -158,17 +174,26 @@ export async function attachDeployedWallet(params: {
   await replaceWallet(params);
 }
 
+/** Makes `email` the account's active email. The previous email stays on the account as INACTIVE. */
 export async function replaceEmail(params: { accountId: string; appId: string; email: string }): Promise<void> {
   const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, params.email);
   await prisma.$transaction(async (tx) => {
     const previous = await tx.identity.findFirst({
-      where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, appId: params.appId },
-      select: { value: true },
+      where: { ...ACTIVE_IDENTITY, accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, appId: params.appId },
+      select: { id: true, value: true },
     });
-    await tx.identity.deleteMany({ where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, appId: params.appId } });
-    await tx.identity.create({
-      data: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, value: email, appId: params.appId },
+    if (previous) await tx.identity.update({ where: { id: previous.id }, data: { status: "INACTIVE" } });
+    const known = await tx.identity.findFirst({
+      where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, appId: params.appId, value: email, status: "INACTIVE" },
+      select: { id: true },
     });
+    if (known) {
+      await tx.identity.update({ where: { id: known.id }, data: { status: "ACTIVE" } });
+    } else {
+      await tx.identity.create({
+        data: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, value: email, appId: params.appId },
+      });
+    }
     await recordAccountEvent(tx, params.accountId, "EMAIL_CHANGED", {
       from: previous?.value ?? null,
       to: email,
@@ -189,9 +214,10 @@ export async function ensureAccountForWallet(params: {
 
   const existing = await prisma.identity.findUnique({
     where: { appId_chain_address: { appId: params.appId, chain: params.chain, address } },
-    select: { id: true, accountId: true, provider: true },
+    select: { id: true, accountId: true, provider: true, status: true },
   });
 
+  if (existing?.status === "INACTIVE") throw new WalletInactiveError();
   if (existing) {
     if ((existing.provider === null || existing.provider === "unknown") && provider !== "unknown") {
       await prisma.identity.update({ where: { id: existing.id }, data: { provider } });
@@ -201,7 +227,7 @@ export async function ensureAccountForWallet(params: {
 
   if (params.linkToAccountId) {
     const held = await prisma.identity.findFirst({
-      where: { accountId: params.linkToAccountId, scheme: IDENTITY_SCHEME.WALLET },
+      where: { ...ACTIVE_IDENTITY, accountId: params.linkToAccountId, scheme: IDENTITY_SCHEME.WALLET },
       select: { id: true },
     });
     if (held) throw new WalletAlreadyAttachedError();
@@ -254,6 +280,7 @@ export async function ensureAccountForWallet(params: {
 
 export function liveEmailWhere(appId: string, values: string[]) {
   return {
+    ...ACTIVE_IDENTITY,
     appId,
     scheme: IDENTITY_SCHEME.EMAIL,
     value: { in: values },

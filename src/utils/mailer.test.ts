@@ -1,6 +1,7 @@
 import { afterEach, describe, test, expect } from "bun:test";
 import {
-  relayChannel,
+  sendFailure,
+  zeptoMailChannel,
   sanitizeFromName,
   sendEmail,
   sendVerificationCode,
@@ -8,6 +9,7 @@ import {
   sendGuardianEscapeTriggeredEmail,
   sendGuardianEscapeCompletedEmail,
   type EmailChannel,
+  type ReadyEmail,
   type EmailMessage,
 } from "./mailer";
 import { env } from "../config/env";
@@ -35,63 +37,102 @@ test("an email not tied to an app, like a guardian alert, is sent as Medialane",
 
 const message: EmailMessage = { to: "a@b.co", template: "verification-code", data: { code: "482913" } };
 const delivers: EmailChannel = async () => true;
-const notConfigured: EmailChannel = async () => false;
+const notDelivered: EmailChannel = async () => false;
 const fails: EmailChannel = async () => { throw new Error("down"); };
 
-test("sendEmail stops at the first channel that delivers", async () => {
-  const seen: string[] = [];
-  const first: EmailChannel = async () => { seen.push("first"); return true; };
-  const second: EmailChannel = async () => { seen.push("second"); return true; };
-  expect(await sendEmail(message, [first, second])).toBe(true);
-  expect(seen).toEqual(["first"]);
+test("sendEmail renders the template and hands the finished email to the channel", async () => {
+  let seen: ReadyEmail | null = null;
+  const channel: EmailChannel = async (email) => (seen = email, true);
+  expect(await sendEmail({ ...message, fromName: "Acme" }, channel)).toBe(true);
+  expect(seen).toMatchObject({ to: "a@b.co", fromName: "Acme", subject: "Your verification code" });
+  expect(seen!.html).toContain("482913");
 });
 
-test("sendEmail moves on when a channel is not configured or fails", async () => {
-  expect(await sendEmail(message, [notConfigured, delivers])).toBe(true);
-  expect(await sendEmail(message, [fails, delivers])).toBe(true);
+test("sendEmail sends as Medialane when no sender name is given", async () => {
+  let seen: ReadyEmail | null = null;
+  await sendEmail(message, async (email) => (seen = email, true));
+  expect(seen!.fromName).toBe("Medialane");
 });
 
-test("sendEmail reports false, and does not throw, when nothing delivered", async () => {
-  expect(await sendEmail(message, [notConfigured, fails])).toBe(false);
-  expect(await sendEmail(message, [])).toBe(false);
+test("sendEmail reports false, and does not throw, when the email is not delivered or the channel fails", async () => {
+  expect(await sendEmail(message, delivers)).toBe(true);
+  expect(await sendEmail(message, notDelivered)).toBe(false);
+  expect(await sendEmail(message, fails)).toBe(false);
 });
 
-describe("the relay channel", () => {
+describe("the mail provider channel", () => {
   const realFetch = globalThis.fetch;
-  const saved = { url: env.MAIL_RELAY_URL, secret: env.MAIL_RELAY_SECRET };
+  const saved = { token: env.ZEPTOMAIL_TOKEN, from: env.CONTACT_FROM_EMAIL };
+  const email: ReadyEmail = { to: "a@b.co", fromName: "Acme", subject: "Hi", html: "<p>Hi</p>", text: "Hi" };
   afterEach(() => {
     globalThis.fetch = realFetch;
-    env.MAIL_RELAY_URL = saved.url;
-    env.MAIL_RELAY_SECRET = saved.secret;
+    env.ZEPTOMAIL_TOKEN = saved.token;
+    env.CONTACT_FROM_EMAIL = saved.from;
   });
 
-  test("sends the template and its data, with the secret, and never any html", async () => {
-    env.MAIL_RELAY_URL = "https://relay.example";
-    env.MAIL_RELAY_SECRET = "s3cret";
+  test("posts the sender, one recipient and both bodies with the token", async () => {
+    env.ZEPTOMAIL_TOKEN = "tok";
+    env.CONTACT_FROM_EMAIL = "noreply@medialane.io";
     let seen: { url: string; init: RequestInit } | null = null;
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       seen = { url, init };
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
 
-    expect(await relayChannel({ ...message, fromName: "Acme" })).toBe(true);
-    expect(seen!.url).toBe("https://relay.example/api/internal/send-email");
-    expect((seen!.init.headers as Record<string, string>)["x-relay-secret"]).toBe("s3cret");
-    const body = JSON.parse(seen!.init.body as string);
-    expect(body).toEqual({ to: "a@b.co", fromName: "Acme", template: "verification-code", data: { code: "482913" } });
+    expect(await zeptoMailChannel(email)).toBe(true);
+    expect((seen!.init.headers as Record<string, string>).Authorization).toBe("Zoho-enczapikey tok");
+    expect(JSON.parse(seen!.init.body as string)).toEqual({
+      from: { address: "noreply@medialane.io", name: "Acme" },
+      to: [{ email_address: { address: "a@b.co" } }],
+      subject: "Hi",
+      htmlbody: "<p>Hi</p>",
+      textbody: "Hi",
+    });
   });
 
-  test("is not configured without a url and secret", async () => {
-    env.MAIL_RELAY_URL = "";
-    env.MAIL_RELAY_SECRET = "";
-    expect(await relayChannel(message)).toBe(false);
+  test("sets the reply address only when there is one", async () => {
+    env.ZEPTOMAIL_TOKEN = "tok";
+    env.CONTACT_FROM_EMAIL = "noreply@medialane.io";
+    const bodies: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(init.body as string));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    await zeptoMailChannel({ ...email, replyTo: "p@q.co" });
+    await zeptoMailChannel(email);
+    expect(bodies[0]!.reply_to).toEqual([{ address: "p@q.co" }]);
+    expect(bodies[1]).not.toHaveProperty("reply_to");
   });
 
-  test("a refusal from the relay is an error, so the send is reported as failed", async () => {
-    env.MAIL_RELAY_URL = "https://relay.example";
-    env.MAIL_RELAY_SECRET = "s3cret";
-    globalThis.fetch = (async () => new Response("no", { status: 400 })) as unknown as typeof fetch;
-    await expect(relayChannel(message)).rejects.toThrow("400");
+  test("is not delivered without a token and a from address", async () => {
+    env.ZEPTOMAIL_TOKEN = "";
+    env.CONTACT_FROM_EMAIL = "";
+    expect(await zeptoMailChannel(email)).toBe(false);
+  });
+
+  test("a refusal from the provider is not delivered", async () => {
+    env.ZEPTOMAIL_TOKEN = "tok";
+    env.CONTACT_FROM_EMAIL = "noreply@medialane.io";
+    globalThis.fetch = (async () => new Response('{"error":{"code":"TM_4001"}}', { status: 401 })) as unknown as typeof fetch;
+    expect(await zeptoMailChannel(email)).toBe(false);
+  });
+});
+
+describe("a send failure", () => {
+  test("keeps the status and the provider error code", () => {
+    expect(sendFailure(401, { error: { code: "TM_4001", message: "Access Denied" } })).toEqual({ status: 401, code: "TM_4001" });
+    expect(sendFailure(400, { data: { error_code: "TM_3004", message: "Invalid request" } })).toEqual({ status: 400, code: "TM_3004" });
+  });
+
+  test("never keeps messages or details, which can carry addresses", () => {
+    const body = { error: { code: "TM_3201", message: "Invalid address a@b.co", details: [{ target: "a@b.co" }] } };
+    expect(JSON.stringify(sendFailure(400, body))).not.toContain("a@b.co");
+  });
+
+  test("drops a code that is not in the expected shape", () => {
+    expect(sendFailure(500, { error: { code: "a@b.co" } })).toEqual({ status: 500 });
+    expect(sendFailure(500, null)).toEqual({ status: 500 });
+    expect(sendFailure(500, "boom")).toEqual({ status: 500 });
   });
 });
 

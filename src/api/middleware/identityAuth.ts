@@ -22,9 +22,9 @@ const productionDeps: IdentityAuthDeps = {
     if (!appId) return false;
     const wallet = await prisma.identity.findUnique({
       where: { appId_chain_address: { appId, chain: chain as Chain, address: normalizeAddress(chain as Chain, address) } },
-      select: { account: { select: { status: true } } },
+      select: { status: true, account: { select: { status: true } } },
     });
-    return wallet?.account.status === "INACTIVE";
+    return wallet?.status === "INACTIVE" || wallet?.account.status === "INACTIVE";
   },
   session: async (raw) => {
     const read = await readSession(raw);

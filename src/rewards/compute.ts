@@ -1,6 +1,6 @@
 import prisma from "../db/client.js";
 import { ACTIONS, BADGES, LEVELS, MULTIPLIERS } from "./config.js";
-import { IDENTITY_SCHEME } from "../utils/identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME } from "../utils/identity.js";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { normalizeAddress } from "../utils/starknet.js";
 import { createLogger } from "../utils/logger.js";
@@ -125,7 +125,7 @@ async function gatherCompleteProfile(xp: number): Promise<RawEvent[]> {
     where: { OR: [{ bio: { not: null } }, { avatarImage: { not: null } }] },
     select: {
       createdAt: true,
-      account: { select: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET }, select: { address: true }, take: 1 } } },
+      account: { select: { identities: { where: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET }, select: { address: true }, take: 1 } } },
     },
   });
   return profiles
@@ -881,15 +881,15 @@ export async function computeRewards(
       await tx.$executeRaw`
         UPDATE "UserScore" us SET "accountId" = w."accountId"
         FROM "Identity" w
-        WHERE w.scheme = 'wallet' AND w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
+        WHERE w.scheme = 'wallet' AND w.status = 'ACTIVE' AND w."chain" = us."chain" AND w."address" = us."address" AND us."accountId" IS DISTINCT FROM w."accountId"
       `;
       await tx.$executeRaw`
         UPDATE "UserBadge" ub SET "accountId" = w."accountId"
-        FROM "Identity" w WHERE w.scheme = 'wallet' AND w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
+        FROM "Identity" w WHERE w.scheme = 'wallet' AND w.status = 'ACTIVE' AND w."address" = ub."address" AND ub."accountId" IS DISTINCT FROM w."accountId"
       `;
       await tx.$executeRaw`
         UPDATE "PointEvent" pe SET "accountId" = w."accountId"
-        FROM "Identity" w WHERE w.scheme = 'wallet' AND w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
+        FROM "Identity" w WHERE w.scheme = 'wallet' AND w.status = 'ACTIVE' AND w."chain" = pe."chain" AND w."address" = pe."address" AND pe."accountId" IS DISTINCT FROM w."accountId"
       `;
     },
     { timeout: 120_000 }

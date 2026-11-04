@@ -1,4 +1,4 @@
-import { IDENTITY_SCHEME } from "../../utils/identity.js";
+import { ACTIVE_IDENTITY, IDENTITY_SCHEME } from "../../utils/identity.js";
 import { Hono } from "hono";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
@@ -179,7 +179,7 @@ profiles.get("/creators", chainScope(), validated("query", pageQuery({ maxLimit:
     prisma.accountProfile.findMany({
       where,
       include: {
-        account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
+        account: { include: { identities: { where: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
       },
       orderBy: { username: "asc" },
       skip: (page - 1) * limit,
@@ -226,7 +226,7 @@ profiles.get("/creators/by-username/:username", chainScope(), async (c) => {
   const profile = await prisma.accountProfile.findUnique({
     where: { username },
     include: {
-      account: { include: { identities: { where: { scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
+      account: { include: { identities: { where: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
     },
   });
   if (!profile || !profile.account.identities[0]?.address) {
