@@ -495,6 +495,8 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
           );
           return { ok: true, orderHash, calls };
         } catch (err) {
+          const refusal = err instanceof IntentRefusal ? err : null;
+          if (refusal) return { ok: false, orderHash, error: refusal.reason };
           log.error({ err, orderHash }, "Failed to build fulfill intent");
           return {
             ok: false,
