@@ -44,8 +44,9 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
-  MAIL_RELAY_URL: z.string().default(""),
-  MAIL_RELAY_SECRET: z.string().default(""),
+  ZEPTOMAIL_TOKEN: z.string().default(""),
+  CONTACT_FROM_EMAIL: z.string().default(""),
+  IO_APP_URL: z.string().default("https://medialane.io").transform((url) => url.replace(/\/$/, "")),
 });
 
 function parseEnv() {
