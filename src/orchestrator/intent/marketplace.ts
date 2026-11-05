@@ -3,6 +3,7 @@ import { resolveConfig, type ResolvedFeeConfig } from "@medialane/sdk";
 import {
   buildIntent,
   resolveIntentInputs,
+  ORDER_START_DELAY_SECONDS,
   ORDER_START_WINDOW_SECONDS,
   type CancelIntentParams,
   type CounterOfferIntentParams,
@@ -23,7 +24,6 @@ import { IntentRefusal } from "./refusal.js";
 import { fetchCounter, fetchCounter1155, fetchRoyaltyMaxBps, generateSalt, toHex } from "./shared.js";
 
 const sdkConfig = resolveConfig({});
-const START_DELAY_SECONDS = 30;
 
 type OrderTimingRequest = { salt?: string; startTime?: number };
 type ListingIntentRequest = Omit<ListingIntentParams, "salt" | "startTime"> & OrderTimingRequest;
@@ -44,7 +44,7 @@ export function withOrderTiming<P extends OrderTimingRequest>(request: P): P & {
   if (request.startTime !== undefined && Math.abs(request.startTime - now) > ORDER_START_WINDOW_SECONDS) {
     throw new IntentRefusal("The order's start time is out of range");
   }
-  return { ...request, salt: request.salt ?? generateSalt(), startTime: request.startTime ?? now + START_DELAY_SECONDS };
+  return { ...request, salt: request.salt ?? generateSalt(), startTime: request.startTime ?? now + ORDER_START_DELAY_SECONDS };
 }
 
 const SELLER_NO_LONGER_OWNS = "This listing is no longer available because the seller no longer owns this item.";

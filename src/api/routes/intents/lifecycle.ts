@@ -1,9 +1,8 @@
-
-
+import type { Call, TypedData } from "starknet";
 import type { Hono } from "hono";
 import { type Prisma as PrismaTypes, type TransactionIntent } from "@prisma/client";
 import prisma from "../../../db/client.js";
-import { buildPopulatedCalls } from "../../../orchestrator/submit.js";
+import { populateSignedCalls, type BuildableIntentKind } from "@medialane/sdk/starknet";
 import { verifyWalletSignature, type VerifyResult } from "../../../auth/verify.js";
 import { GuardianUnavailableError, productionCosign, type Cosign } from "../../../utils/guardianCosign.js";
 import type { AppEnv } from "../../../types/hono.js";
@@ -20,6 +19,13 @@ import {
 } from "./settle.js";
 import { notFound } from "../../http/errors.js";
 import { validated } from "../../http/validate.js";
+
+const SIGNED_KINDS: Partial<Record<string, BuildableIntentKind>> = {
+  CREATE_LISTING: "listing",
+  MAKE_OFFER: "offer",
+  COUNTER_OFFER: "counter-offer",
+  CANCEL_ORDER: "cancel",
+};
 
 async function ownIntent(c: { get(key: "account"): { id: string } }, id: string): Promise<TransactionIntent> {
   const intent = await prisma.transactionIntent.findFirst({ where: { id, accountId: c.get("account").id } });
@@ -92,12 +98,9 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>, cosign: Cosign = 
       log.warn({ id, requester: intent.requester }, "Intent signature accepted unproven: the wallet is not on chain yet");
     }
 
-    const populatedCalls = buildPopulatedCalls(
-      intent.type,
-      (intent.typedData as Record<string, unknown> & { message: Record<string, unknown> }).message,
-      intent.calls as { contractAddress: string; entrypoint: string; calldata: string[] }[],
-      signature
-    );
+    const kind = SIGNED_KINDS[intent.type];
+    const calls = intent.calls as unknown as Call[];
+    const populatedCalls = kind ? populateSignedCalls(kind, { calls, typedData: intent.typedData as unknown as TypedData }, signature) : calls;
 
     const updated = await prisma.transactionIntent.update({
       where: { id },
