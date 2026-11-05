@@ -12,7 +12,7 @@ export const newCollectionFields = {
   symbol: z.string().min(1),
   description: z.string().optional(),
   image: fileRef.optional(),
-  externalLink: z.string().url().regex(/^https?:\/\//).optional(),
+  externalLink: z.url().regex(/^https?:\/\//).optional(),
 };
 
 export type FileRef = z.infer<typeof fileRef>;

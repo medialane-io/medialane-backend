@@ -27,7 +27,7 @@ const log = createLogger("routes:launchpad-runs:certificate-emission");
 
 const SERVICE = "certificate-emission";
 
-const walletRequest = z.object({ recipient: z.string().email() });
+const walletRequest = z.object({ recipient: z.email() });
 
 /** Address of the collection created in `events` by `factory`, from POP `CollectionCreated`. */
 export function createdPopCollection(events: ReceiptEvent[], factory: string): string | null {

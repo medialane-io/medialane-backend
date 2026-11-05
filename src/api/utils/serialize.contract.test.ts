@@ -6,11 +6,11 @@ import { serializeCollection, serializeOrder, serializeToken } from "./serialize
 function deepStrict(schema: z.ZodTypeAny): z.ZodTypeAny {
   if (schema instanceof z.ZodObject) {
     const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, value]) => [key, deepStrict(value as z.ZodTypeAny)]));
-    return z.object(shape).strict();
+    return z.strictObject(shape);
   }
-  if (schema instanceof z.ZodArray) return z.array(deepStrict(schema.element));
-  if (schema instanceof z.ZodNullable) return deepStrict(schema.unwrap()).nullable();
-  if (schema instanceof z.ZodOptional) return deepStrict(schema.unwrap()).optional();
+  if (schema instanceof z.ZodArray) return z.array(deepStrict(schema.element as z.ZodTypeAny));
+  if (schema instanceof z.ZodNullable) return deepStrict(schema.unwrap() as z.ZodTypeAny).nullable();
+  if (schema instanceof z.ZodOptional) return deepStrict(schema.unwrap() as z.ZodTypeAny).optional();
   return schema;
 }
 

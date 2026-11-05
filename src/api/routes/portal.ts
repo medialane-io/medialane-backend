@@ -95,7 +95,7 @@ portal.get("/keys", async (c) => {
 
 const createKeySchema = z.object({
   label: z.string().max(64).optional(),
-  confirmation: z.unknown(),
+  confirmation: z.unknown().optional(),
 });
 
 const CONFIRMATION_REQUIRED = {

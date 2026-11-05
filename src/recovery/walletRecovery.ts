@@ -1,13 +1,6 @@
 import type { Call } from "starknet";
 import { typedData as starknetTypedData } from "starknet";
-import {
-  buildCompleteEscapeOwnerCall,
-  buildTriggerEscapeOwnerCall,
-  computeOwnerGuid,
-  getGuardians,
-  getOwners,
-  signWithPrivateKey,
-} from "@medialane/sdk/starknet";
+import { buildCompleteEscapeOwnerCall, buildTriggerEscapeOwnerCall, computeOwnerGuid, getGuardians, getOwners, signWithPrivateKey, sameFelt } from "@medialane/sdk/starknet";
 import { accountWallet } from "../utils/account.js";
 import { guardianKey, guardianPubkey } from "../utils/guardianKey.js";
 import { createProvider } from "../utils/starknet.js";
@@ -47,7 +40,6 @@ export type RecoveryOutcome =
   | { status: 200; body: RecoveryView }
   | { status: 404 | 409 | 502; error: string };
 
-const sameFelt = (a: string, b: string) => BigInt(a) === BigInt(b);
 const ownsWallet = (owners: string[], pubkey: string) => owners.some((guid) => sameFelt(guid, computeOwnerGuid(pubkey)));
 const liveOwnerEscape = (escape: EscapeState) => escape.type === "Owner" && (escape.status === "NotReady" || escape.status === "Ready");
 const NO_WALLET = { status: 404 as const, error: "This account has no wallet" };

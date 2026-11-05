@@ -12,7 +12,7 @@ export interface FundingRouteDeps {
   mdlnMultiplier: (payer: string) => Promise<number>;
 }
 
-const createBody = z.object({ method: z.string().min(1), params: z.unknown() });
+const createBody = z.object({ method: z.string().min(1), params: z.unknown().optional() });
 
 export function createFundingRoutes(deps: FundingRouteDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();

@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import type { Context, Next } from "hono";
-import type { ZodError, ZodTypeAny } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import { badRequest } from "./errors.js";
 
 const JSON_CONTENT_TYPE = /^application\/(?:[\w.+-]+\+)?json\b/i;
@@ -10,9 +10,9 @@ export const validated = <T extends "json" | "query", S extends ZodTypeAny>(
   schema: S,
   opts: { message?: string } = {},
 ) => {
-  const refuse = (error: ZodError): never => {
+  const refuse = (error: z.core.$ZodError): never => {
     if (opts.message) throw badRequest(opts.message);
-    throw badRequest(target === "json" ? "Invalid body" : "Invalid query", { details: error.flatten() });
+    throw badRequest(target === "json" ? "Invalid body" : "Invalid query", { details: z.flattenError(error) });
   };
 
   const standard = zValidator(target, schema, (result) => {
@@ -32,8 +32,8 @@ export const validated = <T extends "json" | "query", S extends ZodTypeAny>(
       }
     }
     const result = schema.safeParse(raw);
-    if (!result.success) refuse(result.error);
-    c.req.addValidatedData("json", result.data);
+    if (!result.success) return refuse(result.error);
+    c.req.addValidatedData("json", result.data as object);
     await next();
   };
   return whateverTheHeaderSays as typeof standard;

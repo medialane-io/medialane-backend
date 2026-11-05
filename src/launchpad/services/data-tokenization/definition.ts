@@ -21,23 +21,23 @@ const spec = z
       )
       .min(1)
       .max(MAX_RUN_ITEMS),
-    guests: z.array(z.string().email()).max(MAX_RUN_ITEMS).default([]),
+    guests: z.array(z.email()).max(MAX_RUN_ITEMS).default([]),
   })
   .superRefine((value, ctx) => {
     const guests = new Set(value.guests.map((g) => g.trim().toLowerCase())).size;
     if (value.items.length * Math.max(1, guests) > MAX_RUN_ITEMS) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["guests"], message: `A run mints at most ${MAX_RUN_ITEMS} tokens: items times guests` });
+      ctx.addIssue({ code: "custom", path: ["guests"], message: `A run mints at most ${MAX_RUN_ITEMS} tokens: items times guests` });
     }
     const seen = new Set<string>();
     value.items.forEach((item, index) => {
       if (item.placement !== "image" && !item.image) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "image"], message: "This item needs a cover image" });
+        ctx.addIssue({ code: "custom", path: ["items", index, "image"], message: "This item needs a cover image" });
       }
       if (item.placement === "image" && !item.file.type.startsWith("image/")) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "file"], message: "This item's file needs to be an image" });
+        ctx.addIssue({ code: "custom", path: ["items", index, "file"], message: "This item's file needs to be an image" });
       }
       if (seen.has(item.file.name)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "file", "name"], message: "Each item needs its own file" });
+        ctx.addIssue({ code: "custom", path: ["items", index, "file", "name"], message: "Each item needs its own file" });
       }
       seen.add(item.file.name);
     });

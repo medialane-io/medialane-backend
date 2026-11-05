@@ -8,8 +8,8 @@ import { RUN_SERVICES, definitionOf, parseRunSpec, quoteRun } from "../../../lau
 import { ownRun, specError, type RunContext } from "./context.js";
 import { validated } from "../../http/validate.js";
 
-const createBody = z.object({ service: z.enum(RUN_SERVICES), spec: z.unknown() });
-const updateBody = z.object({ spec: z.unknown() });
+const createBody = z.object({ service: z.enum(RUN_SERVICES), spec: z.unknown().optional() });
+const updateBody = z.object({ spec: z.unknown().optional() });
 const checkoutBody = z.union([
   z.object({ method: z.literal("credits") }),
   z.object({ method: z.literal("wallet"), intentId: z.string().min(1) }),

@@ -18,7 +18,7 @@ const spec = z.object({
   validFrom: z.number().int().positive().optional(),
   validUntil: z.number().int().positive().optional(),
   supply: z.number().int().positive().optional(),
-  guests: z.array(z.string().email()).min(1).max(MAX_RUN_ITEMS),
+  guests: z.array(z.email()).min(1).max(MAX_RUN_ITEMS),
 });
 
 export type IpTicketingSpec = z.infer<typeof spec>;
@@ -41,10 +41,10 @@ export const ipTicketing: RunServiceDefinition<IpTicketingSpec> = {
     const parsed = spec.parse(raw);
     const guests = new Set(parsed.guests.map((g) => g.trim().toLowerCase()));
     if (parsed.supply !== undefined && parsed.supply < guests.size) {
-      throw new z.ZodError([{ code: z.ZodIssueCode.custom, path: ["supply"], message: "Supply must cover every guest" }]);
+      throw new z.ZodError([{ code: "custom", path: ["supply"], message: "Supply must cover every guest" }]);
     }
     if (parsed.validFrom !== undefined && parsed.validUntil !== undefined && parsed.validUntil <= parsed.validFrom) {
-      throw new z.ZodError([{ code: z.ZodIssueCode.custom, path: ["validUntil"], message: "It has to end after it starts" }]);
+      throw new z.ZodError([{ code: "custom", path: ["validUntil"], message: "It has to end after it starts" }]);
     }
     return { ...parsed, guests: [...guests] };
   },

@@ -55,10 +55,10 @@ function hashCode(code: string): string {
   return createHmac("sha256", env.SIWS_SECRET).update(`${CODE_HASH_DOMAIN}.${code}`).digest("hex");
 }
 
-const requestCodeSchema = z.object({ email: z.string().email() });
-const verifyCodeSchema = z.object({ email: z.string().email(), code: z.string().length(6) });
-const existsQuerySchema = z.object({ email: z.string().email() });
-const registerAccountSchema = z.object({ email: z.string().email() });
+const requestCodeSchema = z.object({ email: z.email() });
+const verifyCodeSchema = z.object({ email: z.email(), code: z.string().length(6) });
+const existsQuerySchema = z.object({ email: z.email() });
+const registerAccountSchema = z.object({ email: z.email() });
 const confirmSchema = z.object({ token: z.string().min(1).max(2048) });
 
 const TOO_MANY_CODES = { error: "Please wait a few minutes before asking for another code", code: "too_many_codes" } as const;

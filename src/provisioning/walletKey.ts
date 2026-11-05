@@ -1,6 +1,6 @@
 import type { Call } from "starknet";
 import { typedData as starknetTypedData } from "starknet";
-import { buildAddOwnerCall, computeOwnerGuid, getOwners, signWithPrivateKey } from "@medialane/sdk/starknet";
+import { buildAddOwnerCall, computeOwnerGuid, getOwners, signWithPrivateKey, sameFelt } from "@medialane/sdk/starknet";
 import prisma from "../db/client.js";
 import { accountWallet } from "../utils/account.js";
 import { recordAccountEvent } from "../utils/accountEvents.js";
@@ -22,7 +22,6 @@ export type WalletKeyOutcome =
   | { status: 200; walletAddress: string; removeOwnerGuid: string | null }
   | { status: 403 | 404 | 409 | 502; error: string };
 
-const sameFelt = (a: string, b: string) => BigInt(a) === BigInt(b);
 
 const ownsWallet = (owners: string[], pubkey: string) => owners.some((g) => sameFelt(g, computeOwnerGuid(pubkey)));
 
