@@ -1,5 +1,5 @@
 import { ec, typedData as starknetTypedData, type TypedData } from "starknet";
-import { computeOwnerGuid, getGuardians, getOwners, signWithPrivateKey, type GuardianInfo } from "@medialane/sdk/starknet";
+import { computeOwnerGuid, getGuardians, getOwners, signWithPrivateKey, type GuardianInfo, sameFelt } from "@medialane/sdk/starknet";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
 import { guardianKeyWith } from "./guardianKey.js";
@@ -22,7 +22,6 @@ export class GuardianUnavailableError extends Error {
 
 export type Cosign = (wallet: string, typedData: unknown, ownerSignature: string[]) => Promise<string[]>;
 
-const sameFelt = (a: string, b: string) => BigInt(a) === BigInt(b);
 
 function signedBy(signature: InstanceType<typeof ec.starkCurve.Signature>, messageHash: string, starkKey: string): boolean {
   const x = BigInt(starkKey).toString(16).padStart(64, "0");
