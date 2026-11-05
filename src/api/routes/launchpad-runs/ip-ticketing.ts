@@ -21,7 +21,7 @@ import { canSubmit, pinnedValue } from "../../../launchpad/services/data-tokeniz
 import { assertOwnsWallet, walletBody, type ReceiptEvent, type RunContext } from "./context.js";
 import { NotReady, type ActiveBase, type RunServiceSteps, type SponsoredStep } from "./steps.js";
 import { validated } from "../../http/validate.js";
-import { sameFelt } from "../../../utils/felt.js";
+import { sameFelt } from "@medialane/sdk/starknet";
 
 const log = createLogger("routes:launchpad-runs:ip-ticketing");
 

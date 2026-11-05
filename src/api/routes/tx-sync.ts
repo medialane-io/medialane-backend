@@ -21,7 +21,7 @@ import { createLogger } from "../../utils/logger.js";
 import type { RawStarknetEvent } from "../../types/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
 import { validated } from "../http/validate.js";
-import { sameFelt } from "../../utils/felt.js";
+import { sameFelt } from "@medialane/sdk/starknet";
 
 const log = createLogger("routes:tx-sync");
 

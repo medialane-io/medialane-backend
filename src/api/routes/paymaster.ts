@@ -1,9 +1,9 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { requireSession } from "../middleware/sessionGuard.js";
 import { composeIntentCalls, prismaSponsorIntentDeps, type SponsorIntentDeps } from "./sponsorIntents.js";
-import { CallData, PaymasterRpc, hash, uint256, type Call } from "starknet";
+import { CallData, PaymasterRpc, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
-import { buildSetFirstGuardianCall, ownerConstructorCalldata } from "@medialane/sdk/starknet";
+import { buildSetFirstGuardianCall, deploymentIsMediaWallet, ownerConstructorCalldata, typedDataMatchesCalls } from "@medialane/sdk/starknet";
 import { env } from "../../config/env.js";
 import { guardianPubkeyWith } from "../../utils/guardianKey.js";
 import { toIntentCall } from "../../orchestrator/intent/calls.js";
@@ -13,7 +13,6 @@ import { GuardianUnavailableError, productionCosign, type Cosign } from "../../u
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
 import type { AppEnv } from "../../types/hono.js";
-import { sameFelt } from "../../utils/felt.js";
 
 const log = createLogger("routes:paymaster");
 
@@ -93,36 +92,6 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
     return { status: 502, message: "The sponsored transaction may have been submitted. Check your activity before trying again.", code: "may_have_broadcast", detail };
   }
   return { status: 502, message: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable", detail };
-}
-
-interface SignedCall {
-  To?: unknown;
-  Selector?: unknown;
-  Calldata?: unknown;
-}
-
-function isEmptyCall(call: SignedCall): boolean {
-  return sameFelt(call.To, "0x0") && sameFelt(call.Selector, "0x0") && Array.isArray(call.Calldata) && call.Calldata.length === 0;
-}
-
-export function typedDataMatchesCalls(
-  typedData: unknown,
-  calls: readonly { contractAddress: string; entrypoint: string; calldata: readonly string[] }[],
-): boolean {
-  const signed = (typedData as { message?: { Calls?: unknown } } | null)?.message?.Calls;
-  if (!Array.isArray(signed)) return false;
-  const trailingFeeCall = signed.length === calls.length + 1 && isEmptyCall(signed[calls.length] as SignedCall);
-  if (signed.length !== calls.length && !trailingFeeCall) return false;
-  return calls.every((call, i) => {
-    const s = signed[i] as SignedCall;
-    return (
-      sameFelt(s.To, call.contractAddress) &&
-      sameFelt(s.Selector, hash.getSelectorFromName(call.entrypoint)) &&
-      Array.isArray(s.Calldata) &&
-      s.Calldata.length === call.calldata.length &&
-      s.Calldata.every((value, j) => sameFelt(value, call.calldata[j]))
-    );
-  });
 }
 
 function txHashOf(result: unknown): string {
@@ -228,17 +197,6 @@ export function deploymentCalls(ownerAddress: string, guardianSecret: string = e
   const strk = getTokenBySymbol("STRK");
   if (!strk) throw new Error("STRK token not found in registry");
   return [{ contractAddress: strk.address, entrypoint: "transfer", calldata: CallData.compile([ownerAddress, uint256.bnToUint256(0)]) as string[] }];
-}
-
-export function deploymentIsMediaWallet(deployment: unknown, ownerAddress: string, classHash: string): boolean {
-  const d = deployment as { address?: unknown; class_hash?: unknown; salt?: unknown; calldata?: unknown } | null;
-  if (!sameFelt(d?.address, ownerAddress) || !sameFelt(d?.class_hash, classHash)) return false;
-  if (typeof d?.salt !== "string" || !Array.isArray(d.calldata) || !d.calldata.every((v) => typeof v === "string")) return false;
-  try {
-    return sameFelt(hash.calculateContractAddressFromHash(d.salt, classHash, d.calldata, 0), ownerAddress);
-  } catch {
-    return false;
-  }
 }
 
 export async function buildDeployment(
