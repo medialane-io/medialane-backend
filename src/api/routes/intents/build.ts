@@ -42,6 +42,7 @@ import {
 import { normalizeAddress } from "../../../utils/starknet.js";
 import { callerApp } from "../../../utils/caller.js";
 import type { IntentBuildContext } from "../../../orchestrator/intent/fee.js";
+import { IntentMismatch, assertMatchesClientBuild } from "../../../orchestrator/intent/clientBuilt.js";
 import { IntentRefusal } from "../../../orchestrator/intent/refusal.js";
 import type { AppEnv } from "../../../types/hono.js";
 import { starknet } from "@medialane/sdk/contract";
@@ -83,6 +84,8 @@ const {
   fundingTransferSchema,
 } = starknet;
 import { validated } from "../../http/validate.js";
+
+const INTENT_MISMATCH = { error: "The submitted build does not match the request", code: "intent_mismatch" } as const;
 
 class CounterAlreadyExists extends Error {
   constructor() {
@@ -128,6 +131,7 @@ function registerIntentRoute<T>(
 
     try {
       const built = await cfg.build(parsed, { appId: callerApp(c) });
+      assertMatchesClientBuild((parsed as { built?: unknown }).built, built);
       const requester = normalizeAddress("STARKNET", parsed[cfg.requesterField] as unknown as string);
       const ttl = expiresAt();
 
@@ -155,6 +159,7 @@ function registerIntentRoute<T>(
     } catch (err: unknown) {
       const refusal = err instanceof IntentRefusal ? err : null;
       if (refusal) return c.json({ error: refusal.reason }, 400);
+      if (err instanceof IntentMismatch) return c.json(INTENT_MISMATCH, 422);
       log.error({ err }, `Failed to build ${cfg.path.slice(1)} intent`);
       return c.json({ error: "We could not prepare that transaction. Please try again." }, 500);
     }
@@ -353,7 +358,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
   intents.post("/counter-offer", validated("json", counterOfferSchema), async (c) => {
     const parsed = c.req.valid("json");
 
-    const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message } = parsed;
+    const { sellerAddress, originalOrderHash, durationSeconds, priceRaw, message, salt, startTime, built: clientBuilt } = parsed;
     const normalizedSeller = normalizeAddress("STARKNET", sellerAddress);
 
     const originalOrder = await prisma.order.findFirst({
@@ -379,13 +384,15 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
     try {
 
       const { typedData, calls } = await buildCounterOfferIntent({
-        sellerAddress:   normalizedSeller,
-        nftContract:     originalOrder.considerationToken,
-        tokenId:         originalOrder.considerationIdentifier,
-        currencyAddress: originalOrder.offerToken,
-        priceRaw,
+        sellerAddress: normalizedSeller,
+        originalOrderHash,
         durationSeconds,
+        priceRaw,
+        message,
+        salt,
+        startTime,
       });
+      assertMatchesClientBuild(clientBuilt, { typedData, calls });
 
       const ttl = expiresAt();
 
@@ -418,6 +425,9 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       if (err instanceof CounterAlreadyExists) {
         return c.json({ error: "A counter-offer already exists for this order" }, 400);
       }
+      const refusal = err instanceof IntentRefusal ? err : null;
+      if (refusal) return c.json({ error: refusal.reason }, 400);
+      if (err instanceof IntentMismatch) return c.json(INTENT_MISMATCH, 422);
       log.error({ err }, "Failed to build counter-offer intent");
       return c.json({ error: "We could not prepare that counter-offer. Please try again." }, 500);
     }
