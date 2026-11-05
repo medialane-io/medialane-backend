@@ -2,7 +2,8 @@ import type { Context } from "hono";
 import type { AppEnv } from "../../../types/hono.js";
 import type { StepState } from "../../../launchpad/services/data-tokenization/progress.js";
 import type { Call } from "../../../launchpad/services/ip-ticketing/chain.js";
-import { executeSponsoredInvoke, typedDataMatchesCalls } from "../paymaster.js";
+import { typedDataMatchesCalls } from "@medialane/sdk/starknet";
+import { executeSponsoredInvoke } from "../paymaster.js";
 import type { RunContext, RunReceipt } from "./context.js";
 
 export interface StepTarget {

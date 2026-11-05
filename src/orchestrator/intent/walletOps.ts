@@ -1,11 +1,4 @@
-import {
-  buildAddOwnerCall,
-  buildRemoveOwnerByGuidCall,
-  buildCancelEscapeCall,
-  buildSetFirstGuardianCall,
-  buildTriggerEscapeOwnerCall,
-  buildCompleteEscapeOwnerCall,
-} from "@medialane/sdk/starknet";
+import { buildWalletManageCall } from "@medialane/sdk/starknet";
 import { getQuotes as avnuGetQuotes, quoteToCalls as avnuQuoteToCalls } from "@avnu/avnu-sdk";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { tokenByAddress } from "../../payments/token-value.js";
@@ -25,20 +18,11 @@ const plain = (c: { contractAddress: string; entrypoint: string; calldata?: unkn
 export type WalletAction = "add_owner" | "remove_owner" | "cancel_escape" | "set_first_guardian" | "trigger_escape" | "complete_escape";
 
 export async function buildWalletManageIntent(body: { owner: string; action: WalletAction; pubkey?: string; ownerGuid?: string; newOwnerPubkey?: string }) {
-  const owner = addr(body.owner);
-  const need = (v: string | undefined, name: string) => {
-    if (!v) throw new IntentRefusal(`${name} is required`);
-    return v;
-  };
-  const build = {
-    add_owner: () => buildAddOwnerCall(owner, need(body.pubkey, "pubkey")),
-    remove_owner: () => buildRemoveOwnerByGuidCall(owner, need(body.ownerGuid, "ownerGuid")),
-    cancel_escape: () => buildCancelEscapeCall(owner),
-    set_first_guardian: () => buildSetFirstGuardianCall(owner, need(body.pubkey, "pubkey")),
-    trigger_escape: () => buildTriggerEscapeOwnerCall(owner, need(body.newOwnerPubkey, "newOwnerPubkey")),
-    complete_escape: () => buildCompleteEscapeOwnerCall(owner),
-  }[body.action];
-  return { calls: [plain(build())] };
+  try {
+    return { calls: [plain(buildWalletManageCall(body))] };
+  } catch (err) {
+    throw new IntentRefusal(err instanceof Error ? err.message : "Invalid wallet action");
+  }
 }
 
 export async function buildFundingTransferIntent(body: { owner: string; asset: string; amountAtomic: string }) {

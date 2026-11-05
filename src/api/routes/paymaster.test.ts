@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
-import paymaster, { classifyPaymasterError, deploymentCalls, executeOwnSponsoredInvoke, deploymentIsMediaWallet, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
+import paymaster, { classifyPaymasterError, deploymentCalls, executeOwnSponsoredInvoke, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 import { WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
@@ -318,27 +318,6 @@ describe("POST /deploy/execute", () => {
     });
     expect(res.status).toBe(400);
     expect(executed).toBe(false);
-  });
-});
-
-describe("Media Wallet deployment check", () => {
-  const CH = MEDIA_WALLET_CLASS;
-  const OWNER = DERIVED_ADDRESS;
-
-  test("accepts a Media Wallet deployment at the address its key produces", () => {
-    expect(deploymentIsMediaWallet(walletDeployment(), OWNER, CH)).toBe(true);
-  });
-
-  test("refuses another class or another address", () => {
-    expect(deploymentIsMediaWallet({ ...walletDeployment(), class_hash: "0x123" }, OWNER, CH)).toBe(false);
-    expect(deploymentIsMediaWallet(walletDeployment("0x9"), OWNER, CH)).toBe(false);
-    expect(deploymentIsMediaWallet(null, OWNER, CH)).toBe(false);
-  });
-
-  test("refuses an address that its salt and constructor data do not produce", () => {
-    const other = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    expect(deploymentIsMediaWallet(walletDeployment(other), other, CH)).toBe(false);
-    expect(deploymentIsMediaWallet({ address: OWNER, class_hash: CH }, OWNER, CH)).toBe(false);
   });
 });
 
