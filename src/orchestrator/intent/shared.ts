@@ -64,49 +64,6 @@ export async function fetchRoyaltyMaxBps(nftContract: string, tokenId: string): 
   return "0";
 }
 
-interface OrderLegInput {
-  itemType: string;
-  token: string;
-  identifierOrCriteria: string | number | bigint;
-  amount: string | number | bigint;
-  recipient?: string;
-}
-
-export function buildOrderParams(input: {
-  offerer: string;
-  marketplace: string;
-  offer: OrderLegInput;
-  consideration: OrderLegInput;
-  royaltyMaxBps: string | number | bigint;
-  startTime: number;
-  endTime: number;
-  salt: string;
-  counter: string;
-}) {
-  return {
-    offerer: toHex(input.offerer),
-    marketplace: toHex(input.marketplace),
-    offer: {
-      item_type: input.offer.itemType,
-      token: toHex(input.offer.token),
-      identifier_or_criteria: toHex(input.offer.identifierOrCriteria),
-      amount: toHex(input.offer.amount),
-    },
-    consideration: {
-      item_type: input.consideration.itemType,
-      token: toHex(input.consideration.token),
-      identifier_or_criteria: toHex(input.consideration.identifierOrCriteria),
-      amount: toHex(input.consideration.amount),
-      recipient: toHex(input.consideration.recipient ?? ""),
-    },
-    royalty_max_bps: toHex(input.royaltyMaxBps),
-    start_time: toHex(input.startTime),
-    end_time: toHex(input.endTime),
-    salt: toHex(input.salt),
-    counter: toHex(input.counter),
-  };
-}
-
 export function generateSalt(): string {
 
   const bytes = new Uint8Array(31);
@@ -118,13 +75,6 @@ export function resolveCollectionContract(override?: string, service?: string | 
   if (override) return normalizeAddress("STARKNET", override);
   const registry = service ? getService(service)?.onchain?.STARKNET?.factoryAddress : undefined;
   return registry ? normalizeAddress("STARKNET", registry) : STARKNET_COLLECTION_721_CONTRACT;
-}
-
-export function parseAmount(humanAmount: string, decimals: number): bigint {
-  const parts = humanAmount.replace(/,/g, "").split(".");
-  const integer = BigInt(parts[0] || "0");
-  const fraction = (parts[1] || "").padEnd(decimals, "0").slice(0, decimals);
-  return integer * BigInt(10 ** decimals) + BigInt(fraction);
 }
 
 export function encodeByteArray(str: string): string[] {

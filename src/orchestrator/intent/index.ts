@@ -1,6 +1,5 @@
 
 
-export { buildOrderParams } from "./shared.js";
 export {
   buildCreateListingIntent,
   buildMakeOfferIntent,
