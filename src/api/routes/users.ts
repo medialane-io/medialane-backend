@@ -42,7 +42,7 @@ const meBodySchema = z.object({
 
   chain: chainEnum.optional(),
 
-  email: z.string().email().optional(),
+  email: z.email().optional(),
 
 });
 
@@ -296,7 +296,7 @@ users.get("/me", async (c, next) => identityAuthWalletOptional(c, next), async (
   });
 });
 
-const changeEmailSchema = z.object({ email: z.string().email() });
+const changeEmailSchema = z.object({ email: z.email() });
 
 users.post("/me/email", async (c, next) => identityAuth(c, next), validated("json", changeEmailSchema), async (c) => {
   const walletAddress = c.get("walletAddress") as string;

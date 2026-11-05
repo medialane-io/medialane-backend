@@ -31,7 +31,7 @@ const log = createLogger("routes:launchpad-runs:data-tokenization");
 
 const SERVICE = "data-tokenization-erc721";
 
-const guestRequest = z.object({ recipient: z.string().email() });
+const guestRequest = z.object({ recipient: z.email() });
 
 interface ActiveRun extends ActiveBase {
   spec: DataTokenizationSpec;

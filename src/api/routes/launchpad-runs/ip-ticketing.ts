@@ -27,7 +27,7 @@ const log = createLogger("routes:launchpad-runs:ip-ticketing");
 
 const SERVICE = "ip-ticketing";
 
-const walletRequest = z.object({ recipient: z.string().email() });
+const walletRequest = z.object({ recipient: z.email() });
 
 interface ActiveRun extends ActiveBase {
   spec: IpTicketingSpec;

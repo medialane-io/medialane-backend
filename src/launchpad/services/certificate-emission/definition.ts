@@ -9,7 +9,7 @@ const spec = z.object({
   name: z.string().min(1),
   description: z.string().default(""),
   artwork: fileRef.optional(),
-  guests: z.array(z.string().email()).min(1).max(MAX_RUN_ITEMS),
+  guests: z.array(z.email()).min(1).max(MAX_RUN_ITEMS),
 });
 
 export type CertificateEmissionSpec = z.infer<typeof spec>;

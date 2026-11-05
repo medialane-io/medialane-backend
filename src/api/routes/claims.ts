@@ -221,7 +221,7 @@ claims.post(
   validated("json", z.object({
     contractAddress: z.string(),
     walletAddress: z.string().optional(),
-    email: z.string().email(),
+    email: z.email(),
     notes: z.string().optional(),
   })),
   chainScope(),

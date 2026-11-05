@@ -40,7 +40,7 @@ collectionSlugClaims.post(
   validated("json", z.object({
     contractAddress: z.string(),
     slug: z.string(),
-    notifyEmail: z.string().email().optional(),
+    notifyEmail: z.email().optional(),
   })),
   chainScope(),
   async (c) => {

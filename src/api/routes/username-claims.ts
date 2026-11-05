@@ -36,7 +36,7 @@ usernameClaims.get("/check/:username", async (c) => {
 usernameClaims.post(
   "/",
   identityAuth,
-  validated("json", z.object({ username: z.string(), notifyEmail: z.string().email().optional() })),
+  validated("json", z.object({ username: z.string(), notifyEmail: z.email().optional() })),
   async (c) => {
     const jwtWallet = c.get("walletAddress") as string;
     const { username, notifyEmail } = c.req.valid("json");

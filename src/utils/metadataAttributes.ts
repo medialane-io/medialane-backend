@@ -4,7 +4,7 @@ const attributeSchema = z.object({
   trait_type: z.string(),
   value: z.union([z.string(), z.number(), z.boolean()]),
   display_type: z.string().optional(),
-}).passthrough();
+}).loose();
 
 export const attributesArraySchema = z.array(attributeSchema);
 

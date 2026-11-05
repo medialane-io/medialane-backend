@@ -25,7 +25,7 @@ const defaultPriceOf: PriceOf = (action) => creditsForAction(action);
 export function definitionOf(service: string): RunServiceDefinition<unknown> {
   const definition = DEFINITIONS[service as RunService];
   if (!definition) {
-    throw new z.ZodError([{ code: z.ZodIssueCode.custom, path: ["service"], message: `Unknown service ${service}` }]);
+    throw new z.ZodError([{ code: "custom", path: ["service"], message: `Unknown service ${service}` }]);
   }
   return definition;
 }

@@ -96,7 +96,7 @@ function expiresAt(): Date {
 
 interface IntentRouteConfig<T> {
   path: string;
-  schema: ZodType<T, any, any>;
+  schema: ZodType<T>;
   type: IntentType;
 
   requesterField: keyof T & string;

@@ -116,11 +116,11 @@ export function createRunContext(deps: RunRouteDeps): RunContext {
   };
 }
 
-export const walletBody = z.object({ userAddress: z.string().min(3) }).passthrough();
+export const walletBody = z.object({ userAddress: z.string().min(3) }).loose();
 
 export const executeBody = z.object({
   userAddress: z.string().min(3),
-  typedData: z.unknown(),
+  typedData: z.unknown().optional(),
   signature: z.array(z.string()).min(1),
 });
 

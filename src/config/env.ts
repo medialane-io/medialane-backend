@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  DATABASE_URL: z.string().url(),
-  ALCHEMY_RPC_URL: z.string().url(),
+  DATABASE_URL: z.url(),
+  ALCHEMY_RPC_URL: z.url(),
 
-  STARKNET_RPC_FALLBACK_URL: z.string().url().optional(),
+  STARKNET_RPC_FALLBACK_URL: z.url().optional(),
 
   ALCHEMY_API_KEY: z.string().default(""),
 
@@ -53,7 +53,7 @@ function parseEnv() {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
     console.error("Invalid environment variables:");
-    console.error(result.error.flatten().fieldErrors);
+    console.error(z.flattenError(result.error).fieldErrors);
     process.exit(1);
   }
   return result.data;
