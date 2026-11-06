@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { ec, typedData as starknetTypedData, type TypedData } from "starknet";
+import { RpcError, ec, typedData as starknetTypedData, type TypedData } from "starknet";
 import { computeOwnerGuid, signWithPrivateKey, type GuardianInfo } from "@medialane/sdk/starknet";
-import { cosign, GuardianUnavailableError, type CosignDeps } from "./guardianCosign.js";
+import { cosign, emptyWithoutEntrypoint, GuardianUnavailableError, type CosignDeps } from "./guardianCosign.js";
 import { guardianKeyWith } from "./guardianKey.js";
 
 const SECRET = "g".repeat(64);
@@ -105,6 +105,30 @@ describe("when nothing is configured or readable", () => {
     const d = deps({ guardians: [asSigner(ours.publicKey)] });
     const full = ["0x2", "0x0", "0x1", "0x2", "0x3", "0x0", "0x4", "0x5", "0x6"];
     expect(await cosign(d, WALLET, data, full)).toEqual(full);
+  });
+});
+
+describe("a wallet that is not a Medialane wallet", () => {
+  test("lists no guardian and no owner, so the owner's signature is kept exactly as it is", async () => {
+    const d = deps({ guardians: [], owners: [] });
+    expect(await cosign(d, WALLET, data, ownerSignature)).toEqual(ownerSignature);
+  });
+
+  test("a missing owner entrypoint reads as an empty list", async () => {
+    const missing = new RpcError({ code: 21, message: "Requested entry point does not exist in the contract" }, "starknet_call", {});
+    expect(await emptyWithoutEntrypoint(async () => { throw missing; })).toEqual([]);
+  });
+
+  test("any other failed read still fails, so an outage is not taken for a different wallet", async () => {
+    const notFound = new RpcError({ code: 20, message: "Contract not found" }, "starknet_call", {});
+    await expect(emptyWithoutEntrypoint(async () => { throw notFound; })).rejects.toBe(notFound);
+    const down = new Error("rpc down");
+    await expect(emptyWithoutEntrypoint(async () => { throw down; })).rejects.toBe(down);
+  });
+
+  test("a read that succeeds is returned as it is", async () => {
+    const owners = [asSigner(owner.publicKey)];
+    expect(await emptyWithoutEntrypoint(async () => owners)).toBe(owners);
   });
 });
 

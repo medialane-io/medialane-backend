@@ -1,4 +1,4 @@
-import { ec, typedData as starknetTypedData, type TypedData } from "starknet";
+import { RpcError, ec, typedData as starknetTypedData, type TypedData } from "starknet";
 import { computeOwnerGuid, getGuardians, getOwners, signWithPrivateKey, type GuardianInfo, sameFelt } from "@medialane/sdk/starknet";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
@@ -69,12 +69,21 @@ export async function cosign(
   }
 }
 
+export async function emptyWithoutEntrypoint<T>(read: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await read();
+  } catch (err) {
+    if (err instanceof RpcError && err.isType("ENTRYPOINT_NOT_FOUND")) return [];
+    throw err;
+  }
+}
+
 export const productionCosign: Cosign = (wallet, typedData, ownerSignature) =>
   cosign(
     {
       secret: env.GUARDIAN_SECRET,
-      guardiansOf: (address) => getGuardians(createProvider(), address),
-      ownersOf: (address) => getOwners(createProvider(), address),
+      guardiansOf: (address) => emptyWithoutEntrypoint(() => getGuardians(createProvider(), address)),
+      ownersOf: (address) => emptyWithoutEntrypoint(() => getOwners(createProvider(), address)),
     },
     wallet,
     typedData,
