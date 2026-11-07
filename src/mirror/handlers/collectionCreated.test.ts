@@ -35,3 +35,32 @@ test("a collection is looked up in the factory that announced it", async () => {
   expect(resolved?.contractAddress).toBe(actual.normalizeAddress("STARKNET", COLLECTION));
   expect(resolved?.name).toBe("Pilot");
 });
+
+test("a collection is read at the block the caller asks for, the latest by default", async () => {
+  const blocks: unknown[] = [];
+  mock.module("../../utils/starknet.js", () => ({
+    ...actual,
+    callRpc: async (fn: (p: unknown) => Promise<unknown>) =>
+      fn({
+        callContract: async (_call: unknown, block: unknown) => {
+          blocks.push(block);
+          return ["0x0", "0x50696c6f74", "0x5", "0x0", "0x504c54", "0x3", "0x0", "0x0", "0x0", OWNER, COLLECTION];
+        },
+      }),
+  }));
+  const { resolveCollectionCreated } = await import("./collectionCreated.js");
+  const event = {
+    type: "CollectionCreated" as const,
+    collectionId: "1",
+    owner: OWNER,
+    factoryAddress: FACTORY,
+    blockNumber: 1n,
+    txHash: "0x1",
+    logIndex: 0,
+  };
+
+  await resolveCollectionCreated(event);
+  await resolveCollectionCreated(event, "pre_confirmed");
+
+  expect(blocks).toEqual(["latest", "pre_confirmed"]);
+});

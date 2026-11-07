@@ -157,7 +157,7 @@ txSync.post("/", validated("json", syncBody, { message: "txHash required" }), as
       (tx) => applyEvents(events, tx, CHAIN, ownership),
       { timeout: 30000 },
     );
-    for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN)) {
+    for (const contractAddress of await applyCollectionsCreated(outcome.parsed, CHAIN, "pre_confirmed")) {
       outcome.affectedContracts.add(contractAddress);
       createdCollections.add(contractAddress);
     }

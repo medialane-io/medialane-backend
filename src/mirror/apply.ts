@@ -1,4 +1,4 @@
-import { num } from "starknet";
+import { num, type BlockIdentifier } from "starknet";
 import type { Prisma } from "@prisma/client";
 import { parseEvents } from "./parser.js";
 import { handleOrderCreated, handleOrderCreated1155 } from "./handlers/orderCreated.js";
@@ -189,13 +189,14 @@ async function applyMarketplace1155(
 export async function applyCollectionsCreated(
   parsed: ReturnType<typeof parseEvents>,
   chain: Chain,
+  blockIdentifier: BlockIdentifier = "latest",
 ): Promise<Set<string>> {
   const created = new Set<string>();
 
   for (const event of parsed) {
     if (event.type !== "CollectionCreated") continue;
 
-    const resolved = await resolveCollectionCreated(event);
+    const resolved = await resolveCollectionCreated(event, blockIdentifier);
     if (!resolved) continue;
 
     await upsertCollectionFromFactory(prisma, {
