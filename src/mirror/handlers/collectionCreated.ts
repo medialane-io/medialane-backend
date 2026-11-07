@@ -1,4 +1,4 @@
-import { num } from "starknet";
+import { num, type BlockIdentifier } from "starknet";
 import type { ParsedCollectionCreated } from "../../types/marketplace.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
@@ -59,7 +59,8 @@ function decodeByteArray(felts: string[], offset: number): { value: string; next
 }
 
 export async function resolveCollectionCreated(
-  event: ParsedCollectionCreated
+  event: ParsedCollectionCreated,
+  blockIdentifier: BlockIdentifier = "latest",
 ): Promise<ResolvedCollection | null> {
   const { collectionId, owner, blockNumber, factoryAddress } = event;
 
@@ -69,7 +70,7 @@ export async function resolveCollectionCreated(
       contractAddress: factoryAddress,
       entrypoint: "get_collection",
       calldata: [num.toHex(low), num.toHex(high)],
-    }))) as unknown as string[];
+    }, blockIdentifier))) as unknown as string[];
 
     if (!raw || raw.length < 3) {
       log.warn({ collectionId }, "get_collection returned an empty response");
