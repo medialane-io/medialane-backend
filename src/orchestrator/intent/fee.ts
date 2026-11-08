@@ -7,10 +7,19 @@ export type IntentBuildContext = { appId: string };
 
 const FEE_APPS = new Set(["MEDIALANE_IO", "MEDIALANE_STARKNET", "MEDIALANE_PORTAL"]);
 
-export const platformFeeConfig: ResolvedFeeConfig = resolveFeeConfig({ fundAddress: x402Config.treasury });
+export function feeConfigFor(treasury: string | undefined): ResolvedFeeConfig {
+  return resolveFeeConfig({ enabled: Boolean(treasury), fundAddress: treasury });
+}
+
+export const platformFeeConfig: ResolvedFeeConfig = feeConfigFor(x402Config.treasury);
 
 export function feeApplies(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): boolean {
   return FEE_APPS.has(appId) && cfg.enabled && Boolean(cfg.fundAddress);
+}
+
+/** The fee configuration an intent built for `appId` uses: the platform fee for a Medialane app, none otherwise. */
+export function appFeeConfig(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): ResolvedFeeConfig {
+  return feeApplies(appId, cfg) ? cfg : { ...cfg, enabled: false };
 }
 
 /** Launchpad fee, in basis points, that intents built for `appId` add to a mint. */

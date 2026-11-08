@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveFeeConfig } from "@medialane/sdk";
-import { dropFeeBps, platformFeeCalls } from "./fee.js";
-import { fulfillFeeCalls } from "./marketplace.js";
+import { appFeeConfig, dropFeeBps, feeConfigFor, platformFeeCalls } from "./fee.js";
 import { buildAcceptSponsorshipBidIntent, buildAcceptSponsorshipProposalIntent } from "./sponsorship.js";
 
 const TOKEN = "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8";
@@ -20,9 +19,8 @@ describe("platformFeeCalls", () => {
     expect(platformFeeCalls("MEDIALANE_API", "marketplace", TOKEN, 1_000_000n, cfg)).toEqual([]);
   });
 
-  test("adds nothing while no fund address is configured", () => {
-    const off = resolveFeeConfig({ enabled: true });
-    expect(platformFeeCalls("MEDIALANE_STARKNET", "launchpad", TOKEN, 1_000_000n, off)).toEqual([]);
+  test("adds nothing while no treasury is configured", () => {
+    expect(platformFeeCalls("MEDIALANE_STARKNET", "launchpad", TOKEN, 1_000_000n, feeConfigFor(undefined))).toEqual([]);
   });
 
   test("adds nothing when the fee rounds to zero", () => {
@@ -54,22 +52,22 @@ describe("sponsorship accept intents carry the fee", () => {
   });
 });
 
-describe("purchase intents carry the marketplace fee", () => {
-  const listing = { offerItemType: "ERC1155", considerationItemType: "ERC20", considerationToken: TOKEN, considerationStartAmount: "1000000" };
-
-  test("a listing purchase pays 1% of price times quantity", () => {
-    expect(fulfillFeeCalls(listing, 3n, { appId: "MEDIALANE_IO" }, cfg)).toEqual([
-      { contractAddress: TOKEN, entrypoint: "transfer", calldata: [FUND, "30000", "0"] },
-    ]);
+describe("the platform fee configuration", () => {
+  test("fees are on and go to the treasury when one is configured", () => {
+    expect(feeConfigFor(FUND)).toMatchObject({ enabled: true, fundAddress: FUND });
   });
 
-  test("accepting an offer pays no fee", () => {
-    const offer = { offerItemType: "ERC20", considerationItemType: "ERC721", considerationToken: "0x9", considerationStartAmount: "1" };
-    expect(fulfillFeeCalls(offer, 1n, { appId: "MEDIALANE_IO" }, cfg)).toEqual([]);
+  test("fees are off when no treasury is configured", () => {
+    expect(feeConfigFor(undefined).enabled).toBe(false);
   });
 
-  test("an order missing from the index pays no fee", () => {
-    expect(fulfillFeeCalls(null, 1n, { appId: "MEDIALANE_IO" }, cfg)).toEqual([]);
+  test("a Medialane app builds with the fee on", () => {
+    expect(appFeeConfig("MEDIALANE_IO", cfg).enabled).toBe(true);
+  });
+
+  test("a partner app or the default app builds with the fee off", () => {
+    expect(appFeeConfig("PARTNER_APP", cfg).enabled).toBe(false);
+    expect(appFeeConfig("MEDIALANE_API", cfg).enabled).toBe(false);
   });
 });
 
@@ -87,7 +85,7 @@ describe("no fee means no chain reads", () => {
   });
 
   test("with no fund address configured, Medialane apps don't read the contract either", async () => {
-    const off = resolveFeeConfig({ enabled: true });
+    const off = feeConfigFor(undefined);
     const bid = await buildAcceptSponsorshipBidIntent({ author: "0x1", offerId: "7", sponsor: "0x2" }, { appId: "MEDIALANE_IO" }, explode, off);
     expect(bid.calls).toHaveLength(1);
   });
@@ -102,13 +100,13 @@ test("the platform fee is always on: 1% to the treasury", () => {
 
 describe("dropFeeBps", () => {
   test("the launchpad fee applies to Medialane apps when a fund address is set", () => {
-    const cfg = resolveFeeConfig({ fundAddress: "0x1" });
+    const cfg = feeConfigFor("0x1");
     expect(dropFeeBps("MEDIALANE_IO", cfg)).toBe(100);
     expect(dropFeeBps("MEDIALANE_STARKNET", cfg)).toBe(100);
   });
 
   test("no launchpad fee for other apps, or with no fund address", () => {
-    expect(dropFeeBps("MEDIALANE_API", resolveFeeConfig({ fundAddress: "0x1" }))).toBe(0);
-    expect(dropFeeBps("MEDIALANE_IO", resolveFeeConfig({}))).toBe(0);
+    expect(dropFeeBps("MEDIALANE_API", feeConfigFor("0x1"))).toBe(0);
+    expect(dropFeeBps("MEDIALANE_IO", feeConfigFor(undefined))).toBe(0);
   });
 });

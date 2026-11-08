@@ -487,10 +487,10 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
 
     type Built =
       | { ok: true; orderHash: string; calls: unknown }
-      | { ok: false; orderHash: string; error: string };
+      | { ok: false; orderHash: string; error: string; mismatch?: true };
 
     const builds: Built[] = await Promise.all(
-      items.map(async ({ orderHash, quantity }): Promise<Built> => {
+      items.map(async ({ orderHash, quantity, built: clientBuilt }): Promise<Built> => {
         if (!indexedSet.has(orderHash)) {
           return {
             ok: false,
@@ -503,8 +503,10 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
             { fulfiller: normalizedFulfiller, orderHash, quantity },
             { appId: callerApp(c) },
           );
+          assertMatchesClientBuild(clientBuilt, { calls });
           return { ok: true, orderHash, calls };
         } catch (err) {
+          if (err instanceof IntentMismatch) return { ok: false, orderHash, error: INTENT_MISMATCH.error, mismatch: true };
           const refusal = err instanceof IntentRefusal ? err : null;
           if (refusal) return { ok: false, orderHash, error: refusal.reason };
           log.error({ err, orderHash }, "Failed to build fulfill intent");
@@ -517,6 +519,7 @@ export function registerBuildRoutes(intents: Hono<AppEnv>): void {
       })
     );
 
+    if (builds.some((b) => !b.ok && b.mismatch)) return c.json(INTENT_MISMATCH, 422);
     const successful = builds.filter((b): b is Extract<Built, { ok: true }> => b.ok);
     const insertedIntents = successful.length
       ? await prisma.transactionIntent.createManyAndReturn({
