@@ -1,6 +1,8 @@
 import { cairo, Contract } from "starknet";
-import { IPCollectionABI, Medialane1155ABI } from "@medialane/sdk/starknet";
+import { IPCollectionABI } from "@medialane/sdk/starknet";
 import type { Chain, TokenStandard } from "@prisma/client";
+import { chainCallAt } from "../../chainRead/call.js";
+import { readTokenUri } from "../../chainRead/tokenUri.js";
 import { callRpc } from "../../utils/starknet.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -43,47 +45,50 @@ function feltToText(value: bigint): string {
   return out;
 }
 
+async function readErc1155(
+  rpc: typeof callRpc,
+  contractAddress: string,
+  tokenId: string,
+  col: { standard: TokenStandard | null; service: string | null },
+): Promise<OnChainToken | null> {
+  const tokenUri = await readTokenUri(chainCallAt("latest", rpc), contractAddress, tokenId, col);
+  return tokenUri ? { tokenUri } : null;
+}
+
+function readErc721(rpc: typeof callRpc, contractAddress: string, tokenId: string): Promise<OnChainToken> {
+  return rpc(async (provider) => {
+    const id = cairo.uint256(tokenId);
+    const contract = new Contract({
+      abi: IPCollectionABI as never,
+      address: contractAddress,
+      providerOrAccount: provider as never,
+    });
+    await contract.call("owner_of", [id], { blockIdentifier: "latest" });
+
+    const uri = await contract
+      .call("token_uri", [id], { blockIdentifier: "latest" })
+      .catch(() => null);
+    return { tokenUri: decodeUri(uri) };
+  });
+}
+
 export async function readTokenFromChain(
   chain: Chain,
   contractAddress: string,
   tokenId: string,
-  standard: TokenStandard | null,
+  col: { standard: TokenStandard | null; service: string | null } | null,
 
   rpc: typeof callRpc = callRpc,
 ): Promise<OnChainToken | null> {
   if (chain !== "STARKNET") return null;
 
-  return withTimeout(
-    rpc(async (provider) => {
-      const id = cairo.uint256(tokenId);
+  const read = col?.standard === "ERC1155"
+    ? readErc1155(rpc, contractAddress, tokenId, col)
+    : readErc721(rpc, contractAddress, tokenId);
 
-      if (standard === "ERC1155") {
-        const contract = new Contract({
-          abi: Medialane1155ABI as never,
-          address: contractAddress,
-          providerOrAccount: provider as never,
-        });
-        const uri = await contract.call("uri", [id], { blockIdentifier: "latest" });
-        const decoded = decodeUri(uri);
-        return decoded ? { tokenUri: decoded } : null;
-      }
-
-      const contract = new Contract({
-        abi: IPCollectionABI as never,
-        address: contractAddress,
-        providerOrAccount: provider as never,
-      });
-      await contract.call("owner_of", [id], { blockIdentifier: "latest" });
-
-      const uri = await contract
-        .call("token_uri", [id], { blockIdentifier: "latest" })
-        .catch(() => null);
-      return { tokenUri: decodeUri(uri) };
-    }),
-    CHAIN_READ_TIMEOUT_MS,
-  ).then((result) => {
+  return withTimeout(read, CHAIN_READ_TIMEOUT_MS).then((result) => {
     if (!result) {
-      log.debug({ contractAddress, tokenId, standard }, "read-through: chain has no such token");
+      log.debug({ contractAddress, tokenId, standard: col?.standard }, "read-through: chain has no such token");
     }
     return result;
   });

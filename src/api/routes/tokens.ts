@@ -264,10 +264,10 @@ tokens.get("/:contract/:tokenId", chainScope(), async (c) => {
   if (!token) {
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress } },
-      select: { standard: true },
+      select: { standard: true, service: true },
     });
 
-    const onChain = await readTokenFromChain(chain, contractAddress, tokenId, collection?.standard ?? null);
+    const onChain = await readTokenFromChain(chain, contractAddress, tokenId, collection);
     if (!onChain) {
       return c.json({ error: "Token not found" }, 404);
     }
