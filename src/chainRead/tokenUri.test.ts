@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { shortString } from "starknet";
 import type { CallContract } from "./call.js";
-import { readTokenUri } from "./tokenUri.js";
+import { readTokenUri, tokenExists } from "./tokenUri.js";
 
 const toHex = (bytes: Uint8Array) => `0x${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("") || "0"}`;
 
@@ -42,6 +42,18 @@ describe("readTokenUri: own collections", () => {
   test("an ERC1155 collection is read through uri and {id} is replaced by the padded hex id", async () => {
     const { call } = chain({ uri: byteArrayFelts("https://x.test/{id}.json") });
     expect(await readTokenUri(call, "0xown1155", "26", own1155)).toBe(`https://x.test/${"1a".padStart(64, "0")}.json`);
+  });
+
+  test("an ERC1155 token the contract reports as minted is read through uri", async () => {
+    const { call, entrypoints } = chain({ token_exists: ["0x1"], uri: byteArrayFelts("ipfs://token-7") });
+    expect(await readTokenUri(call, "0xown1155", "7", own1155)).toBe("ipfs://token-7");
+    expect(entrypoints()).toEqual(["token_exists", "uri"]);
+  });
+
+  test("an ERC1155 token the contract does not have yet is null, even though uri answers for any id", async () => {
+    const { call, entrypoints } = chain({ token_exists: ["0x0"], uri: byteArrayFelts("ipfs://collection-metadata") });
+    expect(await readTokenUri(call, "0xown1155", "12", own1155)).toBeNull();
+    expect(entrypoints()).toEqual(["token_exists"]);
   });
 
   test("a refusing own collection answers null without probing other entrypoints", async () => {
@@ -102,5 +114,23 @@ describe("readTokenUri: other contracts", () => {
   test("a transport failure while probing is thrown", async () => {
     const { call } = chain({ token_uri: new Error("fetch failed") });
     await expect(readTokenUri(call, "0xprobedown", "1", null)).rejects.toThrow("fetch failed");
+  });
+});
+
+describe("tokenExists", () => {
+  test("reads the contract's answer for the token id as a u256", async () => {
+    const { call, seen } = chain({ token_exists: ["0x1"] });
+    expect(await tokenExists(call, "0xown1155", "300")).toBe(true);
+    expect(seen).toEqual([{ entrypoint: "token_exists", calldata: ["300", "0"] }]);
+  });
+
+  test("is false when the contract says the token is not minted", async () => {
+    const { call } = chain({ token_exists: ["0x0"] });
+    expect(await tokenExists(call, "0xown1155", "1")).toBe(false);
+  });
+
+  test("is null when the contract has no token_exists", async () => {
+    const { call } = chain({});
+    expect(await tokenExists(call, "0xnoexists", "1")).toBeNull();
   });
 });

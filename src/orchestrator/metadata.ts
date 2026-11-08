@@ -70,5 +70,5 @@ export async function fetchTokenUri(
     where: { chain_contractAddress: { chain, contractAddress } },
     select: { standard: true, service: true },
   });
-  return readTokenUri(chainCallAt("latest"), contractAddress, tokenId, col);
+  return readTokenUri(chainCallAt("pre_confirmed"), contractAddress, tokenId, col);
 }
