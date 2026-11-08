@@ -35,8 +35,9 @@ describe("wallet operation intents", () => {
     const usdc = getTokenBySymbol("USDC")!.address;
     const { calls } = await buildFundingTransferIntent({ owner: ME, asset: usdc, amountAtomic: "2500000" });
     expect(calls[0]!.entrypoint).toBe("transfer");
-    expect(calls[0]!.calldata.slice(1)).toEqual(["2500000", "0"]);
-    expect(BigInt(calls[0]!.calldata[0]!)).toBe(BigInt(x402Config.treasury!));
+    const calldata = calls[0]!.calldata as string[];
+    expect(calldata.slice(1)).toEqual(["2500000", "0"]);
+    expect(BigInt(calldata[0]!)).toBe(BigInt(x402Config.treasury!));
   });
 
   test("funding transfer refuses a token that isn't accepted", async () => {

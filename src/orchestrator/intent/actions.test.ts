@@ -55,7 +55,7 @@ describe("action intents", () => {
     const { calls } = await buildTransferCollectionOwnershipIntent({ owner: OWNER, collectionId: "4", newOwner: OTHER });
     expect(calls[0]!.contractAddress).toBe(STARKNET_COLLECTION_721_CONTRACT);
     expect(calls[0]!.entrypoint).toBe("transfer_collection_ownership");
-    expect(felts(calls[0]!.calldata)).toEqual(felts(["4", "0", OTHER]));
+    expect(felts(calls[0]!.calldata as string[])).toEqual(felts(["4", "0", OTHER]));
   });
 
   test("comment posts UTF-8 text to the comments contract exactly as io encodes it", async () => {
