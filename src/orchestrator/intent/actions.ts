@@ -1,13 +1,9 @@
 import { cairo } from "starknet";
-import {
-  getTokenByAddress,
-  STARKNET_GENESIS_MINT_CONTRACT,
-  STARKNET_GENESIS_NFT_URI,
-  STARKNET_NFTCOMMENTS_CONTRACT,
-} from "@medialane/sdk";
+import { getTokenByAddress, STARKNET_NFTCOMMENTS_CONTRACT } from "@medialane/sdk";
 import {
   buildIntent,
   encodeByteArray,
+  type GenesisMintIntentParams,
   type TransferCollectionOwnershipIntentParams,
   type TransferNftIntentParams,
   type TransferTokenIntentParams,
@@ -45,11 +41,6 @@ export async function buildCommentIntent(body: { author: string; nftContract: st
   return { calls };
 }
 
-export async function buildGenesisMintIntent(body: { owner: string; recipient: string }) {
-  const calls: IntentCall[] = [{
-    contractAddress: STARKNET_GENESIS_MINT_CONTRACT,
-    entrypoint: "mint_item",
-    calldata: [addr(body.recipient), ...encodeByteArray(STARKNET_GENESIS_NFT_URI)],
-  }];
-  return { calls };
+export async function buildGenesisMintIntent(body: GenesisMintIntentParams) {
+  return buildIntent("genesis-mint", body, {}, sdkConfig);
 }
