@@ -150,11 +150,12 @@ tokens.get("/owned/:address", chainScope(), validated("query", pageQuery()), asy
   ]);
 
   const pairs = balanceRows.map((b) => ({ contractAddress: b.contractAddress, tokenId: b.tokenId }));
+  const rank = new Map(pairs.map((p, i) => [`${p.contractAddress}:${p.tokenId}`, i]));
   const data = pairs.length > 0
-    ? await prisma.token.findMany({
+    ? (await prisma.token.findMany({
         where: { chain, isHidden: false, OR: pairs },
         include: { collection: { select: { standard: true } } },
-      })
+      })).sort((a, b) => rank.get(`${a.contractAddress}:${a.tokenId}`)! - rank.get(`${b.contractAddress}:${b.tokenId}`)!)
     : [];
 
   const ordersByToken = await batchOrdersByToken(
