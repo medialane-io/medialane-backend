@@ -18,14 +18,15 @@ export const TTL_HOURS = 24;
 export interface CheckoutItemInput {
   orderHash: string;
   quantity: string | undefined;
+  built?: unknown;
 }
 
 export function normalizeCheckoutItems(body: {
   orderHashes?: string[];
-  items?: { orderHash: string; quantity?: string }[];
+  items?: { orderHash: string; quantity?: string; built?: unknown }[];
 }): CheckoutItemInput[] {
   if (body.items?.length) {
-    return body.items.map((i) => ({ orderHash: i.orderHash, quantity: i.quantity }));
+    return body.items.map((i) => ({ orderHash: i.orderHash, quantity: i.quantity, built: i.built }));
   }
   return (body.orderHashes ?? []).map((orderHash) => ({ orderHash, quantity: undefined }));
 }

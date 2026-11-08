@@ -3,12 +3,19 @@ import { Hono } from "hono";
 import { resolveConfig } from "@medialane/sdk";
 import { buildIntent, ORDER_START_WINDOW_SECONDS } from "@medialane/sdk/starknet";
 import * as starknetUtils from "../../../utils/starknet.js";
+import * as realX402 from "../../../config/x402.js";
 import type { AppEnv } from "../../../types/hono.js";
 
 const provider = {
   callContract: async ({ entrypoint }: { entrypoint: string }) => (entrypoint === "get_counter" ? ["0x5"] : ["0x0", "0x1f4"]),
 };
 mock.module("../../../utils/starknet.js", () => ({ ...starknetUtils, callRpc: (fn: (p: unknown) => unknown) => fn(provider) }));
+const FUND = "0x064c51746dbcb7498cc6e4b8abfcacd60805c0762b0411bb0515c611b5ae8223";
+mock.module("../../../config/x402.js", () => ({ ...realX402, x402Config: { ...realX402.x402Config, treasury: FUND } }));
+mock.module("../../../chainRead/ownership.js", () => ({
+  readOwnership: async (keys: Array<{ standard: string }>) =>
+    keys.map((k) => (k.standard === "ERC1155" ? { standard: "ERC1155", amount: 10n } : { standard: "ERC721", owner: ME })),
+}));
 
 const ME = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const NFT = "0x0222222222222222222222222222222222222222222222222222222222222222";
@@ -27,14 +34,24 @@ const offerOnMyNft = {
   createdAt: new Date(), updatedAt: new Date(),
 };
 
+const myListing = {
+  ...offerOnMyNft, offerer: ME, offerItemType: "ERC721", offerToken: NFT, offerIdentifier: "42",
+  considerationItemType: "ERC20", considerationToken: STRK, considerationIdentifier: "0",
+  considerationStartAmount: "1500000000000000000", considerationRecipient: ME,
+};
+
 let created: Array<Record<string, unknown>> = [];
+let stored: Record<string, unknown> = offerOnMyNft;
 const db = {
   order: {
-    findUnique: async () => offerOnMyNft,
-    findFirst: async (args: { where: Record<string, unknown> }) => ("parentOrderHash" in args.where ? null : offerOnMyNft),
+    findUnique: async () => stored,
+    findFirst: async (args: { where: Record<string, unknown> }) => ("parentOrderHash" in args.where ? null : stored),
+    findMany: async () => [{ orderHash: ORIGINAL }],
   },
   transactionIntent: {
     create: async ({ data }: { data: Record<string, unknown> }) => (created.push(data), { id: `intent-${created.length}`, ...data }),
+    createManyAndReturn: async ({ data }: { data: Array<Record<string, unknown>> }) =>
+      data.map((d) => (created.push(d), { id: `intent-${created.length}`, orderHash: d.orderHash })),
   },
   $transaction: async (fn: (tx: unknown) => unknown) => fn(db),
 };
@@ -42,10 +59,11 @@ mock.module("../../../db/client.js", () => ({ default: db }));
 
 const { registerBuildRoutes } = await import("./build.js");
 
-function app() {
+function app(appId?: string) {
   const a = new Hono<AppEnv>();
   a.use("*", async (c, next) => {
     c.set("account", { id: "acct", status: "ACTIVE" } as never);
+    if (appId) c.set("appId" as never, appId as never);
     await next();
   });
   registerBuildRoutes(a);
@@ -59,6 +77,7 @@ const listing = () => ({ offerer: ME, nftContract: NFT, tokenId: "42", currency:
 
 beforeEach(() => {
   created = [];
+  stored = offerOnMyNft;
 });
 
 describe("an order the client built", () => {
@@ -122,6 +141,51 @@ describe("an order the client built", () => {
     const params = { sellerAddress: ME, originalOrderHash: ORIGINAL, durationSeconds: 86_400, priceRaw: "2000000000000000000", salt: "0xdef", startTime: now() + 30 };
     const built = buildIntent("counter-offer", params, { nftContract: NFT, tokenId: "43", currency: STRK, ...inputs }, config);
     const res = await app().request("/counter-offer", post({ ...params, built }));
+    expect(res.status).toBe(422);
+    expect(created).toHaveLength(0);
+  });
+});
+
+describe("a purchase the client built", () => {
+  const BUYER = "0x0999999999999999999999999999999999999999999999999999999999999999";
+  const purchase = { fulfiller: BUYER, orderHash: ORIGINAL };
+  const listed = () => ({
+    offer: { itemType: "ERC721", token: NFT, identifier: "42", startAmount: "1", endAmount: "1" },
+    consideration: { itemType: "ERC20", token: STRK, identifier: "0", startAmount: "1500000000000000000", endAmount: "1500000000000000000", recipient: ME },
+  });
+  const feeOn = resolveConfig({ feeConfig: { enabled: true } });
+  const feeOff = resolveConfig({ feeConfig: { enabled: false } });
+
+  test("a Medialane app's purchase with the platform fee is recorded", async () => {
+    stored = myListing;
+    const built = buildIntent("fulfill", purchase, { order: listed(), is1155: false }, feeOn);
+    expect(built.calls.map((c) => c.entrypoint)).toEqual(["approve", "fulfill_order", "transfer"]);
+    const res = await app("MEDIALANE_IO").request("/fulfill", post({ ...purchase, built }));
+    expect(res.status).toBe(201);
+  });
+
+  test("a Medialane app's purchase without the fee is refused", async () => {
+    stored = myListing;
+    const built = buildIntent("fulfill", purchase, { order: listed(), is1155: false }, feeOff);
+    const res = await app("MEDIALANE_IO").request("/fulfill", post({ ...purchase, built }));
+    expect(res.status).toBe(422);
+    expect(created).toHaveLength(0);
+  });
+
+  test("an API app's purchase carries no fee", async () => {
+    stored = myListing;
+    const built = buildIntent("fulfill", purchase, { order: listed(), is1155: false }, feeOff);
+    const res = await app().request("/fulfill", post({ ...purchase, built }));
+    expect(res.status).toBe(201);
+  });
+
+  test("a checkout item built by the client is checked", async () => {
+    stored = myListing;
+    const good = buildIntent("fulfill", purchase, { order: listed(), is1155: false }, feeOn);
+    expect((await app("MEDIALANE_IO").request("/checkout", post({ fulfiller: BUYER, items: [{ orderHash: ORIGINAL, built: good }] }))).status).toBe(201);
+    created = [];
+    const bad = buildIntent("fulfill", purchase, { order: listed(), is1155: false }, feeOff);
+    const res = await app("MEDIALANE_IO").request("/checkout", post({ fulfiller: BUYER, items: [{ orderHash: ORIGINAL, built: bad }] }));
     expect(res.status).toBe(422);
     expect(created).toHaveLength(0);
   });
