@@ -226,3 +226,20 @@ describe("a transfer the client built", () => {
     expect(await res.json()).toEqual({ error: "That token is not supported" });
   });
 });
+
+describe("a genesis mint the client built", () => {
+  const OTHER = "0x0999999999999999999999999999999999999999999999999999999999999999";
+
+  test("is recorded when it matches", async () => {
+    const params = { owner: ME, recipient: ME };
+    const built = buildIntent("genesis-mint", params, {}, config);
+    expect((await app().request("/genesis-mint", post({ ...params, built }))).status).toBe(201);
+  });
+
+  test("minting to another recipient is refused", async () => {
+    const params = { owner: ME, recipient: ME };
+    const built = buildIntent("genesis-mint", { ...params, recipient: OTHER }, {}, config);
+    expect((await app().request("/genesis-mint", post({ ...params, built }))).status).toBe(422);
+    expect(created).toHaveLength(0);
+  });
+});
