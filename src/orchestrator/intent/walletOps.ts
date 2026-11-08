@@ -1,4 +1,5 @@
-import { buildWalletManageCall } from "@medialane/sdk/starknet";
+import { buildIntent, buildWalletManageCall } from "@medialane/sdk/starknet";
+import { fundConfig } from "./sdkConfig.js";
 import { getQuotes as avnuGetQuotes, quoteToCalls as avnuQuoteToCalls } from "@avnu/avnu-sdk";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { tokenByAddress } from "../../payments/token-value.js";
@@ -6,7 +7,6 @@ import { x402Config } from "../../config/x402.js";
 import { NoSwapRouteError, resolveSwapAmount, resolveSwapToken, swapCallsFor, type SwapDeps } from "../../api/routes/swap.js";
 import type { IntentCall } from "./fee.js";
 import { IntentRefusal } from "./refusal.js";
-import { encodeU256 } from "@medialane/sdk";
 
 const addr = (a: string) => normalizeAddress("STARKNET", a);
 const plain = (c: { contractAddress: string; entrypoint: string; calldata?: unknown }): IntentCall => ({
@@ -27,15 +27,8 @@ export async function buildWalletManageIntent(body: { owner: string; action: Wal
 
 export async function buildFundingTransferIntent(body: { owner: string; asset: string; amountAtomic: string }) {
   if (!x402Config.treasury) throw new IntentRefusal("Funding is not configured");
-  const token = tokenByAddress(addr(body.asset));
-  if (!token) throw new IntentRefusal("That token is not accepted");
-  const amount = BigInt(body.amountAtomic);
-  const calls: IntentCall[] = [{
-    contractAddress: addr(token.address),
-    entrypoint: "transfer",
-    calldata: [addr(x402Config.treasury), ...encodeU256(amount)],
-  }];
-  return { calls };
+  if (!tokenByAddress(addr(body.asset))) throw new IntentRefusal("That token is not accepted");
+  return buildIntent("funding-transfer", body, {}, fundConfig);
 }
 
 export async function buildSwapIntent(

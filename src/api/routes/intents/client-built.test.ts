@@ -190,3 +190,39 @@ describe("a purchase the client built", () => {
     expect(created).toHaveLength(0);
   });
 });
+
+describe("a transfer the client built", () => {
+  const TO = "0x0999999999999999999999999999999999999999999999999999999999999999";
+  const config = resolveConfig({ feeConfig: { fundAddress: FUND } });
+
+  test("an NFT transfer built by the client is recorded when it matches", async () => {
+    const params = { owner: ME, contractAddress: NFT, tokenId: "42", recipient: TO, tokenStandard: "ERC721" as const };
+    const built = buildIntent("transfer-nft", params, {}, config);
+    expect((await app().request("/transfer-nft", post({ ...params, built }))).status).toBe(201);
+  });
+
+  test("an NFT transfer built for another recipient is refused", async () => {
+    const params = { owner: ME, contractAddress: NFT, tokenId: "42", recipient: TO, tokenStandard: "ERC721" as const };
+    const built = buildIntent("transfer-nft", { ...params, recipient: ME }, {}, config);
+    expect((await app().request("/transfer-nft", post({ ...params, built }))).status).toBe(422);
+    expect(created).toHaveLength(0);
+  });
+
+  test("a funding transfer built to the platform fund is recorded", async () => {
+    const params = { owner: ME, asset: "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb", amountAtomic: "2500000" };
+    const built = buildIntent("funding-transfer", params, {}, config);
+    expect((await app().request("/funding-transfer", post({ ...params, built }))).status).toBe(201);
+  });
+
+  test("a funding transfer built to another address is refused", async () => {
+    const params = { owner: ME, asset: "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb", amountAtomic: "2500000" };
+    const built = buildIntent("funding-transfer", params, {}, resolveConfig({ feeConfig: { fundAddress: TO } }));
+    expect((await app().request("/funding-transfer", post({ ...params, built }))).status).toBe(422);
+  });
+
+  test("a token the platform doesn't support is still refused with its reason", async () => {
+    const res = await app().request("/transfer-token", post({ owner: ME, token: "0x999", recipient: TO, amount: "1" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "That token is not supported" });
+  });
+});

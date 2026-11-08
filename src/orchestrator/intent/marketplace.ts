@@ -1,4 +1,3 @@
-import { resolveConfig } from "@medialane/sdk";
 import {
   buildIntent,
   resolveIntentInputs,
@@ -12,6 +11,7 @@ import {
   type OfferIntentParams,
 } from "@medialane/sdk/starknet";
 import { appFeeConfig, type IntentBuildContext } from "./fee.js";
+import { sdkConfig } from "./sdkConfig.js";
 import type { FulfillOrderIntentBody } from "../../types/intents.js";
 import prisma from "../../db/client.js";
 import { readOwnership } from "../../chainRead/ownership.js";
@@ -19,7 +19,6 @@ import { normalizeAddress } from "../../utils/starknet.js";
 import { IntentRefusal } from "./refusal.js";
 import { fetchCounter, fetchCounter1155, fetchRoyaltyMaxBps, generateSalt } from "./shared.js";
 
-const sdkConfig = resolveConfig({});
 
 type OrderTimingRequest = { salt?: string; startTime?: number };
 type ListingIntentRequest = Omit<ListingIntentParams, "salt" | "startTime"> & OrderTimingRequest;
