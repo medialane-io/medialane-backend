@@ -1,4 +1,4 @@
-import { buildIntent, buildWalletManageCall } from "@medialane/sdk/starknet";
+import { buildIntent, buildWalletManageCall, swapCallsWithinBounds } from "@medialane/sdk/starknet";
 import { fundConfig } from "./sdkConfig.js";
 import { getQuotes as avnuGetQuotes, quoteToCalls as avnuQuoteToCalls } from "@avnu/avnu-sdk";
 import { normalizeAddress } from "../../utils/starknet.js";
@@ -43,7 +43,9 @@ export async function buildSwapIntent(
   }
   try {
     const { calls } = await swapCallsFor({ sellToken, buyToken, amount }, addr(body.taker), deps);
-    return { calls: (calls as { contractAddress: string; entrypoint: string; calldata?: unknown }[]).map(plain) };
+    const route = (calls as { contractAddress: string; entrypoint: string; calldata?: unknown }[]).map(plain);
+    if (!swapCallsWithinBounds(body, route)) throw new IntentRefusal("No swap route available for this pair");
+    return { calls: route };
   } catch (err) {
     if (err instanceof NoSwapRouteError) throw new IntentRefusal("No swap route available for this pair");
     throw err;

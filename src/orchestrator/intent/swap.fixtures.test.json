@@ -1,0 +1,148 @@
+{
+  "taker": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "sellToken": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+  "buyToken": "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+  "sell": {
+    "request": {
+      "sellAmountRaw": "10000000000000000000"
+    },
+    "calls": [
+      {
+        "contractAddress": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "entrypoint": "approve",
+        "calldata": [
+          "0x4270219d365d6b017231b52e92b3fb5d7c8378b05e9abc97724537a80e93b0f",
+          "0x8ac7230489e80000",
+          "0x0"
+        ]
+      },
+      {
+        "contractAddress": "0x4270219d365d6b017231b52e92b3fb5d7c8378b05e9abc97724537a80e93b0f",
+        "entrypoint": "multi_route_swap",
+        "calldata": [
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x8ac7230489e80000",
+          "0x0",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x5e655",
+          "0x0",
+          "0x5d73a",
+          "0x0",
+          "0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "0x0",
+          "0x0",
+          "0x1",
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b",
+          "0xe8d4a51000",
+          "0x6",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x20c49ba5e353f80000000000000000",
+          "0x3e8",
+          "0x0",
+          "0xbced491e660000000000000000000000"
+        ]
+      }
+    ]
+  },
+  "buy": {
+    "request": {
+      "buyAmountRaw": "2000000"
+    },
+    "calls": [
+      {
+        "contractAddress": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "entrypoint": "approve",
+        "calldata": [
+          "0x4270219d365d6b017231b52e92b3fb5d7c8378b05e9abc97724537a80e93b0f",
+          "0x2e2f39e7825beb340",
+          "0x0"
+        ]
+      },
+      {
+        "contractAddress": "0x4270219d365d6b017231b52e92b3fb5d7c8378b05e9abc97724537a80e93b0f",
+        "entrypoint": "swap_exact_token_to",
+        "calldata": [
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x2dba2a1f839a60000",
+          "0x0",
+          "0x2e2f39e7825beb340",
+          "0x0",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x1e8480",
+          "0x0",
+          "0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "0x0",
+          "0x0",
+          "0x5",
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x787150e306e6eae6e3f79dea881770e8bbff2c1b8eb490f969669ee945b3135",
+          "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b",
+          "0x11141b00b0",
+          "0x6",
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x787150e306e6eae6e3f79dea881770e8bbff2c1b8eb490f969669ee945b3135",
+          "0x68db8bac710cb4000000000000000",
+          "0xc8",
+          "0x0",
+          "0x2311689667b5f20000000",
+          "0x787150e306e6eae6e3f79dea881770e8bbff2c1b8eb490f969669ee945b3135",
+          "0x3fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac",
+          "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b",
+          "0xe8d4a51000",
+          "0x6",
+          "0x3fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac",
+          "0x787150e306e6eae6e3f79dea881770e8bbff2c1b8eb490f969669ee945b3135",
+          "0x68db8bac710cb295e9e1b089a0275",
+          "0x28",
+          "0x0",
+          "0x64317900000000000000000000",
+          "0x3fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac",
+          "0x75afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87",
+          "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b",
+          "0xe8d4a51000",
+          "0x6",
+          "0x3fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac",
+          "0x75afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87",
+          "0x0",
+          "0x56a4c",
+          "0x5e470ff654d834983a46b8f29dfa99963d5044b993cb7b9c92243a69dab38f",
+          "0x7c1df1986b15fc000000000000000000000",
+          "0x75afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b",
+          "0xe8d4a51000",
+          "0x6",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x75afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87",
+          "0xc49ba5e353f7d00000000000000000",
+          "0x56a4c",
+          "0x43e4f09c32d13d43a880e85f69f7de93ceda62d6cf2581a582c6db635548fdc",
+          "0xcd7c2bbb22b6c80000000000000000000000000",
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b",
+          "0xe8d4a51000",
+          "0x6",
+          "0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+          "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+          "0x20c49ba5e353f80000000000000000",
+          "0x3e8",
+          "0x0",
+          "0x39af5e10506c000000000000000000000"
+        ]
+      },
+      {
+        "contractAddress": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+        "entrypoint": "approve",
+        "calldata": [
+          "0x4270219d365d6b017231b52e92b3fb5d7c8378b05e9abc97724537a80e93b0f",
+          "0x0",
+          "0x0"
+        ]
+      }
+    ]
+  }
+}

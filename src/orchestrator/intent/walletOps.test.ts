@@ -3,6 +3,7 @@ import { getTokenBySymbol } from "@medialane/sdk";
 import { buildAddOwnerCall, buildCancelEscapeCall, buildTriggerEscapeOwnerCall } from "@medialane/sdk/starknet";
 import { buildWalletManageIntent, buildFundingTransferIntent, buildSwapIntent } from "./walletOps.js";
 import { x402Config } from "../../config/x402.js";
+import swapFixtures from "./swap.fixtures.test.json";
 
 const ME = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const felts = (xs: readonly unknown[]) => xs.map((x) => BigInt(x as string));
@@ -44,15 +45,33 @@ describe("wallet operation intents", () => {
     await expect(buildFundingTransferIntent({ owner: ME, asset: "0x999", amountAtomic: "1" })).rejects.toThrow();
   });
 
-  test("swap stores the calls of the best AVNU quote", async () => {
+  test("swap stores the calls of the best AVNU quote when they are within bounds", async () => {
+    const route = swapFixtures.sell.calls;
     const deps = {
       getQuotes: async () => [{ quoteId: "q" }] as never,
-      quoteToCalls: async () => ({ calls: [{ contractAddress: "0x1", entrypoint: "multi_route_swap", calldata: ["0x2"] }], chainId: "SN_MAIN" }) as never,
+      quoteToCalls: async () => ({ calls: route, chainId: "SN_MAIN" }) as never,
     };
-    const strk = getTokenBySymbol("STRK")!.address;
-    const usdc = getTokenBySymbol("USDC")!.address;
-    const { calls } = await buildSwapIntent({ taker: ME, sellTokenAddress: strk, buyTokenAddress: usdc, sellAmountRaw: "10" }, deps);
-    expect(calls).toEqual([{ contractAddress: "0x1", entrypoint: "multi_route_swap", calldata: ["0x2"] }]);
+    const { calls } = await buildSwapIntent(
+      { taker: swapFixtures.taker, sellTokenAddress: swapFixtures.sellToken, buyTokenAddress: swapFixtures.buyToken, ...swapFixtures.sell.request },
+      deps,
+    );
+    expect(calls).toEqual(route);
+  });
+
+  test("a route out of bounds is refused", async () => {
+    const route = swapFixtures.sell.calls.map((call, i) =>
+      i === 1 ? { ...call, calldata: call.calldata.map((v, j) => (j === 8 ? "0x0999" : v)) } : call,
+    );
+    const deps = {
+      getQuotes: async () => [{ quoteId: "q" }] as never,
+      quoteToCalls: async () => ({ calls: route, chainId: "SN_MAIN" }) as never,
+    };
+    await expect(
+      buildSwapIntent(
+        { taker: swapFixtures.taker, sellTokenAddress: swapFixtures.sellToken, buyTokenAddress: swapFixtures.buyToken, ...swapFixtures.sell.request },
+        deps,
+      ),
+    ).rejects.toThrow("No swap route available for this pair");
   });
 
   test("swap with no route is refused", async () => {
