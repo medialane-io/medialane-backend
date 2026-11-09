@@ -8,3 +8,9 @@ describe("GET / order list price filters", () => {
     }
   });
 });
+
+describe("GET / order list featured filter", () => {
+  test("isFeatured accepts only true or false", async () => {
+    expect((await orders.request("/?isFeatured=maybe")).status).toBe(400);
+  });
+});
