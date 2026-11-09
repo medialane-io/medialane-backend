@@ -17,6 +17,7 @@ interface OrderFilterParams {
   chainFilter: { chain: import("@prisma/client").Chain } | "all";
   status?: string;
   collection?: string;
+  isFeatured?: boolean;
   currency?: string;
   offerer?: string;
   minPrice?: string;
@@ -24,11 +25,18 @@ interface OrderFilterParams {
 }
 
 function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
-  const { chainFilter, status, collection, currency, offerer, minPrice, maxPrice } = params;
+  const { chainFilter, status, collection, isFeatured, currency, offerer, minPrice, maxPrice } = params;
   const conditions: Prisma.Sql[] =
     chainFilter === "all" ? [] : [Prisma.sql`chain = ${chainFilter.chain}::"Chain"`];
   if (status) conditions.push(Prisma.sql`status = ${status}::"OrderStatus"`);
   if (collection) conditions.push(Prisma.sql`"nftContract" = ${collection.toLowerCase()}`);
+  if (isFeatured !== undefined) {
+    const featured = Prisma.sql`EXISTS (
+  SELECT 1 FROM "Collection"
+  WHERE "contractAddress" = "Order"."nftContract" AND "isFeatured" = true
+)`;
+    conditions.push(isFeatured ? featured : Prisma.sql`NOT ${featured}`);
+  }
   if (currency) conditions.push(Prisma.sql`"considerationToken" = ${currency.toLowerCase()}`);
   if (offerer) {
     const forms = normalizedForms(chainFilter, offerer);
@@ -50,7 +58,7 @@ function buildOrderConditions(params: OrderFilterParams): Prisma.Sql[] {
 }
 
 orders.get("/", chainFilterScope(), validated("query", ordersListQuery), async (c) => {
-  const { status, collection, currency, sort, page, limit, offerer, minPrice, maxPrice } = c.req.valid("query");
+  const { status, collection, isFeatured, currency, sort, page, limit, offerer, minPrice, maxPrice } = c.req.valid("query");
   const chainFilter = c.get("chainFilter");
   if (offerer && chainFilter === "all") {
     return c.json({ error: "offerer filter requires a single chain" }, 400);
@@ -59,7 +67,7 @@ orders.get("/", chainFilterScope(), validated("query", ordersListQuery), async (
   const skip = (page - 1) * limit;
 
   const whereClause = Prisma.join(
-    buildOrderConditions({ chainFilter, status, collection, currency, offerer, minPrice, maxPrice }),
+    buildOrderConditions({ chainFilter, status, collection, isFeatured, currency, offerer, minPrice, maxPrice }),
     " AND "
   );
 
