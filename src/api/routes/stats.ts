@@ -6,7 +6,7 @@ import { chainFilterScope } from "../http/chain.js";
 const stats = new Hono();
 
 const CACHE_MS = 30_000;
-type StatsData = { collections: number; tokens: number; sales: number };
+type StatsData = { collections: number; tokens: number; markets: number; sales: number };
 const cached = new Map<string, { data: StatsData; at: number }>();
 
 stats.get("/", chainFilterScope(), async (c) => {
@@ -19,13 +19,14 @@ stats.get("/", chainFilterScope(), async (c) => {
   }
 
   const where = chainWhere(chainFilter);
-  const [collections, tokens, sales] = await Promise.all([
+  const [collections, tokens, markets, sales] = await Promise.all([
     prisma.collection.count({ where }),
     prisma.token.count({ where }),
+    prisma.order.count({ where: { ...where, status: "ACTIVE" } }),
     prisma.orderFill.count({ where }),
   ]);
 
-  const data: StatsData = { collections, tokens, sales };
+  const data: StatsData = { collections, tokens, markets, sales };
   cached.set(cacheKey, { data, at: Date.now() });
   return c.json({ data });
 });
