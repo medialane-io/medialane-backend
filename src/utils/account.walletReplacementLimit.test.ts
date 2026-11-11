@@ -74,3 +74,11 @@ test("replacements for one account are serialised", async () => {
   await replaceWith("0x0b01");
   expect(locked).toBe(1);
 });
+
+test("a replacement marked unlimited is accepted after three new wallets", async () => {
+  await replaceWith("0x0b01");
+  await replaceWith("0x0b02");
+  await replaceWith("0x0b03");
+  await replaceWallet({ accountId: "acc_1", appId: "MEDIALANE_IO", chain: "STARKNET", address: "0x0b04", limited: false });
+  expect(activeAddress()).toBe(n("0x0b04"));
+});

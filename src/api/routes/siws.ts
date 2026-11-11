@@ -6,43 +6,15 @@ import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { issueToken } from "../../utils/siwsToken.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
-import { verifyWalletSignature } from "../../auth/verify.js";
+import { buildTypedData, consumeSiwsProof } from "../../auth/siwsProof.js";
 import { ensureAccountForWallet } from "../../utils/account.js";
 import { callerApp } from "../../utils/caller.js";
-import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 import { chainScope } from "../http/chain.js";
-
-const log = createLogger("routes:siws");
 
 const siws = new Hono<AppEnv>();
 
 const NONCE_TTL_MS = 5 * 60 * 1000;
-
-function buildTypedData(wallet: string, nonce: string) {
-  return {
-    domain: { name: "Medialane", version: "1", chainId: "SN_MAIN", revision: "1" },
-    primaryType: "SiwsMessage",
-    types: {
-      StarknetDomain: [
-        { name: "name",     type: "shortstring" },
-        { name: "version",  type: "shortstring" },
-        { name: "chainId",  type: "shortstring" },
-        { name: "revision", type: "shortstring" },
-      ],
-      SiwsMessage: [
-        { name: "wallet", type: "ContractAddress" },
-        { name: "nonce",  type: "shortstring" },
-        { name: "app",    type: "shortstring" },
-      ],
-    },
-    message: {
-      wallet,
-      nonce,
-      app: "medialane",
-    },
-  };
-}
 
 siws.post(
   "/nonce",
@@ -77,44 +49,8 @@ siws.post(
     const { walletAddress, nonce, signature, appSource } = c.req.valid("json");
     const wallet = normalizeAddress(chain, walletAddress);
 
-    const record = await prisma.siwsNonce.findUnique({ where: { nonce } });
-    if (!record || record.expiresAt < new Date()) {
-      if (record) await prisma.siwsNonce.delete({ where: { nonce } });
-      return c.json({ error: "nonce_expired" }, 400);
-    }
-    if (record.walletAddress !== wallet) {
-      return c.json({ error: "wallet_mismatch" }, 400);
-    }
-
-    const typedData = buildTypedData(wallet, nonce);
-
-    let result;
-    try {
-      result = await verifyWalletSignature({ chain, address: wallet, typedData, signature });
-    } catch (err) {
-
-      log.error(
-        { err, wallet, sigLength: signature.length },
-        "SIWS verify: signature verification threw",
-      );
-      return c.json({ error: "invalid_signature" }, 401);
-    }
-
-    if (!result.ok) {
-      if (result.reason === "not_deployed") {
-
-        log.warn({ wallet }, "SIWS verify: wallet contract not deployed (counterfactual account)");
-        return c.json({
-          error: "account_not_deployed",
-          message: "Check if your wallet is deployed on Starknet.",
-        }, 400);
-      }
-      log.warn({ wallet }, "SIWS verify: on-chain is_valid_signature returned false");
-      return c.json({ error: "invalid_signature" }, 401);
-    }
-
-    const { count } = await prisma.siwsNonce.deleteMany({ where: { nonce } });
-    if (count === 0) return c.json({ error: "nonce_expired" }, 400);
+    const proof = await consumeSiwsProof({ chain, wallet, nonce, signature });
+    if (!proof.ok) return c.json(proof.body, proof.status);
 
     const token = issueToken(chain, wallet);
     if (!appSource) return c.json({ token });

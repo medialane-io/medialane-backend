@@ -12,6 +12,7 @@ import { ACTIVE_IDENTITY, IDENTITY_SCHEME, emailValues, normalizeIdentityValue }
 import { currentSession } from "../../utils/accountSession.js";
 import { issueAccountSessionToken } from "../../utils/accountSessionToken.js";
 import { verifyToken as verifySiwsToken } from "../../utils/siwsToken.js";
+import { consumeSiwsProof } from "../../auth/siwsProof.js";
 import { getCurrentEmailIdentity, canClaimEmail, shouldAddEmailIdentity } from "../../utils/emailVerification.js";
 import { issueVerificationCode } from "./auth-email.js";
 import { createLogger } from "../../utils/logger.js";
@@ -177,6 +178,25 @@ users.post("/me/generate-wallet", async (c, next) => identityAuth(c, next), vali
   }
 
   return c.json({ walletAddress: newAddress });
+});
+
+const recoverWithKeyBodySchema = z.object({
+  walletAddress: z.string().min(1),
+  nonce: z.string().min(1),
+  signature: z.array(z.string()).min(1),
+});
+
+users.post("/me/wallet/recover-with-key", validated("json", recoverWithKeyBodySchema), async (c) => {
+  const accountId = await sessionAccountId(c);
+  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+
+  const body = c.req.valid("json");
+  const walletAddress = normalizeAddress("STARKNET", body.walletAddress);
+  const proof = await consumeSiwsProof({ chain: "STARKNET", wallet: walletAddress, nonce: body.nonce, signature: body.signature });
+  if (!proof.ok) return c.json(proof.body, proof.status);
+
+  await replaceWallet({ accountId, appId: callerApp(c), chain: "STARKNET", address: walletAddress, limited: false });
+  return c.json({ walletAddress });
 });
 
 users.post("/me/wallet", async (c) => {
