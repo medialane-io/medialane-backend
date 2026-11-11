@@ -109,6 +109,7 @@ export async function replaceWallet(params: {
   appId: string;
   chain: Chain;
   address: string;
+  limited?: boolean;
 }): Promise<void> {
   const address = normalizeAddress(params.chain, params.address);
   await prisma.$transaction(async (tx) => {
@@ -122,7 +123,7 @@ export async function replaceWallet(params: {
       where: { appId_chain_address: { appId: params.appId, chain: params.chain, address } },
       select: { id: true, accountId: true },
     });
-    if (known?.accountId !== params.accountId) {
+    if (params.limited !== false && known?.accountId !== params.accountId) {
       const recent = await tx.identity.count({
         where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET, createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
       });
