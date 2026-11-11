@@ -9,7 +9,6 @@ mock.module("../../db/client.js", () => ({
       findFirst: async () => ({ address: "0x0abc" }),
       findUnique: async () => ({ accountId: "acc_1" }),
     },
-    accountEvent: { findFirst: async () => null },
   },
 }));
 

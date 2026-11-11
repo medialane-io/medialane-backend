@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 
 const databaseUrl = process.env.SQL_TEST_DATABASE_URL;
 
-describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
+describe.skipIf(!databaseUrl)("identity changes", () => {
   let prisma: PrismaClient;
   let account: typeof import("./account.js");
 
@@ -28,9 +28,6 @@ describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
     });
     return created.id;
   };
-  const eventsOf = (accountId: string) =>
-    prisma.accountEvent.findMany({ where: { accountId }, select: { type: true, data: true } });
-
   const RUN = Date.now();
   let w = 0;
   /** A normalized Starknet address no earlier run has used. */
@@ -38,20 +35,6 @@ describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
     w += 1;
     return `0x${(BigInt(RUN) * 1000n + BigInt(w)).toString(16).padStart(64, "0")}`;
   };
-
-  test("replacing the wallet records the old and the new wallet", async () => {
-    const old = freshWallet();
-    const next = freshWallet();
-    const accountId = await newAccount([{ scheme: "wallet", chain: "STARKNET", address: old }]);
-    await account.replaceWallet({ accountId, appId: "MEDIALANE_API", chain: "STARKNET", address: next });
-
-    const [event] = await eventsOf(accountId);
-    expect(event?.type).toBe("WALLET_REPLACED");
-    expect(event?.data).toMatchObject({ chain: "STARKNET", appId: "MEDIALANE_API" });
-    const data = event?.data as { from: string; to: string };
-    expect(BigInt(data.from)).toBe(BigInt(old));
-    expect(BigInt(data.to)).toBe(BigInt(next));
-  });
 
   test("a replaced wallet stays on its account as INACTIVE, signs nothing in and is never deleted", async () => {
     const old = freshWallet();
@@ -88,40 +71,5 @@ describe.skipIf(!databaseUrl)("identity changes are recorded", () => {
     expect(emails).toEqual([{ value: oldEmail, status: "INACTIVE" }, { value: `now-${n}-${RUN}@y.com`, status: "ACTIVE" }]);
     expect(await account.findLiveAccountIdByEmail(oldEmail, "MEDIALANE_API")).toBeNull();
     expect(await account.findLiveAccountIdByEmail(`now-${n}-${RUN}@y.com`, "MEDIALANE_API")).toBe(accountId);
-  });
-
-  test("replacing the email records the old and the new email", async () => {
-    const oldEmail = `old-${n}@x.com`;
-    const accountId = await newAccount([{ scheme: "email", value: oldEmail }]);
-    await account.replaceEmail({ accountId, appId: "MEDIALANE_API", email: `new-${n}@y.com` });
-
-    expect(await eventsOf(accountId)).toEqual([
-      { type: "EMAIL_CHANGED", data: { from: oldEmail, to: `new-${n}@y.com`, appId: "MEDIALANE_API" } },
-    ]);
-  });
-
-  test("an email set for the first time records no previous email", async () => {
-    const accountId = await newAccount([]);
-    await account.replaceEmail({ accountId, appId: "MEDIALANE_API", email: `first-${n}@y.com` });
-
-    expect(await eventsOf(accountId)).toEqual([
-      { type: "EMAIL_CHANGED", data: { from: null, to: `first-${n}@y.com`, appId: "MEDIALANE_API" } },
-    ]);
-  });
-
-  test("when the event cannot be stored, the email is not changed", async () => {
-    const kept = `keep-${n}@x.com`;
-    const accountId = await newAccount([{ scheme: "email", value: kept }]);
-    await prisma.$executeRawUnsafe(`CREATE FUNCTION reject_event() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'no'; END $$ LANGUAGE plpgsql`);
-    await prisma.$executeRawUnsafe(`CREATE TRIGGER reject_event BEFORE INSERT ON "AccountEvent" FOR EACH ROW EXECUTE FUNCTION reject_event()`);
-    try {
-      await expect(account.replaceEmail({ accountId, appId: "MEDIALANE_API", email: `lost-${n}@y.com` })).rejects.toThrow();
-    } finally {
-      await prisma.$executeRawUnsafe(`DROP TRIGGER reject_event ON "AccountEvent"`);
-      await prisma.$executeRawUnsafe(`DROP FUNCTION reject_event()`);
-    }
-
-    const emails = await prisma.identity.findMany({ where: { accountId, scheme: "email" }, select: { value: true, status: true } });
-    expect(emails).toEqual([{ value: kept, status: "ACTIVE" }]);
   });
 });

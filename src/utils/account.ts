@@ -1,7 +1,6 @@
 import prisma from "../db/client.js";
 import { normalizeAddress } from "./starknet.js";
 import { ACTIVE_IDENTITY, IDENTITY_SCHEME, emailValues, normalizeIdentityValue } from "./identity.js";
-import { recordAccountEvent } from "./accountEvents.js";
 import type { Chain } from "@prisma/client";
 
 export async function ensureApiCredits(accountId: string) {
@@ -80,8 +79,8 @@ export function generateAccountPublicId(): string {
   return out;
 }
 
-/** Wallet replacements one account may make in any 24 hours. */
-export const MAX_WALLET_REPLACEMENTS_PER_DAY = 3;
+/** New wallets one account may add in any 24 hours. Switching back to a wallet it already had does not count. */
+export const MAX_NEW_WALLETS_PER_DAY = 3;
 
 export class WalletReplacementLimitError extends Error {
   constructor() {
@@ -119,15 +118,17 @@ export async function replaceWallet(params: {
       select: { id: true, address: true },
     });
     if (previous?.address === address) return;
-    const recent = await tx.accountEvent.count({
-      where: { accountId: params.accountId, type: "WALLET_REPLACED", createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
-    });
-    if (recent >= MAX_WALLET_REPLACEMENTS_PER_DAY) throw new WalletReplacementLimitError();
-    if (previous) await tx.identity.update({ where: { id: previous.id }, data: { status: "INACTIVE" } });
     const known = await tx.identity.findUnique({
       where: { appId_chain_address: { appId: params.appId, chain: params.chain, address } },
       select: { id: true, accountId: true },
     });
+    if (known?.accountId !== params.accountId) {
+      const recent = await tx.identity.count({
+        where: { accountId: params.accountId, scheme: IDENTITY_SCHEME.WALLET, createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      });
+      if (recent >= MAX_NEW_WALLETS_PER_DAY) throw new WalletReplacementLimitError();
+    }
+    if (previous) await tx.identity.update({ where: { id: previous.id }, data: { status: "INACTIVE" } });
     if (known?.accountId === params.accountId) {
       await tx.identity.update({ where: { id: known.id }, data: { status: "ACTIVE" } });
     } else {
@@ -142,12 +143,6 @@ export async function replaceWallet(params: {
         },
       });
     }
-    await recordAccountEvent(tx, params.accountId, "WALLET_REPLACED", {
-      chain: params.chain,
-      from: previous?.address ?? null,
-      to: address,
-      appId: params.appId,
-    });
   });
 }
 
@@ -194,11 +189,6 @@ export async function replaceEmail(params: { accountId: string; appId: string; e
         data: { accountId: params.accountId, scheme: IDENTITY_SCHEME.EMAIL, value: email, appId: params.appId },
       });
     }
-    await recordAccountEvent(tx, params.accountId, "EMAIL_CHANGED", {
-      from: previous?.value ?? null,
-      to: email,
-      appId: params.appId,
-    });
   });
 }
 
@@ -322,11 +312,8 @@ export async function ensureAccountForEmail(
 }
 
 export async function activateAccount(accountId: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    const { count } = await tx.account.updateMany({
-      where: { id: accountId, status: "PENDING" },
-      data: { status: "ACTIVE" },
-    });
-    if (count === 1) await recordAccountEvent(tx, accountId, "STATUS_CHANGED", { from: "PENDING", to: "ACTIVE" });
+  await prisma.account.updateMany({
+    where: { id: accountId, status: "PENDING" },
+    data: { status: "ACTIVE", sessionsValidFrom: new Date() },
   });
 }

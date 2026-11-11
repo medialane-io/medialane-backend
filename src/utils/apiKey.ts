@@ -1,7 +1,6 @@
 import { randomBytes, createHmac } from "crypto";
 import { env } from "../config/env.js";
 import prisma from "../db/client.js";
-import { recordAccountEvent } from "./accountEvents.js";
 
 export function generateApiKey(): {
   plaintext: string;
@@ -29,16 +28,12 @@ export async function replaceApiKey(
   label?: string,
 ): Promise<{ id: string; prefix: string; label: string | null } | null> {
   return prisma.$transaction(async (tx) => {
-    const replaced = await tx.apiKey.findFirst({ where: { apiCreditsId: owner.id, status: "ACTIVE" }, select: { id: true, prefix: true } });
+    const replaced = await tx.apiKey.findFirst({ where: { apiCreditsId: owner.id, status: "ACTIVE" }, select: { id: true } });
     if ((replaced?.id ?? null) !== current) return null;
     if (replaced) await tx.apiKey.update({ where: { id: replaced.id }, data: { status: "REVOKED" } });
     const key = await tx.apiKey.create({
       data: { apiCreditsId: owner.id, prefix: generated.prefix, keyHash: generated.keyHash, label },
       select: { id: true, prefix: true, label: true },
-    });
-    await recordAccountEvent(tx, owner.accountId, "API_KEY_CREATED", {
-      prefix: key.prefix,
-      replacedPrefix: replaced?.prefix ?? null,
     });
     return key;
   });
@@ -47,10 +42,9 @@ export async function replaceApiKey(
 /** Revokes the owner's active key `id`. The key row is kept as REVOKED. */
 export async function revokeApiKey(owner: KeyOwner, id: string): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
-    const key = await tx.apiKey.findFirst({ where: { id, apiCreditsId: owner.id, status: "ACTIVE" }, select: { prefix: true } });
+    const key = await tx.apiKey.findFirst({ where: { id, apiCreditsId: owner.id, status: "ACTIVE" }, select: { id: true } });
     if (!key) return false;
     await tx.apiKey.update({ where: { id }, data: { status: "REVOKED" } });
-    await recordAccountEvent(tx, owner.accountId, "API_KEY_DELETED", { prefix: key.prefix });
     return true;
   });
 }
