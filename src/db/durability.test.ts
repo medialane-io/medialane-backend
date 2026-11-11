@@ -4,7 +4,7 @@ import { join } from "path";
 
 /** Rows nothing can rebuild. Never deleted; guarded in the database. */
 const RECORDS = [
-  "Account", "Identity", "AccountProfile", "AccountEvent", "AccountNotice", "App",
+  "Account", "Identity", "AccountProfile", "AccountNotice", "App",
   "ApiCredits", "ApiKey", "CreditEntry", "Payment", "FundingIntent", "LaunchpadRun",
   "TransactionIntent", "Comment", "Report", "RemixOffer", "UsernameClaim",
   "CollectionSlugClaim", "CollectionClaim", "CollectionProfile", "HiddenCreator",

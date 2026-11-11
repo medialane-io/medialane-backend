@@ -7,7 +7,6 @@ const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 import { DAY_MS, IO_VERIFICATION_DAYS } from "../utils/accountLifecycle.js";
 import { IO_APP } from "../utils/caller.js";
 import { IDENTITY_SCHEME } from "../utils/identity.js";
-import { recordAccountEvent } from "../utils/accountEvents.js";
 import type { Loop } from "./schedule.js";
 
 export { IO_VERIFICATION_DAYS, verificationDeadline } from "../utils/accountLifecycle.js";
@@ -18,22 +17,17 @@ export function isExpired(createdAt: Date, now: Date = new Date(), days: number 
 
 export async function deactivateExpiredPending(now: Date = new Date(), ioApp: string = IO_APP): Promise<number> {
   const cutoff = new Date(now.getTime() - IO_VERIFICATION_DAYS * DAY_MS);
-  const count = await prisma.$transaction(async (tx) => {
-    const deactivated = await tx.$queryRaw<{ id: string }[]>`
-      UPDATE "Account" a SET status = 'INACTIVE', "updatedAt" = NOW()
-      WHERE a.status = 'PENDING'
-        AND a."createdAt" < ${cutoff}
-        AND EXISTS (
-          SELECT 1 FROM "Identity" i
-          WHERE i."accountId" = a.id AND i.status = 'ACTIVE' AND i.scheme = ${IDENTITY_SCHEME.EMAIL} AND i."appId" = ${ioApp}
-        )
-      RETURNING a.id
-    `;
-    for (const { id } of deactivated) {
-      await recordAccountEvent(tx, id, "STATUS_CHANGED", { from: "PENDING", to: "INACTIVE" });
-    }
-    return deactivated.length;
-  });
+  const deactivated = await prisma.$queryRaw<{ id: string }[]>`
+    UPDATE "Account" a SET status = 'INACTIVE', "updatedAt" = NOW()
+    WHERE a.status = 'PENDING'
+      AND a."createdAt" < ${cutoff}
+      AND EXISTS (
+        SELECT 1 FROM "Identity" i
+        WHERE i."accountId" = a.id AND i.status = 'ACTIVE' AND i.scheme = ${IDENTITY_SCHEME.EMAIL} AND i."appId" = ${ioApp}
+      )
+    RETURNING a.id
+  `;
+  const count = deactivated.length;
   if (count > 0) log.info({ count }, "Pending io signups that never verified their email are now inactive");
   return count;
 }

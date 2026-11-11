@@ -17,10 +17,10 @@ function setup(
         identity: {
           findFirst: async () => ({ id: "w-old", address: currentAddress }),
           findUnique: async () => knownWallet,
+          count: async () => 0,
           update: async (a: { data: { status: string } }) => { calls.push(a.data.status === "INACTIVE" ? "retire" : "activate"); return update(a); },
           create: async (a: unknown) => { calls.push("create"); return create(a); },
         },
-        accountEvent: { create: async () => { calls.push("event"); return {}; }, count: async () => 0 },
       });
     }
     return undefined;
@@ -60,11 +60,11 @@ describe("linking a wallet to an account session", () => {
 });
 
 describe("replaceWallet", () => {
-  test("keeps the old wallet on the account as inactive, adds the new one as its active wallet and records the change, in one transaction", async () => {
+  test("keeps the old wallet on the account as inactive and adds the new one as its active wallet, in one transaction", async () => {
     const { create, update, calls } = setup(true);
     const { replaceWallet } = await import("./account.js");
     await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual(["retire", "create", "event"]);
+    expect(calls).toEqual(["retire", "create"]);
     expect(update).toHaveBeenCalledWith({ where: { id: "w-old" }, data: { status: "INACTIVE" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
     expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1" });
@@ -76,14 +76,14 @@ describe("replacing with one of the account's earlier wallets", () => {
     const { create, update, calls } = setup(true, undefined, { id: "w-earlier", accountId: "acct-1" });
     const { replaceWallet } = await import("./account.js");
     await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
-    expect(calls).toEqual(["retire", "activate", "event"]);
+    expect(calls).toEqual(["retire", "activate"]);
     expect(update).toHaveBeenLastCalledWith({ where: { id: "w-earlier" }, data: { status: "ACTIVE" } });
     expect(create).not.toHaveBeenCalled();
   });
 });
 
 describe("replacing with the account's current wallet", () => {
-  test("same address is a no-op: nothing changed, nothing created, no history", async () => {
+  test("same address is a no-op: nothing changed, nothing created", async () => {
     const { calls } = setup(true, NEW_WALLET);
     const { replaceWallet } = await import("./account.js");
     await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET });
@@ -102,11 +102,11 @@ describe("attachDeployedWallet", () => {
     expect(calls).toEqual([]);
   });
 
-  test("replaces the account's wallet and records it when asked to replace", async () => {
+  test("replaces the account's wallet when asked to replace", async () => {
     const { calls } = setup(true);
     const { attachDeployedWallet } = await import("./account.js");
     await attachDeployedWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET, replace: true });
-    expect(calls).toEqual(["retire", "create", "event"]);
+    expect(calls).toEqual(["retire", "create"]);
   });
 
   test("refuses a different wallet when not asked to replace, and nothing changes", async () => {

@@ -16,7 +16,6 @@ mock.module("../../db/client.js", () => ({
 }));
 
 const { issueAccountSessionToken, readAccountSession } = await import("../../utils/accountSessionToken.js");
-const { ACCOUNT_CHANGE_ROUTES } = await import("../middleware/accountChangeGuard.js");
 const users = (await import("./users.js")).default;
 
 const app = new Hono<AppEnv>();
@@ -49,6 +48,3 @@ test("without a session it answers 401 and changes nothing", async () => {
   expect(updates).toHaveLength(0);
 });
 
-test("the route is an account-change route", () => {
-  expect(ACCOUNT_CHANGE_ROUTES).toContainEqual(["POST", "/v1/users/me/sign-out-other-devices"]);
-});

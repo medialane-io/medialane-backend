@@ -12,7 +12,6 @@ const backendKey = provisioningKeyWith(SECRET, "acc-1");
 function fakeDeps(overrides: Partial<WalletKeyDeps> = {}) {
   let owners = [computeOwnerGuid(backendKey.publicKey)];
   const executed: { walletAddress: string; calls: Call[]; privateKey: string }[] = [];
-  const recorded: { accountId: string; wallet: string; txHash: string }[] = [];
   const deps: WalletKeyDeps = {
     walletOf: async () => WALLET,
     ownerGuidsOf: async () => owners,
@@ -23,32 +22,22 @@ function fakeDeps(overrides: Partial<WalletKeyDeps> = {}) {
       return "0xtx";
     },
     waitFor: async () => {},
-    recordKeyAdded: async (accountId, wallet, txHash) => {
-      recorded.push({ accountId, wallet, txHash });
-    },
     ...overrides,
   };
-  return { deps, executed, recorded, setOwners: (next: string[]) => (owners = next) };
+  return { deps, executed, setOwners: (next: string[]) => (owners = next) };
 }
 
 describe("setupWalletKey", () => {
-  test("records the added key with its wallet and transaction", async () => {
-    const { deps, recorded } = fakeDeps();
-    await setupWalletKey(deps, "acc-1", PASSKEY);
-    expect(recorded).toEqual([{ accountId: "acc-1", wallet: WALLET, txHash: "0xtx" }]);
-  });
-
-  test("records nothing when the key was already added", async () => {
-    const { deps, recorded, setOwners } = fakeDeps();
+  test("does not add the key again when it is already an owner", async () => {
+    const { deps, executed, setOwners } = fakeDeps();
     setOwners([computeOwnerGuid(backendKey.publicKey), computeOwnerGuid(PASSKEY)]);
     await setupWalletKey(deps, "acc-1", PASSKEY);
-    expect(recorded).toEqual([]);
+    expect(executed).toEqual([]);
   });
 
-  test("records nothing when the key is not an owner afterwards", async () => {
-    const { deps, recorded } = fakeDeps({ execute: async () => "0xtx" });
+  test("answers 502 when the key is not an owner afterwards", async () => {
+    const { deps } = fakeDeps({ execute: async () => "0xtx" });
     expect((await setupWalletKey(deps, "acc-1", PASSKEY)).status).toBe(502);
-    expect(recorded).toEqual([]);
   });
 
   test("adds the passkey with one add-owner call and keeps the backend key", async () => {

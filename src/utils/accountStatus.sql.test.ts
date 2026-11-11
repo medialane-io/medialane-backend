@@ -4,7 +4,7 @@ import type { AccountStatus, PrismaClient } from "@prisma/client";
 const databaseUrl = process.env.SQL_TEST_DATABASE_URL;
 const DAY = 24 * 60 * 60 * 1000;
 
-describe.skipIf(!databaseUrl)("account status changes are recorded", () => {
+describe.skipIf(!databaseUrl)("account status changes", () => {
   let prisma: PrismaClient;
   let account: typeof import("./account.js");
   let unverified: typeof import("../orchestrator/unverifiedAccounts.js");
@@ -34,23 +34,24 @@ describe.skipIf(!databaseUrl)("account status changes are recorded", () => {
     return created.id;
   };
   const statusOf = async (id: string) => (await prisma.account.findUniqueOrThrow({ where: { id } })).status;
-  const eventsOf = (accountId: string) =>
-    prisma.accountEvent.findMany({ where: { accountId }, select: { type: true, data: true } });
+  const sessionsValidFromOf = async (id: string) =>
+    (await prisma.account.findUniqueOrThrow({ where: { id } })).sessionsValidFrom;
 
-  test("activating a pending account records the change", async () => {
+  test("activating a pending account ends the sessions issued before it", async () => {
     const id = await newAccount("PENDING", new Date(), null);
+    const before = Date.now();
     await account.activateAccount(id);
     expect(await statusOf(id)).toBe("ACTIVE");
-    expect(await eventsOf(id)).toEqual([{ type: "STATUS_CHANGED", data: { from: "PENDING", to: "ACTIVE" } }]);
+    expect((await sessionsValidFromOf(id))!.getTime()).toBeGreaterThanOrEqual(before);
   });
 
-  test("activating an account that is already active records nothing", async () => {
+  test("activating an account that is already active changes nothing", async () => {
     const id = await newAccount("ACTIVE", new Date(), null);
     await account.activateAccount(id);
-    expect(await eventsOf(id)).toEqual([]);
+    expect(await sessionsValidFromOf(id)).toBeNull();
   });
 
-  test("only io's pending accounts past the window become inactive, each with its own event", async () => {
+  test("only io's pending accounts past the window become inactive", async () => {
     const now = new Date();
     const old = new Date(now.getTime() - 8 * DAY);
     const expired = await newAccount("PENDING", old, "MEDIALANE_IO");
@@ -61,10 +62,6 @@ describe.skipIf(!databaseUrl)("account status changes are recorded", () => {
     expect(await unverified.deactivateExpiredPending(now)).toBeGreaterThanOrEqual(1);
 
     expect(await statusOf(expired)).toBe("INACTIVE");
-    expect(await eventsOf(expired)).toEqual([{ type: "STATUS_CHANGED", data: { from: "PENDING", to: "INACTIVE" } }]);
-    for (const untouched of [recent, otherApp, active]) {
-      expect(await eventsOf(untouched)).toEqual([]);
-    }
     expect(await statusOf(recent)).toBe("PENDING");
     expect(await statusOf(otherApp)).toBe("PENDING");
     expect(await statusOf(active)).toBe("ACTIVE");

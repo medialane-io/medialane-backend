@@ -6,7 +6,6 @@ import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyGate } from "./middleware/apiKeyGate.js";
-import { accountChangeGuard } from "./middleware/accountChangeGuard.js";
 import { renderError } from "./http/errors.js";
 import health from "./routes/health.js";
 import media from "./routes/media.js";
@@ -68,8 +67,6 @@ export function createApp(): Hono<AppEnv> {
   app.use("/v1/*", ...apiKeyGate);
 
   app.use("/v1/*", requestBodyLimit);
-
-  app.use("/v1/*", accountChangeGuard);
 
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);
