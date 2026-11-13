@@ -4,8 +4,8 @@ import {
 } from "@medialane/sdk";
 import { env } from "../config/env.js";
 
-export function issueAccountSessionToken(accountId: string, ttlSeconds?: number): string {
-  return issueShared(env.SIWS_SECRET, accountId, ttlSeconds);
+export function issueAccountSessionToken(accountId: string): string {
+  return issueShared(env.SIWS_SECRET, accountId);
 }
 
 /** The account a valid session token is for, and when it was issued (seconds since the epoch). */
