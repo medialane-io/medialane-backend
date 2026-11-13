@@ -7,6 +7,7 @@ import { callerApp } from "../../utils/caller.js";
 import { accountWallet } from "../../utils/account.js";
 import { readSession } from "../../utils/accountSession.js";
 import type { AppEnv } from "../../types/hono.js";
+import { ACCOUNT_INACTIVE, SIGN_IN_REQUIRED } from "./sessionRefusal.js";
 
 export type SessionLookup =
   | { verdict: "ok"; accountId: string; walletAddress: string | null }
@@ -33,7 +34,6 @@ const productionDeps: IdentityAuthDeps = {
   },
 };
 
-const INACTIVE = { error: "Account is not active", code: "account_inactive" } as const;
 
 export function createIdentityAuth(deps: IdentityAuthDeps, options: { walletOptional?: boolean } = {}) {
   return async function identityAuth(c: Context, next: Next) {
@@ -42,18 +42,18 @@ export function createIdentityAuth(deps: IdentityAuthDeps, options: { walletOpti
       const id = verifySiwsToken(authHeader.slice(7));
       if (!id) return c.json({ error: "Invalid or expired SIWS token" }, 401);
       if (await deps.isInactive(callerApp(c as unknown as Context<AppEnv>), id.chain, id.address)) {
-        return c.json(INACTIVE, 403);
+        return c.json(ACCOUNT_INACTIVE, 403);
       }
       c.set("walletAddress", id.address);
       return next();
     }
 
     const sessionToken = c.req.header("x-account-session");
-    if (!sessionToken) return c.json({ error: "Authentication required" }, 401);
+    if (!sessionToken) return c.json(SIGN_IN_REQUIRED, 401);
 
     const session = await deps.session(sessionToken);
-    if (session.verdict === "inactive") return c.json(INACTIVE, 403);
-    if (session.verdict !== "ok") return c.json({ error: "Invalid or expired session" }, 401);
+    if (session.verdict === "inactive") return c.json(ACCOUNT_INACTIVE, 403);
+    if (session.verdict !== "ok") return c.json(SIGN_IN_REQUIRED, 401);
     if (!session.walletAddress && !options.walletOptional) {
       return c.json({ error: "This account has no wallet yet", code: "wallet_required" }, 409);
     }

@@ -1,16 +1,17 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { resolveMetadata } from "./index.js";
 
-let fetches = 0;
-mock.module("./fetcher.js", () => ({
-  fetchJson: async () => {
-    fetches++;
-    return null;
-  },
-}));
-
-const { resolveMetadata } = await import("./index.js");
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 test("a file no gateway could serve is not fetched again on the next view", async () => {
+  let fetches = 0;
+  globalThis.fetch = (async () => {
+    fetches++;
+    return new Response("missing", { status: 404 });
+  }) as unknown as typeof fetch;
   const uri = `ipfs://QmFailureCache${Date.now()}`;
   expect(await resolveMetadata(uri)).toBeNull();
   const afterFirst = fetches;

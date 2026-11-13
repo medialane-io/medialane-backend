@@ -18,7 +18,7 @@ function appWithSubject() {
 test("without a token nobody is signed in, so the app's own account is not served instead", async () => {
   const res = await appWithSubject().request("/me");
   expect(res.status).toBe(401);
-  expect(await res.json()).toEqual({ error: "Sign in to use the portal" });
+  expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
 });
 
 test("a forged or expired session is refused rather than falling back to the key", async () => {
@@ -26,5 +26,5 @@ test("a forged or expired session is refused rather than falling back to the key
     headers: { "x-account-session": "not-a-real-session" },
   });
   expect(res.status).toBe(401);
-  expect(await res.json()).toEqual({ error: "Invalid or expired session" });
+  expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
 });

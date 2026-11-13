@@ -127,3 +127,14 @@ test("identityAuth uses the wallet token when both a token and a session are sen
   expect(body.walletAddress).not.toBe("0xabc");
   expect(body.sessionAccountId).toBeUndefined();
 });
+
+test("identityAuth tells a request with no credentials to sign in", async () => {
+  const res = await appWith().request("/");
+  expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
+});
+
+test("identityAuth tells an invalid session to sign in", async () => {
+  const res = await appWith(undefined, "app-A", async () => ({ verdict: "invalid" })).request("/", { headers: { "x-account-session": "bad" } });
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
+});
