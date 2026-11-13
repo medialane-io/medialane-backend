@@ -3,6 +3,7 @@ import { z } from "zod";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { identityAuth, identityAuthWalletOptional } from "../middleware/identityAuth.js";
+import { SIGN_IN_REQUIRED } from "../middleware/sessionRefusal.js";
 import { accountWallet, ensureAccountForWallet, liveEmailWhere, replaceEmail, replaceWallet, WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -188,7 +189,7 @@ const recoverWithKeyBodySchema = z.object({
 
 users.post("/me/wallet/recover-with-key", validated("json", recoverWithKeyBodySchema), async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
 
   const body = c.req.valid("json");
   const walletAddress = normalizeAddress("STARKNET", body.walletAddress);
@@ -201,7 +202,7 @@ users.post("/me/wallet/recover-with-key", validated("json", recoverWithKeyBodySc
 
 users.post("/me/wallet", async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
 
   const walletAddress = await accountWallet(accountId);
   if (!walletAddress) return c.json({ walletAddress: null });
@@ -219,7 +220,7 @@ const walletKeySchema = z.object({
 users.post("/me/wallet/key", validated("json", walletKeySchema), async (c) => {
   const { newOwnerPubkey } = c.req.valid("json");
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
   const outcome = await setupWalletKey(productionWalletKeyDeps, accountId, newOwnerPubkey);
   if (outcome.status !== 200) return c.json({ error: outcome.error }, outcome.status);
   return c.json({ walletAddress: outcome.walletAddress, removeOwnerGuid: outcome.removeOwnerGuid });
@@ -235,7 +236,7 @@ async function sessionAccountId(c: Context<AppEnv>): Promise<string | null> {
 
 users.post("/me/sign-out-other-devices", async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
   const nowSeconds = Math.floor(Date.now() / 1000);
   await prisma.account.update({ where: { id: accountId }, data: { sessionsValidFrom: new Date(nowSeconds * 1000) } });
   return c.json({ accountToken: issueAccountSessionToken(accountId) });
@@ -243,19 +244,19 @@ users.post("/me/sign-out-other-devices", async (c) => {
 
 users.get("/me/wallet/recovery", async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
   return recoveryResponse(c, await recoveryStatus(productionRecoveryDeps, accountId));
 });
 
 users.post("/me/wallet/recovery", validated("json", walletKeySchema), async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
   return recoveryResponse(c, await startRecovery(productionRecoveryDeps, accountId, c.req.valid("json").newOwnerPubkey));
 });
 
 users.post("/me/wallet/recovery/complete", validated("json", walletKeySchema), async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
   return recoveryResponse(c, await completeRecovery(productionRecoveryDeps, accountId, c.req.valid("json").newOwnerPubkey));
 });
 
@@ -263,7 +264,7 @@ const supportBodySchema = z.object({ message: z.string().max(2000).optional() })
 
 users.post("/me/support", validated("json", supportBodySchema), async (c) => {
   const accountId = await sessionAccountId(c);
-  if (!accountId) return c.json({ error: "Invalid or expired session" }, 401);
+  if (!accountId) return c.json(SIGN_IN_REQUIRED, 401);
   const sent = await sendSupportRequest(
     {
       emailOf: async (id) => (await getCurrentEmailIdentity(id))?.email ?? null,

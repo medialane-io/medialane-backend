@@ -44,7 +44,7 @@ test("signing out other devices sets the cutoff and returns a session that is st
 test("without a session it answers 401 and changes nothing", async () => {
   const res = await signOutOthers();
   expect(res.status).toBe(401);
-  expect(await res.json()).toEqual({ error: "Invalid or expired session" });
+  expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
   expect(updates).toHaveLength(0);
 });
 

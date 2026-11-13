@@ -37,14 +37,14 @@ describe("account sessions on the portal", () => {
     const { request, token } = await appFor("INACTIVE");
     const res = await request(token);
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Account is not active" });
+    expect(await res.json()).toEqual({ error: "Account is not active", code: "account_inactive" });
   });
 
   test("a session issued before the account's sign-out cutoff is refused", async () => {
     const { request, token } = await appFor("ACTIVE", new Date(Date.now() + 3600 * 1000));
     const res = await request(token);
     expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: "Invalid or expired session" });
+    expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
   });
 
   test("only the forwarded session signs in; a token in Authorization does not", async () => {
@@ -53,7 +53,7 @@ describe("account sessions on the portal", () => {
     for (const t of [token, issueToken("STARKNET", "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7")]) {
       const res = await bearer(t);
       expect(res.status).toBe(401);
-      expect(await res.json()).toEqual({ error: "Sign in to use the portal" });
+      expect(await res.json()).toEqual({ error: "Sign in to continue", code: "sign_in_required" });
     }
   });
 });
