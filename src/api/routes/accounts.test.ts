@@ -4,8 +4,8 @@ import type { AppEnv } from "../../types/hono.js";
 import { createAccountsRoutes, type AccountsDeps, type AccountRow } from "./accounts.js";
 
 const ROWS: AccountRow[] = [
-  { address: "0x0000000000000000000000000000000000000000000000000000000000000abc", collections: 2, assets: 5 },
-  { address: "0x0000000000000000000000000000000000000000000000000000000000000def", collections: 0, assets: 1 },
+  { address: "0x0000000000000000000000000000000000000000000000000000000000000abc", image: "ipfs://a", ipType: "Art" },
+  { address: "0x0000000000000000000000000000000000000000000000000000000000000def", image: null, ipType: null },
 ];
 
 function makeApp(deps: AccountsDeps) {
@@ -14,7 +14,9 @@ function makeApp(deps: AccountsDeps) {
   return app;
 }
 
-test("lists accounts with their counts and the page meta", async () => {
+const empty = async () => ({ rows: [], total: 0 });
+
+test("lists accounts with their featured asset and the page meta", async () => {
   const calls: unknown[][] = [];
   const app = makeApp({
     list: async (...args) => {
@@ -26,14 +28,14 @@ test("lists accounts with their counts and the page meta", async () => {
   const res = await app.request("/v1/accounts?page=2&limit=2");
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ data: ROWS, meta: { page: 2, limit: 2, total: 42 } });
-  expect(calls).toEqual([["STARKNET", "", 2, 2]]);
+  expect(calls).toEqual([["STARKNET", { hex: "", ipType: "" }, 2, 2]]);
 });
 
 test("search matches hexadecimal text, with or without the 0x prefix, case-insensitively", async () => {
   const hexes: string[] = [];
   const app = makeApp({
-    list: async (_chain, hex) => {
-      hexes.push(hex);
+    list: async (_chain, query) => {
+      hexes.push(query.hex);
       return { rows: [], total: 0 };
     },
   });
@@ -57,12 +59,24 @@ test("search that is not hexadecimal finds nothing and does not query", async ()
   expect(called).toBe(false);
 });
 
+test("the type of work is passed on as a lowercase slug", async () => {
+  const types: string[] = [];
+  const app = makeApp({
+    list: async (_chain, query) => {
+      types.push(query.ipType);
+      return { rows: [], total: 0 };
+    },
+  });
+  await app.request("/v1/accounts?ipType=Audio");
+  expect(types).toEqual(["audio"]);
+});
+
 test("the page size is capped", async () => {
   let limit = 0;
   const app = makeApp({
-    list: async (_chain, _hex, l) => {
+    list: async (_chain, _query, l) => {
       limit = l;
-      return { rows: [], total: 0 };
+      return empty();
     },
   });
   await app.request("/v1/accounts?limit=500");
