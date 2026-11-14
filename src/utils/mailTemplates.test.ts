@@ -24,7 +24,7 @@ describe("the emails", () => {
     const { subject, html, text } = render({ template: "verification-reminder", data: { confirmToken: TOKEN, deadline: new Date(DEADLINE) } });
     expect(subject).toBe("Confirm your email by 10 October to keep your Medialane account");
     for (const body of [html, text]) expect(body).toContain("10 October 2026");
-    expect(text).toContain("cannot be reopened");
+    expect(text).toContain("stays open once the email is confirmed");
     expect(links(html)).toEqual([`${APP}/confirm-email#token=${TOKEN}`]);
     expect(`${html}${text}`.toLowerCase()).not.toContain("starknet");
   });
