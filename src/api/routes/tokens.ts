@@ -16,24 +16,10 @@ import { storedImage, storedTokenUri } from "../../utils/onchainContent.js";
 import { liveMetadata } from "../utils/liveMetadata.js";
 import { chainFilterScope, chainScope } from "../http/chain.js";
 import { pageQuery } from "@medialane/sdk/contract";
+import { SLUG_TO_IP_TYPE } from "../utils/ipTypes.js";
 
 const log = createLogger("routes:tokens");
 const tokens = new Hono();
-
-const SLUG_TO_IP_TYPE: Record<string, string> = {
-  audio: "Audio",
-  art: "Art",
-  documents: "Documents",
-  video: "Video",
-  photography: "Photography",
-  patents: "Patents",
-  posts: "Posts",
-  publications: "Publications",
-  rwa: "RWA",
-  software: "Software",
-  custom: "Custom",
-
-};
 
 tokens.get("/", chainFilterScope(), validated("query", pageQuery({ defaultLimit: 24, maxLimit: 48 })), async (c) => {
   const { page, limit, skip } = c.req.valid("query");
