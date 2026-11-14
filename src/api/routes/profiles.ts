@@ -11,6 +11,7 @@ import { createLogger } from "../../utils/logger.js";
 import { serializeCreatorProfile } from "../utils/serialize.js";
 import type { AppEnv } from "../../types/hono.js";
 import { chainScope } from "../http/chain.js";
+import { pageQuery } from "@medialane/sdk/contract";
 import { collectionProfileSchema, creatorProfileSchema } from "@medialane/sdk/contract";
 
 const log = createLogger("routes:profiles");
@@ -156,6 +157,67 @@ profiles.get(
     });
   }
 );
+
+profiles.get("/creators", chainScope(), validated("query", pageQuery({ maxLimit: 50 })), async (c) => {
+    const chain = c.get("chain");
+
+  const { page, limit } = c.req.valid("query");
+  const search = c.req.query("search")?.trim().toLowerCase() ?? "";
+
+  const where = {
+    username: { not: null as null },
+    ...(search ? {
+      OR: [
+        { username: { contains: search, mode: "insensitive" as const } },
+        { name:     { contains: search, mode: "insensitive" as const } },
+      ],
+    } : {}),
+  };
+
+  const [total, profilesPage] = await Promise.all([
+    prisma.accountProfile.count({ where }),
+    prisma.accountProfile.findMany({
+      where,
+      include: {
+        account: { include: { identities: { where: { ...ACTIVE_IDENTITY, scheme: IDENTITY_SCHEME.WALLET }, take: 1 } } },
+      },
+      orderBy: { username: "asc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  const creators = profilesPage
+    .filter((p) => p.account.identities[0]?.address)
+    .map((p) => serializeCreatorProfile(p, p.account.identities[0]!.address!));
+
+  const needsImage = creators.filter((c) => !c.avatarImage);
+  const collectionImageMap = new Map<string, string>();
+
+  if (needsImage.length > 0) {
+    const wallets = needsImage.map((c) => c.walletAddress);
+
+    const rows = await prisma.$queryRaw<{ owner: string; image: string }[]>`
+      SELECT DISTINCT ON (owner) owner, image
+      FROM "Collection"
+      WHERE owner = ANY(${wallets}::text[])
+        AND image IS NOT NULL
+      ORDER BY owner, "createdAt" DESC
+    `;
+    for (const row of rows) {
+      collectionImageMap.set(row.owner, row.image);
+    }
+  }
+
+  const enriched = creators.map((c) => ({
+    ...c,
+    collectionImage: !c.avatarImage
+      ? (collectionImageMap.get(c.walletAddress) ?? null)
+      : null,
+  }));
+
+  return c.json({ creators: enriched, total, page, limit });
+});
 
 profiles.get("/creators/by-username/:username", chainScope(), async (c) => {
     const chain = c.get("chain");
