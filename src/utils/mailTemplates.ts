@@ -36,7 +36,7 @@ export function htmlToText(html: string): string {
 }
 
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
-const IGNORE_FOOTER = "If you didn't sign up, you can ignore this email. Medialane will never ask you for your recovery key.";
+const IGNORE_FOOTER = "This email was sent because this address was used to sign up.";
 
 function layout(content: string, footer: string): string {
   return `
@@ -45,9 +45,7 @@ function layout(content: string, footer: string): string {
         <img src="https://medialane.io/medialane-light-logo.png" alt="Medialane" height="28" style="height:28px;" />
       </div>
       ${content}
-      <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">
-        ${footer}
-      </p>
+      ${footer ? `<p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:24px;">${footer}</p>` : ""}
     </div>
   `;
 }
@@ -83,7 +81,7 @@ function verificationCode(code: string): RenderedEmail {
 function reminder(data: { confirmToken: string; deadline: Date }, appUrl: string): RenderedEmail {
   const when = formatDate(data.deadline);
   const url = `${appUrl}/confirm-email#token=${data.confirmToken}`;
-  const consequence = `If it isn't confirmed by ${when}, your account will be closed and this email address will be released. A closed account cannot be reopened.`;
+  const consequence = `The account stays open once the email is confirmed by ${when}.`;
 
   const text = [
     `Your Medialane account closes on ${when} unless you confirm your email.`,
@@ -97,7 +95,7 @@ function reminder(data: { confirmToken: string; deadline: Date }, appUrl: string
 
   const html = layout(
     `
-      <h1 style="margin:0 0 8px;font-size:22px;">Confirm your email to keep your account</h1>
+      <h1 style="margin:0 0 8px;font-size:22px;">Confirm the email to keep the account.</h1>
       <p style="margin:0 0 24px;font-size:15px;color:#4b5563;">Your Medialane account closes on <strong>${escapeHtml(when)}</strong> unless you confirm your email.</p>
       <div style="background:#f6f7f9;border-radius:16px;padding:24px;text-align:center;">
         ${button(url)}
@@ -109,9 +107,6 @@ function reminder(data: { confirmToken: string; deadline: Date }, appUrl: string
   return { subject: `Confirm your email by ${when.replace(/ \d{4}$/, "")} to keep your Medialane account`, html, text };
 }
 
-const GUARDIAN_FOOTER =
-  "Medialane will never ask you for your recovery key. Treat any message requesting it as an attempt to take your assets.";
-
 function guardianAlert(subject: string, headline: string, bodyHtml: string): RenderedEmail {
   const html = layout(
     `
@@ -119,7 +114,7 @@ function guardianAlert(subject: string, headline: string, bodyHtml: string): Ren
         <p style="margin:0 0 8px;color:#991b1b;font-size:15px;font-weight:700;">${headline}</p>
         ${bodyHtml}
       </div>`,
-    GUARDIAN_FOOTER,
+    "",
   );
   return { subject, html, text: htmlToText(html) };
 }
@@ -148,20 +143,16 @@ export function renderTemplate(request: TemplateRequest, appUrl: string): Render
       return reminder(request.data, appUrl);
     case "guardian-set":
       return guardianAlert(
-        "A guardian was added to your Medialane wallet",
-        "A guardian was added to your wallet",
-        `<p style="margin:0;color:#111827;font-size:14px;">A guardian can now help recover wallet ${shortAddress(request.data.walletAddress)} if you lose every
-      device, but can never move your funds directly. If you set this up yourself, no action is needed.
-      If you didn't, open Medialane and check Settings → Security &amp; Recovery.</p>`,
+        "A guardian was added to the wallet",
+        "A guardian was added to the wallet",
+        `<p style="margin:0;color:#111827;font-size:14px;">A guardian was added to wallet ${shortAddress(request.data.walletAddress)}. It helps restore the wallet on a new device and can never move funds directly. Details are under Settings → Security &amp; Recovery.</p>`,
       );
     case "guardian-escape-triggered":
       return guardianAlert(
-        "Security alert: a guardian started recovering your Medialane wallet",
-        "A guardian started replacing your wallet's owner key",
-        `<p style="margin:0 0 12px;color:#111827;font-size:14px;">Wallet ${shortAddress(request.data.walletAddress)} can get a new owner key on or after
-      <strong>${request.data.readyAt.toUTCString()}</strong> unless you cancel it first.</p>
-    <p style="margin:0;color:#111827;font-size:14px;">If this was you (recovering with a guardian), no action is needed.
-      If it wasn't, open Medialane, go to Settings → Security &amp; Recovery, and cancel it now.</p>`,
+        "A guardian started recovering the wallet",
+        "A guardian started recovering the wallet",
+        `<p style="margin:0;color:#111827;font-size:14px;">Wallet ${shortAddress(request.data.walletAddress)} can get a new owner key on or after
+      <strong>${request.data.readyAt.toUTCString()}</strong>. Recovery can be stopped under Settings → Security &amp; Recovery.</p>`,
       );
     case "guardian-escape-completed":
       return guardianAlert(
