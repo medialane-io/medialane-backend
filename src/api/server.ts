@@ -27,6 +27,7 @@ import usernameClaims from "./routes/username-claims.js";
 import collectionSlugClaims from "./routes/collection-slug-claims.js";
 import users from "./routes/users.js";
 import profiles from "./routes/profiles.js";
+import { accountsRoutes } from "./routes/accounts.js";
 import stats from "./routes/stats.js";
 import { events } from "./routes/events.js";
 import reports from "./routes/reports.js";
@@ -85,6 +86,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/v1/orders", orders);
   app.route("/v1/tokens", tokens);
   app.route("/v1", profiles);
+  app.route("/v1/accounts", accountsRoutes);
   app.route("/v1/collections", collections);
   app.route("/v1/tx/sync", txSync);
   app.route("/v1", chainReads);
