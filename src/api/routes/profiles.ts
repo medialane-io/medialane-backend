@@ -4,6 +4,7 @@ import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { holdsToken } from "../../chainRead/index.js";
+import { currentCollectionOwner } from "../../utils/collectionOwner.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { callerApp } from "../../utils/caller.js";
 import { ensureAccountForWallet, resolveAccountIdFromWallet } from "../../utils/account.js";
@@ -55,8 +56,16 @@ profiles.patch(
     if (!collection) return c.json({ error: "Collection not found — register the collection first" }, 404);
 
     const jwtWallet = c.get("walletAddress") as string;
-    if (!collection.claimedBy || normalizeAddress(chain, collection.claimedBy) !== jwtWallet) {
-      return c.json({ error: "Not authorized to edit this collection. Claim the collection first." }, 403);
+
+    let onChainOwner: string;
+    try {
+      onChainOwner = await currentCollectionOwner(chain, contract);
+    } catch (err) {
+      log.warn({ err, contract }, "Collection owner check failed");
+      return c.json({ error: "Could not verify ownership on-chain, please retry" }, 503);
+    }
+    if (onChainOwner !== jwtWallet) {
+      return c.json({ error: "Only the collection owner can edit this collection." }, 403);
     }
 
     const updatedBy = c.get("walletAddress") as string;

@@ -114,7 +114,6 @@ export function serializeCollection(
     isFeatured: c.isFeatured,
     isHidden: c.isHidden,
     service: c.service ?? null,
-    claimedBy: c.claimedBy ?? null,
     floorPrice: stats?.floorPrice ?? null,
     totalVolume: stats?.totalVolume ?? null,
     holderCount: stats?.holderCount ?? 0,

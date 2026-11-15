@@ -27,8 +27,7 @@ async function setup(opts: {
       deleteMany: mock(() => Promise.resolve({ count: 0 })),
     },
     collection: {
-      findUnique: mock(() => Promise.resolve(opts.indexed === false ? null : { contractAddress: CONTRACT })),
-      update: mock(() => Promise.resolve({ startBlock: 1n, claimedBy: opts.wallet })),
+      findUnique: mock(() => Promise.resolve(opts.indexed === false ? null : { contractAddress: CONTRACT, startBlock: 1n })),
     },
     collectionClaim: {
       create: mock(() => Promise.resolve({})),
@@ -74,7 +73,6 @@ describe("POST /verify", () => {
     const { db, verify } = await setup({ owner: OWNER, wallet: OTHER });
     const body = (await (await verify()).json()) as { verified: boolean; reason?: string };
     expect(body).toEqual({ verified: false, reason: "owner_mismatch" });
-    expect(db.collection.update).not.toHaveBeenCalled();
     expect(db.collectionClaim.create).not.toHaveBeenCalled();
     expect(db.claimChallenge.delete).not.toHaveBeenCalled();
   });
@@ -83,7 +81,6 @@ describe("POST /verify", () => {
     const { db, verify } = await setup({ owner: OWNER, wallet: OWNER });
     const body = (await (await verify()).json()) as { verified: boolean };
     expect(body.verified).toBe(true);
-    expect(db.collection.update).toHaveBeenCalledTimes(1);
     expect(db.collectionClaim.create).toHaveBeenCalledTimes(1);
   });
 
@@ -91,21 +88,18 @@ describe("POST /verify", () => {
     const { db, verify } = await setup({ owner: new Error("rpc down"), wallet: OWNER });
     const body = (await (await verify()).json()) as { verified: boolean; reason?: string };
     expect(body).toEqual({ verified: false, reason: "owner_check_failed" });
-    expect(db.collection.update).not.toHaveBeenCalled();
   });
 
   test("a zero owner never verifies", async () => {
     const { db, verify } = await setup({ owner: realStarknet.normalizeAddress("STARKNET", "0x0"), wallet: OWNER });
     const body = (await (await verify()).json()) as { verified: boolean };
     expect(body.verified).toBe(false);
-    expect(db.collection.update).not.toHaveBeenCalled();
   });
 
   test("an invalid signature is refused before the owner is read", async () => {
     const { db, verify } = await setup({ owner: OWNER, wallet: OWNER, signatureValid: false });
     const body = (await (await verify()).json()) as { reason?: string };
     expect(body.reason).toBe("invalid_signature");
-    expect(db.collection.update).not.toHaveBeenCalled();
   });
 });
 
@@ -120,7 +114,6 @@ describe("POST /verify on a collection that is not indexed", () => {
     });
     expect(ensureCollection).not.toHaveBeenCalled();
     expect(catchUp).not.toHaveBeenCalled();
-    expect(db.collection.update).not.toHaveBeenCalled();
   });
 
   test("a claim already waiting for review is not recorded twice", async () => {
@@ -142,6 +135,5 @@ describe("POST /verify on a collection that is not indexed", () => {
     const body = (await (await verify()).json()) as { verified: boolean };
     expect(body.verified).toBe(true);
     expect(ensureCollection).not.toHaveBeenCalled();
-    expect(db.collection.update).toHaveBeenCalledTimes(1);
   });
 });

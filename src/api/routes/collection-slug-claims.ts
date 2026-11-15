@@ -3,6 +3,7 @@ import { z } from "zod";
 import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { normalizeAddress } from "../../utils/starknet.js";
+import { currentCollectionOwner } from "../../utils/collectionOwner.js";
 import { identityAuth } from "../middleware/identityAuth.js";
 import { validateSlugLike } from "../../utils/slugClaim.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -56,14 +57,17 @@ collectionSlugClaims.post(
 
     const collection = await prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress: normContract } },
-      select: { owner: true, claimedBy: true, profile: { select: { slug: true } } },
+      select: { profile: { select: { slug: true } } },
     });
     if (!collection) return c.json({ error: "Collection not found." }, 404);
 
-    const isOwner =
-      (collection.owner && normalizeAddress(chain, collection.owner) === jwtWallet) ||
-      (collection.claimedBy && normalizeAddress(chain, collection.claimedBy) === jwtWallet);
-    if (!isOwner) return c.json({ error: "Only the collection owner can claim a slug." }, 403);
+    let onChainOwner: string;
+    try {
+      onChainOwner = await currentCollectionOwner(chain, normContract);
+    } catch {
+      return c.json({ error: "Could not verify ownership on-chain, please retry" }, 503);
+    }
+    if (onChainOwner !== jwtWallet) return c.json({ error: "Only the collection owner can claim a slug." }, 403);
 
     if (collection.profile?.slug) {
       return c.json({ error: "This collection already has an approved slug." }, 409);

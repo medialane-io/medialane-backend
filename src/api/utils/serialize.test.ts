@@ -68,7 +68,7 @@ describe("collection image fallback", () => {
   const collection = {
     id: "c1", chain: "STARKNET", contractAddress: "0xabc", collectionId: null, name: "C", symbol: "C",
     description: null, image: null, owner: null, startBlock: 1n, metadataStatus: "FETCHED", standard: "ERC721",
-    isFeatured: false, isHidden: false, service: "external-erc721", claimedBy: null,
+    isFeatured: false, isHidden: false, service: "external-erc721",
     createdAt: new Date(0), updatedAt: new Date(0),
   } as never;
 
@@ -107,7 +107,7 @@ describe("collection attributes", () => {
   const collection = {
     id: "c1", chain: "STARKNET", contractAddress: "0xabc", collectionId: null, name: "Gala", symbol: "GALA",
     description: null, image: null, owner: null, startBlock: 1n, metadataStatus: "FETCHED", standard: "ERC721",
-    isFeatured: false, isHidden: false, service: "pop-protocol", claimedBy: null,
+    isFeatured: false, isHidden: false, service: "pop-protocol",
     createdAt: new Date(0), updatedAt: new Date(0),
   };
 

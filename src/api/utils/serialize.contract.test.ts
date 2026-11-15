@@ -97,7 +97,6 @@ const collectionRow = {
   isFeatured: false,
   isHidden: false,
   service: "mip-erc721",
-  claimedBy: null,
   createdAt: now,
   updatedAt: now,
 } as never;

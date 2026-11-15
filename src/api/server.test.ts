@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
 import { Hono } from "hono";
-import { createApp, requestBodyLimit } from "./server.js";
+import { createApp } from "./server.js";
+import { requestBodyLimit } from "./middleware/bodyLimit.js";
 
 const MB = 1024 * 1024;
 
@@ -51,5 +52,14 @@ describe("on-chain images", () => {
   test("an image request without an API key is refused", async () => {
     const res = await createApp().request(`/media/starknet/0x${"a".repeat(64)}/1/image`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("the size limit sits between the key check and the meter", () => {
+  test("the gate runs the limit after the key is checked and before the body is metered", async () => {
+    const { apiKeyGate } = await import("./middleware/apiKeyGate.js");
+    const at = apiKeyGate.indexOf(requestBodyLimit);
+    expect(at).toBeGreaterThan(0);
+    expect(at).toBe(apiKeyGate.length - 2);
   });
 });

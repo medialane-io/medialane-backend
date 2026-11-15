@@ -3,6 +3,7 @@ import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
 import { fetchDueSources, catchUpCollectionTransfers, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, TRANSFER_SOURCE_IDS, type SourceFetch } from "./sources.js";
 import { applyEvents, applyCollectionsCreated, prepareOwnership, type ApplyOutcome } from "./apply.js";
+import { applyOwnershipChanges } from "./handlers/collectionOwner.js";
 import { worker } from "../orchestrator/worker.js";
 import prisma from "../db/client.js";
 import { env } from "../config/env.js";
@@ -101,6 +102,7 @@ async function tick(tickId: string): Promise<number> {
     const created = await applyCollectionsCreated(deduplicatedEvents, CHAIN);
     for (const contractAddress of created) affectedContracts.add(contractAddress);
     await catchUpCollectionTransfers(created);
+    await applyOwnershipChanges(rawTransferEvents);
   } catch (err) {
     await saveCursor({ lastBlock: cursor.lastBlock }, CHAIN);
     tlog.error(

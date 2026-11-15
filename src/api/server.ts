@@ -1,6 +1,4 @@
-import { Hono, type Context } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import { MAX_UPLOAD_BYTES } from "@medialane/sdk";
+import { Hono } from "hono";
 import type { AppEnv } from "../types/hono.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
@@ -47,10 +45,6 @@ import { rewards } from "./routes/rewards.js";
 import sponsorship from "./routes/sponsorship.js";
 import { x402Discovery } from "./routes/x402.js";
 
-const tooLarge = (c: Context) => c.json({ error: "Payload too large" }, 413);
-
-export const requestBodyLimit = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: tooLarge });
-
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -66,8 +60,6 @@ export function createApp(): Hono<AppEnv> {
   app.route("/", x402Discovery);
 
   app.use("/v1/*", ...apiKeyGate);
-
-  app.use("/v1/*", requestBodyLimit);
 
   app.route("/v1/collections/claim", claims);
   app.route("/v1/wallet-activity", walletActivityRoutes);

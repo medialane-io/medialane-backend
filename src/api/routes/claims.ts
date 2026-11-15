@@ -4,21 +4,35 @@ import { validated } from "../http/validate.js";
 import prisma from "../../db/client.js";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
 import { identityAuth } from "../middleware/identityAuth.js";
-import { getCollectionOwner } from "../../chainRead/index.js";
+import { currentCollectionOwner } from "../../utils/collectionOwner.js";
 import type { AppEnv } from "../../types/hono.js";
 import crypto from "crypto";
-import type { Chain } from "@prisma/client";
+import type { Chain, Collection } from "@prisma/client";
 import { worker } from "../../orchestrator/worker.js";
 import { chainScope } from "../http/chain.js";
 
 const claims = new Hono<AppEnv>();
 
-async function isIndexed(chain: Chain, contractAddress: string): Promise<boolean> {
-  const existing = await prisma.collection.findUnique({
+async function indexedCollection(chain: Chain, contractAddress: string): Promise<Collection | null> {
+  return prisma.collection.findUnique({
     where: { chain_contractAddress: { chain, contractAddress } },
-    select: { contractAddress: true },
   });
-  return existing !== null;
+}
+
+async function recordApproval(
+  chain: Chain,
+  contractAddress: string,
+  claimantAddress: string,
+  verificationMethod: "ONCHAIN" | "SIGNATURE",
+): Promise<void> {
+  const recorded = await prisma.collectionClaim.findFirst({
+    where: { contractAddress, claimantAddress, status: { in: ["AUTO_APPROVED", "APPROVED"] } },
+    select: { id: true },
+  });
+  if (recorded) return;
+  await prisma.collectionClaim.create({
+    data: { contractAddress, chain, claimantAddress, status: "AUTO_APPROVED", verificationMethod },
+  });
 }
 
 async function holdForReview(
@@ -59,19 +73,8 @@ claims.post(
       return c.json({ error: "Wallet address does not match authenticated session" }, 403);
     }
 
-    const existing = await prisma.collectionClaim.findFirst({
-      where: { contractAddress: normContract, claimantAddress: normWallet, status: { in: ["AUTO_APPROVED", "APPROVED"] } },
-    });
-    if (existing) {
-      const collection = await prisma.collection.findUnique({
-        where: { chain_contractAddress: { chain, contractAddress: normContract } },
-      });
-      const sc = collection ? { ...collection, startBlock: collection.startBlock.toString() } : null;
-      return c.json({ verified: true, collection: sc });
-    }
-
     try {
-      const onChainOwner = await getCollectionOwner(chain, normContract);
+      const onChainOwner = await currentCollectionOwner(chain, normContract);
       const ZERO = normalizeAddress(chain, "0x0");
       if (onChainOwner === ZERO || onChainOwner !== normWallet) {
         return c.json({ verified: false, reason: "owner_mismatch" });
@@ -80,18 +83,12 @@ claims.post(
       return c.json({ verified: false, reason: "owner_check_failed" });
     }
 
-    if (!(await isIndexed(chain, normContract))) {
+    const collection = await indexedCollection(chain, normContract);
+    if (!collection) {
       await holdForReview(chain, normContract, normWallet, "ONCHAIN");
       return c.json(UNDER_REVIEW);
     }
-    const collection = await prisma.collection.update({
-      where: { chain_contractAddress: { chain, contractAddress: normContract } },
-      data: { claimedBy: normWallet },
-    });
-
-    await prisma.collectionClaim.create({
-      data: { contractAddress: normContract, chain, claimantAddress: normWallet, status: "AUTO_APPROVED", verificationMethod: "ONCHAIN" },
-    });
+    await recordApproval(chain, normContract, normWallet, "ONCHAIN");
 
     worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain, contractAddress: normContract });
 
@@ -186,7 +183,7 @@ claims.post(
     }
 
     try {
-      const onChainOwner = await getCollectionOwner(chain, normContract);
+      const onChainOwner = await currentCollectionOwner(chain, normContract);
       if (onChainOwner === normalizeAddress(chain, "0x0") || onChainOwner !== normWallet) {
         return c.json({ verified: false, reason: "owner_mismatch" });
       }
@@ -196,18 +193,12 @@ claims.post(
 
     await prisma.claimChallenge.delete({ where: { challenge } });
 
-    if (!(await isIndexed(chain, normContract))) {
+    const collection = await indexedCollection(chain, normContract);
+    if (!collection) {
       await holdForReview(chain, normContract, normWallet, "SIGNATURE");
       return c.json(UNDER_REVIEW);
     }
-    const collection = await prisma.collection.update({
-      where: { chain_contractAddress: { chain, contractAddress: normContract } },
-      data: { claimedBy: normWallet },
-    });
-
-    await prisma.collectionClaim.create({
-      data: { contractAddress: normContract, chain, claimantAddress: normWallet, status: "AUTO_APPROVED", verificationMethod: "SIGNATURE" },
-    });
+    await recordApproval(chain, normContract, normWallet, "SIGNATURE");
 
     worker.enqueue({ type: "COLLECTION_METADATA_FETCH", chain, contractAddress: normContract });
 

@@ -27,6 +27,8 @@ import {
   TRANSFER_SINGLE_SELECTOR,
   TRANSFER_BATCH_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
+  COLLECTION_OWNERSHIP_TRANSFERRED_SELECTOR,
+  OWNERSHIP_TRANSFERRED_SELECTOR,
   COLLECTION_DEPLOYED_SELECTOR,
   CLUB_DEPLOYED_SELECTOR,
   COMMENT_ADDED_SELECTOR,
@@ -55,6 +57,7 @@ import { handleIPTicketsCollectionDeployed } from "./handlers/ipTicketsFactory.j
 import { handleIPClubDeployed } from "./handlers/ipClubFactory.js";
 import { applySponsorship } from "./handlers/sponsorship.js";
 import { applyTreasuryDeposits } from "./handlers/treasuryDeposit.js";
+import { applyOwnershipChanges } from "./handlers/collectionOwner.js";
 import { acceptedTokens } from "../payments/token-value.js";
 import { x402Config } from "../config/x402.js";
 import type { Chain, Prisma } from "@prisma/client";
@@ -100,6 +103,8 @@ const TRANSFER_SELECTORS = [
   hex(TRANSFER_SINGLE_SELECTOR),
   hex(TRANSFER_BATCH_SELECTOR),
 ];
+
+const COLLECTION_EVENT_SELECTORS = [...TRANSFER_SELECTORS, hex(OWNERSHIP_TRANSFERRED_SELECTOR)];
 
 const MARKETPLACE_SELECTORS = [
   hex(ORDER_CREATED_SELECTOR),
@@ -205,8 +210,11 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: CORE_FACTORY_MIP721, scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
   { id: CORE_FACTORY_DATA_TOKENIZATION, scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_CREATED_SELECTOR)] },
 
-  { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS },
-  { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: TRANSFER_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS },
+  { id: "owner:mip-erc721", scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_OWNERSHIP_TRANSFERRED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyOwnershipChanges },
+  { id: "owner:data-tokenization-erc721", scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_OWNERSHIP_TRANSFERRED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyOwnershipChanges },
+
+  { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS },
+  { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], cadenceMs: EVERY_TICK, apply: applyComments },
 
   ...TREASURY_DEPOSIT_SOURCES,

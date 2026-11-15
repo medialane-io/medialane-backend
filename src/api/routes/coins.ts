@@ -257,8 +257,15 @@ coins.patch("/:contract", identityAuth, chainScope(), validated("json", patchBod
     where: { chain_contractAddress: { chain, contractAddress: contract } },
   });
   if (!coin) return c.json({ error: "Coin not found" }, 404);
-  if (!coin.creator || normalizeAddress(chain, coin.creator) !== jwtWallet) {
-    return c.json({ error: "Only the coin creator can edit this coin" }, 403);
+  let onChainOwner: string;
+  try {
+    onChainOwner = await getCollectionOwner(chain, contract);
+  } catch (err) {
+    log.warn({ err, contract }, "Coin owner check failed");
+    return c.json({ error: "Could not verify ownership on-chain, please retry" }, 503);
+  }
+  if (onChainOwner !== jwtWallet) {
+    return c.json({ error: "Only the coin owner can edit this coin" }, 403);
   }
 
   const updated = await prisma.coin.update({
