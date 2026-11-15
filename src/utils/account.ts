@@ -110,6 +110,7 @@ export async function replaceWallet(params: {
   chain: Chain;
   address: string;
   limited?: boolean;
+  provider?: string;
 }): Promise<void> {
   const address = normalizeAddress(params.chain, params.address);
   await prisma.$transaction(async (tx) => {
@@ -137,7 +138,7 @@ export async function replaceWallet(params: {
         data: {
           accountId: params.accountId,
           scheme: IDENTITY_SCHEME.WALLET,
-          provider: "unknown",
+          provider: params.provider ?? "unknown",
           chain: params.chain,
           address,
           appId: params.appId,
@@ -167,7 +168,7 @@ export async function attachDeployedWallet(params: {
   }
   if (normalizeAddress(params.chain, current) === normalizeAddress(params.chain, params.address)) return;
   if (!params.replace) throw new WalletAlreadyAttachedError();
-  await replaceWallet(params);
+  await replaceWallet({ ...params, provider: "mediawallet" });
 }
 
 /** Makes `email` the account's active email. The previous email stays on the account as INACTIVE. */

@@ -67,7 +67,15 @@ describe("replaceWallet", () => {
     expect(calls).toEqual(["retire", "create"]);
     expect(update).toHaveBeenCalledWith({ where: { id: "w-old" }, data: { status: "INACTIVE" } });
     const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
-    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1" });
+    expect(data).toMatchObject({ accountId: "acct-1", scheme: "wallet", chain: "STARKNET", address: NEW_WALLET, appId: "c1", provider: "unknown" });
+  });
+
+  test("records the given provider on the new wallet", async () => {
+    const { create } = setup(true);
+    const { replaceWallet } = await import("./account.js");
+    await replaceWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET, provider: "braavos" });
+    const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
+    expect(data).toMatchObject({ provider: "braavos" });
   });
 });
 
@@ -103,10 +111,12 @@ describe("attachDeployedWallet", () => {
   });
 
   test("replaces the account's wallet when asked to replace", async () => {
-    const { calls } = setup(true);
+    const { create, calls } = setup(true);
     const { attachDeployedWallet } = await import("./account.js");
     await attachDeployedWallet({ accountId: "acct-1", appId: "c1", chain: "STARKNET", address: NEW_WALLET, replace: true });
     expect(calls).toEqual(["retire", "create"]);
+    const data = (create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0].data;
+    expect(data).toMatchObject({ provider: "mediawallet" });
   });
 
   test("refuses a different wallet when not asked to replace, and nothing changes", async () => {
