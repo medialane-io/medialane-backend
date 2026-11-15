@@ -23,8 +23,12 @@ export async function holdsTokenId(
   return adapterFor(chain).holdsTokenId(contract, owner, standard, tokenId);
 }
 
-export async function getCollectionOwner(chain: Chain, contract: string): Promise<string> {
-  return adapterFor(chain).collectionOwner(contract);
+export async function getCollectionOwner(
+  chain: Chain,
+  contract: string,
+  registry?: { address: string; collectionId: string },
+): Promise<string> {
+  return adapterFor(chain).collectionOwner(contract, registry);
 }
 
 export async function getEscapeReadyAt(chain: Chain, accountAddress: string): Promise<Date | null> {

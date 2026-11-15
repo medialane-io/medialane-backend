@@ -13,7 +13,7 @@ export interface ChainAdapter {
     knownTokenIds?: string[],
   ): Promise<boolean>;
   holdsTokenId(contract: string, owner: string, standard: "ERC721" | "ERC1155", tokenId: string): Promise<boolean>;
-  collectionOwner(contract: string): Promise<string>;
+  collectionOwner(contract: string, registry?: { address: string; collectionId: string }): Promise<string>;
   escapeReadyAt(account: string): Promise<Date | null>;
   verifySignature(address: string, typedData: unknown, signature: string[]): Promise<VerifyResult>;
 }

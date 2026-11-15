@@ -68,7 +68,19 @@ async function holdsTokenId(
   return res.length > 0 && normalizeAddress("STARKNET", res[0]!) === normalizeAddress("STARKNET", owner);
 }
 
-async function collectionOwner(contract: string): Promise<string> {
+async function registryCollectionOwner(registry: string, collectionId: string): Promise<string> {
+  const id = cairo.uint256(collectionId);
+  const res = await callRpc((provider) => provider.callContract({
+    contractAddress: registry,
+    entrypoint: "get_collection",
+    calldata: [id.low.toString(), id.high.toString()],
+  }));
+  if (res.length < 2) throw new Error("get_collection returned no owner");
+  return normalizeAddress("STARKNET", res[res.length - 2]!);
+}
+
+async function collectionOwner(contract: string, registry?: { address: string; collectionId: string }): Promise<string> {
+  if (registry) return registryCollectionOwner(registry.address, registry.collectionId);
   const ownerResult = await callRpc((provider) => {
     const c = new Contract({
       abi: [{ name: "owner", type: "function", inputs: [], outputs: [{ name: "owner", type: "core::starknet::contract_address::ContractAddress" }], state_mutability: "view" }],

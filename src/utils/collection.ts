@@ -51,7 +51,6 @@ export async function upsertCollectionFromFactory(
     baseUri?: string | null;
     owner?: string | null;
 
-    claimedBy?: string | null;
     collectionId?: string | null;
     startBlock: bigint;
   },
@@ -69,7 +68,6 @@ export async function upsertCollectionFromFactory(
       symbol: params.symbol ?? undefined,
       baseUri: params.baseUri ?? undefined,
       owner: params.owner ?? undefined,
-      claimedBy: params.claimedBy ?? undefined,
       collectionId: params.collectionId ?? undefined,
       startBlock: params.startBlock,
       metadataStatus: "PENDING",
@@ -81,7 +79,6 @@ export async function upsertCollectionFromFactory(
       symbol: params.symbol ?? undefined,
       baseUri: params.baseUri ?? undefined,
       owner: params.owner ?? undefined,
-      claimedBy: params.claimedBy ?? undefined,
       collectionId: params.collectionId ?? undefined,
     },
   });

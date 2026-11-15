@@ -56,7 +56,6 @@ export interface RawCollectionRow {
   isHidden: boolean;
   standard: TokenStandard;
   service: string;
-  claimedBy: string | null;
   deletedAt: Date | null;
   deletedBy: string | null;
   createdAt: Date;

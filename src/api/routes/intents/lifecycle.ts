@@ -86,8 +86,8 @@ export function registerLifecycleRoutes(intents: Hono<AppEnv>, cosign: Cosign = 
         signature,
       });
     } catch (err) {
-      log.warn({ err, id, requester: intent.requester }, "Intent signature accepted unproven: the chain could not be read");
-      proof = { ok: false, reason: "not_deployed" };
+      log.warn({ err, id, requester: intent.requester }, "Intent signature refused: the chain could not be read");
+      return c.json({ error: "The network can't be reached right now. Please try again in a moment." }, 503);
     }
 
     if (signatureIsRefused(proof)) {
