@@ -133,6 +133,11 @@ describe("a token's description", () => {
     expect(serializeToken(token, [], undefined, { description: "About this token" }).metadata.description).toBe("About this token");
   });
 
+  test("an archived token says so", () => {
+    expect(serializeToken({ ...token, isArchived: true }, []).isArchived).toBe(true);
+    expect(serializeToken({ ...token, isArchived: false }, []).isArchived).toBe(false);
+  });
+
   test("is empty in lists, where none is read", () => {
     expect(serializeToken(token, []).metadata.description).toBeNull();
   });

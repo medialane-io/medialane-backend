@@ -81,6 +81,8 @@ const RECEIPT_APPLIED_FACTORY_SOURCES = new Set([
   "factory:ip-tickets",
   "factory:ip-club",
   "factory:creator-coin",
+  "archive:mip-erc721",
+  "archive:data-tokenization-erc721",
 ]);
 
 export interface FactoryBatch {
