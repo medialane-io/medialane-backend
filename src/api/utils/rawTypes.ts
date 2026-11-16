@@ -74,6 +74,7 @@ export interface RawTokenRow {
   tokenUri: string | null;
   metadataStatus: MetadataStatus;
   isHidden: boolean;
+  isArchived: boolean;
   name: string | null;
   image: string | null;
   animationUrl: string | null;

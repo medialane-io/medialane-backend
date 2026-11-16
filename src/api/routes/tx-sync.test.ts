@@ -113,6 +113,15 @@ describe("a factory deploy in the receipt is applied by that factory's own handl
     expect(batches[0]!.events).toHaveLength(1);
   });
 
+  test("an archive in the receipt reaches the registry's archive source", () => {
+    const events = eventsFromReceipt(
+      { events: [{ from_address: coords.collection721, keys: [selector("TokenArchived"), "0x7", "0x0", "0x2a", "0x0"], data: ["0xaa", "0x1"] }] },
+      "0xtx",
+      7,
+    );
+    expect(factoryBatches(events).map((b) => b.source.id)).toEqual(["archive:mip-erc721"]);
+  });
+
   test("a deploy event emitted by any other contract is ignored", () => {
     const events = eventsFromReceipt(
       { events: [{ from_address: "0x999", keys: [selector("CollectionDeployed"), "0x5a1", "0x0abc"], data: [] }] },

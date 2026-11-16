@@ -28,6 +28,8 @@ import {
   TRANSFER_BATCH_SELECTOR,
   COLLECTION_CREATED_SELECTOR,
   COLLECTION_OWNERSHIP_TRANSFERRED_SELECTOR,
+  TOKEN_ARCHIVED_SELECTOR,
+  TOKEN_ARCHIVED_BATCH_SELECTOR,
   OWNERSHIP_TRANSFERRED_SELECTOR,
   COLLECTION_DEPLOYED_SELECTOR,
   CLUB_DEPLOYED_SELECTOR,
@@ -58,6 +60,7 @@ import { handleIPClubDeployed } from "./handlers/ipClubFactory.js";
 import { applySponsorship } from "./handlers/sponsorship.js";
 import { applyTreasuryDeposits } from "./handlers/treasuryDeposit.js";
 import { applyOwnershipChanges } from "./handlers/collectionOwner.js";
+import { applyTokensArchived } from "./handlers/tokenArchived.js";
 import { acceptedTokens } from "../payments/token-value.js";
 import { x402Config } from "../config/x402.js";
 import type { Chain, Prisma } from "@prisma/client";
@@ -212,6 +215,9 @@ export const EVENT_SOURCES: EventSource[] = [
 
   { id: "owner:mip-erc721", scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(COLLECTION_OWNERSHIP_TRANSFERRED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyOwnershipChanges },
   { id: "owner:data-tokenization-erc721", scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(COLLECTION_OWNERSHIP_TRANSFERRED_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyOwnershipChanges },
+
+  { id: "archive:mip-erc721", scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(TOKEN_ARCHIVED_SELECTOR), hex(TOKEN_ARCHIVED_BATCH_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyTokensArchived },
+  { id: "archive:data-tokenization-erc721", scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(TOKEN_ARCHIVED_SELECTOR), hex(TOKEN_ARCHIVED_BATCH_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyTokensArchived },
 
   { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS },
   { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS },

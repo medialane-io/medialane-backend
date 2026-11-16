@@ -155,6 +155,7 @@ export function serializeToken(
     owner: token.owner ?? null,
     tokenUri: token.tokenUri,
     metadataStatus: token.metadataStatus,
+    isArchived: token.isArchived,
     standard: (token.collection?.standard ?? null) as "ERC721" | "ERC1155" | null,
     metadata: {
       name: token.name,

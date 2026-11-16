@@ -122,6 +122,11 @@ describe("what the serializers send is what the contract documents", () => {
     conforms(tokenSchema, serializeToken({ ...(tokenRow as object), collection: { standard: "ERC1155" }, owner: null } as never, [], [{ owner: "0x9", amount: "3" }]));
   });
 
+  test("an archived token", () => {
+    const wire = conforms(tokenSchema, serializeToken({ ...(tokenRow as object), isArchived: true } as never, []));
+    expect(wire.isArchived).toBe(true);
+  });
+
   test("a token whose collection is unknown", () => {
     conforms(tokenSchema, serializeToken({ ...(tokenRow as object), collection: null, attributes: null } as never, []));
   });
