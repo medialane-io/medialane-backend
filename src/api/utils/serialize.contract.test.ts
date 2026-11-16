@@ -123,7 +123,7 @@ describe("what the serializers send is what the contract documents", () => {
   });
 
   test("an archived token", () => {
-    const wire = conforms(tokenSchema, serializeToken({ ...(tokenRow as object), isArchived: true } as never, []));
+    const wire = conforms(tokenSchema, serializeToken({ ...(tokenRow as object), isArchived: true } as never, [])) as { isArchived: boolean };
     expect(wire.isArchived).toBe(true);
   });
 
