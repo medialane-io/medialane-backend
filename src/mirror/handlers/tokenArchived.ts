@@ -48,7 +48,7 @@ export async function applyTokensArchived(events: RawStarknetEvent[]): Promise<v
       const { contractAddress } = collection;
       if (!(await readArchived({ contractAddress, tokenId }))) continue;
       await prisma.$transaction([
-        prisma.token.updateMany({ where: { chain: "STARKNET", contractAddress, tokenId }, data: { isArchived: true } }),
+        prisma.token.updateMany({ where: { chain: "STARKNET", contractAddress, tokenId }, data: { isArchived: true, isHidden: true } }),
         prisma.order.updateMany({
           where: { chain: "STARKNET", nftContract: contractAddress, nftTokenId: tokenId, status: "ACTIVE" },
           data: { status: "CANCELLED" },
