@@ -33,11 +33,11 @@ async function run(events: RawStarknetEvent[]) {
 }
 
 describe("applyTokensArchived", () => {
-  test("a single event marks its token archived and closes its open orders in one write", async () => {
+  test("a single event marks its token archived and hidden, and closes its open orders in one write", async () => {
     await run([single]);
     expect(findFirst.mock.calls[0]?.[0]).toMatchObject({ where: { collectionId: "7", service: "mip-erc721" } });
     expect(readArchived).toHaveBeenCalledWith({ contractAddress: NFT, tokenId: "42" });
-    expect(tokenUpdate).toHaveBeenCalledWith({ where: { chain: "STARKNET", contractAddress: NFT, tokenId: "42" }, data: { isArchived: true } });
+    expect(tokenUpdate).toHaveBeenCalledWith({ where: { chain: "STARKNET", contractAddress: NFT, tokenId: "42" }, data: { isArchived: true, isHidden: true } });
     expect(orderUpdate).toHaveBeenCalledWith({
       where: { chain: "STARKNET", nftContract: NFT, nftTokenId: "42", status: "ACTIVE" },
       data: { status: "CANCELLED" },
