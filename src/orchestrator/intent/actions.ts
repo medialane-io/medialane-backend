@@ -4,6 +4,7 @@ import {
   buildIntent,
   encodeByteArray,
   type GenesisMintIntentParams,
+  type ArchiveNftIntentParams,
   type TransferCollectionOwnershipIntentParams,
   type TransferNftIntentParams,
   type TransferTokenIntentParams,
@@ -26,6 +27,10 @@ export async function buildTransferTokenIntent(body: TransferTokenIntentParams) 
 
 export async function buildTransferNftIntent(body: TransferNftIntentParams) {
   return buildIntent("transfer-nft", body, {}, sdkConfig);
+}
+
+export async function buildArchiveNftIntent(body: ArchiveNftIntentParams) {
+  return buildIntent("archive-nft", body, {}, sdkConfig);
 }
 
 export async function buildTransferCollectionOwnershipIntent(body: TransferCollectionOwnershipIntentParams) {

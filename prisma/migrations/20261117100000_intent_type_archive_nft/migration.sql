@@ -1,0 +1,1 @@
+ALTER TYPE "IntentType" ADD VALUE 'ARCHIVE_NFT';
