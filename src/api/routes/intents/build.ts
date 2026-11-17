@@ -27,6 +27,7 @@ import {
   buildRejectSponsorshipProposalIntent,
   buildTransferTokenIntent,
   buildTransferNftIntent,
+  buildArchiveNftIntent,
   buildTransferCollectionOwnershipIntent,
   buildCommentIntent,
   buildGenesisMintIntent,
@@ -71,6 +72,7 @@ const {
   sponsorshipProposalRejectSchema,
   transferTokenSchema,
   transferNftSchema,
+  archiveNftSchema,
   transferCollectionOwnershipSchema,
   commentSchema,
   genesisMintSchema,
@@ -169,6 +171,7 @@ function registerIntentRoute<T>(
 export function registerBuildRoutes(intents: Hono<AppEnv>): void {
   registerIntentRoute(intents, { path: "/transfer-token", schema: transferTokenSchema, type: "TRANSFER_TOKEN", requesterField: "owner", build: buildTransferTokenIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/transfer-nft", schema: transferNftSchema, type: "TRANSFER_NFT", requesterField: "owner", build: buildTransferNftIntent, requiresSignature: false });
+  registerIntentRoute(intents, { path: "/archive-nft", schema: archiveNftSchema, type: "ARCHIVE_NFT", requesterField: "owner", build: buildArchiveNftIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/transfer-collection-ownership", schema: transferCollectionOwnershipSchema, type: "TRANSFER_COLLECTION_OWNERSHIP", requesterField: "owner", build: buildTransferCollectionOwnershipIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/comment", schema: commentSchema, type: "ADD_COMMENT", requesterField: "author", build: buildCommentIntent, requiresSignature: false });
   registerIntentRoute(intents, { path: "/genesis-mint", schema: genesisMintSchema, type: "GENESIS_MINT", requesterField: "owner", build: buildGenesisMintIntent, requiresSignature: false });

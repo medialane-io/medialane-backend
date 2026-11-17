@@ -227,6 +227,32 @@ describe("a transfer the client built", () => {
   });
 });
 
+describe("an archive the client built", () => {
+  const config = resolveConfig({});
+  const params = { owner: ME, collectionId: "7", tokenId: "42" };
+
+  test("is recorded as an archive intent when it matches", async () => {
+    const built = buildIntent("archive-nft", params, {}, config);
+    expect((await app().request("/archive-nft", post({ ...params, built }))).status).toBe(201);
+    expect(created[0]?.type).toBe("ARCHIVE_NFT");
+    expect(created[0]?.requester).toBe(ME);
+  });
+
+  test("is refused when the build archives a different token", async () => {
+    const built = buildIntent("archive-nft", { ...params, tokenId: "43" }, {}, config);
+    expect((await app().request("/archive-nft", post({ ...params, built }))).status).toBe(422);
+    expect(created).toHaveLength(0);
+  });
+
+  test("is built by the server when the client sends none", async () => {
+    const res = await app().request("/archive-nft", post(params));
+    expect(res.status).toBe(201);
+    const body = await res.json() as { data: { calls: Array<{ entrypoint: string; calldata: string[] }> } };
+    expect(body.data.calls[0]?.entrypoint).toBe("archive");
+    expect(body.data.calls[0]?.calldata).toEqual(["7", "0", "42", "0"]);
+  });
+});
+
 describe("a genesis mint the client built", () => {
   const OTHER = "0x0999999999999999999999999999999999999999999999999999999999999999";
 

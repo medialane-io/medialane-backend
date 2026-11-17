@@ -31,6 +31,7 @@ export { platformFeeCalls, type IntentBuildContext, type IntentCall } from "./fe
 export {
   buildTransferTokenIntent,
   buildTransferNftIntent,
+  buildArchiveNftIntent,
   buildTransferCollectionOwnershipIntent,
   buildCommentIntent,
   buildGenesisMintIntent,
