@@ -3,7 +3,7 @@ import { requireSession } from "../middleware/sessionGuard.js";
 import { composeIntentCalls, prismaSponsorIntentDeps, type SponsorIntentDeps } from "./sponsorIntents.js";
 import { CallData, PaymasterRpc, uint256, type Call } from "starknet";
 import { getTokenBySymbol, getCoordinates } from "@medialane/sdk";
-import { buildSetFirstGuardianCall, deploymentIsMediaWallet, ownerConstructorCalldata, typedDataMatchesCalls } from "@medialane/sdk/starknet";
+import { buildSetFirstGuardianCall, deploymentIsMediaWallet, ownerConstructorCalldata, typedDataMatchesCalls, type SponsorshipFailureCode } from "@medialane/sdk/starknet";
 import { env } from "../../config/env.js";
 import { guardianPubkeyWith } from "../../utils/guardianKey.js";
 import { toIntentCall } from "../../orchestrator/intent/calls.js";
@@ -40,17 +40,6 @@ export function defaultClient(): PaymasterClient {
     headers: { "x-paymaster-api-key": apiKey },
   }) as unknown as PaymasterClient;
 }
-
-export type SponsorshipFailureCode =
-  | "sponsor_unavailable"
-  | "network_unavailable"
-  | "credits_exhausted"
-  | "account_not_deployed"
-  | "not_executable"
-  | "invalid_request"
-  | "invalid_request_auth"
-  | "rate_limited"
-  | "may_have_broadcast";
 
 export interface PaymasterErrorResult {
   status: 422 | 502 | 503;
