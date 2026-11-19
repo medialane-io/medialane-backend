@@ -102,3 +102,73 @@ describe("calling the endpoints in order", () => {
     expect(calls).toEqual(["https://primary", "https://fallback"]);
   });
 });
+
+describe("an endpoint that just failed is not tried again straight away", () => {
+  const setup = () => {
+    const calls: string[] = [];
+    let clock = 0;
+    const health = { primary: false };
+    const baseFetch = (async (url: string) => {
+      calls.push(url);
+      if (url === "https://primary") {
+        if (!health.primary) return new Response("down", { status: 503 });
+        return new Response(answer("0x1"));
+      }
+      return new Response(answer("0x2"));
+    }) as unknown as typeof fetch;
+    const fetchImpl = createFailoverFetch(["https://primary", "https://fallback"], { baseFetch, cooldownMs: 30_000, now: () => clock });
+    const call = () => fetchImpl("ignored", { method: "POST", body: "{}" }).then((res) => res.text());
+    return { calls, health, call, advance: (ms: number) => { clock += ms; } };
+  };
+
+  test("the next calls go straight to the fallback while the primary cools down", async () => {
+    const { calls, call } = setup();
+    await call();
+    await call();
+    await call();
+    expect(calls).toEqual(["https://primary", "https://fallback", "https://fallback", "https://fallback"]);
+  });
+
+  test("the primary is tried again after the cooldown and takes over when it is back", async () => {
+    const { calls, health, call, advance } = setup();
+    await call();
+    advance(30_000);
+    health.primary = true;
+    expect(await call()).toBe(answer("0x1"));
+    expect(await call()).toBe(answer("0x1"));
+    expect(calls).toEqual(["https://primary", "https://fallback", "https://primary", "https://primary"]);
+  });
+
+  test("the primary is tried again after the cooldown and sent back to cooling if it is still down", async () => {
+    const { calls, call, advance } = setup();
+    await call();
+    advance(30_000);
+    await call();
+    await call();
+    expect(calls).toEqual(["https://primary", "https://fallback", "https://primary", "https://fallback", "https://fallback"]);
+  });
+
+  test("when every endpoint is cooling down they are all tried in order again", async () => {
+    const calls: string[] = [];
+    const fetchImpl = createFailoverFetch(["https://primary", "https://fallback"], {
+      baseFetch: (async (url: string) => { calls.push(url); return new Response("down", { status: 503 }); }) as unknown as typeof fetch,
+      cooldownMs: 30_000,
+      now: () => 0,
+    });
+    await fetchImpl("ignored", { method: "POST", body: "{}" });
+    await fetchImpl("ignored", { method: "POST", body: "{}" });
+    expect(calls).toEqual(["https://primary", "https://fallback", "https://primary", "https://fallback"]);
+  });
+
+  test("a contract refusal does not put an endpoint on cooldown", async () => {
+    const calls: string[] = [];
+    const fetchImpl = createFailoverFetch(["https://primary", "https://fallback"], {
+      baseFetch: (async (url: string) => { calls.push(url); return new Response(rpcError(40, "Contract error")); }) as unknown as typeof fetch,
+      cooldownMs: 30_000,
+      now: () => 0,
+    });
+    await fetchImpl("ignored", { method: "POST", body: "{}" });
+    await fetchImpl("ignored", { method: "POST", body: "{}" });
+    expect(calls).toEqual(["https://primary", "https://primary"]);
+  });
+});
