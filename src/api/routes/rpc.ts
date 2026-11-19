@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { rpcEndpoints, rpcFetch } from "../../utils/rpcFetch.js";
+import { isRpcEnvelope } from "../../utils/rpcFailover.js";
 import { createLogger } from "../../utils/logger.js";
 import type { AppEnv } from "../../types/hono.js";
 import { callerApp, DEFAULT_APP } from "../../utils/caller.js";
@@ -112,8 +113,12 @@ export default function rpc(fetchImpl: typeof fetch = fetch): Hono<AppEnv> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const text = await res.text();
-      return c.json(JSON.parse(text));
+      const reply = JSON.parse(await res.text());
+      if (!(Array.isArray(reply) ? reply.length > 0 && reply.every(isRpcEnvelope) : isRpcEnvelope(reply))) {
+        log.warn({ method, status: res.status }, "RPC upstream answered with something that is not a JSON-RPC response");
+        return c.json(rpcError(-32603, "Upstream RPC unreachable"));
+      }
+      return c.json(reply);
     } catch (err) {
       log.warn({ method, err }, "RPC upstream unreachable");
       return c.json(rpcError(-32603, "Upstream RPC unreachable"));

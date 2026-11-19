@@ -428,7 +428,7 @@ describe("a wallet with a guardian", () => {
     const app = intentApp([signedRow], { executeTransaction: async () => { executed = true; return { transaction_hash: "0xtx" } as never; } }, log, WALLET, async () => { throw new GuardianUnavailableError(); });
     const res = await app.request("/invoke/execute", postJson(body));
     expect(res.status).toBe(503);
-    expect(((await res.json()) as { code?: string }).code).toBe("sponsor_unavailable");
+    expect(await res.json()).toEqual({ error: "The network can't be reached right now. Please try again in a moment.", code: "network_unavailable" });
     expect(log).toEqual([]);
     expect(executed).toBe(false);
   });
