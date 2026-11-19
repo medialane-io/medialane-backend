@@ -9,18 +9,20 @@ function isProviderFault(error: unknown): boolean {
   return code <= 0 && typeof message === "string" && TRANSIENT_MESSAGE_RE.test(message);
 }
 
-function isUsableEnvelope(envelope: unknown): boolean {
-  if (!envelope || typeof envelope !== "object") return false;
-  const body = envelope as { result?: unknown; error?: unknown };
-  if (body.error !== undefined) return !isProviderFault(body.error);
-  return "result" in body;
-}
-
-export function isRpcEnvelope(envelope: unknown): boolean {
+function isRpcEnvelope(envelope: unknown): envelope is { result?: unknown; error?: unknown } {
   if (!envelope || typeof envelope !== "object") return false;
   const { error } = envelope as { error?: unknown };
   return "result" in envelope || (typeof error === "object" && error !== null);
 }
+
+function everyEnvelope(parsed: unknown, accepts: (envelope: unknown) => boolean): boolean {
+  return Array.isArray(parsed) ? parsed.length > 0 && parsed.every(accepts) : accepts(parsed);
+}
+
+const isUsableEnvelope = (envelope: unknown): boolean =>
+  isRpcEnvelope(envelope) && (envelope.error === undefined || !isProviderFault(envelope.error));
+
+export const isRpcResponse = (parsed: unknown): boolean => everyEnvelope(parsed, isRpcEnvelope);
 
 export function isTransientRpcError(input: { status?: number; body?: unknown }): boolean {
   const { status, body } = input;
@@ -34,13 +36,15 @@ export function isTransientRpcError(input: { status?: number; body?: unknown }):
       return true;
     }
   }
-  return Array.isArray(parsed) ? parsed.length === 0 || !parsed.every(isUsableEnvelope) : !isUsableEnvelope(parsed);
+  return !everyEnvelope(parsed, isUsableEnvelope);
 }
 
+const DEFAULT_COOLDOWN_MS = 30_000;
+
 export interface FailoverFetchOptions {
-
   baseFetch?: typeof fetch;
-
+  cooldownMs?: number;
+  now?: () => number;
   onFailover?: (info: { url: string; status?: number; error?: unknown }) => void;
 }
 
@@ -53,25 +57,31 @@ export function createFailoverFetch(
     throw new Error("createFailoverFetch: at least one RPC URL is required");
   }
   const doFetch = options.baseFetch ?? fetch;
+  const cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
+  const now = options.now ?? Date.now;
+  const coolingUntil = endpoints.map(() => 0);
 
   const failover = async (_input: unknown, init?: RequestInit): Promise<Response> => {
+    const ready = endpoints.map((_, i) => i).filter((i) => coolingUntil[i]! <= now());
+    const order = ready.length > 0 ? ready : endpoints.map((_, i) => i);
     let lastError: unknown;
 
-    for (let i = 0; i < endpoints.length; i++) {
-      const url = endpoints[i];
-      const isLast = i === endpoints.length - 1;
+    for (const [position, i] of order.entries()) {
+      const url = endpoints[i]!;
+      const isLast = position === order.length - 1;
       try {
         const res = await doFetch(url, init);
         const text = await res.text();
         const rebuilt = () =>
           new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers });
 
-        if (isLast || !isTransientRpcError({ status: res.status, body: text })) {
-          return rebuilt();
-        }
+        if (!isTransientRpcError({ status: res.status, body: text })) return rebuilt();
+        coolingUntil[i] = now() + cooldownMs;
+        if (isLast) return rebuilt();
         options.onFailover?.({ url, status: res.status });
       } catch (err) {
         lastError = err;
+        coolingUntil[i] = now() + cooldownMs;
         if (isLast) throw err;
         options.onFailover?.({ url, error: err });
       }
