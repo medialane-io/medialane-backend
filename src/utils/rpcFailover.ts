@@ -1,45 +1,40 @@
-const TRANSIENT_BODY_RE =
-  /"code"\s*:\s*-32001|"code"\s*:\s*-32603|unable to complete|rate.?limit|too many|throttl|exceed.*quota|temporarily unavailable|service unavailable|overload|gateway.*time|upstream.*time|backend.*error/i;
+const TRANSIENT_MESSAGE_RE =
+  /unable to complete|rate.?limit|too many|throttl|exceed.*quota|temporarily unavailable|service unavailable|overload|gateway.*time|upstream.*time|backend.*error/i;
 
-export const POLICY_REFUSAL_CODES: readonly number[] = [-32003, -32005, -32600];
+function isProviderFault(error: unknown): boolean {
+  if (!error || typeof error !== "object") return true;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (typeof code !== "number") return true;
+  if (code === 429 || code === -32600 || code === -32603 || (code >= -32099 && code <= -32000)) return true;
+  return code <= 0 && typeof message === "string" && TRANSIENT_MESSAGE_RE.test(message);
+}
 
-export function isPolicyRefusal(input: { body?: unknown }): boolean {
-  let body = input.body;
+function isUsableEnvelope(envelope: unknown): boolean {
+  if (!envelope || typeof envelope !== "object") return false;
+  const body = envelope as { result?: unknown; error?: unknown };
+  if (body.error !== undefined) return !isProviderFault(body.error);
+  return "result" in body;
+}
 
-  if (typeof body === "string") {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      return false;
-    }
-  }
-  const err = (body as { error?: { code?: unknown } } | null | undefined)?.error;
-  const code = err && typeof err === "object" ? (err as { code?: unknown }).code : undefined;
-  return typeof code === "number" && POLICY_REFUSAL_CODES.includes(code);
+export function isRpcEnvelope(envelope: unknown): boolean {
+  if (!envelope || typeof envelope !== "object") return false;
+  const { error } = envelope as { error?: unknown };
+  return "result" in envelope || (typeof error === "object" && error !== null);
 }
 
 export function isTransientRpcError(input: { status?: number; body?: unknown }): boolean {
   const { status, body } = input;
+  if (typeof status === "number" && (status < 200 || status >= 300)) return true;
 
-  if (isPolicyRefusal({ body })) return false;
-
-  if (typeof status === "number" && (status === 429 || status >= 500)) return true;
-  if (body == null) return false;
-
-  if (typeof body === "object") {
-    const err = (body as { error?: { code?: unknown; message?: unknown } }).error;
-    if (!err || typeof err !== "object") return false;
-    const code = (err as { code?: unknown }).code;
-    if (typeof code === "number") {
-      if (code === 429) return true;
-      if (code >= -32099 && code <= -32000) return true;
-      if (code === -32603) return true;
+  let parsed = body;
+  if (typeof body === "string") {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return true;
     }
-    const message = (err as { message?: unknown }).message;
-    return typeof message === "string" ? TRANSIENT_BODY_RE.test(message) : false;
   }
-
-  return TRANSIENT_BODY_RE.test(String(body));
+  return Array.isArray(parsed) ? parsed.length === 0 || !parsed.every(isUsableEnvelope) : !isUsableEnvelope(parsed);
 }
 
 export interface FailoverFetchOptions {

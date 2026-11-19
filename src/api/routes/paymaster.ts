@@ -43,6 +43,7 @@ export function defaultClient(): PaymasterClient {
 
 export type SponsorshipFailureCode =
   | "sponsor_unavailable"
+  | "network_unavailable"
   | "credits_exhausted"
   | "account_not_deployed"
   | "not_executable"
@@ -288,7 +289,7 @@ export default function paymaster(
     } catch (err) {
       if (!(err instanceof GuardianUnavailableError)) throw err;
       log.warn({ requestId: c.get("requestId") }, "sponsored invoke execute refused: guardian could not be read");
-      return c.json({ error: "Gas sponsorship is temporarily unavailable", code: "sponsor_unavailable" }, 503);
+      return c.json({ error: "The network can't be reached right now. Please try again in a moment.", code: "network_unavailable" }, 503);
     }
     if (!(await intentDeps.claim(composed.ids))) {
       return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);

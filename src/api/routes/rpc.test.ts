@@ -157,6 +157,32 @@ describe("POST /", () => {
     expect(json.error.code).toBe(-32603);
   });
 
+  const callWith = (fetchImpl: typeof fetch) =>
+    appWith(fetchImpl).request("/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "starknet_call", id: 1 }),
+    });
+
+  test("an upstream reply that is not a JSON-RPC answer becomes a JSON-RPC error, never a bare body", async () => {
+    const replies = [
+      new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
+      new Response("{}", { status: 200 }),
+      new Response("<html>Bad gateway</html>", { status: 502 }),
+    ];
+    for (const reply of replies) {
+      const json = await (await callWith((async () => reply.clone()) as unknown as typeof fetch)).json();
+      expect(json.error.code).toBe(-32603);
+      expect(json.result).toBeUndefined();
+    }
+  });
+
+  test("an upstream JSON-RPC error is passed on as it is", async () => {
+    const body = { jsonrpc: "2.0", error: { code: 40, message: "Contract error" }, id: 1 };
+    const res = await callWith((async () => new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch);
+    expect(await res.json()).toEqual(body);
+  });
+
   test("never echoes the upstream URL into the error message", async () => {
     const fetchImpl = (async () => {
       throw new Error("connect ECONNREFUSED https://starknet-mainnet.g.alchemy.com/secret-key");
