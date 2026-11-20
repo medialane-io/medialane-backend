@@ -1,4 +1,4 @@
-import { IPFS_GATEWAYS } from "../config/constants.js";
+import { IPFS_PUBLIC_GATEWAYS } from "@medialane/sdk";
 import { env } from "../config/env.js";
 import { isIpfsUri, extractCid } from "../utils/ipfs.js";
 
@@ -12,7 +12,7 @@ export function resolveUri(
 
   if (isIpfsUri(uri)) {
     const cid = uri.slice(7);
-    const gateway = IPFS_GATEWAYS[gatewayIndex] ?? IPFS_GATEWAYS[0];
+    const gateway = IPFS_PUBLIC_GATEWAYS[gatewayIndex] ?? IPFS_PUBLIC_GATEWAYS[0];
     return { url: `${gateway}/${cid}`, isIpfs: true };
   }
 
@@ -26,7 +26,7 @@ export function resolveUri(
 export function ipfsGatewayUrls(configuredGateway: string): string[] {
   const host = configuredGateway.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
   const dedicated = `https://${host}/ipfs`;
-  return IPFS_GATEWAYS.includes(dedicated) ? [...IPFS_GATEWAYS] : [dedicated, ...IPFS_GATEWAYS];
+  return IPFS_PUBLIC_GATEWAYS.includes(dedicated) ? [...IPFS_PUBLIC_GATEWAYS] : [dedicated, ...IPFS_PUBLIC_GATEWAYS];
 }
 
 export function getIpfsFallbackUrls(uri: string): string[] {

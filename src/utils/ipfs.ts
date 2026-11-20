@@ -1,9 +1,9 @@
-import { IPFS_GATEWAYS } from "../config/constants.js";
+import { IPFS_PUBLIC_GATEWAYS } from "@medialane/sdk";
 
 export function ipfsToHttp(uri: string, gatewayIndex = 0): string {
   if (uri.startsWith("ipfs://")) {
     const cid = uri.slice(7);
-    const gateway = IPFS_GATEWAYS[gatewayIndex] ?? IPFS_GATEWAYS[0];
+    const gateway = IPFS_PUBLIC_GATEWAYS[gatewayIndex] ?? IPFS_PUBLIC_GATEWAYS[0];
     return `${gateway}/${cid}`;
   }
   if (uri.startsWith("https://") || uri.startsWith("http://")) {
@@ -13,7 +13,7 @@ export function ipfsToHttp(uri: string, gatewayIndex = 0): string {
     return uri;
   }
 
-  return `${IPFS_GATEWAYS[0]}/${uri}`;
+  return `${IPFS_PUBLIC_GATEWAYS[0]}/${uri}`;
 }
 
 export function extractCid(uri: string): string | null {
