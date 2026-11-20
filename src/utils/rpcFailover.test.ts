@@ -160,6 +160,27 @@ describe("an endpoint that just failed is not tried again straight away", () => 
     expect(calls).toEqual(["https://primary", "https://fallback", "https://primary", "https://fallback"]);
   });
 
+  test("an endpoint that is cooling down is still tried when the others fail", async () => {
+    const calls: string[] = [];
+    let clock = 0;
+    let primaryUp = false;
+    const fetchImpl = createFailoverFetch(["https://primary", "https://fallback"], {
+      baseFetch: (async (url: string) => {
+        calls.push(url);
+        if (url === "https://primary") return primaryUp ? new Response(answer("0x1")) : new Response("down", { status: 503 });
+        return clock === 0 ? new Response(answer("0x2")) : new Response(rpcError(429, "rate limited"), { status: 429 });
+      }) as unknown as typeof fetch,
+      cooldownMs: 30_000,
+      now: () => clock,
+    });
+    await fetchImpl("ignored", { method: "POST", body: "{}" });
+    clock = 1;
+    primaryUp = true;
+    const text = await fetchImpl("ignored", { method: "POST", body: "{}" }).then((res) => res.text());
+    expect(text).toBe(answer("0x1"));
+    expect(calls).toEqual(["https://primary", "https://fallback", "https://fallback", "https://primary"]);
+  });
+
   test("a contract refusal does not put an endpoint on cooldown", async () => {
     const calls: string[] = [];
     const fetchImpl = createFailoverFetch(["https://primary", "https://fallback"], {

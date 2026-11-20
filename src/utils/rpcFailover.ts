@@ -62,8 +62,9 @@ export function createFailoverFetch(
   const coolingUntil = endpoints.map(() => 0);
 
   const failover = async (_input: unknown, init?: RequestInit): Promise<Response> => {
-    const ready = endpoints.map((_, i) => i).filter((i) => coolingUntil[i]! <= now());
-    const order = ready.length > 0 ? ready : endpoints.map((_, i) => i);
+    const indexes = endpoints.map((_, i) => i);
+    const ready = indexes.filter((i) => coolingUntil[i]! <= now());
+    const order = [...ready, ...indexes.filter((i) => !ready.includes(i))];
     let lastError: unknown;
 
     for (const [position, i] of order.entries()) {
