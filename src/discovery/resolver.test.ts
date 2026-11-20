@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { IPFS_PUBLIC_GATEWAYS as PUBLIC } from "@medialane/sdk";
 import { ipfsGatewayUrls } from "./resolver.js";
-
-const PUBLIC = ["https://gateway.pinata.cloud/ipfs", "https://ipfs.filebase.io/ipfs"];
 
 describe("ipfsGatewayUrls", () => {
   test("the configured dedicated gateway comes first, then the public ones", () => {
@@ -13,6 +12,6 @@ describe("ipfsGatewayUrls", () => {
   });
 
   test("the default public gateway is not listed twice", () => {
-    expect(ipfsGatewayUrls("gateway.pinata.cloud")).toEqual(PUBLIC);
+    expect(ipfsGatewayUrls("gateway.pinata.cloud")).toEqual([...PUBLIC]);
   });
 });
