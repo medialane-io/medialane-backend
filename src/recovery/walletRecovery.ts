@@ -33,7 +33,6 @@ export interface RecoveryView {
   enabled: boolean;
   state: "none" | "waiting" | "ready";
   readyAt: number | null;
-  /** Seconds the wallet contract waits before a started recovery can complete; null when recovery is off. */
   securityPeriod: number | null;
   newOwnerGuid: string | null;
   guardianPubkey: string | null;
