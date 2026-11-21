@@ -12,7 +12,6 @@ import { DEFAULT_CHAIN } from "../../config/chains.js";
 
 export type DropListStatus = "live" | "upcoming" | "ended";
 
-/** `maxSupply` is the column reference compared against `minted` (sold out). */
 export function buildDropListWhere(
   q: { status?: string; organizer?: string; now: number; chain?: Chain },
   maxSupply: Prisma.FieldRef<"Drop", "Decimal"> = prisma.drop.fields.maxSupply,

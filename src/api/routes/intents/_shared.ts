@@ -1,5 +1,3 @@
-
-
 import { num } from "starknet";
 import { createLogger } from "../../../utils/logger.js";
 import {

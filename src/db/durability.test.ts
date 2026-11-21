@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-/** Rows nothing can rebuild. Never deleted; guarded in the database. */
 const RECORDS = [
   "Account", "Identity", "AccountProfile", "AccountNotice", "App",
   "ApiCredits", "ApiKey", "CreditEntry", "Payment", "FundingIntent", "LaunchpadRun",
@@ -10,7 +9,6 @@ const RECORDS = [
   "CollectionSlugClaim", "CollectionClaim", "CollectionProfile", "HiddenCreator",
 ];
 
-/** Rows rebuilt by replaying on-chain events. Rewritten freely. */
 const PROJECTIONS = [
   "IndexerCursor", "SourceCursor", "Order", "OrderFill", "Token", "Collection", "Coin",
   "WalletActivity", "WalletActivityCursor", "BlockTimestamp", "Transfer", "TokenBalance",
@@ -18,10 +16,8 @@ const PROJECTIONS = [
   "UserScore", "UserBadge", "PointEvent", "Drop", "DropMint",
 ];
 
-/** One-time codes that expire. Deleted once spent or expired. */
 const SECRETS = ["SiwsNonce", "ClaimChallenge", "EmailVerificationCode"];
 
-/** Migrations from this one on are held to the no-delete rule. */
 const FIRST_CHECKED_MIGRATION = "20261104120000_records_are_never_deleted";
 
 const root = join(import.meta.dir, "..", "..");

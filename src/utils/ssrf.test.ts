@@ -1,5 +1,3 @@
-
-
 import { describe, expect, test } from "bun:test";
 import { isPrivateOrInsecureUrl, isPrivateIp, resolvesToPrivateHost } from "./ssrf.js";
 

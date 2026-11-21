@@ -16,7 +16,6 @@ export type DropReader = (collection: string) => Promise<DropOnchain>;
 
 export const chainDrop: DropReader = (collection) => callRpc((provider) => readDrop(provider, collection));
 
-/** Tokens minted in one transaction: 1 to DROP_MAX_CLAIM_QUANTITY. */
 function batchQuantity(raw: string | undefined): bigint {
   const q = raw && /^\d+$/.test(raw) ? BigInt(raw) : 0n;
   if (q < 1n || q > DROP_MAX_CLAIM_QUANTITY) throw new IntentRefusal(`quantity must be between 1 and ${DROP_MAX_CLAIM_QUANTITY}`);

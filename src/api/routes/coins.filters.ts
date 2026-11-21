@@ -1,5 +1,3 @@
-
-
 import { normalizeAddress } from "@medialane/sdk";
 import { DEFAULT_CHAIN } from "../../config/chains.js";
 import { addressWhere, type ChainFilter } from "../utils/chainFilter.js";

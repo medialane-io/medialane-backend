@@ -21,10 +21,10 @@ describe("what a transfer is worth in dollars", () => {
     expect(await usdValueOf(token("USDC"), 5_000_000n, noPrices)).toBe(5_000_000n);
   });
   test("ETH is worth its amount times the price", async () => {
-    expect(await usdValueOf(token("ETH"), 2_500_000_000_000_000n, prices)).toBe(5_000_000n); // 0.0025 ETH at $2000
+    expect(await usdValueOf(token("ETH"), 2_500_000_000_000_000n, prices)).toBe(5_000_000n);
   });
   test("STRK is worth its amount times the price", async () => {
-    expect(await usdValueOf(token("STRK"), 100n * 10n ** 18n, prices)).toBe(5_000_000n); // 100 STRK at $0.05
+    expect(await usdValueOf(token("STRK"), 100n * 10n ** 18n, prices)).toBe(5_000_000n);
   });
   test("no price means no value, never zero", async () => {
     expect(await usdValueOf(token("ETH"), 1n, noPrices)).toBeNull();

@@ -21,7 +21,6 @@ export interface KeyConfirmationDeps {
   now?: () => number;
 }
 
-/** True when `confirmation` is the account's wallet signature over exactly this change, and not expired. */
 export async function confirmKeyChange(
   deps: KeyConfirmationDeps,
   accountId: string,

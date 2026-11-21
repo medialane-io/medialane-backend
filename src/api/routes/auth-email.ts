@@ -18,9 +18,7 @@ const log = createLogger("routes:auth-email");
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
-/** Codes sent to one address per rolling hour; room for resends when an email is late. */
 export const MAX_CODES_PER_HOUR = 5;
-/** Code tries for one address per rolling day, across all its codes. */
 export const MAX_TRIES_PER_DAY = 20;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -208,7 +206,6 @@ const productionDeps: AuthEmailDeps = {
   },
 };
 
-/** Sends a new code to `email`, unless it already got MAX_CODES_PER_HOUR codes in the last hour. */
 export async function issueVerificationCodeWithDeps(
   deps: AuthEmailDeps,
   email: string,

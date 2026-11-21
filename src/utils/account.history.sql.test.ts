@@ -30,7 +30,6 @@ describe.skipIf(!databaseUrl)("identity changes", () => {
   };
   const RUN = Date.now();
   let w = 0;
-  /** A normalized Starknet address no earlier run has used. */
   const freshWallet = () => {
     w += 1;
     return `0x${(BigInt(RUN) * 1000n + BigInt(w)).toString(16).padStart(64, "0")}`;

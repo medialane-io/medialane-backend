@@ -1,4 +1,3 @@
-
 export async function readTextCapped(
   res: { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
   maxBytes: number,

@@ -1,4 +1,3 @@
-
 export const PRICING = [
 
   { action: "read", usd: 0.01, note: "Any lookup / GET request" },

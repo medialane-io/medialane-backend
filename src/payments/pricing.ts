@@ -1,4 +1,3 @@
-
 import { x402Config, USDC_DECIMALS } from "../config/x402.js";
 import { PRICING } from "../../pricing.config.js";
 import { DEFAULT_CHAIN } from "../config/chains.js";

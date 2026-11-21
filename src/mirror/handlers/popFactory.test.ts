@@ -8,8 +8,6 @@ const COLLECTION = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 
 const encode = (s: string) => CallData.compile([byteArray.byteArrayFromString(s)]);
 
-// keys: selector, collection_id (u256 low, high), organizer
-// data: collection_address, name, symbol, base_uri (ByteArrays), claim_end_time
 function event(overrides: Partial<RawStarknetEvent> = {}): RawStarknetEvent {
   return {
     block_hash: "0xb",

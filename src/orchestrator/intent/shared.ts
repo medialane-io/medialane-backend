@@ -1,5 +1,3 @@
-
-
 import { cairo, num } from "starknet";
 import { getService } from "@medialane/sdk";
 import { callRpc, normalizeAddress } from "../../utils/starknet.js";
@@ -40,7 +38,6 @@ async function fetchCounterFromContract(contractAddress: string, address: string
   return BigInt(result[0]).toString();
 }
 
-/** royalty_info(token_id, sale_price = 10000): the royalty for a 10000-unit sale is the bps. RPC felts are hex. */
 export function royaltyInfoCalldata(tokenId: string): string[] {
   const id = cairo.uint256(tokenId);
   return [toHex(BigInt(id.low)), toHex(BigInt(id.high)), toHex(10000), "0x0"];

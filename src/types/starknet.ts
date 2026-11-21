@@ -1,4 +1,3 @@
-
 export interface RawStarknetEvent {
   block_hash: string;
   block_number: number;
