@@ -19,7 +19,6 @@ const NONE: LiveMetadata = { description: null, externalUrl: null };
 
 const text = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value : null);
 
-/** The description and external URL a token's own metadata file carries (cached by resolveMetadata). Nulls when unavailable. */
 export async function liveMetadata(
   chain: Chain,
   contractAddress: string,

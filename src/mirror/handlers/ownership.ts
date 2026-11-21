@@ -1,7 +1,6 @@
 import type { Chain, Prisma } from "@prisma/client";
 import type { OwnershipFact } from "../../chainRead/ownership.js";
 
-/** Stores ownership exactly as read from the chain: ERC-721 has one holder or none, ERC-1155 rows hold the read amount. */
 export async function writeOwnership(
   tx: Prisma.TransactionClient,
   chain: Chain,

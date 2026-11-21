@@ -1,5 +1,3 @@
-
-
 export const SLUG_LIKE_REGEX = /^[a-z0-9][a-z0-9_-]{1,18}[a-z0-9]$|^[a-z0-9]{3}$/;
 
 export const RESERVED_HANDLES = new Set([

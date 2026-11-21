@@ -12,7 +12,6 @@ export interface CertificateEmissionDeps {
   resolveWallets(guests: string[]): Promise<RecipientWallet[]>;
   registerWallet(input: RegisterInput): Promise<RegisterResult>;
   popFactory(): string;
-  /** The collection's organizer, read from chain. */
   organizerOf(collection: string): Promise<string>;
 }
 

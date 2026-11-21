@@ -44,7 +44,6 @@ describe("drop collection events", () => {
       ev({ transaction_hash: "0x2", from_address: DROP }),
     ];
     expect(dropEventLogIndexes(events)).toEqual([0, 0, 1, 0]);
-    // The same drop's events polled on their own get the same indexes.
     expect(dropEventLogIndexes([events[0]!, events[2]!])).toEqual([0, 1]);
   });
 

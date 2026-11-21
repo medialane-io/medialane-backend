@@ -54,7 +54,6 @@ export async function cosign(
     const guardianSignature = guarded ? signWithPrivateKey(key.privateKey, messageHash) : [];
     const owners = await read(() => deps.ownersOf(address));
 
-    // The short form names no signer, so the wallet accepts it only from a single Starknet owner.
     if (owners.length === 1 && owners[0]!.type === "Starknet") return [...ownerSignature, ...guardianSignature];
 
     const signature = new ec.starkCurve.Signature(BigInt(ownerSignature[0]!), BigInt(ownerSignature[1]!));

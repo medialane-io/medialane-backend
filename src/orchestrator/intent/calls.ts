@@ -3,7 +3,6 @@ import { getListableTokens } from "@medialane/sdk";
 import { normalizeAddress } from "../../utils/starknet.js";
 import type { IntentCall } from "./fee.js";
 
-/** An SDK-built call in the intent's stored shape: normalized target, string calldata. */
 export function toIntentCall(call: Call): IntentCall {
   return {
     contractAddress: normalizeAddress("STARKNET", call.contractAddress),

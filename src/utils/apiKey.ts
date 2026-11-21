@@ -20,7 +20,6 @@ export function hashApiKey(plaintext: string): string {
 
 type KeyOwner = { id: string; accountId: string };
 
-/** Replaces the owner's key only if its current key is still `current` (null: none); otherwise returns null. The replaced key is kept as REVOKED. */
 export async function replaceApiKey(
   owner: KeyOwner,
   current: string | null,
@@ -39,7 +38,6 @@ export async function replaceApiKey(
   });
 }
 
-/** Revokes the owner's active key `id`. The key row is kept as REVOKED. */
 export async function revokeApiKey(owner: KeyOwner, id: string): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
     const key = await tx.apiKey.findFirst({ where: { id, apiCreditsId: owner.id, status: "ACTIVE" }, select: { id: true } });

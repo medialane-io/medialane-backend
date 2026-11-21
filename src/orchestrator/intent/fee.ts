@@ -17,12 +17,10 @@ export function feeApplies(appId: string, cfg: ResolvedFeeConfig = platformFeeCo
   return FEE_APPS.has(appId) && cfg.enabled && Boolean(cfg.fundAddress);
 }
 
-/** The fee configuration an intent built for `appId` uses: the platform fee for a Medialane app, none otherwise. */
 export function appFeeConfig(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): ResolvedFeeConfig {
   return feeApplies(appId, cfg) ? cfg : { ...cfg, enabled: false };
 }
 
-/** Launchpad fee, in basis points, that intents built for `appId` add to a mint. */
 export function dropFeeBps(appId: string, cfg: ResolvedFeeConfig = platformFeeConfig): number {
   return feeApplies(appId, cfg) ? feeBps("launchpad", cfg) : 0;
 }

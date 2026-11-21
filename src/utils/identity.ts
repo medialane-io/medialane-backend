@@ -1,4 +1,3 @@
-
 export const IDENTITY_SCHEME = {
   WALLET: "wallet",
   EMAIL: "email",
@@ -13,5 +12,4 @@ export function normalizeIdentityValue(scheme: string, value: string): string {
   return scheme === IDENTITY_SCHEME.EMAIL ? trimmed.toLowerCase() : trimmed;
 }
 
-/** Where-clause fragment for identities in use. Replaced identities stay as INACTIVE rows and never match. */
 export const ACTIVE_IDENTITY = { status: "ACTIVE" } as const;

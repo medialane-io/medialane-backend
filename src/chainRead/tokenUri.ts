@@ -10,10 +10,6 @@ type CollectionKind = { standard: string | null; service: string | null } | null
 const isOwn = (col: CollectionKind): col is NonNullable<CollectionKind> =>
   col != null && !col.service?.startsWith("external-");
 
-/**
- * Whether the contract reports the token as minted, or null when it has no `token_exists`.
- * An ERC-1155 `uri(id)` answers for any id, so it is not proof the token exists.
- */
 export async function tokenExists(call: CallContract, contractAddress: string, tokenId: string): Promise<boolean | null> {
   const raw = await callEither(call, contractAddress, ["token_exists"], u256Calldata(tokenId));
   return raw ? BigInt(raw[0] ?? 0) !== 0n : null;

@@ -1,4 +1,3 @@
-
 export function formatAmount(raw: string, decimals: number): string {
   try {
     const n = BigInt(raw);

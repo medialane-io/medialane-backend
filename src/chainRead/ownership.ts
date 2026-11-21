@@ -17,7 +17,6 @@ const READ_CONCURRENCY = 8;
 
 const chainCall = chainCallAt("latest");
 
-/** The tokens and holders whose current ownership a set of transfer events changed. */
 export function ownershipKeys(events: ParsedEvent[]): OwnershipKey[] {
   const keys = new Map<string, OwnershipKey>();
   const add721 = (contractAddress: string, tokenId: string) =>
@@ -44,7 +43,6 @@ export function ownershipKeys(events: ParsedEvent[]): OwnershipKey[] {
   return [...keys.values()];
 }
 
-/** Current on-chain ownership for each key. Transport failures throw; contract refusals mean no ownership. */
 export async function readOwnership(keys: OwnershipKey[], call: CallContract = chainCall): Promise<OwnershipFact[]> {
   return mapWithConcurrency(keys, READ_CONCURRENCY, async (key): Promise<OwnershipFact> => {
     if (key.standard === "ERC721") {

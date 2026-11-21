@@ -14,10 +14,10 @@ describe("starknet get_escape_and_status readyAt", () => {
     const readyAtSeconds = 1_800_000_000;
     const fakeProvider = {
       callContract: mock(async () => [
-        `0x${readyAtSeconds.toString(16)}`, // readyAt
-        "0x2", // escapeType = Owner
-        "0x1", // optionTag != 0 -> statusIndex 3
-        "0x2", // status = Ready
+        `0x${readyAtSeconds.toString(16)}`,
+        "0x2",
+        "0x1",
+        "0x2",
       ]),
     };
     const { __unstable_starknetGetEscapeReadyAtWithProvider } = await import("./index.js");

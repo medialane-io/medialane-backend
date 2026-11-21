@@ -1,5 +1,3 @@
-
-
 import { cairo, Contract, CairoOption, CairoOptionVariant } from "starknet";
 import { normalizeAddress, createProvider } from "../../utils/starknet.js";
 import { STARKNET_IP_SPONSORSHIP_CONTRACT } from "../../config/constants.js";

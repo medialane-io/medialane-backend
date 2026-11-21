@@ -1,5 +1,3 @@
-
-
 import { normalizeAddress } from "../../utils/starknet.js";
 import { buildCreateCreatorCoinCall, buildLaunchOnEkuboCalls, priceToEkuboParams, validatePrice } from "@medialane/sdk/starknet";
 import { getTokenByAddress } from "@medialane/sdk";

@@ -1,5 +1,3 @@
-
-
 import prisma from "../db/client.js";
 import { computeRewards } from "../rewards/compute.js";
 

@@ -1,4 +1,3 @@
-
 const KNOWN_STANDARDS = new Set(["ERC721", "ERC1155"]);
 
 export function parseStandardFilter(raw: string | undefined | null): string[] | null {

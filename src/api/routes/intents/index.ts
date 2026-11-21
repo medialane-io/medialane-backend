@@ -1,5 +1,3 @@
-
-
 import { Hono } from "hono";
 import type { AppEnv } from "../../../types/hono.js";
 import { registerBuildRoutes } from "./build.js";

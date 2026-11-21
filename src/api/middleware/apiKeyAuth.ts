@@ -1,4 +1,3 @@
-
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../../types/hono.js";
 import prisma from "../../db/client.js";

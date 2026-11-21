@@ -15,7 +15,6 @@ export function metadataAttributes(metadata: Record<string, unknown> | null): Me
   return parsed.success ? parsed.data : null;
 }
 
-/** The metadata document with NUL characters removed from every string; Postgres text and jsonb reject them. */
 export function withoutNulCharacters<T>(value: T): T {
   if (typeof value === "string") return value.replaceAll("\u0000", "") as T;
   if (Array.isArray(value)) return value.map(withoutNulCharacters) as T;

@@ -16,7 +16,6 @@ const abiStructs = CallData.getAbiStruct(abi);
 const abiEnums = CallData.getAbiEnum(abi);
 const abiParser = createAbiParser(abi);
 
-/** Every creation-time fact of a drop; numbers as decimal strings. */
 export interface DropCreated {
   dropId: string;
   organizer: string;
@@ -94,7 +93,6 @@ export function dropRow(d: DropCreated, block: bigint) {
   };
 }
 
-/** Indexes the drop and its collection; returns the collection address, or null when skipped. */
 export async function handleDropCreated(event: RawStarknetEvent): Promise<string | null> {
   const txHash = event.transaction_hash ?? "";
   try {
@@ -120,7 +118,6 @@ export async function handleDropCreated(event: RawStarknetEvent): Promise<string
       owner: created.organizer,
       startBlock: block,
     });
-    // Creation facts never change; the allowlist root is updated by AllowlistRootSet.
     await prisma.drop.upsert({
       where: { chain_collectionAddress: { chain: "STARKNET", collectionAddress: created.collectionAddress } },
       create: dropRow(created, block),
