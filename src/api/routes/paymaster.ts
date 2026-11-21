@@ -75,6 +75,9 @@ export function classifyPaymasterError(err: unknown, stage: "build" | "execute" 
   }
 
   if (text.includes("TRANSACTION_EXECUTION_ERROR") || text.includes("execution_error")) {
+    if (/insufficient balance|u256_sub overflow/i.test(text)) {
+      return { status: 422, message: "The account balance does not cover this transaction", code: "insufficient_balance", detail };
+    }
     return { status: 422, message: "The transaction could not be executed as submitted", code: "not_executable", detail };
   }
 

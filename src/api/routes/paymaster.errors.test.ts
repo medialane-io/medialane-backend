@@ -24,8 +24,18 @@ test("the classifier does not leak the raw RPC dump to the caller", () => {
   expect(out.message).not.toContain("execution_error");
 });
 
+test("a balance shortfall is named, even when it comes after a long call dump", () => {
+  const calls = "0x1234, ".repeat(400);
+  for (const reason of ["0x45524332303a20696e73756666696369656e742062616c616e6365 ('ERC20: insufficient balance')", "0x753235365f737562204f766572666c6f77 ('u256_sub Overflow')"]) {
+    const out = classifyPaymasterError(rpcError(`Transaction execution has failed: calls [${calls}] Failure reason: ${reason}`));
+    expect(out.status).toBe(422);
+    expect(out.code).toBe("insufficient_balance");
+    expect(out.message).toContain("balance");
+  }
+});
+
 test("any other execution error is still the caller's transaction failing", () => {
-  const out = classifyPaymasterError(rpcError("Message(\\\"insufficient balance\\\")"));
+  const out = classifyPaymasterError(rpcError("Message(\\\"argent/multicall-failed\\\")"));
   expect(out.status).toBe(422);
   expect(out.message).toContain("could not be executed");
   expect(out.code).toBe("not_executable");
