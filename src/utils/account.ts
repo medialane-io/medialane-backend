@@ -79,7 +79,6 @@ export function generateAccountPublicId(): string {
   return out;
 }
 
-/** New wallets one account may add in any 24 hours. Switching back to a wallet it already had does not count. */
 export const MAX_NEW_WALLETS_PER_DAY = 3;
 
 export class WalletReplacementLimitError extends Error {
@@ -103,7 +102,6 @@ export class WalletInactiveError extends Error {
   }
 }
 
-/** Makes `address` the account's active wallet. The previous wallet stays on the account as INACTIVE. */
 export async function replaceWallet(params: {
   accountId: string;
   appId: string;
@@ -171,7 +169,6 @@ export async function attachDeployedWallet(params: {
   await replaceWallet({ ...params, provider: "mediawallet" });
 }
 
-/** Makes `email` the account's active email. The previous email stays on the account as INACTIVE. */
 export async function replaceEmail(params: { accountId: string; appId: string; email: string }): Promise<void> {
   const email = normalizeIdentityValue(IDENTITY_SCHEME.EMAIL, params.email);
   await prisma.$transaction(async (tx) => {

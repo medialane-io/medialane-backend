@@ -1,5 +1,3 @@
-
-
 export interface OfferItem {
   item_type: string;
   token: string;

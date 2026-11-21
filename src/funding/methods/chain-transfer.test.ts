@@ -33,7 +33,6 @@ function receiptWith(events: object[], over: object = {}): StarknetReceipt {
   return { execution_status: "SUCCEEDED", finality_status: "ACCEPTED_ON_L2", events, ...over } as StarknetReceipt;
 }
 
-// Real receipts list events WITHOUT a transaction_hash.
 const transfer = (token: string, low: string, selector = TRANSFER) => ({
   from_address: token,
   keys: [selector, PAYER, x402Config.treasury],

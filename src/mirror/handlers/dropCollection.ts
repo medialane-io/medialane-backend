@@ -46,7 +46,6 @@ export function parseDropCollectionEvent(event: RawStarknetEvent): DropCollectio
   return null;
 }
 
-/** Position of each event among its transaction's events from the same drop — stable however the events were polled. */
 export function dropEventLogIndexes(events: RawStarknetEvent[]): number[] {
   const counters = new Map<string, number>();
   return events.map((e) => {
@@ -57,7 +56,6 @@ export function dropEventLogIndexes(events: RawStarknetEvent[]): number[] {
   });
 }
 
-/** Stamps each row with its block's time; one lookup per block. */
 export async function withBlockTimes<T extends { blockNumber: bigint | number }>(
   rows: T[],
   blockTime: (block: number) => Promise<Date>,
@@ -70,7 +68,6 @@ export async function withBlockTimes<T extends { blockNumber: bigint | number }>
   return rows.map((r) => ({ ...r, createdAt: times.get(BigInt(r.blockNumber))! }));
 }
 
-/** Reduces Claimed / Issued / AllowlistRootSet; safe to run twice over the same events. */
 export async function applyDropEvents(
   events: RawStarknetEvent[],
   blockTime: (block: number) => Promise<Date> = getBlockTimestamp,
@@ -83,7 +80,6 @@ export async function applyDropEvents(
     if (!parsed) continue;
     const blockNumber = BigInt(event.block_number ?? 0);
     if (parsed.type === "root") {
-      // An older root never overwrites a newer one when ranges overlap.
       await prisma.drop.updateMany({
         where: { chain: "STARKNET", collectionAddress: parsed.collectionAddress, allowlistRootBlock: { lte: blockNumber } },
         data: { allowlistRoot: parsed.root, allowlistRootBlock: blockNumber },
@@ -108,7 +104,6 @@ export async function applyDropEvents(
   for (const collectionAddress of touched) await recountDrop(collectionAddress);
 }
 
-/** Recomputes minted, revenue and collectors from the drop's indexed mints. */
 async function recountDrop(collectionAddress: string): Promise<void> {
   const where = { chain: "STARKNET" as const, collectionAddress };
   const [all, claims, wallets] = await Promise.all([
@@ -138,7 +133,6 @@ const chainCatchUp: CatchUpDeps = {
   apply: applyDropEvents,
 };
 
-/** A newly indexed drop's events from its creation block on, so none fall behind the collections source's cursor. */
 export async function catchUpDropEvents(collection: string, fromBlock: number, deps: CatchUpDeps = chainCatchUp): Promise<void> {
   const toBlock = await deps.latest();
   if (toBlock < fromBlock) return;

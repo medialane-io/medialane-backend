@@ -63,7 +63,6 @@ export function deduplicateTransfers(
   });
 }
 
-/** Reads current on-chain ownership for every token the events touch. Runs before the write transaction. */
 export async function prepareOwnership(
   raw: RawStarknetEvent[],
   read: typeof readOwnership = readOwnership,

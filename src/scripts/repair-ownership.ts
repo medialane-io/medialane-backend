@@ -11,7 +11,6 @@ const BATCH = 200;
 const PROGRESS_EVERY = 1000;
 const WRITE_BATCH = 20;
 
-/** How the stored rows for the facts' tokens differ from what the chain reports, and which facts to write. */
 export function ownershipDifferences(rows: StoredRow[], facts: OwnershipFact[]): Comparison {
   const diff: Comparison = { changed: 0, removed: 0, added: 0, stale: [] };
   const byToken = new Map<string, StoredRow[]>();

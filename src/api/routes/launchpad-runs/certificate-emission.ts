@@ -29,7 +29,6 @@ const SERVICE = "certificate-emission";
 
 const walletRequest = z.object({ recipient: z.email() });
 
-/** Address of the collection created in `events` by `factory`, from POP `CollectionCreated`. */
 export function createdPopCollection(events: ReceiptEvent[], factory: string): string | null {
   for (const event of events) {
     if (!sameFelt(event.from_address, factory) || !sameFelt(event.keys?.[0], COLLECTION_CREATED_SELECTOR)) continue;

@@ -17,7 +17,6 @@ const single = (from: string, to: string, tokenId: string, amount = "1"): Parsed
 
 const contractError = (code: number) => Object.assign(new Error("contract error"), { code });
 
-/** A chain that answers from a table keyed by entrypoint; a function entry may throw. */
 function fakeChain(answers: Record<string, (calldata: string[]) => string[]>) {
   const calls: Array<{ entrypoint: string; calldata: string[] }> = [];
   const call: CallContract = async (_contract, entrypoint, calldata) => {

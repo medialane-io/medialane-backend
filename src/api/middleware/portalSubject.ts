@@ -5,7 +5,6 @@ import { readAccountSession, sessionVerdict } from "../../utils/accountSessionTo
 import { ensureApiCredits } from "../../utils/account.js";
 import { ACCOUNT_INACTIVE, SIGN_IN_REQUIRED } from "./sessionRefusal.js";
 
-/** Portal routes act for the account of the forwarded session, and only that. */
 export const portalSubject: MiddlewareHandler<AppEnv> = async (c, next) => {
   const raw = c.req.header("x-account-session");
   if (!raw) return c.json(SIGN_IN_REQUIRED, 401);

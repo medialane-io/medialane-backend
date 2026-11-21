@@ -9,9 +9,6 @@ const COLLECTION = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789
 const USDC = normalizeAddress("STARKNET", getTokenBySymbol("USDC")!.address);
 const encode = (s: string) => CallData.compile([byteArray.byteArrayFromString(s)]);
 
-// keys: selector, drop_id (low, high), organizer
-// data: collection, name, symbol, base_uri, max_supply (low, high),
-//       terms (start, end, price low/high, token, max_per_wallet low/high), allowlist_root
 const terms = ["0x0", "0x6b49d200", "0x4c4b40", "0x0", USDC, "0x5", "0x0"];
 function event(data: string[] = [COLLECTION, ...encode("Neon Tides"), ...encode("NEON"), ...encode("ipfs://cid/"), "0x1f4", "0x0", ...terms, "0xabc"]): RawStarknetEvent {
   return { block_hash: "0xb", block_number: 16240900, transaction_hash: "0x1", from_address: "0xfac", keys: [hash.getSelectorFromName("DropCreated"), "0x7", "0x0", ORGANIZER], data };

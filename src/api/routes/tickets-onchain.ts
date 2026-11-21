@@ -1,5 +1,3 @@
-
-
 import { Hono } from "hono";
 import { cairo, Contract } from "starknet";
 import { IPTicketCollectionABI } from "@medialane/sdk/starknet";

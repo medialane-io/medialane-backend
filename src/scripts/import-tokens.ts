@@ -20,7 +20,6 @@ const DROPPED_CONNECTION_RE = /closed the connection|connection reset|kind: Clos
 
 type Totals = { minted: number; owned: number; burned: number; created: number };
 
-/** Token ids minted by an ERC-721 contract, in ascending numeric order. */
 export function mintedTokenIds(events: RawStarknetEvent[]): string[] {
   const ids = new Set<string>();
   for (const event of parseEvents(events)) {
@@ -29,12 +28,10 @@ export function mintedTokenIds(events: RawStarknetEvent[]): string[] {
   return [...ids].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
 }
 
-/** The facts for tokens that currently have an owner; burned tokens are left out. */
 export function ownedFacts(facts: OwnershipFact[]): OwnershipFact[] {
   return facts.filter((fact) => fact.standard === "ERC721" && fact.owner !== null);
 }
 
-/** True when the database connection dropped during a write, so the write can be repeated on a new one. */
 export function isDroppedConnection(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const { code, message } = err as { code?: unknown; message?: unknown };
@@ -42,7 +39,6 @@ export function isDroppedConnection(err: unknown): boolean {
   return typeof message === "string" && DROPPED_CONNECTION_RE.test(message);
 }
 
-/** Runs an idempotent write, repeating it when the database connection drops; any other error is thrown at once. */
 export async function retryOnDroppedConnection<T>(
   write: () => Promise<T>,
   attempts = WRITE_ATTEMPTS,

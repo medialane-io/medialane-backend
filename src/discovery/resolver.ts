@@ -19,10 +19,6 @@ export function resolveUri(
   return { url: uri, isIpfs: false };
 }
 
-/**
- * Gateways to read IPFS files from, in order: the configured dedicated gateway (fast, but it may
- * refuse files that are not pinned to the account), then the public ones.
- */
 export function ipfsGatewayUrls(configuredGateway: string): string[] {
   const host = configuredGateway.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
   const dedicated = `https://${host}/ipfs`;

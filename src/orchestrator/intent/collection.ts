@@ -1,5 +1,3 @@
-
-
 import { cairo, Contract, CairoOption, CairoOptionVariant } from "starknet";
 import { callRpc, normalizeAddress, createProvider } from "../../utils/starknet.js";
 import {
@@ -186,7 +184,6 @@ export async function buildCreateCollectionIntent(body: CreateCollectionIntentBo
   return { calls: [{ contractAddress: contract, entrypoint: "create_collection", calldata }] };
 }
 
-/** Token URIs are baseUri + id, so a drop needs its metadata folder; nothing is uploaded here. */
 function buildCreateDropIntent(body: CreateCollectionIntentBody) {
   if (!body.baseUri) throw new IntentRefusal("baseUri is required for a drop");
   if (!body.maxSupply || !body.terms) throw new IntentRefusal("maxSupply and terms are required for a drop");

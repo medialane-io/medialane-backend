@@ -1,5 +1,3 @@
-
-
 export {
   buildCreateListingIntent,
   buildMakeOfferIntent,

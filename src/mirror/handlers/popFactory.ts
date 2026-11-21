@@ -36,7 +36,6 @@ interface Decoded {
   claim_end_time: bigint;
 }
 
-/** Decodes a POP factory `CollectionCreated` event from the factory ABI; null for any other event. */
 export function parsePopCollectionCreated(event: RawStarknetEvent): PopCollectionCreated | null {
   const parsed = starknetEvents.parseEvents(
     [{ ...event, keys: event.keys.map((k) => num.toHex(k)) } as never],

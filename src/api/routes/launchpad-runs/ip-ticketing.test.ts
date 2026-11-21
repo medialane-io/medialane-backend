@@ -109,7 +109,6 @@ const spec = {
   guests: ["ana@x.com", "bruno@x.com"],
 };
 
-/** file + metadata + tier + two wallets + one emission batch of two */
 const HELD = PRICE * (1 + 1 + 3 + 3 * 2) + PRICE * (1 * 2 + 2);
 
 const json = (app: Hono<AppEnv>, method: string, path: string, body?: unknown) =>

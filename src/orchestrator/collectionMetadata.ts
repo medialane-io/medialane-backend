@@ -9,7 +9,6 @@ import { metadataAttributes } from "../utils/metadataAttributes.js";
 
 const log = createLogger("orchestrator:collection-metadata");
 
-/** The on-chain base URI when the contract exposes one, else the one indexed from its factory event. */
 export function resolveCollectionBaseUri(onchain: string, stored: string | null | undefined): string {
   return onchain || stored || "";
 }
