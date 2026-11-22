@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { num, hash } from "starknet";
-import { isDroppedConnection, mintedTokenIds, ownedFacts, retryOnDroppedConnection } from "./import-tokens.js";
+import { isDroppedConnection, mintedTokenIds, ownedFacts, ownershipToWrite, retryOnDroppedConnection } from "./import-tokens.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 const C = "0xc";
@@ -36,6 +36,7 @@ describe("tokens kept for import", () => {
 });
 
 describe("writes repeated when the database connection drops", () => {
+  const fast = { attempts: 3, delayMs: 0, reconnect: async () => {} };
   const dropped = Object.assign(new Error("Server has closed the connection."), { code: "P1017" });
 
   test("dropped connections are recognised, other errors are not", () => {
@@ -52,21 +53,56 @@ describe("writes repeated when the database connection drops", () => {
       calls++;
       if (calls < 3) throw dropped;
       return "written";
-    }, 3, 0);
+    }, fast);
     expect(result).toBe("written");
     expect(calls).toBe(3);
   });
 
   test("the last dropped connection is thrown once the attempts run out", async () => {
     let calls = 0;
-    await expect(retryOnDroppedConnection(async () => { calls++; throw dropped; }, 3, 0)).rejects.toBe(dropped);
+    await expect(retryOnDroppedConnection(async () => { calls++; throw dropped; }, fast)).rejects.toBe(dropped);
     expect(calls).toBe(3);
   });
 
   test("any other error is thrown without repeating the write", async () => {
     let calls = 0;
     const refused = Object.assign(new Error("Foreign key constraint failed"), { code: "P2003" });
-    await expect(retryOnDroppedConnection(async () => { calls++; throw refused; }, 3, 0)).rejects.toBe(refused);
+    await expect(retryOnDroppedConnection(async () => { calls++; throw refused; }, fast)).rejects.toBe(refused);
     expect(calls).toBe(1);
+  });
+});
+
+describe("only new or changed owners are written", () => {
+  const stored = (tokenId: string, owner: string, amount = "1") => ({ tokenId, owner, amount });
+
+  test("a token already stored with the same owner is skipped", () => {
+    expect(ownershipToWrite([erc721("1", "0xa")], [stored("1", "0xa")])).toEqual({ missing: [], changed: [] });
+  });
+
+  test("a token with no stored owner is written as new", () => {
+    expect(ownershipToWrite([erc721("1", "0xa")], [])).toEqual({ missing: [{ tokenId: "1", owner: "0xa" }], changed: [] });
+  });
+
+  test("a token stored with another owner, extra rows or another amount is rewritten", () => {
+    const facts = [erc721("1", "0xa"), erc721("2", "0xa"), erc721("3", "0xa")];
+    const rows = [stored("1", "0xb"), stored("2", "0xa"), stored("2", "0xc"), stored("3", "0xa", "2")];
+    expect(ownershipToWrite(facts, rows)).toEqual({ missing: [], changed: facts });
+  });
+});
+
+describe("a write that hangs", () => {
+  test("times out, reconnects and is retried", async () => {
+    let calls = 0;
+    let reconnects = 0;
+    const result = await retryOnDroppedConnection(
+      () => {
+        calls++;
+        return calls === 1 ? new Promise<string>(() => {}) : Promise.resolve("written");
+      },
+      { attempts: 3, delayMs: 0, timeoutMs: 20, reconnect: async () => { reconnects++; } },
+    );
+    expect(result).toBe("written");
+    expect(calls).toBe(2);
+    expect(reconnects).toBe(1);
   });
 });
