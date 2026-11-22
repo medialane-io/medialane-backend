@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { num, hash } from "starknet";
-import { isDroppedConnection, mintedTokenIds, ownedFacts, ownershipToWrite, retryOnDroppedConnection } from "./import-tokens.js";
+import { isDroppedConnection, mintedTokenIds, ownedFacts, ownershipToWrite, readOwnersRechecked, retryOnDroppedConnection } from "./import-tokens.js";
 import type { RawStarknetEvent } from "../types/starknet.js";
 
 const C = "0xc";
@@ -104,5 +104,31 @@ describe("a write that hangs", () => {
     expect(result).toBe("written");
     expect(calls).toBe(2);
     expect(reconnects).toBe(1);
+  });
+});
+
+describe("an empty owner read is checked again", () => {
+  const key = (tokenId: string) => ({ standard: "ERC721" as const, contractAddress: C, tokenId });
+
+  test("a token whose owner comes back on the second read keeps that owner", async () => {
+    const reads: string[][] = [];
+    const answers = [[erc721("1", "0xa"), erc721("2", null)], [erc721("2", "0xb")]];
+    const facts = await readOwnersRechecked([key("1"), key("2")], async (keys) => {
+      reads.push(keys.map((k) => k.tokenId));
+      return answers[reads.length - 1]!;
+    }, 0);
+    expect(facts).toEqual([erc721("1", "0xa"), erc721("2", "0xb")]);
+    expect(reads).toEqual([["1", "2"], ["2"]]);
+  });
+
+  test("a token empty on both reads stays without an owner", async () => {
+    const facts = await readOwnersRechecked([key("2")], async () => [erc721("2", null)], 0);
+    expect(facts).toEqual([erc721("2", null)]);
+  });
+
+  test("no second read when every token has an owner", async () => {
+    let reads = 0;
+    await readOwnersRechecked([key("1")], async () => { reads++; return [erc721("1", "0xa")]; }, 0);
+    expect(reads).toBe(1);
   });
 });
