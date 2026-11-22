@@ -1,6 +1,6 @@
 import { num } from "starknet";
 import prisma from "../db/client.js";
-import { readOwnership, type OwnershipFact } from "../chainRead/ownership.js";
+import { readOwnership, type OwnershipFact, type OwnershipKey } from "../chainRead/ownership.js";
 import { writeOwnership } from "../mirror/handlers/ownership.js";
 import { parseEvents } from "../mirror/parser.js";
 import { getLatestBlock, pollContractEvents } from "../mirror/poller.js";
@@ -33,6 +33,19 @@ export function mintedTokenIds(events: RawStarknetEvent[]): string[] {
 
 export function ownedFacts(facts: OwnershipFact[]): OwnershipFact[] {
   return facts.filter((fact) => fact.standard === "ERC721" && fact.owner !== null);
+}
+
+export async function readOwnersRechecked(
+  keys: OwnershipKey[],
+  read: (keys: OwnershipKey[]) => Promise<OwnershipFact[]> = readOwnership,
+  delayMs = RECONNECT_DELAY_MS,
+): Promise<OwnershipFact[]> {
+  const facts = await read(keys);
+  const empty = facts.filter((fact) => fact.standard === "ERC721" && fact.owner === null);
+  if (empty.length === 0) return facts;
+  await sleep(delayMs);
+  const rechecked = new Map((await read(empty)).map((fact) => [fact.tokenId, fact]));
+  return facts.map((fact) => rechecked.get(fact.tokenId) ?? fact);
 }
 
 export function isDroppedConnection(err: unknown): boolean {
@@ -106,7 +119,7 @@ async function importCollection(contractAddress: string, apply: boolean): Promis
   for (let start = 0; start < ids.length; start += BATCH) {
     const batch = ids.slice(start, start + BATCH);
     const facts = ownedFacts(
-      await readOwnership(batch.map((tokenId) => ({ standard: "ERC721" as const, contractAddress, tokenId }))),
+      await readOwnersRechecked(batch.map((tokenId) => ({ standard: "ERC721" as const, contractAddress, tokenId }))),
     );
     totals.owned += facts.length;
     totals.burned += batch.length - facts.length;
