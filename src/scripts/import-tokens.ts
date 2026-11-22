@@ -15,10 +15,13 @@ const WRITE_BATCH = 20;
 const PROGRESS_EVERY = 1000;
 const WRITE_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 2000;
+const WRITE_TIMEOUT_MS = 90_000;
 const DROPPED_CONNECTION_CODES = new Set(["P1001", "P1017", "P2028"]);
-const DROPPED_CONNECTION_RE = /closed the connection|connection reset|kind: Closed|transaction already closed/i;
+const DROPPED_CONNECTION_RE = /closed the connection|connection reset|kind: Closed|transaction already closed|write timed out/i;
 
-type Totals = { minted: number; owned: number; burned: number; created: number };
+type Totals = { minted: number; owned: number; burned: number; created: number; unchanged: number; ownersWritten: number };
+type StoredBalance = { tokenId: string; owner: string; amount: string };
+type RetryOptions = { attempts?: number; delayMs?: number; timeoutMs?: number; reconnect?: () => Promise<void> };
 
 export function mintedTokenIds(events: RawStarknetEvent[]): string[] {
   const ids = new Set<string>();
@@ -39,17 +42,45 @@ export function isDroppedConnection(err: unknown): boolean {
   return typeof message === "string" && DROPPED_CONNECTION_RE.test(message);
 }
 
-export async function retryOnDroppedConnection<T>(
-  write: () => Promise<T>,
-  attempts = WRITE_ATTEMPTS,
-  delayMs = RECONNECT_DELAY_MS,
-): Promise<T> {
+export function ownershipToWrite(
+  facts: OwnershipFact[],
+  stored: StoredBalance[],
+): { missing: { tokenId: string; owner: string }[]; changed: OwnershipFact[] } {
+  const byToken = new Map<string, StoredBalance[]>();
+  for (const row of stored) byToken.set(row.tokenId, [...(byToken.get(row.tokenId) ?? []), row]);
+  const missing: { tokenId: string; owner: string }[] = [];
+  const changed: OwnershipFact[] = [];
+  for (const fact of facts) {
+    if (fact.standard !== "ERC721" || fact.owner === null) continue;
+    const rows = byToken.get(fact.tokenId) ?? [];
+    if (rows.length === 0) missing.push({ tokenId: fact.tokenId, owner: fact.owner });
+    else if (rows.length !== 1 || rows[0]!.owner !== fact.owner || rows[0]!.amount !== "1") changed.push(fact);
+  }
+  return { missing, changed };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Database write timed out after ${timeoutMs} ms`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+export async function retryOnDroppedConnection<T>(write: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+  const {
+    attempts = WRITE_ATTEMPTS,
+    delayMs = RECONNECT_DELAY_MS,
+    timeoutMs = WRITE_TIMEOUT_MS,
+    reconnect = () => prisma.$disconnect(),
+  } = options;
   for (let attempt = 1; ; attempt++) {
     try {
-      return await write();
+      return await withTimeout(write(), timeoutMs);
     } catch (err) {
       if (attempt >= attempts || !isDroppedConnection(err)) throw err;
-      console.error(`Database connection dropped, retrying the write (${attempt}/${attempts - 1})`);
+      console.error(`Database connection dropped, reconnecting and retrying the write (${attempt}/${attempts - 1})`);
+      await reconnect().catch(() => undefined);
       await sleep(delayMs);
     }
   }
@@ -70,7 +101,7 @@ async function importCollection(contractAddress: string, apply: boolean): Promis
     keys: [[num.toHex(TRANSFER_SELECTOR)]],
   });
   const ids = mintedTokenIds(events);
-  const totals: Totals = { minted: ids.length, owned: 0, burned: 0, created: 0 };
+  const totals: Totals = { minted: ids.length, owned: 0, burned: 0, created: 0, unchanged: 0, ownersWritten: 0 };
 
   for (let start = 0; start < ids.length; start += BATCH) {
     const batch = ids.slice(start, start + BATCH);
@@ -86,11 +117,26 @@ async function importCollection(contractAddress: string, apply: boolean): Promis
         skipDuplicates: true,
       }));
       totals.created += created.count;
-      for (let w = 0; w < facts.length; w += WRITE_BATCH) {
-        const chunk = facts.slice(w, w + WRITE_BATCH);
+
+      const stored = await retryOnDroppedConnection(() => prisma.tokenBalance.findMany({
+        where: { chain: CHAIN, contractAddress, tokenId: { in: facts.map((fact) => fact.tokenId) } },
+        select: { tokenId: true, owner: true, amount: true },
+      }));
+      const { missing, changed } = ownershipToWrite(facts, stored);
+      totals.unchanged += facts.length - missing.length - changed.length;
+
+      if (missing.length > 0) {
+        await retryOnDroppedConnection(() => prisma.tokenBalance.createMany({
+          data: missing.map(({ tokenId, owner }) => ({ chain: CHAIN, contractAddress, tokenId, owner, amount: "1" })),
+          skipDuplicates: true,
+        }));
+      }
+      for (let w = 0; w < changed.length; w += WRITE_BATCH) {
+        const chunk = changed.slice(w, w + WRITE_BATCH);
         await retryOnDroppedConnection(() =>
           prisma.$transaction((tx) => writeOwnership(tx, CHAIN, chunk), { maxWait: 10000, timeout: 60000 }));
       }
+      totals.ownersWritten += missing.length + changed.length;
     }
 
     const done = Math.min(start + BATCH, ids.length);
