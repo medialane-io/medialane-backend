@@ -24,7 +24,7 @@ metadata.get("/signed-url", async (c) => {
     const msg = toErrorMessage(err);
     log.error({ err }, `Failed to create signed URL: ${msg}`);
     const status = msg.includes("403") || msg.includes("plan limits") ? 403 : 500;
-    return c.json({ error: "Uploads are temporarily unavailable. Please try again in a moment." }, status);
+    return c.json({ error: "Uploads are temporarily unavailable. Please try again later. If the error persists, contact our support.", code: "uploads_unavailable" }, status);
   }
 });
 
