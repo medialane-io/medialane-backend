@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RpcError, ec, typedData as starknetTypedData, type TypedData } from "starknet";
 import { computeOwnerGuid, signWithPrivateKey, type GuardianInfo } from "@medialane/sdk/starknet";
-import { cosign, emptyWithoutEntrypoint, GuardianUnavailableError, type CosignDeps } from "./guardianCosign.js";
+import { cosign, cosignHash, emptyWithoutEntrypoint, GuardianUnavailableError, type CosignDeps } from "./guardianCosign.js";
 import { guardianKeyWith } from "./guardianKey.js";
 
 const SECRET = "g".repeat(64);
@@ -171,5 +171,15 @@ describe("the guardian key", () => {
   test("refuses a missing or short secret", () => {
     expect(() => guardianKeyWith("", WALLET)).toThrow("GUARDIAN_SECRET is not configured");
     expect(() => guardianKeyWith("short", WALLET)).toThrow("GUARDIAN_SECRET is not configured");
+  });
+});
+
+describe("a transaction hash", () => {
+  test("gets the owner's signature followed by the guardian's, over that exact hash", async () => {
+    const transactionHash = "0x123456789";
+    const signature = signWithPrivateKey(owner.privateKey, transactionHash);
+    const signed = await cosignHash(deps({ guardians: [asSigner(ours.publicKey)] }), WALLET, transactionHash, signature);
+    expect(signed.slice(0, 2)).toEqual(signature);
+    expect(valid(signed.slice(2), ours.publicKey, transactionHash)).toBe(true);
   });
 });

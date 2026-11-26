@@ -33,6 +33,7 @@ export async function composeIntentCalls(
   intentIds: string[],
   caller: { accountId: string; wallet: string },
   deps: SponsorIntentDeps,
+  payer: "sponsor" | "wallet" = "sponsor",
 ): Promise<{ ok: true; calls: IntentCall[] } | { ok: false; unavailable?: true; error: string }> {
   if (intentIds.length === 0 || new Set(intentIds).size !== intentIds.length) {
     return { ok: false, error: "A list of distinct intent ids is required" };
@@ -53,6 +54,7 @@ export async function composeIntentCalls(
       targets.add(normalizeAddress("STARKNET", call.contractAddress));
     }
   }
+  if (payer === "wallet") return { ok: true, calls };
   const known = await deps.known([...targets], wallet);
   if ([...targets].some((t) => !known.has(t))) return { ok: false, unavailable: true, error: "These actions can't be sponsored" };
   return { ok: true, calls };

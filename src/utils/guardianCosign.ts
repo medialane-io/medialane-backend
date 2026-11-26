@@ -44,9 +44,25 @@ export async function cosign(
   ownerSignature: string[],
 ): Promise<string[]> {
   if (ownerSignature.length !== 2) return ownerSignature;
+  let messageHash: string;
+  try {
+    messageHash = starknetTypedData.getMessageHash(typedData as TypedData, normalizeAddress("STARKNET", wallet));
+  } catch (err) {
+    log.warn({ err, wallet }, "guardian co-signature skipped");
+    return ownerSignature;
+  }
+  return cosignHash(deps, wallet, messageHash, ownerSignature);
+}
+
+export async function cosignHash(
+  deps: CosignDeps,
+  wallet: string,
+  messageHash: string,
+  ownerSignature: string[],
+): Promise<string[]> {
+  if (ownerSignature.length !== 2) return ownerSignature;
   try {
     const address = normalizeAddress("STARKNET", wallet);
-    const messageHash = starknetTypedData.getMessageHash(typedData as TypedData, address);
     const key = deps.secret.length >= 32 ? guardianKeyWith(deps.secret, address) : null;
     const guarded =
       key !== null &&
@@ -77,14 +93,14 @@ export async function emptyWithoutEntrypoint<T>(read: () => Promise<T[]>): Promi
   }
 }
 
+const productionDeps = (): CosignDeps => ({
+  secret: env.GUARDIAN_SECRET,
+  guardiansOf: (address) => emptyWithoutEntrypoint(() => getGuardians(createProvider(), address)),
+  ownersOf: (address) => emptyWithoutEntrypoint(() => getOwners(createProvider(), address)),
+});
+
 export const productionCosign: Cosign = (wallet, typedData, ownerSignature) =>
-  cosign(
-    {
-      secret: env.GUARDIAN_SECRET,
-      guardiansOf: (address) => emptyWithoutEntrypoint(() => getGuardians(createProvider(), address)),
-      ownersOf: (address) => emptyWithoutEntrypoint(() => getOwners(createProvider(), address)),
-    },
-    wallet,
-    typedData,
-    ownerSignature,
-  );
+  cosign(productionDeps(), wallet, typedData, ownerSignature);
+
+export const productionCosignHash = (wallet: string, messageHash: string, ownerSignature: string[]): Promise<string[]> =>
+  cosignHash(productionDeps(), wallet, messageHash, ownerSignature);

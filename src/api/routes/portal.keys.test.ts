@@ -34,6 +34,7 @@ async function appWith(opts: { currentKeyId?: string | null; keyIdInTransaction?
   }));
   mock.module("../../utils/guardianCosign.js", () => ({
     productionCosign: async (_wallet: string, _typedData: unknown, signature: string[]) => signature,
+    productionCosignHash: async (_wallet: string, _transactionHash: string, signature: string[]) => signature,
     GuardianUnavailableError: class extends Error {},
   }));
   const { default: portal } = await import("./portal.js");
