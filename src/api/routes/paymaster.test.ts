@@ -4,7 +4,8 @@ import { Hono } from "hono";
 import { hash, num } from "starknet";
 import { getCoordinates } from "@medialane/sdk";
 import { ownerConstructorCalldata } from "@medialane/sdk/starknet";
-import paymaster, { classifyPaymasterError, deploymentCalls, executeOwnSponsoredInvoke, redactUrls, type AttachWallet, type PaymasterClient } from "./paymaster.js";
+import paymaster, { classifyPaymasterError, deploymentCalls, executeOwnSponsoredInvoke, redactUrls, type AttachWallet, type PaymasterClient, type SelfPaySigning } from "./paymaster.js";
+import { parseSelfPayDetails, selfPayTransactionHash } from "../../utils/selfPayTransaction.js";
 import type { AppEnv } from "../../types/hono.js";
 import type { SponsorIntentDeps, SponsorIntentRow } from "./sponsorIntents.js";
 import { WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
@@ -566,5 +567,122 @@ describe("executeOwnSponsoredInvoke", () => {
     );
     expect(txHash).toBe("0xabc");
     expect(sent).toEqual([["0x1", "0x0", "0x5", "0x6", "0x7"]]);
+  });
+});
+
+describe("POST /invoke/cosign signs a transaction the wallet pays for itself", () => {
+  const fees = {
+    nonce: "0x5",
+    tip: "0x7",
+    resourceBounds: {
+      l1_gas: { max_amount: "0x0", max_price_per_unit: "0x64" },
+      l2_gas: { max_amount: "0x3e8", max_price_per_unit: "0xc8" },
+      l1_data_gas: { max_amount: "0x12c", max_price_per_unit: "0x190" },
+    },
+  };
+  const body = { intentIds: ["i1"], ...fees, signature: ["0x1", "0x2"] };
+  const hashFor = (calls: typeof SPONSORABLE_CALL[]) => selfPayTransactionHash(WALLET, calls, parseSelfPayDetails(fees)!);
+
+  function selfPayApp(rows: SponsorIntentRow[], log: string[], over: Partial<SelfPaySigning> = {}, wallet: string | null = WALLET, claimable = true) {
+    const seen: { signed: unknown[]; verified: unknown[] } = { signed: [], verified: [] };
+    const avnu = () => { throw new Error("the sponsor must not be used"); };
+    const deps: SponsorIntentDeps = {
+      load: async (ids) => rows.filter((r) => ids.includes(r.id)),
+      claim: async (ids) => { if (claimable) log.push(`claim:${ids}`); return claimable; },
+      release: async (ids) => { log.push(`release:${ids}`); },
+      record: async (ids, tx) => { log.push(`record:${ids}:${tx}`); },
+      known: async () => new Set(),
+      now: () => new Date(),
+    };
+    const signing: SelfPaySigning = {
+      cosign: async (address, transactionHash, signature) => { seen.signed.push({ address, transactionHash, signature }); return [...signature, "0x3", "0x4"]; },
+      verify: async (address, transactionHash, signature) => { seen.verified.push({ address, transactionHash, signature }); return { ok: true }; },
+      ...over,
+    };
+    const app = new Hono<AppEnv>();
+    app.use("*", async (c, next) => {
+      c.set("account", { id: "app", status: "ACTIVE" } as never);
+      if (wallet) c.set("sponsorWallet", wallet);
+      await next();
+    });
+    app.route("/", paymaster(avnu, (_c, next) => next(), deps, undefined, undefined, signing));
+    return { app, seen };
+  }
+  const post = (app: Hono<AppEnv>, payload: unknown = body) => app.request("/invoke/cosign", postJson(payload));
+
+  test("returns the co-signed signature for the hash rebuilt from the intents, and records it", async () => {
+    const log: string[] = [];
+    const { app, seen } = selfPayApp([signedRow], log);
+    const res = await post(app);
+    const expected = hashFor([SPONSORABLE_CALL]);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ signature: ["0x1", "0x2", "0x3", "0x4"], transactionHash: expected });
+    expect(seen.signed).toEqual([{ address: WALLET, transactionHash: expected, signature: ["0x1", "0x2"] }]);
+    expect(seen.verified).toEqual([{ address: WALLET, transactionHash: expected, signature: ["0x1", "0x2", "0x3", "0x4"] }]);
+    expect(log).toEqual(["claim:i1", `record:i1:${expected}`]);
+  });
+
+  test("calls to a contract that cannot be sponsored are still signed", async () => {
+    const row = { ...signedRow, calls: [{ ...SPONSORABLE_CALL, contractAddress: "0x666" }] };
+    expect((await post(selfPayApp([row], []).app)).status).toBe(200);
+  });
+
+  test("a signature the wallet contract rejects is refused and nothing is claimed", async () => {
+    const log: string[] = [];
+    const res = await post(selfPayApp([signedRow], log, { verify: async () => ({ ok: false, reason: "invalid" }) }).app);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "That signature is not for these actions", code: "invalid_request" });
+    expect(log).toEqual([]);
+  });
+
+  test("a wallet that is not on chain is refused as not deployed", async () => {
+    const res = await post(selfPayApp([signedRow], [], { verify: async () => ({ ok: false, reason: "not_deployed" }) }).app);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { code: string }).code).toBe("account_not_deployed");
+  });
+
+  test("an unreadable guardian or chain refuses before claiming", async () => {
+    for (const over of [
+      { cosign: async () => { throw new GuardianUnavailableError(); } },
+      { verify: async () => { throw new Error("rpc down"); } },
+    ]) {
+      const log: string[] = [];
+      const res = await post(selfPayApp([signedRow], log, over).app);
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { code: string }).code).toBe("network_unavailable");
+      expect(log).toEqual([]);
+    }
+  });
+
+  test("another account's, another wallet's, expired and used intents are not signed", async () => {
+    for (const row of [
+      { ...signedRow, accountId: "other" },
+      { ...signedRow, requester: "0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321" },
+      { ...signedRow, expiresAt: new Date(0) },
+      { ...signedRow, status: "SUBMITTED" },
+    ]) {
+      const { app, seen } = selfPayApp([row], []);
+      expect((await post(app)).status).toBe(403);
+      expect(seen.signed).toEqual([]);
+    }
+  });
+
+  test("an account with no wallet gets no signature", async () => {
+    expect((await post(selfPayApp([signedRow], [], {}, null).app)).status).toBe(403);
+  });
+
+  test("intents claimed in the meantime get no signature back", async () => {
+    const res = await post(selfPayApp([signedRow], [], {}, WALLET, false).app);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { signature?: string[] }).signature).toBeUndefined();
+  });
+
+  test("a request without intents, fee limits or a two-part signature is refused", async () => {
+    const { app, seen } = selfPayApp([signedRow], []);
+    for (const payload of [{ ...body, intentIds: undefined }, { ...body, nonce: undefined }, { ...body, signature: ["0x1"] }, { ...body, signature: ["0x1", "x"] }]) {
+      const res = await post(app, payload);
+      expect(res.status).toBe(400);
+    }
+    expect(seen.signed).toEqual([]);
   });
 });

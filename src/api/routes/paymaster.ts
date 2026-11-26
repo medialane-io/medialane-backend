@@ -9,7 +9,10 @@ import { guardianPubkeyWith } from "../../utils/guardianKey.js";
 import { toIntentCall } from "../../orchestrator/intent/calls.js";
 import { createLogger } from "../../utils/logger.js";
 import { attachDeployedWallet, WalletAlreadyAttachedError, WalletReplacementLimitError } from "../../utils/account.js";
-import { GuardianUnavailableError, productionCosign, type Cosign } from "../../utils/guardianCosign.js";
+import { GuardianUnavailableError, productionCosign, productionCosignHash, type Cosign } from "../../utils/guardianCosign.js";
+import { parseSelfPayDetails, selfPayTransactionHash, walletAccepts } from "../../utils/selfPayTransaction.js";
+import type { VerifyResult } from "../../auth/verify.js";
+import { callRpc } from "../../utils/starknet.js";
 import { callerApp } from "../../utils/caller.js";
 import { bill } from "../../payments/usage.js";
 import type { AppEnv } from "../../types/hono.js";
@@ -20,6 +23,22 @@ const AVNU_PAYMASTER_URL = "https://starknet.paymaster.avnu.fi";
 const REPLACEMENT_LIMIT = { error: "Please try again tomorrow", code: "wallet_replacement_limit" } as const;
 const SPONSORED = { version: "0x1", feeMode: { mode: "sponsored" } } as const;
 const INTENTS_REQUIRED = { error: "Sponsorship needs intents", code: "sponsor_unavailable" } as const;
+
+const NETWORK_UNAVAILABLE = { error: "The network can't be reached right now. Please try again in a moment.", code: "network_unavailable" } as const;
+const WRONG_SIGNATURE = { error: "That signature is not for these actions", code: "invalid_request" } as const;
+const ALREADY_SENT = { error: "These actions are already on their way", code: "invalid_request" } as const;
+const SIGNATURE_PART = /^(0x[0-9a-fA-F]{1,64}|[0-9]{1,78})$/;
+
+export interface SelfPaySigning {
+  cosign(wallet: string, transactionHash: string, ownerSignature: string[]): Promise<string[]>;
+  verify(wallet: string, transactionHash: string, signature: string[]): Promise<VerifyResult>;
+}
+
+const productionSelfPaySigning: SelfPaySigning = {
+  cosign: productionCosignHash,
+  verify: (wallet, transactionHash, signature) =>
+    walletAccepts((request) => callRpc((provider) => provider.callContract(request)), wallet, transactionHash, signature),
+};
 
 export interface PaymasterClient {
   buildTransaction(req: unknown, opts: unknown): Promise<unknown>;
@@ -239,17 +258,18 @@ export default function paymaster(
   intentDeps: SponsorIntentDeps = prismaSponsorIntentDeps,
   attachWallet: AttachWallet = attachDeployedWallet,
   cosign: Cosign = productionCosign,
+  selfPay: SelfPaySigning = productionSelfPaySigning,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use("*", guard);
 
-  const composeFor = async (c: Context<AppEnv>, intentIds: unknown) => {
+  const composeFor = async (c: Context<AppEnv>, intentIds: unknown, payer: "sponsor" | "wallet" = "sponsor") => {
     const wallet = c.get("sponsorWallet");
     if (!wallet) return { ok: false as const, status: 403 as const, error: "This account has no wallet to sponsor" };
     if (!Array.isArray(intentIds) || !intentIds.every((i) => typeof i === "string")) {
       return { ok: false as const, status: 400 as const, error: "intentIds must be a list of ids" };
     }
-    const composed = await composeIntentCalls(intentIds, { accountId: c.get("account").id, wallet }, intentDeps);
+    const composed = await composeIntentCalls(intentIds, { accountId: c.get("account").id, wallet }, intentDeps, payer);
     if (!composed.ok && composed.unavailable) return { ok: false as const, status: 400 as const, error: composed.error, code: "sponsor_unavailable" as const };
     if (!composed.ok) return { ok: false as const, status: 403 as const, error: composed.error };
     return { ok: true as const, wallet, calls: composed.calls, ids: intentIds as string[] };
@@ -273,7 +293,7 @@ export default function paymaster(
     const composed = await composeFor(c, body.intentIds);
     if (!composed.ok) return c.json({ error: composed.error, code: "code" in composed ? composed.code : "invalid_request" }, composed.status);
     if (!body.signature || !typedDataMatchesCalls(body.typedData, composed.calls)) {
-      return c.json({ error: "That signature is not for these actions", code: "invalid_request" }, 400);
+      return c.json(WRONG_SIGNATURE, 400);
     }
     let signature: string[];
     try {
@@ -281,10 +301,10 @@ export default function paymaster(
     } catch (err) {
       if (!(err instanceof GuardianUnavailableError)) throw err;
       log.warn({ requestId: c.get("requestId") }, "sponsored invoke execute refused: guardian could not be read");
-      return c.json({ error: "The network can't be reached right now. Please try again in a moment.", code: "network_unavailable" }, 503);
+      return c.json(NETWORK_UNAVAILABLE, 503);
     }
     if (!(await intentDeps.claim(composed.ids))) {
-      return c.json({ error: "These actions are already on their way", code: "invalid_request" }, 409);
+      return c.json(ALREADY_SENT, 409);
     }
     const outcome = await executeSponsoredInvoke({ clientFactory }, { userAddress: composed.wallet, typedData: body.typedData, signature });
     if (outcome.status !== 200) {
@@ -295,6 +315,35 @@ export default function paymaster(
     }
     await intentDeps.record(composed.ids, String(outcome.body.transactionHash));
     return c.json(outcome.body);
+  });
+
+  app.post("/invoke/cosign", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { intentIds?: unknown; signature?: unknown } | null;
+    const composed = await composeFor(c, body?.intentIds, "wallet");
+    if (!composed.ok) return c.json({ error: composed.error, code: "invalid_request" }, composed.status);
+    const details = parseSelfPayDetails(body);
+    const ownerSignature = body?.signature;
+    if (!details || !Array.isArray(ownerSignature) || ownerSignature.length !== 2 || !ownerSignature.every((part) => typeof part === "string" && SIGNATURE_PART.test(part))) {
+      return c.json({ error: "nonce, tip, resourceBounds and signature are required", code: "invalid_request" }, 400);
+    }
+    const transactionHash = selfPayTransactionHash(composed.wallet, composed.calls, details);
+    let signature: string[];
+    let proof: VerifyResult;
+    try {
+      signature = await selfPay.cosign(composed.wallet, transactionHash, ownerSignature as string[]);
+      proof = await selfPay.verify(composed.wallet, transactionHash, signature);
+    } catch (err) {
+      log.warn({ err, requestId: c.get("requestId") }, "self-paid transaction not signed: the chain could not be read");
+      return c.json(NETWORK_UNAVAILABLE, 503);
+    }
+    if (!proof.ok) {
+      log.warn({ requestId: c.get("requestId"), reason: proof.reason }, "self-paid transaction not signed");
+      if (proof.reason === "invalid") return c.json(WRONG_SIGNATURE, 400);
+      return c.json({ error: "The account is not deployed yet", code: "account_not_deployed" }, 422);
+    }
+    if (!(await intentDeps.claim(composed.ids))) return c.json(ALREADY_SENT, 409);
+    await intentDeps.record(composed.ids, transactionHash);
+    return c.json({ signature, transactionHash });
   });
 
   app.post("/deploy/build", async (c) => {
