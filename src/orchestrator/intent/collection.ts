@@ -1,4 +1,4 @@
-import { cairo, Contract, CairoOption, CairoOptionVariant } from "starknet";
+import { cairo, uint256, Contract, CairoOption, CairoOptionVariant } from "starknet";
 import { callRpc, normalizeAddress, createProvider } from "../../utils/starknet.js";
 import {
   STARKNET_COLLECTION_1155_CONTRACT, STARKNET_IP_TICKETS_FACTORY_CONTRACT, STARKNET_IP_CLUB_FACTORY_CONTRACT,
@@ -81,10 +81,8 @@ export async function buildMintIntent(body: MintIntentBody) {
 
   if (isFactoryFamilyService(service)) {
     const family = FACTORY_FAMILY_SERVICES[service];
-    if (body.royaltyBps) {
-      throw new Error(
-        `royaltyBps has no effect on a ${service} mint — set it via ${service === "mip-erc1155" ? "setDefaultRoyalty/setTokenRoyalty" : "CREATE_TIER"} instead.`,
-      );
+    if (body.royaltyBps && service !== "mip-erc1155") {
+      throw new Error(`royaltyBps has no effect on a ${service} mint — set it via CREATE_TIER instead.`);
     }
     await assertFactoryCollectionOwner(contractAddress, owner);
     const collection = new Contract({ abi: family.collectionAbi as never, address: contractAddress, providerOrAccount: createProvider() as never });
@@ -94,7 +92,15 @@ export async function buildMintIntent(body: MintIntentBody) {
         throw new Error("tokenUri and value are required to mint a new mip-erc1155 edition");
       }
       const call = collection.populate("mint_edition", [recipient, cairo.uint256(body.value), body.tokenUri]);
-      return { calls: [call] };
+      if (!body.royaltyBps) return { calls: [call] };
+      const [low, high] = await callRpc((provider) => provider.callContract({
+        contractAddress,
+        entrypoint: "total_editions",
+        calldata: [],
+      }));
+      const nextTokenId = uint256.uint256ToBN({ low: low!, high: high! }) + 1n;
+      const royalty = collection.populate("set_token_royalty", [cairo.uint256(nextTokenId), owner, body.royaltyBps]);
+      return { calls: [call, royalty] };
     }
 
     if (!body.tokenId || !body.amount) {
