@@ -48,13 +48,6 @@ describe("request body limits", () => {
   );
 });
 
-describe("on-chain images", () => {
-  test("an image request without an API key is refused", async () => {
-    const res = await createApp().request(`/media/starknet/0x${"a".repeat(64)}/1/image`);
-    expect(res.status).toBe(401);
-  });
-});
-
 describe("the size limit sits between the key check and the meter", () => {
   test("the gate runs the limit after the key is checked and before the body is metered", async () => {
     const { apiKeyGate } = await import("./middleware/apiKeyGate.js");

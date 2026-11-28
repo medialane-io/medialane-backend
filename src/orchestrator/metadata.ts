@@ -43,7 +43,7 @@ export async function handleMetadataFetch(payload: {
         tokenUri: storedTokenUri(tokenUri),
         metadataStatus: metadata ? "FETCHED" : "FAILED",
         name: metadata?.name ?? null,
-        image: storedImage(metadata?.image, chain, contractAddress, tokenId),
+        image: storedImage(metadata?.image),
         animationUrl: (metadata?.animation_url as string | undefined) ?? null,
         attributes: _attrs.length > 0 ? (_attrs as Prisma.InputJsonValue) : undefined,
         ...tokenFields(metadata, _attrs),

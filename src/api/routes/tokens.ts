@@ -287,7 +287,7 @@ tokens.get("/:contract/:tokenId", chainScope(), async (c) => {
           data: {
             metadataStatus: "FETCHED",
             name: (metadata.name as string) ?? null,
-            image: storedImage(metadata.image, chain, contractAddress, tokenId),
+            image: storedImage(metadata.image),
             animationUrl: (metadata.animation_url as string) ?? null,
             attributes: (metadata.attributes as Prisma.InputJsonValue | undefined) ?? undefined,
           },
