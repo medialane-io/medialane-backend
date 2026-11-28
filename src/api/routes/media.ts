@@ -13,7 +13,12 @@ media.get("/:chain/:contract/:tokenId/image", async (c) => {
   const { chain, contract, tokenId } = c.req.param();
   if (chain !== "starknet" || !CONTRACT.test(contract) || !TOKEN_ID.test(tokenId)) return c.notFound();
 
-  const tokenUri = await fetchTokenUri(normalizeAddress("STARKNET", contract), tokenId, "STARKNET").catch(() => null);
+  let tokenUri: string | null;
+  try {
+    tokenUri = await fetchTokenUri(normalizeAddress("STARKNET", contract), tokenId, "STARKNET");
+  } catch {
+    return c.body(null, 503, { "Cache-Control": "no-store" });
+  }
   if (!isInlineContent(tokenUri)) return c.notFound();
 
   const metadata = await resolveMetadata(tokenUri);
