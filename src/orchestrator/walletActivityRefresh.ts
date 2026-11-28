@@ -21,10 +21,8 @@ const productionDeps: WalletActivityRefreshDeps = {
     const now = Date.now();
     return prisma.walletActivityCursor.findMany({
       where: {
-        updatedAt: {
-          lt: new Date(now - STALE_AFTER_MS),
-          gt: new Date(now - ACTIVE_WINDOW_MS),
-        },
+        updatedAt: { lt: new Date(now - STALE_AFTER_MS) },
+        viewedAt: { gt: new Date(now - ACTIVE_WINDOW_MS) },
       },
       select: { chain: true, accountAddress: true },
       take: BATCH_SIZE,

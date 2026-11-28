@@ -6,6 +6,7 @@ import type { Loop } from "./schedule.js";
 const log = createLogger("orchestrator:metadata-retry");
 
 const RETRY_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const RETRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
 
 type Page<R> = (args: { take: number; cursor?: { id: string }; skip?: number }) => Promise<R[]>;
@@ -14,6 +15,7 @@ interface RetryDeps {
   token: { findMany: (args: object) => Promise<{ id: string; chain: WorkItem["chain"]; contractAddress: string; tokenId: string }[]> };
   collection: { findMany: (args: object) => Promise<{ id: string; chain: WorkItem["chain"]; contractAddress: string }[]> };
   enqueue: (item: WorkItem) => void;
+  now?: () => number;
 }
 
 const defaultDeps: RetryDeps = {
@@ -35,10 +37,11 @@ async function forEachPage<R extends { id: string }>(page: Page<R>, handle: (row
 }
 
 export async function retryFailedMetadata(deps: RetryDeps = defaultDeps): Promise<{ tokens: number; collections: number }> {
+  const recent = new Date((deps.now ?? Date.now)() - RETRY_WINDOW_MS);
   const tokens = await forEachPage(
     (page) =>
       deps.token.findMany({
-        where: { metadataStatus: { in: ["PENDING", "FAILED"] } },
+        where: { OR: [{ metadataStatus: "PENDING" }, { metadataStatus: "FAILED", createdAt: { gt: recent } }] },
         select: { id: true, chain: true, contractAddress: true, tokenId: true },
         orderBy: { id: "asc" },
         ...page,
@@ -48,7 +51,7 @@ export async function retryFailedMetadata(deps: RetryDeps = defaultDeps): Promis
   const collections = await forEachPage(
     (page) =>
       deps.collection.findMany({
-        where: { metadataStatus: "FAILED" },
+        where: { metadataStatus: "FAILED", createdAt: { gt: recent } },
         select: { id: true, chain: true, contractAddress: true },
         orderBy: { id: "asc" },
         ...page,

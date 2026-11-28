@@ -42,14 +42,21 @@ describe("retryFailedMetadata", () => {
     expect(collectionTable.calls).toHaveLength(2);
   });
 
-  test("re-queues tokens still waiting for metadata as well as failed ones", async () => {
+  test("tokens never tried are always queued; failed ones only in their first 7 days", async () => {
     const tokenTable = pagedTable(tokens(1));
+    const collectionTable = pagedTable([]);
+    const now = Date.UTC(2026, 10, 28);
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     await retryFailedMetadata({
       token: { findMany: tokenTable.findMany as never },
-      collection: { findMany: pagedTable([]).findMany as never },
+      collection: { findMany: collectionTable.findMany as never },
       enqueue: () => {},
+      now: () => now,
     });
-    expect(tokenTable.calls[0]).toMatchObject({ where: { metadataStatus: { in: ["PENDING", "FAILED"] } } });
+    expect(tokenTable.calls[0]).toMatchObject({
+      where: { OR: [{ metadataStatus: "PENDING" }, { metadataStatus: "FAILED", createdAt: { gt: weekAgo } }] },
+    });
+    expect(collectionTable.calls[0]).toMatchObject({ where: { metadataStatus: "FAILED", createdAt: { gt: weekAgo } } });
   });
 
   test("does nothing when nothing has failed", async () => {

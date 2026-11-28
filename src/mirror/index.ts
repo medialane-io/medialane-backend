@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { loadCursor, saveCursor, saveSourceCursor } from "./cursor.js";
 import { getLatestBlock } from "./poller.js";
-import { fetchDueSources, catchUpCollectionTransfers, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, TRANSFER_SOURCE_IDS, type SourceFetch } from "./sources.js";
+import { fetchDueSources, catchUpCollectionTransfers, CORE_MARKETPLACE_721, CORE_MARKETPLACE_1155, CORE_FACTORY_MIP721, CORE_FACTORY_DATA_TOKENIZATION, CORE_TRANSFERS, type SourceFetch } from "./sources.js";
 import { applyEvents, applyCollectionsCreated, prepareOwnership, type ApplyOutcome } from "./apply.js";
 import { applyOwnershipChanges } from "./handlers/collectionOwner.js";
 import { worker } from "../orchestrator/worker.js";
@@ -61,7 +61,7 @@ async function tick(tickId: string): Promise<number> {
     ...eventsOf(CORE_FACTORY_MIP721),
     ...eventsOf(CORE_FACTORY_DATA_TOKENIZATION),
   ];
-  const rawTransferEvents = TRANSFER_SOURCE_IDS.flatMap((id) => eventsOf(id));
+  const rawTransferEvents = eventsOf(CORE_TRANSFERS);
 
   const rawEvents = [
     ...rawMarketplaceEvents,
@@ -83,11 +83,9 @@ async function tick(tickId: string): Promise<number> {
 
       await saveCursor({ lastBlock: BigInt(toBlock) }, CHAIN, tx);
 
-      for (const id of TRANSFER_SOURCE_IDS) {
-        const transferFetch = byId.get(id);
-        if (transferFetch && transferFetch.cursorTo != null) {
-          await saveSourceCursor(CHAIN, id, BigInt(transferFetch.cursorTo), tx);
-        }
+      const transferFetch = byId.get(CORE_TRANSFERS);
+      if (transferFetch && transferFetch.cursorTo != null) {
+        await saveSourceCursor(CHAIN, CORE_TRANSFERS, BigInt(transferFetch.cursorTo), tx);
       }
     },
     { timeout: 60000 }

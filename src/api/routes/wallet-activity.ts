@@ -30,6 +30,7 @@ export const MAX_WALLET_ACTIVITY_ROWS = 200;
 
 export interface WalletActivityDeps {
   getCursor: (chain: Chain, accountAddress: string) => Promise<{ updatedAt: Date } | null>;
+  markViewed: (chain: Chain, accountAddress: string) => Promise<void>;
   listActivity: (chain: Chain, accountAddress: string, limit: number) => Promise<WalletActivityRow[]>;
   enqueueSync: (chain: Chain, accountAddress: string) => void;
 }
@@ -48,6 +49,7 @@ export function createWalletActivityRoutes(deps: WalletActivityDeps): Hono<AppEn
     const address = normalizeAddress(chain, addressParam);
 
     const cursor = await deps.getCursor(chain, address);
+    if (cursor) await deps.markViewed(chain, address);
     const isStale = !cursor || Date.now() - cursor.updatedAt.getTime() > STALE_AFTER_MS;
     if (isStale) deps.enqueueSync(chain, address);
 
@@ -64,6 +66,9 @@ const productionDeps: WalletActivityDeps = {
       where: { chain_accountAddress: { chain, accountAddress } },
       select: { updatedAt: true },
     }),
+  markViewed: async (chain, accountAddress) => {
+    await prisma.walletActivityCursor.updateMany({ where: { chain, accountAddress }, data: { viewedAt: new Date() } });
+  },
   listActivity: (chain, accountAddress, limit) =>
     prisma.walletActivity.findMany({ where: { chain, accountAddress }, orderBy: { timestamp: "desc" }, take: limit }),
   enqueueSync: (chain, accountAddress) => worker.enqueue({ type: "WALLET_ACTIVITY_SYNC", chain, accountAddress }),

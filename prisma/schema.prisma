@@ -384,6 +384,7 @@ model WalletActivityCursor {
   accountAddress  String
   lastSyncedBlock BigInt
   updatedAt       DateTime @updatedAt
+  viewedAt        DateTime @default(now())
 
   @@id([chain, accountAddress])
 }

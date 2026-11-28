@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isDue, sourceFromBlock, collectionScopeWhere, EVENT_SOURCES, CORE_TRANSFERS, CORE_TRANSFERS_EXTERNAL, EXTERNAL_SERVICES } from "./sources.js";
+import { isDue, sourceFromBlock, collectionScopeWhere, EVENT_SOURCES, CORE_TRANSFERS } from "./sources.js";
 import { acceptedTokens } from "../payments/token-value.js";
 
 describe("isDue", () => {
@@ -104,24 +104,13 @@ describe("how often each collection is polled for transfers", () => {
     return source.scope;
   };
 
-  test("the two tiers between them cover every collection exactly once", () => {
-    expect(scopeOf(CORE_TRANSFERS).excludeServices).toEqual(EXTERNAL_SERVICES);
-    expect(scopeOf(CORE_TRANSFERS_EXTERNAL).services).toEqual(EXTERNAL_SERVICES);
+  test("one transfer reader covers every collection", () => {
+    expect(EVENT_SOURCES.filter((s) => s.id.startsWith("transfers")).map((s) => s.id)).toEqual([CORE_TRANSFERS]);
+    expect(collectionScopeWhere(scopeOf(CORE_TRANSFERS), "STARKNET", 10)).toEqual({ chain: "STARKNET", startBlock: { lte: 10n } });
   });
 
-  test("collections indexed from someone else's marketplace order are polled less often", () => {
-    const medialane = EVENT_SOURCES.find((s) => s.id === CORE_TRANSFERS)!.cadenceMs!;
-    const external = EVENT_SOURCES.find((s) => s.id === CORE_TRANSFERS_EXTERNAL)!.cadenceMs!;
-    expect(external).toBeGreaterThan(medialane);
-  });
-
-  test("each tier asks the database only for its own collections", () => {
-    expect(collectionScopeWhere(scopeOf(CORE_TRANSFERS), "STARKNET", 10)).toMatchObject({
-      service: { notIn: EXTERNAL_SERVICES },
-    });
-    expect(collectionScopeWhere(scopeOf(CORE_TRANSFERS_EXTERNAL), "STARKNET", 10)).toMatchObject({
-      service: { in: EXTERNAL_SERVICES },
-    });
+  test("every collection is read for transfers every 30 minutes", () => {
+    expect(EVENT_SOURCES.find((s) => s.id === CORE_TRANSFERS)!.cadenceMs).toBe(30 * 60 * 1000);
   });
 
   test("a scope naming no service still covers every collection", () => {
@@ -141,14 +130,14 @@ test("drop sources start at the drop factory's first block", () => {
 describe("catchUpCollectionTransfers", () => {
   const event = { block_number: 120, transaction_hash: "0x1", from_address: "0xc", keys: [], data: [], block_hash: "0x0" };
 
-  const deps = (over: { startBlock?: bigint; service?: string; cursors?: Record<string, bigint | null>; events?: (typeof event)[] } = {}) => {
+  const deps = (over: { startBlock?: bigint; cursors?: Record<string, bigint | null>; events?: (typeof event)[] } = {}) => {
     const polled: { address: string; fromBlock: number; toBlock: number; keys: string[][] }[] = [];
     const applied: unknown[][] = [];
     return {
       polled,
       applied,
       deps: {
-        collection: async () => ({ startBlock: over.startBlock ?? 100n, service: over.service ?? "mip-erc721" }),
+        collection: async () => ({ startBlock: over.startBlock ?? 100n }),
         cursor: async (sourceId: string) => (over.cursors ?? { [CORE_TRANSFERS]: 150n })[sourceId] ?? null,
         poll: async (p: { address: string; fromBlock: number; toBlock: number; keys: string[][] }) => { polled.push(p); return over.events ?? [event]; },
         apply: async (events: unknown[]) => { applied.push(events); },
@@ -177,13 +166,6 @@ describe("catchUpCollectionTransfers", () => {
     const d = deps({ cursors: {} });
     await catchUpCollectionTransfers(["0xc"], d.deps);
     expect(d.polled).toEqual([]);
-  });
-
-  test("an external collection follows the external transfer reader", async () => {
-    const { catchUpCollectionTransfers } = await import("./sources.js");
-    const d = deps({ service: EXTERNAL_SERVICES[0], cursors: { [CORE_TRANSFERS]: 150n, [CORE_TRANSFERS_EXTERNAL]: 130n } });
-    await catchUpCollectionTransfers(["0xc"], d.deps);
-    expect(d.polled.map((p) => p.toBlock)).toEqual([130]);
   });
 
   test("a long history is saved in batches of 200 events, in order", async () => {
