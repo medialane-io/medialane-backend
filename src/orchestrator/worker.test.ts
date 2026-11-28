@@ -51,3 +51,25 @@ test("a failing item does not hold up the items behind it", async () => {
 
   expect(calls).toContain("0xgood");
 });
+
+test("while every RPC endpoint is cooling down the worker waits, then runs the queue", async () => {
+  const { InMemoryWorker } = await import("./worker.js");
+  let wait = 60;
+  const started: number[] = [];
+  const t0 = Date.now();
+  const w = new InMemoryWorker(() => wait, async () => { started.push(Date.now() - t0); });
+  setTimeout(() => { wait = 0; }, 50);
+  w.enqueue({ type: "WALLET_ACTIVITY_SYNC", chain: "STARKNET", accountAddress: "0xwait" });
+  await w.waitDrain(2000);
+  expect(started).toHaveLength(1);
+  expect(started[0]!).toBeGreaterThanOrEqual(50);
+});
+
+test("with an endpoint ready the worker starts at once", async () => {
+  const { InMemoryWorker } = await import("./worker.js");
+  const started: string[] = [];
+  const w = new InMemoryWorker(() => 0, async (item) => { if (item.type === "WALLET_ACTIVITY_SYNC") started.push(item.accountAddress); });
+  w.enqueue({ type: "WALLET_ACTIVITY_SYNC", chain: "STARKNET", accountAddress: "0xnow" });
+  await w.waitDrain(500);
+  expect(started).toEqual(["0xnow"]);
+});

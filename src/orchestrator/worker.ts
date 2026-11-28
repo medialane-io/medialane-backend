@@ -3,6 +3,7 @@ import { handleMetadataFetch } from "./metadata.js";
 import { handleCollectionMetadataFetch } from "./collectionMetadata.js";
 import { syncWalletActivityProd } from "../walletActivity/sync.js";
 import { createLogger } from "../utils/logger.js";
+import { rpcReadyIn } from "../utils/rpcFetch.js";
 
 const log = createLogger("worker");
 
@@ -20,11 +21,17 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BASE_MS = 5000;
 const CONCURRENCY = 6;
 
-class InMemoryWorker {
+export class InMemoryWorker {
   private queue: QueuedItem[] = [];
   private pendingKeys = new Set<string>();
   private active = 0;
   private retrying = 0;
+  private resumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    private readonly readyIn: () => number = rpcReadyIn,
+    private readonly handle: (item: WorkItem) => Promise<void> = processItem,
+  ) {}
 
   private key(item: WorkItem): string {
     switch (item.type) {
@@ -64,6 +71,15 @@ class InMemoryWorker {
   }
 
   private pump(): void {
+    if (this.resumeTimer) return;
+    const wait = this.queue.length > 0 ? this.readyIn() : 0;
+    if (wait > 0) {
+      this.resumeTimer = setTimeout(() => {
+        this.resumeTimer = null;
+        this.pump();
+      }, wait);
+      return;
+    }
     while (this.active < CONCURRENCY && this.queue.length > 0) {
       const entry = this.queue.shift()!;
       this.active++;
@@ -77,7 +93,7 @@ class InMemoryWorker {
   private async run(entry: QueuedItem): Promise<void> {
     const k = this.key(entry.item);
     try {
-      await this.process(entry.item);
+      await this.handle(entry.item);
       this.pendingKeys.delete(k);
     } catch (err) {
       entry.attempts++;
@@ -97,18 +113,19 @@ class InMemoryWorker {
     }
   }
 
-  private async process(item: WorkItem): Promise<void> {
-    switch (item.type) {
-      case "METADATA_FETCH":
-        await handleMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress, tokenId: item.tokenId });
-        break;
-      case "COLLECTION_METADATA_FETCH":
-        await handleCollectionMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress });
-        break;
-      case "WALLET_ACTIVITY_SYNC":
-        await syncWalletActivityProd(item.chain, item.accountAddress);
-        break;
-    }
+}
+
+async function processItem(item: WorkItem): Promise<void> {
+  switch (item.type) {
+    case "METADATA_FETCH":
+      await handleMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress, tokenId: item.tokenId });
+      break;
+    case "COLLECTION_METADATA_FETCH":
+      await handleCollectionMetadataFetch({ chain: item.chain, contractAddress: item.contractAddress });
+      break;
+    case "WALLET_ACTIVITY_SYNC":
+      await syncWalletActivityProd(item.chain, item.accountAddress);
+      break;
   }
 }
 

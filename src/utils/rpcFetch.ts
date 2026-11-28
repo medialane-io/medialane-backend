@@ -1,4 +1,4 @@
-import { createFailoverFetch } from "./rpcFailover.js";
+import { createFailoverFetch, type FailoverFetch } from "./rpcFailover.js";
 import { env } from "../config/env.js";
 import { createLogger } from "./logger.js";
 
@@ -18,9 +18,9 @@ export async function timedFetch(input: RequestInfo | URL, init?: RequestInit, t
   }
 }
 
-let _rpcFetch: typeof fetch | null = null;
+let _rpcFetch: FailoverFetch | null = null;
 
-export function rpcFetch(): typeof fetch {
+export function rpcFetch(): FailoverFetch {
   if (!_rpcFetch) {
     _rpcFetch = createFailoverFetch(rpcEndpoints(), {
       baseFetch: timedFetch as typeof fetch,
@@ -29,6 +29,10 @@ export function rpcFetch(): typeof fetch {
     });
   }
   return _rpcFetch;
+}
+
+export function rpcReadyIn(): number {
+  return rpcFetch().readyIn();
 }
 
 export function rpcEndpoints(): string[] {

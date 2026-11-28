@@ -42,7 +42,7 @@ describe("retryFailedMetadata", () => {
     expect(collectionTable.calls).toHaveLength(2);
   });
 
-  test("tokens never tried are always queued; failed ones only in their first 7 days", async () => {
+  test("tokens and collections not yet read are always queued; failed ones only in their first 7 days", async () => {
     const tokenTable = pagedTable(tokens(1));
     const collectionTable = pagedTable([]);
     const now = Date.UTC(2026, 10, 28);
@@ -56,7 +56,9 @@ describe("retryFailedMetadata", () => {
     expect(tokenTable.calls[0]).toMatchObject({
       where: { OR: [{ metadataStatus: "PENDING" }, { metadataStatus: "FAILED", createdAt: { gt: weekAgo } }] },
     });
-    expect(collectionTable.calls[0]).toMatchObject({ where: { metadataStatus: "FAILED", createdAt: { gt: weekAgo } } });
+    expect(collectionTable.calls[0]).toMatchObject({
+      where: { OR: [{ metadataStatus: "PENDING" }, { metadataStatus: "FAILED", createdAt: { gt: weekAgo } }] },
+    });
   });
 
   test("does nothing when nothing has failed", async () => {

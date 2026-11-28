@@ -4,6 +4,7 @@ import { readTokenUri } from "../chainRead/tokenUri.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { createLogger } from "../utils/logger.js";
+import { isRpcUnavailable } from "../utils/rpcFailover.js";
 import { attributesArraySchema, tokenFields, withoutNulCharacters } from "../utils/metadataAttributes.js";
 import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
 
@@ -52,10 +53,12 @@ export async function handleMetadataFetch(payload: {
 
     log.debug({ chain, contractAddress, tokenId, tokenUri }, "Metadata fetched");
   } catch (err) {
-    log.error({ err, chain, contractAddress, tokenId }, "Metadata fetch failed");
+    const unavailable = isRpcUnavailable(err);
+    if (unavailable) log.warn({ chain, contractAddress, tokenId }, "Metadata fetch waits for the RPC");
+    else log.error({ err, chain, contractAddress, tokenId }, "Metadata fetch failed");
     await prisma.token.updateMany({
       where: { chain, contractAddress, tokenId },
-      data: { metadataStatus: "FAILED" },
+      data: { metadataStatus: unavailable ? "PENDING" : "FAILED" },
     });
     throw err;
   }
