@@ -35,6 +35,7 @@ function makeRow(overrides: Partial<WalletActivityRow> = {}): WalletActivityRow 
 test("returns activity for any address — no wallet-ownership check (public on-chain data)", async () => {
   const deps: WalletActivityDeps = {
     getCursor: async () => ({ updatedAt: new Date() }),
+    markViewed: async () => {},
     listActivity: async () => [makeRow()],
     enqueueSync: () => {},
   };
@@ -49,6 +50,7 @@ test("returns activity for any address — no wallet-ownership check (public on-
 test("serializes a real row (BigInt blockNumber) without throwing", async () => {
   const deps: WalletActivityDeps = {
     getCursor: async () => ({ updatedAt: new Date() }),
+    markViewed: async () => {},
     listActivity: async () => [makeRow({ blockNumber: 175n })],
     enqueueSync: () => {},
   };
@@ -62,6 +64,7 @@ test("serializes a real row (BigInt blockNumber) without throwing", async () => 
 test("400s when address is missing", async () => {
   const deps: WalletActivityDeps = {
     getCursor: async () => null,
+    markViewed: async () => {},
     listActivity: async () => [],
     enqueueSync: () => {},
   };
@@ -74,6 +77,7 @@ test("no cursor yet (never synced) — still returns 200 with whatever's cached 
   const enqueued: Array<{ chain: string; accountAddress: string }> = [];
   const deps: WalletActivityDeps = {
     getCursor: async () => null,
+    markViewed: async () => {},
     listActivity: async () => [],
     enqueueSync: (chain, accountAddress) => { enqueued.push({ chain, accountAddress }); },
   };
@@ -88,6 +92,7 @@ test("stale cursor (older than 2 minutes) enqueues a refresh but still returns i
   const staleDate = new Date(Date.now() - 3 * 60 * 1000);
   const deps: WalletActivityDeps = {
     getCursor: async () => ({ updatedAt: staleDate }),
+    markViewed: async () => {},
     listActivity: async () => [makeRow()],
     enqueueSync: () => { enqueued = true; },
   };
@@ -102,6 +107,7 @@ test("fresh cursor (within 2 minutes) does not enqueue a redundant sync", async 
   const freshDate = new Date(Date.now() - 30 * 1000);
   const deps: WalletActivityDeps = {
     getCursor: async () => ({ updatedAt: freshDate }),
+    markViewed: async () => {},
     listActivity: async () => [makeRow()],
     enqueueSync: () => { enqueued = true; },
   };
@@ -115,6 +121,7 @@ test("caps how much history it asks for — an account's full lifetime activity 
   let seenLimit: number | undefined;
   const deps: WalletActivityDeps = {
     getCursor: async () => ({ updatedAt: new Date() }),
+    markViewed: async () => {},
     listActivity: async (_chain, _address, limit) => {
       seenLimit = limit;
       return [];
@@ -133,6 +140,9 @@ test("a chain the backend does not serve is a 400 and nothing is read or queued"
       touched = true;
       return null;
     },
+    markViewed: async () => {
+      touched = true;
+    },
     listActivity: async () => {
       touched = true;
       return [];
@@ -147,4 +157,28 @@ test("a chain the backend does not serve is a 400 and nothing is read or queued"
     expect(await res.json()).toEqual({ error: "Invalid chain" });
   }
   expect(touched).toBe(false);
+});
+
+test("viewing a wallet records the view, so the background refresh follows views and not its own syncs", async () => {
+  const viewed: string[] = [];
+  const deps: WalletActivityDeps = {
+    getCursor: async () => ({ updatedAt: new Date() }),
+    markViewed: async (_chain, accountAddress) => { viewed.push(accountAddress); },
+    listActivity: async () => [],
+    enqueueSync: () => {},
+  };
+  await makeApp(deps).request(`/v1/wallet-activity?address=${ADDRESS}`);
+  expect(viewed).toEqual([ADDRESS]);
+});
+
+test("a wallet with no cursor yet gets one from its first sync, so there is no view to record", async () => {
+  const viewed: string[] = [];
+  const deps: WalletActivityDeps = {
+    getCursor: async () => null,
+    markViewed: async (_chain, accountAddress) => { viewed.push(accountAddress); },
+    listActivity: async () => [],
+    enqueueSync: () => {},
+  };
+  await makeApp(deps).request(`/v1/wallet-activity?address=${ADDRESS}`);
+  expect(viewed).toEqual([]);
 });

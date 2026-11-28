@@ -121,10 +121,8 @@ export const CORE_MARKETPLACE_1155 = "marketplace-1155";
 export const CORE_FACTORY_MIP721 = "factory:mip-erc721";
 export const CORE_FACTORY_DATA_TOKENIZATION = "factory:data-tokenization-erc721";
 export const CORE_TRANSFERS = "transfers";
-export const CORE_TRANSFERS_EXTERNAL = "transfers:external";
-export const TRANSFER_SOURCE_IDS = [CORE_TRANSFERS, CORE_TRANSFERS_EXTERNAL] as const;
 
-export const EXTERNAL_SERVICES = ["external-erc721", "external-erc1155"];
+const TRANSFER_SCAN_INTERVAL_MS = 30 * 60 * 1000;
 
 async function applyComments(events: RawStarknetEvent[]): Promise<void> {
   const txCounters: Record<string, number> = {};
@@ -219,8 +217,7 @@ export const EVENT_SOURCES: EventSource[] = [
   { id: "archive:mip-erc721", scope: { kind: "contract", address: STARKNET_COLLECTION_721_CONTRACT }, selectors: [hex(TOKEN_ARCHIVED_SELECTOR), hex(TOKEN_ARCHIVED_BATCH_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyTokensArchived },
   { id: "archive:data-tokenization-erc721", scope: { kind: "contract", address: STARKNET_DATA_TOKENIZATION_721_CONTRACT }, selectors: [hex(TOKEN_ARCHIVED_SELECTOR), hex(TOKEN_ARCHIVED_BATCH_SELECTOR)], cadenceMs: env.LAUNCHPAD_POLL_INTERVAL_MS, startBlock: env.INDEXER_START_BLOCK, apply: applyTokensArchived },
 
-  { id: CORE_TRANSFERS, scope: { kind: "collections", excludeServices: EXTERNAL_SERVICES }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: env.TRANSFER_POLL_INTERVAL_MS },
-  { id: CORE_TRANSFERS_EXTERNAL, scope: { kind: "collections", services: EXTERNAL_SERVICES }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: env.EXTERNAL_TRANSFER_POLL_INTERVAL_MS },
+  { id: CORE_TRANSFERS, scope: { kind: "collections" }, selectors: COLLECTION_EVENT_SELECTORS, cadenceMs: TRANSFER_SCAN_INTERVAL_MS },
   { id: "comments", scope: { kind: "contract", address: STARKNET_NFTCOMMENTS_CONTRACT }, selectors: [hex(COMMENT_ADDED_SELECTOR)], cadenceMs: EVERY_TICK, apply: applyComments },
 
   ...TREASURY_DEPOSIT_SOURCES,
@@ -331,7 +328,7 @@ async function fetchSource(
 }
 
 export interface TransferCatchUpDeps {
-  collection(address: string): Promise<{ startBlock: bigint; service: string } | null>;
+  collection(address: string): Promise<{ startBlock: bigint } | null>;
   cursor(sourceId: string): Promise<bigint | null>;
   poll(p: { address: string; fromBlock: number; toBlock: number; keys: string[][] }): Promise<RawStarknetEvent[]>;
   apply(events: RawStarknetEvent[]): Promise<void>;
@@ -341,7 +338,7 @@ const chainTransferCatchUp = (chain: "STARKNET"): TransferCatchUpDeps => ({
   collection: (address) =>
     prisma.collection.findUnique({
       where: { chain_contractAddress: { chain, contractAddress: address } },
-      select: { startBlock: true, service: true },
+      select: { startBlock: true },
     }),
   cursor: (sourceId) => loadSourceCursor(chain, sourceId),
   poll: (p) => pollContractEvents(p),
@@ -360,8 +357,7 @@ export async function catchUpCollectionTransfers(
   for (const address of collections) {
     const collection = await deps.collection(address);
     if (!collection) continue;
-    const sourceId = EXTERNAL_SERVICES.includes(collection.service) ? CORE_TRANSFERS_EXTERNAL : CORE_TRANSFERS;
-    const cursor = await deps.cursor(sourceId);
+    const cursor = await deps.cursor(CORE_TRANSFERS);
     if (cursor == null || collection.startBlock > cursor) continue;
     const events = await deps.poll({
       address,
