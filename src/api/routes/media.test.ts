@@ -5,7 +5,7 @@ const metadataUri = `data:application/json;utf8,${JSON.stringify({ image: `data:
 let chainUri: string | null = metadataUri;
 
 mock.module("../../orchestrator/metadata.js", () => ({
-  fetchTokenUri: async () => chainUri,
+  cachedTokenUri: async () => chainUri,
 }));
 
 const { default: media } = await import("./media.js");

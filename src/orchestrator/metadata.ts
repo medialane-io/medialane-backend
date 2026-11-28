@@ -3,6 +3,7 @@ import { chainCallAt } from "../chainRead/call.js";
 import { readTokenUri } from "../chainRead/tokenUri.js";
 import prisma from "../db/client.js";
 import { resolveMetadata } from "../discovery/index.js";
+import { createBoundedCache } from "../utils/boundedCache.js";
 import { createLogger } from "../utils/logger.js";
 import { attributesArraySchema, tokenFields, withoutNulCharacters } from "../utils/metadataAttributes.js";
 import { storedImage, storedTokenUri } from "../utils/onchainContent.js";
@@ -71,4 +72,17 @@ export async function fetchTokenUri(
     select: { standard: true, service: true },
   });
   return readTokenUri(chainCallAt("pre_confirmed"), contractAddress, tokenId, col);
+}
+
+const TOKEN_URI_CACHE_CHARS = 64 * 1024 * 1024;
+const TOKEN_URI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const tokenUris = createBoundedCache<string | null>({
+  maxSize: TOKEN_URI_CACHE_CHARS,
+  ttlMs: TOKEN_URI_CACHE_TTL_MS,
+  sizeOf: (uri) => uri?.length ?? 0,
+});
+
+export function cachedTokenUri(contractAddress: string, tokenId: string, chain: Chain): Promise<string | null> {
+  return tokenUris.load(`${chain}:${contractAddress}:${tokenId}`, () => fetchTokenUri(contractAddress, tokenId, chain));
 }

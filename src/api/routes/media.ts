@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { resolveMetadata } from "../../discovery/index.js";
-import { fetchTokenUri } from "../../orchestrator/metadata.js";
+import { cachedTokenUri } from "../../orchestrator/metadata.js";
 import { normalizeAddress } from "../../utils/starknet.js";
 import { decodeImageDataUri, isInlineContent } from "../../utils/onchainContent.js";
 
@@ -13,7 +13,7 @@ media.get("/:chain/:contract/:tokenId/image", async (c) => {
   const { chain, contract, tokenId } = c.req.param();
   if (chain !== "starknet" || !CONTRACT.test(contract) || !TOKEN_ID.test(tokenId)) return c.notFound();
 
-  const tokenUri = await fetchTokenUri(normalizeAddress("STARKNET", contract), tokenId, "STARKNET").catch(() => null);
+  const tokenUri = await cachedTokenUri(normalizeAddress("STARKNET", contract), tokenId, "STARKNET").catch(() => null);
   if (!isInlineContent(tokenUri)) return c.notFound();
 
   const metadata = await resolveMetadata(tokenUri);

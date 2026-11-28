@@ -1,6 +1,6 @@
 import type { Chain } from "@prisma/client";
 import { resolveMetadata } from "../../discovery/index.js";
-import { fetchTokenUri } from "../../orchestrator/metadata.js";
+import { cachedTokenUri } from "../../orchestrator/metadata.js";
 
 interface LiveMetadataDeps {
   tokenUri: (contractAddress: string, tokenId: string, chain: Chain) => Promise<string | null>;
@@ -8,7 +8,7 @@ interface LiveMetadataDeps {
   timeoutMs: number;
 }
 
-const defaultDeps: LiveMetadataDeps = { tokenUri: fetchTokenUri, metadata: resolveMetadata, timeoutMs: 10_000 };
+const defaultDeps: LiveMetadataDeps = { tokenUri: cachedTokenUri, metadata: resolveMetadata, timeoutMs: 10_000 };
 
 export interface LiveMetadata {
   description: string | null;
