@@ -3,6 +3,7 @@ import { chainCallAt } from "../chainRead/call.js";
 import { detectStandard, readCollectionInfo, readOwner } from "../chainRead/collectionInfo.js";
 import prisma from "../db/client.js";
 import { createLogger } from "../utils/logger.js";
+import { isRpcUnavailable } from "../utils/rpcFailover.js";
 import { worker } from "./worker.js";
 import { resolveMetadata } from "../discovery/index.js";
 import { metadataAttributes } from "../utils/metadataAttributes.js";
@@ -169,10 +170,12 @@ async function syncErc721(chain: Chain, contractAddress: string, existing: Store
 }
 
 async function failCollection(chain: Chain, contractAddress: string, err: unknown): Promise<void> {
-  log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
+  const unavailable = isRpcUnavailable(err);
+  if (unavailable) log.warn({ chain, contractAddress }, "Collection metadata fetch waits for the RPC");
+  else log.error({ err, chain, contractAddress }, "Collection metadata fetch failed");
   await prisma.collection.update({
     where: { chain_contractAddress: { chain, contractAddress } },
-    data: { metadataStatus: "FAILED" },
+    data: { metadataStatus: unavailable ? "PENDING" : "FAILED" },
   });
 }
 

@@ -41,6 +41,19 @@ export function isTransientRpcError(input: { status?: number; body?: unknown }):
 
 const DEFAULT_COOLDOWN_MS = 30_000;
 
+export const RPC_UNAVAILABLE = "RPC unavailable: every endpoint refused or failed";
+
+export class RpcUnavailableError extends Error {
+  constructor(cause?: unknown) {
+    super(RPC_UNAVAILABLE, { cause });
+    this.name = "RpcUnavailableError";
+  }
+}
+
+export const isRpcUnavailable = (err: unknown): boolean => err instanceof Error && err.message === RPC_UNAVAILABLE;
+
+export type FailoverFetch = typeof fetch & { readyIn(): number };
+
 export interface FailoverFetchOptions {
   baseFetch?: typeof fetch;
   cooldownMs?: number;
@@ -51,7 +64,7 @@ export interface FailoverFetchOptions {
 export function createFailoverFetch(
   urls: string[],
   options: FailoverFetchOptions = {},
-): typeof fetch {
+): FailoverFetch {
   const endpoints = urls.filter((u): u is string => Boolean(u));
   if (endpoints.length === 0) {
     throw new Error("createFailoverFetch: at least one RPC URL is required");
@@ -69,27 +82,26 @@ export function createFailoverFetch(
 
     for (const [position, i] of order.entries()) {
       const url = endpoints[i]!;
-      const isLast = position === order.length - 1;
+      let failure: { status?: number; error?: unknown };
       try {
         const res = await doFetch(url, init);
         const text = await res.text();
-        const rebuilt = () =>
-          new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers });
-
-        if (!isTransientRpcError({ status: res.status, body: text })) return rebuilt();
-        coolingUntil[i] = now() + cooldownMs;
-        if (isLast) return rebuilt();
-        options.onFailover?.({ url, status: res.status });
-      } catch (err) {
-        lastError = err;
-        coolingUntil[i] = now() + cooldownMs;
-        if (isLast) throw err;
-        options.onFailover?.({ url, error: err });
+        if (!isTransientRpcError({ status: res.status, body: text })) {
+          return new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers });
+        }
+        failure = { status: res.status };
+      } catch (error) {
+        failure = { error };
+        lastError = error;
       }
+      coolingUntil[i] = now() + cooldownMs;
+      if (position < order.length - 1) options.onFailover?.({ url, ...failure });
     }
 
-    throw lastError ?? new Error("createFailoverFetch: all endpoints failed");
+    throw new RpcUnavailableError(lastError);
   };
 
-  return failover as unknown as typeof fetch;
+  const readyIn = () => Math.max(0, Math.min(...coolingUntil) - now());
+
+  return Object.assign(failover as unknown as typeof fetch, { readyIn });
 }

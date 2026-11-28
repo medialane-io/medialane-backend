@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createFailoverFetch, isTransientRpcError } from "./rpcFailover.js";
+import { createFailoverFetch, isTransientRpcError, RPC_UNAVAILABLE } from "./rpcFailover.js";
 
 const answer = (result: unknown) => JSON.stringify({ jsonrpc: "2.0", result, id: 1 });
 const rpcError = (code: number, message: string) => JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: 1 });
@@ -92,14 +92,21 @@ describe("calling the endpoints in order", () => {
     expect(calls).toEqual(["https://primary"]);
   });
 
-  test("when every endpoint fails the last response is returned", async () => {
+  test("when every endpoint fails the call fails as unavailable", async () => {
     const calls: string[] = [];
-    const text = await call(
-      ["https://primary", "https://fallback"],
-      stub({ "https://primary": () => new Response("down", { status: 503 }), "https://fallback": () => new Response("also down", { status: 502 }) }, calls),
-    );
-    expect(text).toBe("also down");
+    await expect(
+      call(
+        ["https://primary", "https://fallback"],
+        stub({ "https://primary": () => new Response("down", { status: 503 }), "https://fallback": () => new Response("also down", { status: 502 }) }, calls),
+      ),
+    ).rejects.toThrow(RPC_UNAVAILABLE);
     expect(calls).toEqual(["https://primary", "https://fallback"]);
+  });
+
+  test("when the last endpoint cannot be reached the call fails as unavailable", async () => {
+    await expect(
+      call(["https://primary"], (async () => { throw new Error("socket hang up"); }) as unknown as typeof fetch),
+    ).rejects.toThrow(RPC_UNAVAILABLE);
   });
 });
 
@@ -155,9 +162,24 @@ describe("an endpoint that just failed is not tried again straight away", () => 
       cooldownMs: 30_000,
       now: () => 0,
     });
-    await fetchImpl("ignored", { method: "POST", body: "{}" });
-    await fetchImpl("ignored", { method: "POST", body: "{}" });
+    await fetchImpl("ignored", { method: "POST", body: "{}" }).catch(() => {});
+    await fetchImpl("ignored", { method: "POST", body: "{}" }).catch(() => {});
     expect(calls).toEqual(["https://primary", "https://fallback", "https://primary", "https://fallback"]);
+  });
+
+  test("readyIn is zero while an endpoint is ready and the wait until the first one cools down otherwise", async () => {
+    let clock = 0;
+    const fetchImpl = createFailoverFetch(["https://primary", "https://fallback"], {
+      baseFetch: (async () => new Response("down", { status: 503 })) as unknown as typeof fetch,
+      cooldownMs: 30_000,
+      now: () => clock,
+    });
+    expect(fetchImpl.readyIn()).toBe(0);
+    await fetchImpl("ignored", { method: "POST", body: "{}" }).catch(() => {});
+    clock = 10_000;
+    expect(fetchImpl.readyIn()).toBe(20_000);
+    clock = 30_000;
+    expect(fetchImpl.readyIn()).toBe(0);
   });
 
   test("an endpoint that is cooling down is still tried when the others fail", async () => {

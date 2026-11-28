@@ -58,6 +58,16 @@ describe("collection reads when the node cannot be reached", () => {
     expect(updates.map((u) => u.data.metadataStatus)).toEqual(["FAILED"]);
   });
 
+  test("a collection read while every RPC endpoint is unavailable stays pending", async () => {
+    existing = { ...base, service: "external-erc721", standard: "ERC721" };
+    const { RPC_UNAVAILABLE } = await import("../utils/rpcFailover.js");
+    callContract = async () => { throw new Error(RPC_UNAVAILABLE); };
+    const { handleCollectionMetadataFetch } = await import("./collectionMetadata.js");
+    await expect(handleCollectionMetadataFetch({ chain: "STARKNET", contractAddress: "0xa1" })).rejects.toThrow(RPC_UNAVAILABLE);
+    expect(updates.map((u) => u.data.metadataStatus)).toContain("PENDING");
+    expect(updates.map((u) => u.data.metadataStatus)).not.toContain("FAILED");
+  });
+
   test("the token standard is not guessed: the failure reaches the caller", async () => {
     const { detectTokenStandard } = await import("./collectionMetadata.js");
     await expect(detectTokenStandard("0xc")).rejects.toThrow("fetch failed");
