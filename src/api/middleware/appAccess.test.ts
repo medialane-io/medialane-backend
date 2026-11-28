@@ -48,10 +48,6 @@ describe("app access", () => {
     expect((await app.request("/v1/users/register", { method: "POST", headers: { "x-app-id": "MEDIALANE_STARKNET" } })).status).toBe(200);
   });
 
-  test("an on-chain image is open without a session", async () => {
-    expect((await app.request(`/media/starknet/0x${"d".repeat(64)}/1/image`, { headers: io() })).status).toBe(200);
-  });
-
   test("a request without an app id is untouched", async () => {
     expect((await app.request("/v1/metadata/upload-file", { method: "POST" })).status).toBe(200);
     expect((await app.request("/v1/rpc", { method: "POST" })).status).toBe(200);

@@ -6,7 +6,6 @@ import { loggerMiddleware } from "./middleware/logger.js";
 import { apiKeyGate } from "./middleware/apiKeyGate.js";
 import { renderError } from "./http/errors.js";
 import health from "./routes/health.js";
-import media from "./routes/media.js";
 import orders from "./routes/orders.js";
 import tokens from "./routes/tokens.js";
 import collections from "./routes/collections.js";
@@ -54,8 +53,6 @@ export function createApp(): Hono<AppEnv> {
 
   app.route("/health", health);
 
-  app.use("/media/*", ...apiKeyGate);
-  app.route("/media", media);
 
   app.route("/", x402Discovery);
 
