@@ -2,7 +2,7 @@ import prisma from "../../db/client.js";
 import { Prisma, type Chain, type Collection, type Order, type Token, type TokenStandard } from "@prisma/client";
 import type { RawCollectionRow, RawOrderRow, RawTokenRow } from "./rawTypes.js";
 import { batchCollectionStats, type CollectionStats } from "./collectionStats.js";
-import type { LiveMetadata } from "./liveMetadata.js";
+import type { LinkedMetadata } from "./linkedMetadata.js";
 
 export type SerializableOrder = Order | RawOrderRow;
 
@@ -145,7 +145,7 @@ export function serializeToken(
   token: SerializableToken,
   activeOrders: SerializableOrder[],
   balances?: Array<{ owner: string; amount: string }>,
-  live: Partial<LiveMetadata> = {},
+  linked: Partial<LinkedMetadata> = {},
 ) {
   return {
     id: token.id,
@@ -159,7 +159,7 @@ export function serializeToken(
     standard: (token.collection?.standard ?? null) as "ERC721" | "ERC1155" | null,
     metadata: {
       name: token.name,
-      description: live.description ?? null,
+      description: linked.description ?? null,
       image: token.image,
       animationUrl: token.animationUrl,
       attributes: token.attributes,
@@ -167,7 +167,7 @@ export function serializeToken(
       licenseType: token.licenseType,
       commercialUse: token.commercialUse,
       author: token.author,
-      externalUrl: live.externalUrl ?? null,
+      externalUrl: linked.externalUrl ?? null,
     },
     balances: balances ?? null,
     activeOrders: activeOrders.map((o) => serializeOrder(o)),
